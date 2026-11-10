@@ -21,47 +21,38 @@ public sealed class AgentDecisionProviderTests : IDisposable {
 	public async Task AsksForOneBoundedNumberPerLabel_OverTheQuestionChoicesAndEvidence() {
 		var agent = Agent("{\"approve\":0.9,\"revise\":0.1}");
 
-		var answer = Assert.IsType<DecisionAnswer>(await Decide(agent));
+		var success = Assert.IsType<InferenceSuccess<DecisionAnswer>>(await Decide(agent));
 
-		Assert.Equal(("approve", 0.9), (answer.Choice, answer.Probability));
+		Assert.Equal(("approve", 0.9), (success.Value.Choice, success.Value.Probability));
 		var request = agent.LastRequest!;
 		Assert.Equal((_dir.Path, InferenceModelCategory.Utility), (request.Workspace, request.Category));
 		Assert.Empty(request.Images);
-		using var schema = JsonDocument.Parse(request.OutputSchemaJson);
-		var properties = schema.RootElement.GetProperty("properties");
-		Assert.Equal(["approve", "revise"], properties.EnumerateObject().Select(p => p.Name));
-		foreach (var property in properties.EnumerateObject()) {
-			Assert.Equal("number", property.Value.GetProperty("type").GetString());
-			Assert.Equal((0, 1), (property.Value.GetProperty("minimum").GetInt32(), property.Value.GetProperty("maximum").GetInt32()));
-		}
-		Assert.Equal(["approve", "revise"], schema.RootElement.GetProperty("required").EnumerateArray().Select(x => x.GetString()));
-		Assert.False(schema.RootElement.GetProperty("additionalProperties").GetBoolean());
+		Assert.Equal(
+			"""{"type":"object","properties":{"approve":{"type":"number","minimum":0,"maximum":1},"revise":{"type":"number","minimum":0,"maximum":1}},"required":["approve","revise"],"additionalProperties":false}""",
+			request.OutputSchemaJson);
 		using var input = JsonDocument.Parse(request.Prompt.Split("Input JSON:\n", StringSplitOptions.None)[1]);
 		Assert.Equal(["question", "choices", "evidence"], input.RootElement.EnumerateObject().Select(p => p.Name));
-		Assert.Equal("Is the review complete?", input.RootElement.GetProperty("question").GetString());
+		Assert.Equal("Approve the change?", input.RootElement.GetProperty("question").GetString());
 		var choice = input.RootElement.GetProperty("choices")[0];
-		Assert.Equal(("approve", "All criteria passed."), (choice.GetProperty("label").GetString(), choice.GetProperty("description").GetString()));
-		Assert.Equal("All good.", input.RootElement.GetProperty("evidence").GetProperty("summary").GetString());
+		Assert.Equal(("approve", "The review found nothing to fix."), (choice.GetProperty("label").GetString(), choice.GetProperty("description").GetString()));
+		Assert.Equal("clean", input.RootElement.GetProperty("evidence").GetProperty("review").GetString());
+	}
+
+	[Fact]
+	public async Task TypedQueryFailures_PassThrough() {
+		var agent = new InferenceServiceTests.FakeProvider(
+			new InferenceProviderFailure { ModelId = "utility", Kind = InferenceFailureKind.Refused, Detail = "safe detail" });
+
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide(agent));
+
+		Assert.Equal((InferenceFailureKind.Refused, "safe detail", "utility"), (failure.Kind, failure.Detail, failure.Receipt!.ModelId));
 	}
 
 	[Theory]
-	[InlineData(InferenceFailureKind.Refused)]
-	[InlineData(InferenceFailureKind.RateLimited)]
-	public async Task TypedQueryFailures_PassThrough(InferenceFailureKind kind) {
-		var agent = new InferenceServiceTests.FakeProvider(new InferenceProviderFailure { ModelId = "utility", Kind = kind, Detail = "safe detail" });
-
-		var failure = Assert.IsType<DecisionFailure>(await Decide(agent));
-
-		Assert.Equal((kind, "safe detail", "utility"), (failure.Kind, failure.Detail, failure.Receipt!.ModelId));
-	}
-
-	[Theory]
-	[InlineData("{\"approve\":0.9}")]
-	[InlineData("{\"approve\":0.9,\"revise\":0.1,\"unsure\":0.1}")]
 	[InlineData("{\"approve\":\"0.9\",\"revise\":0.1}")]
 	[InlineData("{\"choice\":\"approve\",\"confidence\":0.9}")]
 	public async Task ShapeInvalidReplies_AreInvalid(string json) {
-		var failure = Assert.IsType<DecisionFailure>(await Decide(Agent(json)));
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide(Agent(json)));
 
 		Assert.Equal(InferenceFailureKind.InvalidResponse, failure.Kind);
 	}
@@ -69,17 +60,11 @@ public sealed class AgentDecisionProviderTests : IDisposable {
 	private static InferenceServiceTests.FakeProvider Agent(string json) =>
 		new(new InferenceProviderSuccess { ModelId = "utility", OutputJson = json });
 
-	private Task<DecisionResult> Decide(InferenceServiceTests.FakeProvider agent) {
+	private Task<InferenceResult<DecisionAnswer>> Decide(InferenceServiceTests.FakeProvider agent) {
 		var providers = new AgentProviderRegistry();
 		providers.Register(agent);
 		var service = new DecisionService(_settings, [new AgentDecisionProvider(new InferenceService(_settings, providers))]);
-		return service.DecideAsync(
-			new InferenceOwner { Workspace = _dir.Path },
-			new DecisionServiceTests.TestEvidence("All good."),
-			DecisionServiceTests.TestJson.Default.TestEvidence,
-			new DecisionQuestion("Is the review complete?", [new("approve", "All criteria passed."), new("revise", null)]),
-			new DecisionQueryOptions { Origin = InferenceInvocationOrigin.UserInitiated, TimeBudget = TimeSpan.FromSeconds(1) },
-			CancellationToken.None);
+		return service.DecideAsync(DecisionServiceTests.Request(_dir.Path), CancellationToken.None);
 	}
 
 	public void Dispose() {

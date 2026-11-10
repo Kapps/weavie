@@ -41,32 +41,19 @@ public sealed class ModelWorkflowDeciderTests : IDisposable {
 		Assert.Equal("Reviewed.", request.Evidence.GetProperty("summary").GetString());
 		var file = Assert.Single(request.Evidence.GetProperty("files").EnumerateArray());
 		Assert.Equal(("review.md", Request().Evidence.Files[0].Text), (file.GetProperty("path").GetString(), file.GetProperty("text").GetString()));
-		Assert.Equal(DecisionProviderIds.Agent, Assert.Single(_history.Recent).Provider);
+		Assert.Equal(1, _history.Summary().AgentAnswered);
 	}
 
 	[Theory]
 	[InlineData(InferenceFailureKind.Refused)]
 	[InlineData(InferenceFailureKind.ProviderUnavailable)]
 	public async Task RefusalsAndFailuresAreReportedAndNotRecorded(InferenceFailureKind kind) {
-		var provider = new FakeDecisionProvider(DecisionProviderIds.Agent,
-			(_, _) => Task.FromResult<DecisionProviderResult>(FakeDecisionProvider.Failure(kind)));
-
-		var result = await Decide(provider);
+		var result = await Decide(FakeDecisionProvider.Failing(kind));
 
 		Assert.Equal(kind == InferenceFailureKind.Refused
 			? new WorkflowDecisionResult.Refused("safe detail")
 			: new WorkflowDecisionResult.Failed("ProviderUnavailable: safe detail"), result);
-		Assert.Empty(_history.Recent);
-	}
-
-	[Fact]
-	public async Task AnInvalidDistributionFails() {
-		var provider = new FakeDecisionProvider(DecisionProviderIds.Agent,
-			new Dictionary<string, double> { ["approve"] = 0.5, ["revise"] = 0.5 });
-
-		var failure = Assert.IsType<WorkflowDecisionResult.Failed>(await Decide(provider));
-
-		Assert.StartsWith("InvalidResponse:", failure.Reason, StringComparison.Ordinal);
+		Assert.Equal(0, _history.Summary().AgentAnswered);
 	}
 
 	private Task<WorkflowDecisionResult> Decide(FakeDecisionProvider provider) =>

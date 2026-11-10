@@ -15,7 +15,7 @@ public sealed class OpenAiDecisionProvider : VendorDecisionProvider {
 	public override string Detail => "OpenAI Decisions (gpt-6-luna), calibrated probabilities in ~0.2s";
 
 	/// <inheritdoc/>
-	public override Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {
+	public override Task<InferenceProviderResult> DecideAsync(DecisionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var body = new OpenAiDecisionRequest(
 			Model,
@@ -27,7 +27,7 @@ public sealed class OpenAiDecisionProvider : VendorDecisionProvider {
 			DecisionJson.Default.OpenAiDecisionRequest, DecisionJson.Default.OpenAiDecisionResponse, Read, ct);
 	}
 
-	private DecisionProviderResult Read(OpenAiDecisionResponse response, string? requestId) {
+	private InferenceProviderResult Read(OpenAiDecisionResponse response, string? requestId) {
 		string model = response.Model ?? Model;
 		var usage = response.Usage is { } reported
 			? new InferenceUsage {
@@ -38,13 +38,7 @@ public sealed class OpenAiDecisionProvider : VendorDecisionProvider {
 			: null;
 		var answer = response.Answers?.FirstOrDefault(candidate => candidate.Name == Question);
 		if (answer?.Type == "refusal") {
-			return new DecisionProviderFailure {
-				ModelId = model,
-				RequestId = requestId,
-				Usage = usage,
-				Kind = InferenceFailureKind.Refused,
-				Detail = "OpenAI refused the decision.",
-			};
+			return Failure(InferenceFailureKind.Refused, "OpenAI refused the decision.", requestId) with { ModelId = model, Usage = usage };
 		}
 		if (answer?.Probabilities is not { } probabilities
 			|| probabilities.DistinctBy(entry => entry.Value).Count() != probabilities.Count) {

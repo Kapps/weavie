@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.Inference;
 using Weavie.Core.Inference.Decisions;
@@ -5,13 +6,8 @@ using Weavie.Workflows;
 
 namespace Weavie.Core.Workflows;
 
-/// <summary>Answers workflow decisions through the live decision provider, recording each answer's provider and time.</summary>
+/// <summary>Answers workflow decisions through the live decision provider, recording how long the agent takes.</summary>
 public sealed partial class ModelWorkflowDecider : IWorkflowDecider {
-	private static readonly DecisionQueryOptions Options = new() {
-		Origin = InferenceInvocationOrigin.UserInitiated,
-		TimeBudget = TimeSpan.FromSeconds(60),
-	};
-
 	private readonly IDecisionService _decisions;
 	private readonly InferenceOwner _owner;
 	private readonly WorkflowDecisionHistory _history;
@@ -29,18 +25,22 @@ public sealed partial class ModelWorkflowDecider : IWorkflowDecider {
 	/// <inheritdoc/>
 	public async Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		var question = new DecisionQuestion(
-			request.Question,
-			[.. request.Choices.Select(choice => new DecisionChoice(choice.Name, choice.Description))]);
-		var result = await _decisions.DecideAsync(
-			_owner, request.Evidence, EvidenceJson.Default.WorkflowDecisionEvidence, question, Options, ct).ConfigureAwait(false);
+		var result = await _decisions.DecideAsync(new DecisionRequest {
+			Owner = _owner,
+			Evidence = JsonSerializer.SerializeToElement(request.Evidence, EvidenceJson.Default.WorkflowDecisionEvidence),
+			Question = new(request.Question, [.. request.Choices.Select(choice => new DecisionChoice(choice.Name, choice.Description))]),
+			Origin = InferenceInvocationOrigin.UserInitiated,
+			TimeBudget = TimeSpan.FromSeconds(60),
+		}, ct).ConfigureAwait(false);
 		switch (result) {
-			case DecisionAnswer answer:
-				_history.Append(answer.Receipt.ProviderId, answer.Receipt.Duration);
+			case InferenceSuccess<DecisionAnswer> { Value: var answer, Receipt: var receipt }:
+				if (receipt.ProviderId == DecisionProviderIds.Agent) {
+					_history.Append(receipt.Duration);
+				}
 				return new WorkflowDecisionResult.Answered(answer.Choice, answer.Probability);
-			case DecisionFailure { Kind: InferenceFailureKind.Refused } refusal:
+			case InferenceFailure<DecisionAnswer> { Kind: InferenceFailureKind.Refused } refusal:
 				return new WorkflowDecisionResult.Refused(refusal.Detail);
-			case DecisionFailure failure:
+			case InferenceFailure<DecisionAnswer> failure:
 				return new WorkflowDecisionResult.Failed($"{failure.Kind}: {failure.Detail}");
 			default:
 				throw new InvalidOperationException("Unknown decision result.");

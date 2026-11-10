@@ -18,34 +18,14 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 	private readonly HttpClient _http;
 	private readonly ICredentialStore _store;
 
-	/// <summary>Declares the vendor's key, checked by listing <paramref name="modelsUrl"/>.</summary>
+	/// <summary>Declares the vendor's key, checked by an authenticated GET of <paramref name="modelsUrl"/>.</summary>
 	protected VendorDecisionProvider(
 		HttpClient http, ICredentialStore store, string id, string displayName, string keyPageUrl, string modelsUrl) {
 		ArgumentNullException.ThrowIfNull(http);
 		ArgumentNullException.ThrowIfNull(store);
 		_http = http;
 		_store = store;
-		Credential = Declare(http, id, displayName, keyPageUrl, modelsUrl);
-	}
-
-	/// <inheritdoc/>
-	public string Id => Credential.Id;
-
-	/// <inheritdoc/>
-	public string Label => Credential.DisplayName;
-
-	/// <inheritdoc/>
-	public abstract string Detail { get; }
-
-	/// <inheritdoc/>
-	public CredentialDefinition Credential { get; }
-
-	/// <inheritdoc/>
-	public abstract Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct);
-
-	/// <summary>Declares a vendor key whose check is an authenticated GET of <paramref name="modelsUrl"/>.</summary>
-	private static CredentialDefinition Declare(HttpClient http, string id, string displayName, string keyPageUrl, string modelsUrl) =>
-		new() {
+		Credential = new() {
 			Id = id,
 			DisplayName = displayName,
 			KeyNoun = "API key",
@@ -62,14 +42,30 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 				return string.Empty;
 			},
 		};
+	}
+
+	/// <inheritdoc/>
+	public string Id => Credential.Id;
+
+	/// <inheritdoc/>
+	public string Label => Credential.DisplayName;
+
+	/// <inheritdoc/>
+	public abstract string Detail { get; }
+
+	/// <inheritdoc/>
+	public CredentialDefinition Credential { get; }
+
+	/// <inheritdoc/>
+	public abstract Task<InferenceProviderResult> DecideAsync(DecisionRequest request, CancellationToken ct);
 
 	/// <summary>Posts <paramref name="body"/> with the saved key and reads the reply with <paramref name="read"/>.</summary>
-	private protected async Task<DecisionProviderResult> PostAsync<TRequest, TResponse>(
+	private protected async Task<InferenceProviderResult> PostAsync<TRequest, TResponse>(
 		string url,
 		TRequest body,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
-		Func<TResponse, string?, DecisionProviderResult> read,
+		Func<TResponse, string?, InferenceProviderResult> read,
 		CancellationToken ct) {
 		string name = Label;
 		CredentialSecret? key;
@@ -111,7 +107,7 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 	}
 
 	/// <summary>The failure for a reply that holds no answer to the <c>decision</c> question.</summary>
-	private protected static DecisionProviderFailure Missing(string name, string? requestId) =>
+	private protected static InferenceProviderFailure Missing(string name, string? requestId) =>
 		Failure(InferenceFailureKind.InvalidResponse, $"{name} returned no answer to the decision.", requestId);
 
 	private static (InferenceFailureKind Kind, string Detail) Classify(int status, string name, string? message) => status switch {
@@ -140,7 +136,7 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 		}
 	}
 
-	private static DecisionProviderFailure Failure(InferenceFailureKind kind, string detail, string? requestId) =>
+	private protected static InferenceProviderFailure Failure(InferenceFailureKind kind, string detail, string? requestId) =>
 		new() { ModelId = string.Empty, RequestId = requestId, Kind = kind, Detail = detail };
 
 	private static HttpRequestMessage Request(HttpMethod method, string url, CredentialSecret key) {

@@ -527,7 +527,6 @@ test.describe("session-addressed WebSocket transport", () => {
     ).toEqual([[feature.address, "pick"]]);
 
     host.publishSession(feature.address, "credentials", "prompt", {
-      ...NOTION_PROMPT,
       id: "acme",
       displayName: "Acme",
       keyNoun: "API key",

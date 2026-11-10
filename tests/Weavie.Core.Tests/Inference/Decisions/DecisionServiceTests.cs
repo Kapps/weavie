@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
 using Weavie.Core.Inference.Decisions;
@@ -7,7 +6,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests.Inference.Decisions;
 
-public sealed partial class DecisionServiceTests : IDisposable {
+public sealed class DecisionServiceTests : IDisposable {
 	private readonly TempDirectory _dir = new("weavie-decision-tests");
 	private readonly SettingsStore _settings;
 
@@ -15,25 +14,16 @@ public sealed partial class DecisionServiceTests : IDisposable {
 		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 	}
 
-	[Fact]
-	public async Task Disabled_FailsWithoutCallingProvider() {
+	[Theory]
+	[InlineData(false, InferenceInvocationOrigin.UserInitiated, InferenceFailureKind.Disabled)]
+	[InlineData(true, InferenceInvocationOrigin.Automatic, InferenceFailureKind.PolicyDenied)]
+	public async Task PolicyGates_FailWithoutCallingTheProvider(bool enabled, InferenceInvocationOrigin origin, InferenceFailureKind kind) {
+		_settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(enabled));
 		var provider = Agent(0.9, 0.1);
 
-		var failure = Assert.IsType<DecisionFailure>(await Decide(provider));
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide([provider], Request(_dir.Path) with { Origin = origin }));
 
-		Assert.Equal(InferenceFailureKind.Disabled, failure.Kind);
-		Assert.Equal(0, provider.Calls);
-	}
-
-	[Fact]
-	public async Task AutomaticPolicy_BlocksBeforeCallingProvider() {
-		Enable();
-		var provider = Agent(0.9, 0.1);
-
-		var failure = Assert.IsType<DecisionFailure>(await Decide(
-			Service(provider), Options(InferenceInvocationOrigin.Automatic, TimeSpan.FromSeconds(1)), CancellationToken.None));
-
-		Assert.Equal(InferenceFailureKind.PolicyDenied, failure.Kind);
+		Assert.Equal(kind, failure.Kind);
 		Assert.Equal(0, provider.Calls);
 	}
 
@@ -42,18 +32,12 @@ public sealed partial class DecisionServiceTests : IDisposable {
 		Enable();
 		var provider = Agent(0.3, 0.7);
 
-		var answer = Assert.IsType<DecisionAnswer>(await Decide(provider));
+		var success = Assert.IsType<InferenceSuccess<DecisionAnswer>>(await Decide(provider));
 
-		Assert.Equal("revise", answer.Choice);
-		Assert.Equal(0.7, answer.Probability);
-		Assert.Equal(0.3, answer.Probabilities["approve"]);
+		Assert.Equal(("revise", 0.7, 0.3), (success.Value.Choice, success.Value.Probability, success.Value.Probabilities["approve"]));
 		Assert.Equal((DecisionProviderIds.Agent, "fake-model", "req-1"),
-			(answer.Receipt.ProviderId, answer.Receipt.ModelId, answer.Receipt.RequestId));
-		var request = provider.LastRequest!;
-		Assert.Equal(_dir.Path, request.Owner.Workspace);
-		Assert.Equal("All good.", request.Evidence.GetProperty("summary").GetString());
-		Assert.Same(Question, request.Question);
-		Assert.Equal(InferenceInvocationOrigin.UserInitiated, request.Origin);
+			(success.Receipt.ProviderId, success.Receipt.ModelId, success.Receipt.RequestId));
+		Assert.Same(Request(_dir.Path).Question, provider.LastRequest!.Question);
 	}
 
 	public static TheoryData<Dictionary<string, double>> InvalidDistributions => [
@@ -70,22 +54,18 @@ public sealed partial class DecisionServiceTests : IDisposable {
 	public async Task InvalidDistribution_IsRejectedWithoutRepair(Dictionary<string, double> probabilities) {
 		Enable();
 
-		var failure = Assert.IsType<DecisionFailure>(await Decide(new FakeDecisionProvider(DecisionProviderIds.Agent, probabilities)));
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide(new FakeDecisionProvider(DecisionProviderIds.Agent, probabilities)));
 
-		Assert.Equal(InferenceFailureKind.InvalidResponse, failure.Kind);
-		Assert.Equal(DecisionProviderIds.Agent, failure.Receipt!.ProviderId);
+		Assert.Equal((InferenceFailureKind.InvalidResponse, DecisionProviderIds.Agent), (failure.Kind, failure.Receipt!.ProviderId));
 	}
 
 	[Fact]
 	public async Task ProviderFailure_PassesThroughWithReceipt() {
 		Enable();
-		var provider = new FakeDecisionProvider(DecisionProviderIds.Agent,
-			(_, _) => Task.FromResult<DecisionProviderResult>(FakeDecisionProvider.Failure(InferenceFailureKind.Refused)));
 
-		var failure = Assert.IsType<DecisionFailure>(await Decide(provider));
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide(FakeDecisionProvider.Failing(InferenceFailureKind.Refused)));
 
-		Assert.Equal((InferenceFailureKind.Refused, "safe detail"), (failure.Kind, failure.Detail));
-		Assert.Equal("fake-model", failure.Receipt!.ModelId);
+		Assert.Equal((InferenceFailureKind.Refused, "safe detail", "fake-model"), (failure.Kind, failure.Detail, failure.Receipt!.ModelId));
 	}
 
 	[Fact]
@@ -96,8 +76,8 @@ public sealed partial class DecisionServiceTests : IDisposable {
 			throw new InvalidOperationException("unreachable");
 		});
 
-		var failure = Assert.IsType<DecisionFailure>(await Decide(
-			Service(provider), Options(InferenceInvocationOrigin.UserInitiated, TimeSpan.FromMilliseconds(20)), CancellationToken.None));
+		var failure = Assert.IsType<InferenceFailure<DecisionAnswer>>(
+			await Decide([provider], Request(_dir.Path) with { TimeBudget = TimeSpan.FromMilliseconds(20) }));
 
 		Assert.Equal(InferenceFailureKind.TimedOut, failure.Kind);
 	}
@@ -105,83 +85,62 @@ public sealed partial class DecisionServiceTests : IDisposable {
 	[Fact]
 	public async Task CallerCancellation_Propagates() {
 		Enable();
-		using var cancelled = new CancellationTokenSource();
-		cancelled.Cancel();
 
-		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Decide(
-			Service(Agent(0.9, 0.1)), Options(InferenceInvocationOrigin.UserInitiated, TimeSpan.FromSeconds(1)), cancelled.Token));
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+			new DecisionService(_settings, [Agent(0.9, 0.1)]).DecideAsync(Request(_dir.Path), new CancellationToken(canceled: true)));
 	}
 
 	[Fact]
-	public async Task LiveSetting_RoutesEachDecision() {
+	public async Task LiveSetting_RoutesEachDecision_AndAnUnregisteredOneFailsWithoutTheAgent() {
 		Enable();
 		var agent = Agent(0.9, 0.1);
-		var vendor = new FakeDecisionProvider(DecisionProviderIds.OpenAi,
-			new Dictionary<string, double> { ["approve"] = 0.2, ["revise"] = 0.8 });
-		var service = new DecisionService(_settings, [agent, vendor]);
+		var vendor = new FakeDecisionProvider(DecisionProviderIds.OpenAi, new Dictionary<string, double> { ["approve"] = 0.2, ["revise"] = 0.8 });
 
-		var first = Assert.IsType<DecisionAnswer>(await Decide(service, UserOptions(), CancellationToken.None));
-		_settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.OpenAi));
-		var second = Assert.IsType<DecisionAnswer>(await Decide(service, UserOptions(), CancellationToken.None));
+		var first = Assert.IsType<InferenceSuccess<DecisionAnswer>>(await Decide([agent, vendor], Request(_dir.Path)));
+		Select(DecisionProviderIds.OpenAi);
+		var second = Assert.IsType<InferenceSuccess<DecisionAnswer>>(await Decide([agent, vendor], Request(_dir.Path)));
+		Select(DecisionProviderIds.TypeSafe);
+		var third = Assert.IsType<InferenceFailure<DecisionAnswer>>(await Decide([agent, vendor], Request(_dir.Path)));
 
-		Assert.Equal(("approve", "revise"), (first.Choice, second.Choice));
+		Assert.Equal(("approve", "revise"), (first.Value.Choice, second.Value.Choice));
 		Assert.Equal(DecisionProviderIds.OpenAi, second.Receipt.ProviderId);
+		Assert.Equal((InferenceFailureKind.NotConfigured, "Decision provider 'typesafe' is not available."), (third.Kind, third.Detail));
 		Assert.Equal((1, 1), (agent.Calls, vendor.Calls));
-	}
-
-	[Fact]
-	public async Task UnregisteredProvider_FailsVisiblyWithoutUsingTheAgent() {
-		Enable();
-		var agent = Agent(0.9, 0.1);
-		_settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
-
-		var failure = Assert.IsType<DecisionFailure>(await Decide(agent));
-
-		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
-		Assert.Contains(DecisionProviderIds.TypeSafe, failure.Detail, StringComparison.Ordinal);
-		Assert.Equal(0, agent.Calls);
 	}
 
 	[Fact]
 	public async Task DuplicateLabels_AreAProgrammerError() {
 		Enable();
-		var question = new DecisionQuestion("Decide.", [new("approve", null), new("approve", null)]);
+		var request = Request(_dir.Path) with { Question = new("Decide.", [new("approve", null), new("approve", null)]) };
 
-		await Assert.ThrowsAsync<ArgumentException>(() => Service(Agent(0.9, 0.1)).DecideAsync(
-			new InferenceOwner { Workspace = _dir.Path }, Evidence, TestJson.Default.TestEvidence, question, UserOptions(), CancellationToken.None));
+		await Assert.ThrowsAsync<ArgumentException>(() => Decide([Agent(0.9, 0.1)], request));
 	}
 
-	private static readonly DecisionQuestion Question = new("Is the review complete?",
-		[new("approve", "All criteria passed."), new("revise", null)]);
+	internal static DecisionRequest Request(string workspace) => new() {
+		Owner = new InferenceOwner { Workspace = workspace },
+		Evidence = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["review"] = "clean" }),
+		Question = Question,
+		Origin = InferenceInvocationOrigin.UserInitiated,
+		TimeBudget = TimeSpan.FromSeconds(60),
+	};
 
-	private static readonly TestEvidence Evidence = new("All good.");
+	private static readonly DecisionQuestion Question = new("Approve the change?",
+		[new("approve", "The review found nothing to fix."), new("revise", null)]);
 
 	private static FakeDecisionProvider Agent(double approve, double revise) =>
 		new(DecisionProviderIds.Agent, new Dictionary<string, double> { ["approve"] = approve, ["revise"] = revise });
 
-	private DecisionService Service(FakeDecisionProvider provider) => new(_settings, [provider]);
+	private Task<InferenceResult<DecisionAnswer>> Decide(FakeDecisionProvider provider) => Decide([provider], Request(_dir.Path));
 
-	private Task<DecisionResult> Decide(FakeDecisionProvider provider) =>
-		Decide(Service(provider), UserOptions(), CancellationToken.None);
-
-	private Task<DecisionResult> Decide(DecisionService service, DecisionQueryOptions options, CancellationToken ct) =>
-		service.DecideAsync(new InferenceOwner { Workspace = _dir.Path }, Evidence, TestJson.Default.TestEvidence, Question, options, ct);
-
-	private static DecisionQueryOptions UserOptions() => Options(InferenceInvocationOrigin.UserInitiated, TimeSpan.FromSeconds(1));
-
-	private static DecisionQueryOptions Options(InferenceInvocationOrigin origin, TimeSpan budget) =>
-		new() { Origin = origin, TimeBudget = budget };
+	private Task<InferenceResult<DecisionAnswer>> Decide(IReadOnlyList<IDecisionProvider> providers, DecisionRequest request) =>
+		new DecisionService(_settings, providers).DecideAsync(request, CancellationToken.None);
 
 	private void Enable() => _settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
+
+	private void Select(string id) => _settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(id));
 
 	public void Dispose() {
 		_settings.Dispose();
 		_dir.Dispose();
 	}
-
-	internal sealed record TestEvidence(string Summary);
-
-	[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-	[JsonSerializable(typeof(TestEvidence))]
-	internal sealed partial class TestJson : JsonSerializerContext;
 }

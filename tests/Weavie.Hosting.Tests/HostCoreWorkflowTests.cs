@@ -91,8 +91,7 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
 		Assert.Equal("", turnContext.Compose());
-		var answered = Assert.Single(DecisionHistory(host.RepoRoot).Recent);
-		Assert.Equal("agent", answered.Provider);
+		Assert.Equal(1, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
 	}
 
 	[Fact]

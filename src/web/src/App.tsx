@@ -52,6 +52,13 @@ import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSes
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
+import {
+  dismissChoicePicker,
+  dismissCredentialPrompt,
+  pickChoice,
+  selectedChoicePicker,
+  selectedCredentialPrompt,
+} from "./chrome/host-asks";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -62,7 +69,6 @@ import {
   focusOmnibarPath,
 } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
-import { dismissChoicePicker, pickChoice, selectedChoicePicker } from "./chrome/picker-store";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { currentPullRequestStatus } from "./chrome/pull-request-store";
 import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
@@ -129,7 +135,6 @@ import {
 } from "./commands/registry";
 import { selectedText, trackDocumentSelection } from "./commands/selection";
 import { CommandIds, type CommandResult } from "./commands/types";
-import { dismissCredentialPrompt, selectedCredentialPrompt } from "./credentials/credential-store";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";

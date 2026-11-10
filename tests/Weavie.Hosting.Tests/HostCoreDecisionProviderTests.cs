@@ -1,22 +1,26 @@
-using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference.Decisions;
 using Weavie.Core.Sessions;
-using Weavie.Core.Workflows;
 using Xunit;
 using static Weavie.Hosting.Tests.HostCoreWorkflowTests;
 
 namespace Weavie.Hosting.Tests;
 
-// A workflow's model decision routed by the live inference.decisionProvider through a stubbed TypeSafe endpoint.
+// A workflow's model decision answered by a stubbed TypeSafe endpoint, and the card the agent's slow answers raise.
 public sealed class HostCoreDecisionProviderTests {
 	private const string SystemOne = "https://api.typesafe.ai/v1/systemone";
 
 	[Fact]
 	public async Task TypeSafeAnswersTheDecision_AndALowProbabilityAsksTheUser() {
-		await using var host = await StartTypeSafeAsync(yes: 0.6);
+		// The agent would answer "yes" confidently; TypeSafe answers it at 0.6.
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
+		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
+		host.SaveCredential(DecisionProviderIds.TypeSafe, "ts-key");
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri == SystemOne
+			? (HttpStatusCode.OK, """{"model":"jev-1.14.0","answers":{"decision":{"type":"choice","probabilities":{"yes":0.6,"no":0.4}}}}""")
+			: (HttpStatusCode.NotFound, "{}");
 		var (session, run) = await ReachTheModelDecisionAsync(host);
 
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
@@ -28,20 +32,7 @@ public sealed class HostCoreDecisionProviderTests {
 		Assert.Equal(("Bearer", "ts-key"), (host.Http.Requests[0].Headers.Authorization!.Scheme, host.Http.Requests[0].Headers.Authorization!.Parameter));
 		session.Workflow.Answer(run, "yes", "");
 		await WaitForRunLineAsync(host, session, line => line is null);
-	}
-
-	[Fact]
-	public async Task SwitchingTheSettingLive_SendsTheNextDecisionToTheAgent() {
-		await using var host = await StartTypeSafeAsync(yes: 0.05);
-		var (session, _) = await ReachTheModelDecisionAsync(host);
-		await Wait.UntilAsync(() => History(host).Count == 1);
-
-		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.Agent));
-		session.Workflow.CompleteStage(Json("{}"), "s");
-
-		await WaitForRunLineAsync(host, session, line => line is null);
-		Assert.Single(host.Http.Requests);
-		Assert.Equal([DecisionProviderIds.TypeSafe, DecisionProviderIds.Agent], History(host).Select(record => record.Provider));
+		Assert.Equal(0, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
 	}
 
 	[Fact]
@@ -49,7 +40,7 @@ public sealed class HostCoreDecisionProviderTests {
 		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
 			CommitFlow(repo);
 			var history = DecisionHistory(repo);
-			for (int i = 0; i < 4; i++) history.Append(DecisionProviderIds.Agent, TimeSpan.FromMilliseconds(1300));
+			for (int i = 0; i < 4; i++) history.Append(TimeSpan.FromMilliseconds(1300));
 		});
 		Assert.Null(DecisionModelCard(host));
 
@@ -62,37 +53,9 @@ public sealed class HostCoreDecisionProviderTests {
 		await Wait.UntilAsync(() => DecisionModelCard(host) is null);
 	}
 
-	[Fact]
-	public async Task FiveFastAgentAnsweredDecisions_OfferNoDecisionModel() {
-		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
-			CommitFlow(repo);
-			var history = DecisionHistory(repo);
-			for (int i = 0; i < 4; i++) history.Append(DecisionProviderIds.Agent, TimeSpan.FromMilliseconds(50));
-		});
-
-		var (session, _) = await ReachTheModelDecisionAsync(host);
-		await WaitForRunLineAsync(host, session, line => line is null);
-
-		Assert.Equal(5, History(host).Count);
-		Assert.Null(DecisionModelCard(host));
-	}
-
 	private static JsonElement? DecisionModelCard(TestHost host) =>
 		host.Bridge.LastEvent("suggestions", "changed")?.GetProperty("items").EnumerateArray()
 			.Cast<JsonElement?>().FirstOrDefault(item => item!.Value.GetProperty("id").GetString() == "decisions.model");
-
-	// The agent answers "yes" confidently; TypeSafe answers yes at the given probability.
-	private static async Task<TestHost> StartTypeSafeAsync(double yes) {
-		var host = await StartAsync(new DecisionStub("yes", 0.9));
-		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
-		host.SaveCredential(DecisionProviderIds.TypeSafe, "ts-key");
-		string probabilities = string.Create(CultureInfo.InvariantCulture, $$"""{"yes":{{yes}},"no":{{1 - yes}}}""");
-		string reply = """{"model":"jev-1.14.0","answers":{"decision":{"type":"choice","probabilities":""" + probabilities + "}}}";
-		host.Http.Responder = request => request.RequestUri!.AbsoluteUri == SystemOne
-			? (HttpStatusCode.OK, reply)
-			: (HttpStatusCode.NotFound, "{}");
-		return host;
-	}
 
 	private static async Task<(HostSession Session, string Run)> ReachTheModelDecisionAsync(TestHost host) {
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
@@ -103,6 +66,4 @@ public sealed class HostCoreDecisionProviderTests {
 		session.Workflow.CompleteStage(Json("{}"), "s");
 		return (session, run.Id);
 	}
-
-	private static IReadOnlyList<WorkflowDecisionRecord> History(TestHost host) => DecisionHistory(host.RepoRoot).Recent;
 }

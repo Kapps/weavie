@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Weavie.Core.Credentials;
 
@@ -33,7 +34,7 @@ public sealed partial class AgentDecisionProvider : IDecisionProvider {
 	public CredentialDefinition? Credential => null;
 
 	/// <inheritdoc/>
-	public async Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {
+	public async Task<InferenceProviderResult> DecideAsync(DecisionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var input = new AgentDecisionInput(request.Question.Instructions, request.Question.Choices, request.Evidence);
 		var result = await _inference.QueryAsync(
@@ -61,7 +62,7 @@ public sealed partial class AgentDecisionProvider : IDecisionProvider {
 				Usage = success.Receipt.Usage,
 				Probabilities = success.Value,
 			},
-			InferenceFailure<Dictionary<string, double>> failure => new DecisionProviderFailure {
+			InferenceFailure<Dictionary<string, double>> failure => new InferenceProviderFailure {
 				ModelId = failure.Receipt?.ModelId ?? "",
 				RequestId = failure.Receipt?.RequestId,
 				Usage = failure.Receipt?.Usage,
@@ -74,28 +75,18 @@ public sealed partial class AgentDecisionProvider : IDecisionProvider {
 
 	// One required probability per label and nothing else, so the reply can't name an answer outside the choices.
 	private static string Schema(DecisionQuestion question) {
-		using var buffer = new MemoryStream();
-		using (var json = new Utf8JsonWriter(buffer)) {
-			json.WriteStartObject();
-			json.WriteString("type", "object");
-			json.WriteStartObject("properties");
-			foreach (var choice in question.Choices) {
-				json.WriteStartObject(choice.Label);
-				json.WriteString("type", "number");
-				json.WriteNumber("minimum", 0);
-				json.WriteNumber("maximum", 1);
-				json.WriteEndObject();
-			}
-			json.WriteEndObject();
-			json.WriteStartArray("required");
-			foreach (var choice in question.Choices) {
-				json.WriteStringValue(choice.Label);
-			}
-			json.WriteEndArray();
-			json.WriteBoolean("additionalProperties", false);
-			json.WriteEndObject();
+		var properties = new JsonObject();
+		var required = new JsonArray();
+		foreach (var choice in question.Choices) {
+			properties[choice.Label] = new JsonObject { ["type"] = "number", ["minimum"] = 0, ["maximum"] = 1 };
+			required.Add((JsonNode)choice.Label);
 		}
-		return Encoding.UTF8.GetString(buffer.ToArray());
+		return new JsonObject {
+			["type"] = "object",
+			["properties"] = properties,
+			["required"] = required,
+			["additionalProperties"] = false,
+		}.ToJsonString();
 	}
 
 	internal sealed record AgentDecisionInput(string Question, IReadOnlyList<DecisionChoice> Choices, JsonElement Evidence);

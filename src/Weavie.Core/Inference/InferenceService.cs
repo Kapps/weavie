@@ -156,13 +156,7 @@ public sealed class InferenceService : IInferenceService {
 		}
 		var providerResult = attempt.Value!;
 
-		var receipt = new InferenceReceipt {
-			ProviderId = agentProviderId,
-			ModelId = providerResult.ModelId,
-			Duration = attempt.Elapsed,
-			RequestId = providerResult.RequestId,
-			Usage = providerResult.Usage,
-		};
+		var receipt = providerResult.Receipt(agentProviderId, attempt.Elapsed);
 		if (providerResult is InferenceProviderFailure providerFailure) {
 			return new InferenceFailure<TResponse> {
 				Kind = providerFailure.Kind,

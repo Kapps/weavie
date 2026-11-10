@@ -2,8 +2,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// A host-driven choice picker: a command asks its own session's page to pick one option, and the pick runs the
-// continuation on that same session, so the answer can never land on whichever session happens to be selected.
+// A host-driven choice picker: the pick runs its continuation on the session that asked, never the selected one.
 public sealed partial class HostCore {
 	private void ShowPicker(HostSession session, ChoicePicker picker, Action<HostSession, string> onPick) {
 		session.OpenPicker.Set(new PendingPick(picker, onPick));

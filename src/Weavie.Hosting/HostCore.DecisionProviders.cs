@@ -6,8 +6,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// Choose Decision Model…: pick who answers workflow decisions. An unconnected vendor is connected first, and the
-// setting changes only once that key is saved; disconnecting the chosen vendor hands decisions back to the agent.
+// Choose Decision Model…: an unconnected vendor is connected first, and the setting changes only once its key is saved.
 public sealed partial class HostCore {
 	private void RegisterDecisionProviderHandler(HostSession session) =>
 		session.Commands.RegisterHandler(CoreCommands.ChooseDecisionProvider, (argsJson, _) =>
@@ -49,8 +48,7 @@ public sealed partial class HostCore {
 			: $"Workflow decisions will use {provider.Label}, but ad-hoc inference is off — turn on {InferenceSettings.Enabled} to run them.");
 	}
 
-	// Disconnecting the chosen vendor resets the choice, so the setting never names a disconnected service. Null when
-	// no key was saved; otherwise what the reset changed, or empty.
+	// Resets a disconnected chosen vendor to the agent. Null when no key was saved; otherwise what the reset said, or empty.
 	private string? DisconnectAndReset(string id) {
 		if (!_credentials.Disconnect(id)) {
 			return null;

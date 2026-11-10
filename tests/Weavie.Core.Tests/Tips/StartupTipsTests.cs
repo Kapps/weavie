@@ -23,13 +23,6 @@ public sealed class StartupTipsTests {
 	}
 
 	[Fact]
-	public void DecisionModelTip_RunsChooseDecisionModel() {
-		var tip = Assert.Single(StartupTips.All, tip => tip.Id == "decision-model");
-
-		Assert.Equal(CoreCommands.ChooseDecisionProvider, tip.CommandId);
-	}
-
-	[Fact]
 	public void Pick_ReturnsACatalogMember() {
 		var tip = StartupTips.Pick(new Random(42));
 

@@ -62,7 +62,7 @@ load it only when you need it.
   cost semantics. Strict typed JSON, one attempt, feature-owned failure handling. First consumer:
   convention-aware branch naming, which leaves the field blank for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
-- **Decision providers** — one choice question over typed evidence answered with a probability per label by the
+- **Decision providers** — one choice question over evidence answered with a probability per label by the
   live `inference.decisionProvider`: the agent, OpenAI Decisions, or TypeSafe Jev, the vendors over keys held in the
   host-supplied credential store and connected with Connect Service…. Workflow decisions are the first consumer. See
   [docs/specs/inference-providers.md](docs/specs/inference-providers.md).

@@ -10,42 +10,34 @@ public sealed class WorkflowDecisionHistoryTests : IDisposable {
 	private string FilePath => _dir.Combine("decision-history.json");
 
 	[Fact]
-	public void KeepsTheMostRecentDecisionsAcrossReloads() {
+	public void KeepsTheLastTwentyAcrossReloadsAtTheirMedian() {
 		var history = new WorkflowDecisionHistory(new LocalFileSystem(), FilePath);
 		int changes = 0;
 		history.Changed += () => changes++;
-
-		for (int i = 0; i < WorkflowDecisionHistory.Capacity + 3; i++) {
-			history.Append(i % 2 == 0 ? "agent" : "openai", TimeSpan.FromMilliseconds(i));
-		}
-
-		var reloaded = new WorkflowDecisionHistory(new LocalFileSystem(), FilePath).Recent;
-		Assert.Equal(WorkflowDecisionHistory.Capacity + 3, changes);
-		Assert.Equal(WorkflowDecisionHistory.Capacity, reloaded.Count);
-		Assert.Equal(new WorkflowDecisionRecord("openai", 3), reloaded[0]);
-		Assert.Equal(new WorkflowDecisionRecord("agent", WorkflowDecisionHistory.Capacity + 2), reloaded[^1]);
-	}
-
-	[Fact]
-	public void Summary_CountsAgentAnsweredDecisionsAtTheirMedian() {
-		var history = new WorkflowDecisionHistory(new LocalFileSystem(), FilePath);
 		Assert.Equal(new DecisionHistorySummary(0, TimeSpan.Zero), history.Summary());
 
-		foreach (int ms in new[] { 9000, 1200, 1400 }) {
-			history.Append("agent", TimeSpan.FromMilliseconds(ms));
-		}
-		history.Append("openai", TimeSpan.FromMilliseconds(200));
-		Assert.Equal(new DecisionHistorySummary(3, TimeSpan.FromMilliseconds(1400)), history.Summary());
+		history.Append(TimeSpan.Zero);
+		history.Append(TimeSpan.FromMilliseconds(1));
+		history.Append(TimeSpan.FromMilliseconds(5));
+		Assert.Equal(new DecisionHistorySummary(3, TimeSpan.FromMilliseconds(1)), history.Summary());
 
-		history.Append("agent", TimeSpan.FromMilliseconds(1000));
-		Assert.Equal(new DecisionHistorySummary(4, TimeSpan.FromMilliseconds(1300)), history.Summary());
+		// 0, 1, 5, then 3..22 ms: the oldest three drop out, leaving 3..22 with a median of 12.5.
+		for (int i = 3; i < 23; i++) {
+			history.Append(TimeSpan.FromMilliseconds(i));
+		}
+
+		Assert.Equal(23, changes);
+		Assert.Equal(new DecisionHistorySummary(20, TimeSpan.FromMilliseconds(12.5)),
+			new WorkflowDecisionHistory(new LocalFileSystem(), FilePath).Summary());
+		history.Append(TimeSpan.FromMilliseconds(9000));
+		Assert.Equal(new DecisionHistorySummary(20, TimeSpan.FromMilliseconds(13.5)), history.Summary());
 	}
 
 	[Fact]
 	public void MalformedFileStartsEmpty() {
 		File.WriteAllText(FilePath, "{not json");
 
-		Assert.Empty(new WorkflowDecisionHistory(new LocalFileSystem(), FilePath).Recent);
+		Assert.Equal(0, new WorkflowDecisionHistory(new LocalFileSystem(), FilePath).Summary().AgentAnswered);
 		Assert.True(File.Exists(FilePath + ".bad"));
 	}
 

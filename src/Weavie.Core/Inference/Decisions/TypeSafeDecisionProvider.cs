@@ -15,7 +15,7 @@ public sealed class TypeSafeDecisionProvider : VendorDecisionProvider {
 	public override string Detail => "TypeSafe Jev, calibrated probabilities in ~0.1s";
 
 	/// <inheritdoc/>
-	public override Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {
+	public override Task<InferenceProviderResult> DecideAsync(DecisionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var body = new TypeSafeDecisionRequest(
 			Model,
@@ -29,7 +29,7 @@ public sealed class TypeSafeDecisionProvider : VendorDecisionProvider {
 			DecisionJson.Default.TypeSafeDecisionRequest, DecisionJson.Default.TypeSafeDecisionResponse, Read, ct);
 	}
 
-	private DecisionProviderResult Read(TypeSafeDecisionResponse response, string? requestId) {
+	private InferenceProviderResult Read(TypeSafeDecisionResponse response, string? requestId) {
 		string model = response.Model ?? Model;
 		var usage = response.Usage is { } reported
 			? new InferenceUsage { InputTokens = reported.InputTokens, CachedInputTokens = 0, OutputTokens = reported.OutputTokens }

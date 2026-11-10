@@ -1,25 +1,15 @@
-using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Configuration;
 
 namespace Weavie.Core.Inference.Decisions;
 
-/// <summary>The decision surface: one choice question over typed evidence, answered by the live decision provider.</summary>
+/// <summary>The decision surface: one choice question over evidence, answered by the live decision provider.</summary>
 public interface IDecisionService {
 	/// <summary>Every registered decision provider.</summary>
 	IReadOnlyList<IDecisionProvider> Providers { get; }
 
-	/// <summary>
-	/// Runs one attempt through the provider <c>inference.decisionProvider</c> names. Non-cancellation failures,
-	/// refusals included, are returned.
-	/// </summary>
-	Task<DecisionResult> DecideAsync<TEvidence>(
-		InferenceOwner owner,
-		TEvidence evidence,
-		JsonTypeInfo<TEvidence> evidenceType,
-		DecisionQuestion question,
-		DecisionQueryOptions options,
-		CancellationToken ct);
+	/// <summary>Runs one attempt through the provider <c>inference.decisionProvider</c> names; non-cancellation failures,
+	/// refusals included, are returned.</summary>
+	Task<InferenceResult<DecisionAnswer>> DecideAsync(DecisionRequest request, CancellationToken ct);
 }
 
 /// <summary>
@@ -41,74 +31,45 @@ public sealed class DecisionService : IDecisionService {
 	public IReadOnlyList<IDecisionProvider> Providers { get; }
 
 	/// <inheritdoc/>
-	public async Task<DecisionResult> DecideAsync<TEvidence>(
-		InferenceOwner owner,
-		TEvidence evidence,
-		JsonTypeInfo<TEvidence> evidenceType,
-		DecisionQuestion question,
-		DecisionQueryOptions options,
-		CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(owner);
-		ArgumentException.ThrowIfNullOrWhiteSpace(owner.Workspace);
-		ArgumentNullException.ThrowIfNull(evidenceType);
-		ArgumentNullException.ThrowIfNull(question);
+	public async Task<InferenceResult<DecisionAnswer>> DecideAsync(DecisionRequest request, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(request);
+		ArgumentException.ThrowIfNullOrWhiteSpace(request.Owner.Workspace);
+		var question = request.Question;
 		ArgumentException.ThrowIfNullOrWhiteSpace(question.Instructions);
-		ArgumentNullException.ThrowIfNull(question.Choices);
 		if (question.Choices.Count < 2
 			|| question.Choices.Any(choice => string.IsNullOrWhiteSpace(choice.Label))
 			|| question.Choices.DistinctBy(choice => choice.Label).Count() != question.Choices.Count) {
-			throw new ArgumentException("A decision needs at least two choices with unique labels.", nameof(question));
+			throw new ArgumentException("A decision needs at least two choices with unique labels.", nameof(request));
 		}
-		ArgumentNullException.ThrowIfNull(options);
-		if (options.TimeBudget <= TimeSpan.Zero) {
-			throw new ArgumentException("A decision's time budget must be positive.", nameof(options));
+		if (request.TimeBudget <= TimeSpan.Zero) {
+			throw new ArgumentException("A decision's time budget must be positive.", nameof(request));
 		}
 
 		ct.ThrowIfCancellationRequested();
-		if (InferencePolicy.Gate(_settings, options.Origin, out string denied) is { } gate) {
-			return new DecisionFailure { Kind = gate, Detail = denied };
+		if (InferencePolicy.Gate(_settings, request.Origin, out string denied) is { } gate) {
+			return Failure(gate, denied, null);
 		}
 		string id = _settings.RequireString(InferenceSettings.DecisionProvider);
 		if (Providers.FirstOrDefault(provider => provider.Id == id) is not { } selected) {
-			return new DecisionFailure {
-				Kind = InferenceFailureKind.NotConfigured,
-				Detail = $"Decision provider '{id}' is not available.",
-			};
+			return Failure(InferenceFailureKind.NotConfigured, $"Decision provider '{id}' is not available.", null);
 		}
 
-		var request = new DecisionProviderRequest {
-			Owner = owner,
-			Evidence = JsonSerializer.SerializeToElement(evidence, evidenceType),
-			Question = question,
-			Origin = options.Origin,
-			TimeBudget = options.TimeBudget,
-		};
 		var (result, elapsed, timedOut) = await InferencePolicy.AttemptAsync(
-			options.TimeBudget,
-			token => selected.DecideAsync(request, token),
-			ct).ConfigureAwait(false);
+			request.TimeBudget, token => selected.DecideAsync(request, token), ct).ConfigureAwait(false);
 		if (timedOut) {
-			return new DecisionFailure { Kind = InferenceFailureKind.TimedOut, Detail = "The decision exceeded its time budget." };
+			return Failure(InferenceFailureKind.TimedOut, "The decision exceeded its time budget.", null);
 		}
 
-		var receipt = new InferenceReceipt {
-			ProviderId = id,
-			ModelId = result!.ModelId,
-			Duration = elapsed,
-			RequestId = result.RequestId,
-			Usage = result.Usage,
-		};
+		var receipt = result!.Receipt(id, elapsed);
 		return result switch {
-			DecisionProviderFailure failure => new DecisionFailure { Kind = failure.Kind, Detail = failure.Detail, Receipt = receipt },
+			InferenceProviderFailure failure => Failure(failure.Kind, failure.Detail, receipt),
 			DecisionDistribution distribution => Validate(question, distribution.Probabilities, receipt),
 			_ => throw new InvalidOperationException($"Decision provider '{id}' returned an unknown result type."),
 		};
 	}
 
-	private static DecisionResult Validate(
-		DecisionQuestion question,
-		IReadOnlyDictionary<string, double> probabilities,
-		InferenceReceipt receipt) {
+	private static InferenceResult<DecisionAnswer> Validate(
+		DecisionQuestion question, IReadOnlyDictionary<string, double> probabilities, InferenceReceipt receipt) {
 		string? problem = null;
 		if (probabilities.Keys.FirstOrDefault(label => question.Choices.All(choice => choice.Label != label)) is { } unknown) {
 			problem = $"The provider returned unknown label '{unknown}'.";
@@ -116,25 +77,17 @@ public sealed class DecisionService : IDecisionService {
 			problem = $"The provider returned no probability for '{missing.Label}'.";
 		} else if (probabilities.Values.Any(p => !double.IsFinite(p) || p < 0 || p > 1)) {
 			problem = "The provider returned a probability outside [0, 1].";
+		} else if (probabilities.Values.Max() is var max && probabilities.Where(pair => pair.Value == max).ToList() is { Count: > 1 } tied) {
+			problem = $"The provider tied {string.Join(" and ", tied.Select(pair => $"'{pair.Key}'"))}.";
 		}
 		if (problem is not null) {
-			return new DecisionFailure { Kind = InferenceFailureKind.InvalidResponse, Detail = problem, Receipt = receipt };
+			return Failure(InferenceFailureKind.InvalidResponse, problem, receipt);
 		}
 
-		double top = probabilities.Values.Max();
-		var leaders = probabilities.Where(pair => pair.Value == top).ToList();
-		if (leaders.Count > 1) {
-			return new DecisionFailure {
-				Kind = InferenceFailureKind.InvalidResponse,
-				Detail = $"The provider tied {string.Join(" and ", leaders.Select(pair => $"'{pair.Key}'"))}.",
-				Receipt = receipt,
-			};
-		}
-		return new DecisionAnswer {
-			Choice = leaders[0].Key,
-			Probability = top,
-			Probabilities = probabilities,
-			Receipt = receipt,
-		};
+		var top = probabilities.MaxBy(pair => pair.Value);
+		return new InferenceSuccess<DecisionAnswer> { Value = new(top.Key, top.Value, probabilities), Receipt = receipt };
 	}
+
+	private static InferenceFailure<DecisionAnswer> Failure(InferenceFailureKind kind, string detail, InferenceReceipt? receipt) =>
+		new() { Kind = kind, Detail = detail, Receipt = receipt };
 }

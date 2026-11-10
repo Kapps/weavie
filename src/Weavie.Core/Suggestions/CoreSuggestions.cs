@@ -68,8 +68,6 @@ public static class CoreSuggestions {
 			],
 		});
 
-		// Offer a decision model once the user's own runs show what the agent costs them: five or more workflow
-		// decisions answered by the agent at a median of a second or more. The median keeps a cold start from skewing it.
 		registry.Register(new SuggestionDefinition {
 			Id = "decisions.model",
 			Title = "Faster workflow decisions?",

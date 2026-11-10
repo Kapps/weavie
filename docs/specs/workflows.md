@@ -308,10 +308,9 @@ flowchart LR
 ### Decisions
 
 `ModelWorkflowDecider` asks the decision service one choice question over the prepared evidence and returns the
-top label at its probability ([inference-providers.md](inference-providers.md)); it records each answer's provider
-and duration in the workspace's decision history. A decider returns an allowed choice and finite numeric confidence
-in `[0, 1]`, or refusal/failure. The engine
-validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
+top label at its probability ([inference-providers.md](inference-providers.md)); it records how long each
+agent-answered decision took in the workspace's decision history. A decider returns an allowed choice and finite
+numeric confidence in `[0, 1]`, or refusal/failure. The engine validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
 or the decision's optional `confidence:` override. Both model `if` and `then` support overrides; `by: user` rejects
 them. Each attempt captures its threshold before inference; changes affect subsequent attempts. Equality routes.
 The threshold is never included in the model prompt.

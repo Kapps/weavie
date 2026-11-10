@@ -36,25 +36,17 @@ public sealed class FileCredentialStoreTests : IDisposable {
 	}
 
 	[Fact]
-	public void AbsentSecretReadsAsNull() => Assert.Null(_store.Read("notion"));
-
-	[Fact]
-	public void EmptySecretFileThrows() {
-		Directory.CreateDirectory(_dir.Combine("credentials"));
+	public void EmptyOrUnreadableSecretThrows() {
+		Directory.CreateDirectory(_dir.Combine("credentials", "openai.key"));
 		File.WriteAllText(_dir.Combine("credentials", "notion.key"), "  \n");
 
 		Assert.Throws<InvalidOperationException>(() => _store.Read("notion"));
-	}
-
-	[Fact]
-	public void UnreadableSecretThrows() {
-		Directory.CreateDirectory(_dir.Combine("credentials", "notion.key"));
-
-		Assert.Throws<InvalidOperationException>(() => _store.Read("notion"));
+		Assert.Throws<InvalidOperationException>(() => _store.Read("openai"));
 	}
 
 	[Fact]
 	public void DeleteRemovesTheSecretAndToleratesAbsence() {
+		Assert.Null(_store.Read("notion"));
 		Assert.False(_store.Delete("notion"));
 		_store.Save("notion", new CredentialSecret("ntn_x"));
 

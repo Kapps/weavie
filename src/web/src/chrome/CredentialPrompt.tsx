@@ -1,6 +1,6 @@
 import { createSignal, type JSX, Show } from "solid-js";
-import { type CredentialPrompt as Prompt, submitCredential } from "../credentials/credential-store";
 import { openUrlExternal } from "../terminal/terminal-links";
+import { type CredentialPrompt as Prompt, submitCredential } from "./host-asks";
 import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
 
 // Paste-your-key dialog for any declared service. The host validates the key before saving it; a rejected key is

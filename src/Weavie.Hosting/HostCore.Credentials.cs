@@ -6,8 +6,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// Connect Service… / Disconnect Service… for every declared credential: open the vendor's key page, ask the page for the
-// pasted key, validate and save it, then run whatever the connect was for (e.g. open the Notion link that needed it).
+// Connect Service… / Disconnect Service… for every declared credential; a connect runs its continuation once the key is saved.
 public sealed partial class HostCore {
 	private const string NotConnected = "Not connected";
 
@@ -31,12 +30,11 @@ public sealed partial class HostCore {
 	private CommandResult ConnectService(HostSession session, string? id) {
 		if (id is not null) {
 			PromptConnect(session, id, static _ => { });
-			return CommandResult.Success();
+		} else {
+			var options = _credentials.Definitions.Select(definition => ServiceOption(definition, ConnectionGroup(definition.Id)));
+			ShowPicker(session, new ChoicePicker("Connect Service", string.Empty, ConnectedFirst(options)),
+				(owner, picked) => ConnectService(owner, picked));
 		}
-
-		var options = _credentials.Definitions.Select(definition => ServiceOption(definition, ConnectionGroup(definition.Id)));
-		ShowPicker(session, new ChoicePicker("Connect Service", string.Empty, ConnectedFirst(options)), (owner, picked) =>
-			PromptConnect(owner, picked, static _ => { }));
 		return CommandResult.Success();
 	}
 
@@ -106,8 +104,7 @@ public sealed partial class HostCore {
 	private static ChoiceOption[] ConnectedFirst(IEnumerable<ChoiceOption> options) =>
 		[.. options.OrderBy(option => option.Group == NotConnected)];
 
-	// A command finished from a picker or a connect prompt has no caller left to read its result, so it becomes a toast;
-	// a result with no message (the command opened its own dialog) shows nothing.
+	// A command finished from a picker or connect prompt has no caller to read its result, so a message becomes a toast.
 	private static void NotifyResult(HostSession session, Func<CommandResult> run) {
 		var result = Guard(run);
 		if ((result.Ok ? result.Message : result.Error) is { } message) {

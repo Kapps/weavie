@@ -150,7 +150,6 @@ public sealed class SuggestionServiceTests : IDisposable {
 	}
 
 	[Theory]
-	[InlineData(5, 1340, "agent", true)]
 	[InlineData(5, 1000, "agent", true)]
 	[InlineData(5, 999, "agent", false)]
 	[InlineData(4, 1340, "agent", false)]

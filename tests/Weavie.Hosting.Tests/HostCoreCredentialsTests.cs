@@ -13,18 +13,29 @@ public sealed class HostCoreCredentialsTests {
 	private const string Acme = """{ "bot": { "workspace_name": "Acme" } }""";
 
 	[Fact]
-	public async Task ConnectWithAService_OpensItsKeyPageAndPromptsForTheKey() {
+	public async Task ConnectWithAService_PromptsForTheKeyThenValidatesSavesAndAnnouncesIt() {
 		await using var host = await TestHost.StartAsync();
+		host.Http.Responder = _ => (HttpStatusCode.OK, Acme);
 
 		var result = await host.InvokeClientCommandAsync("weavie.credentials.connect", new { service = "notion" });
 
 		Assert.Equal((true, null), (result.Ok, result.Message));
 		var prompt = await Wait.ForAsync(() => Prompt(host));
-		Assert.Equal("notion", prompt.GetProperty("id").GetString());
-		Assert.Equal("Notion", prompt.GetProperty("displayName").GetString());
-		Assert.Equal("personal access token", prompt.GetProperty("keyNoun").GetString());
-		Assert.Equal("https://app.notion.com/developers/tokens", prompt.GetProperty("keyPageUrl").GetString());
+		Assert.Equal(("notion", "Notion", "personal access token", "https://app.notion.com/developers/tokens"), (
+			prompt.GetProperty("id").GetString(), prompt.GetProperty("displayName").GetString(),
+			prompt.GetProperty("keyNoun").GetString(), prompt.GetProperty("keyPageUrl").GetString()));
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
+
+		Assert.True((await SaveKey(host, " ntn_secret ")).GetProperty("ok").GetBoolean());
+
+		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(host.SelectedSession.Address, "notifications", "show"));
+		Assert.Equal("Connected Notion (Acme).", toast.GetProperty("message").GetString());
+		Assert.Equal("ntn_secret", File.ReadAllText(Path.Combine(host.CredentialsDir, "notion.key")));
+		Assert.Contains(host.Http.Requests, r => r.RequestUri!.AbsoluteUri.Contains("/v1/users/me")
+			&& r.Headers.Authorization is { Scheme: "Bearer", Parameter: "ntn_secret" });
+		var hosts = await Wait.ForAsync(() => host.Bridge.LastEvent("sources", "linkHosts"));
+		Assert.Contains("notion.so", hosts.GetProperty("hosts").EnumerateArray().Select(h => h.GetString()));
+		Assert.Null(await PromptAfterSync(host));
 	}
 
 	[Fact]
@@ -39,57 +50,19 @@ public sealed class HostCoreCredentialsTests {
 	}
 
 	[Fact]
-	public async Task SavedKey_IsValidatedSavedAndAnnounced() {
-		await using var host = await TestHost.StartAsync();
-		host.Http.Responder = _ => (HttpStatusCode.OK, Acme);
-		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.connect", new { service = "notion" })).Ok);
-
-		var result = await SaveKey(host, " ntn_secret ");
-
-		Assert.True(result.GetProperty("ok").GetBoolean());
-		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(host.SelectedSession.Address, "notifications", "show"));
-		Assert.Equal("Connected Notion (Acme).", toast.GetProperty("message").GetString());
-		Assert.Equal("ntn_secret", File.ReadAllText(Path.Combine(host.CredentialsDir, "notion.key")));
-		Assert.Contains(host.Http.Requests, r => r.RequestUri!.AbsoluteUri.Contains("/v1/users/me")
-			&& r.Headers.Authorization is { Scheme: "Bearer", Parameter: "ntn_secret" });
-		var hosts = await Wait.ForAsync(() => host.Bridge.LastEvent("sources", "linkHosts"));
-		Assert.Contains("notion.so", hosts.GetProperty("hosts").EnumerateArray().Select(h => h.GetString()));
-	}
-
-	[Fact]
-	public async Task RejectedKey_RepliesInlineAndIsNeverSaved() {
+	public async Task RejectedKeyOrValidationFault_RepliesInlineAndIsNeverSaved() {
 		await using var host = await TestHost.StartAsync();
 		host.Http.Responder = _ => (HttpStatusCode.Unauthorized, "{}");
 
-		var result = await SaveKey(host, "bad");
-
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.Contains("rejected", result.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
-		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
-	}
-
-	[Fact]
-	public async Task ValidationFault_StillRepliesSoTheDialogNeverHangs() {
-		await using var host = await TestHost.StartAsync();
-		// HttpClient's own request timeout surfaces as TaskCanceledException — the dialog must still get a result.
+		var rejected = await SaveKey(host, "bad");
+		// HttpClient's own request timeout surfaces as TaskCanceledException; the dialog must still get a result.
 		host.Http.Responder = _ => throw new TaskCanceledException();
+		var faulted = await SaveKey(host, "ntn_x");
 
-		var result = await SaveKey(host, "ntn_x");
-
-		Assert.False(result.GetProperty("ok").GetBoolean());
+		Assert.False(rejected.GetProperty("ok").GetBoolean());
+		Assert.Contains("rejected", rejected.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+		Assert.False(faulted.GetProperty("ok").GetBoolean());
 		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
-	}
-
-	[Fact]
-	public async Task SuccessfulConnect_DoesNotReplayThePrompt() {
-		await using var host = await TestHost.StartAsync();
-		host.Http.Responder = _ => (HttpStatusCode.OK, Acme);
-		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.connect", new { service = "notion" })).Ok);
-		await Wait.ForAsync(() => Prompt(host));
-
-		Assert.True((await SaveKey(host, "ntn_secret")).GetProperty("ok").GetBoolean());
-
-		Assert.Null(await PromptAfterSync(host));
 	}
 
 	[Fact]
@@ -140,7 +113,7 @@ public sealed class HostCoreCredentialsTests {
 	}
 
 	[Fact]
-	public async Task DisconnectWithAService_DeletesItsKey() {
+	public async Task DisconnectWithAService_DeletesItsKeyEvenAnUnreadableOne() {
 		await using var host = await TestHost.StartAsync();
 		host.SaveCredential("notion", "ntn_secret");
 
@@ -150,17 +123,9 @@ public sealed class HostCoreCredentialsTests {
 		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
 		Assert.Equal("Notion isn't connected.",
 			(await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Message);
-	}
-
-	[Fact]
-	public async Task DisconnectWithAService_DeletesAnUnreadableKey() {
-		await using var host = await TestHost.StartAsync();
-		Directory.CreateDirectory(host.CredentialsDir);
 		File.WriteAllText(Path.Combine(host.CredentialsDir, "notion.key"), " ");
-
-		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Ok);
-
-		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
+		Assert.Equal("Disconnected Notion.",
+			(await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Message);
 	}
 
 	[Fact]

@@ -84,7 +84,7 @@ and changeable up front. Changing the agent clears the profile it scoped.
 
 ## Decisions
 
-Decisions are the second ad-hoc surface: one choice question over typed evidence, answered with a probability for
+Decisions are the second ad-hoc surface: one choice question over evidence, answered with a probability for
 every label. `IDecisionService` applies the same policy gates and single time-bounded attempt, resolves the live
 `inference.decisionProvider` on every call, and picks the top label, rejecting a tie, a missing or unknown label, or a
 value outside `[0, 1]` without repairing the distribution. The `agent` provider runs a typed query through the

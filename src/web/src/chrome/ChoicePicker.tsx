@@ -1,7 +1,7 @@
 import type { JSX } from "solid-js";
 import { ControlMenu } from "./ControlMenu";
+import type { ChoicePickerRequest } from "./host-asks";
 import { ModalShell } from "./ModalShell";
-import type { ChoicePickerRequest } from "./picker-store";
 import "./choice-picker.css";
 
 /** A host-asked choice as a modal listbox: arrows move, Enter picks, Esc or a click outside dismisses, and a window blur does not. */

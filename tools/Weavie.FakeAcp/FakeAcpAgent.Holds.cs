@@ -19,6 +19,37 @@ internal sealed partial class FakeAcpAgent {
 		while (!File.Exists(Path.Combine(Environment.CurrentDirectory, "release-" + name))) await Task.Delay(10, ct).ConfigureAwait(false);
 	}
 
+	private void CompleteCommand() {
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = "completed-command",
+			["title"] = "Run command",
+			["kind"] = "execute",
+			["status"] = "in_progress",
+		});
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = "completed-command",
+			["status"] = "completed",
+		});
+	}
+
+	private async Task<JsonNode> CompletedToolThenHoldAsync(CancellationToken ct) {
+		CompleteCommand();
+		Message("Thinking after command");
+		await HoldOnceAsync("after-tool", ct).ConfigureAwait(false);
+		return new JsonObject { ["stopReason"] = "end_turn" };
+	}
+
+	private async Task<JsonNode> InteractionAlongsideToolAsync(bool input, CancellationToken ct) {
+		var interaction = input ? InputAsync(ct) : PermissionLifecycleAsync("initial", ct);
+		await HoldOnceAsync("parallel-tools", ct).ConfigureAwait(false);
+		CompleteCommand();
+		Message("Parallel command completed");
+		await interaction.ConfigureAwait(false);
+		return new JsonObject { ["stopReason"] = "end_turn" };
+	}
+
 	// Records how the client ended a terminal wait it was still serving, so a test can prove it was answered.
 	private async Task TerminalWaitAsync(CancellationToken ct) {
 		var created = await Connection().RequestAsync("terminal/create", new JsonObject {

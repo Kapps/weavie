@@ -4,10 +4,11 @@ import type { RailSession } from "./session-store";
 import {
   panelOrder,
   runStatus,
-  runTooltip,
   sessionDetail,
   sessionGroup,
+  sessionStatusLabel,
   sessionSubtitle,
+  sessionTooltip,
   statusDot,
 } from "./session-summary";
 
@@ -175,6 +176,33 @@ describe("run header", () => {
     expect(runStatus("stalled")).toBe("error");
   });
 
+  it("keeps workflow text, header and footer aligned with overriding session states", () => {
+    const run: SessionRun = {
+      id: "r",
+      workflow: "flow",
+      stage: "build",
+      state: "working",
+      reason: "",
+      agent: "",
+    };
+    for (const [patch, status, label, text] of [
+      [{ status: "needsInput" }, "needsInput", "Needs input", "needs input"],
+      [{ status: "error" }, "error", "Error", "error"],
+      [{ offline: true }, "offline", "Connection lost", "connection lost"],
+      [{ reloadRequired: "Reload to recover" }, "error", "Needs reload", "needs reload"],
+    ] as const) {
+      const current = session({ run, ...patch });
+      expect(statusDot(current)).toBe(status);
+      expect(sessionStatusLabel(current)).toBe(label);
+      expect(sessionTooltip(current)).toContain(`flow · build · ${text}`);
+      expect(sessionSubtitle(current, NOW)).toContain(text);
+    }
+    const waiting = session({ run: { ...run, state: "waitingOnYou" }, unseen: true });
+    expect(sessionStatusLabel(waiting)).toBe("Needs input");
+    expect(sessionTooltip(waiting)).toBe("flow · build · waiting on you");
+    expect(sessionStatusLabel(session({ status: "waiting" }))).toBe("Background work");
+  });
+
   it("spells out the run with its stage's own agent, adding its reason on a second line", () => {
     const run: SessionRun = {
       id: "r",
@@ -184,11 +212,11 @@ describe("run header", () => {
       reason: "",
       agent: "",
     };
-    expect(runTooltip(run)).toBe("ship-task · review · needs your answer");
-    expect(runTooltip({ ...run, reason: "Anything blocking?" })).toBe(
+    expect(sessionTooltip(session({ run }))).toBe("ship-task · review · needs your answer");
+    expect(sessionTooltip(session({ run: { ...run, reason: "Anything blocking?" } }))).toBe(
       "ship-task · review · needs your answer\nAnything blocking?",
     );
-    expect(runTooltip({ ...run, agent: "reviewer" })).toBe(
+    expect(sessionTooltip(session({ run: { ...run, agent: "reviewer" } }))).toBe(
       "ship-task · review on reviewer · needs your answer",
     );
   });

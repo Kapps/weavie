@@ -25,7 +25,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
-  answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
+  reply or decision, or a paused run, sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 Not built yet: `check`, `context` (`fork` / `fresh`), another provider's steps, child runs (`workflow`, `foreach`, `in`,
 `wait`, milestones), the new-session workflow picker, run history, suggestions, and model

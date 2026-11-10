@@ -17,7 +17,7 @@ description: Hold in a stage the user approves, then ship.
 stages:
   - id: implement
     run:
-      prompt: hold
+      prompt: completed-tool-then-hold
       outputs: { videos: list }
     then:
       ask: "${APPROVAL_QUESTION}"
@@ -61,16 +61,17 @@ async function writeWorkflow(dir: string, workflow: string): Promise<void> {
   );
 }
 
-// Starts TWO_STEP under `workflow` (its id and file name) and waits for its first stage to hold.
+// Starts TWO_STEP and holds its live turn after a command completes, before the prompt returns.
 async function startTwoStep(page: Page, workspace: string, branch: string, workflow: string) {
   const surface = await createAcpSession(page, branch);
   const worktree = sessionWorktrees(workspace)[0]!;
   await writeWorkflow(worktree, workflow);
+  await writeFile(join(worktree, "hold-after-tool"), "");
   await submitAcpDraft(
     surface,
     tool("runCommand", { id: "weavie.workflow.run", args: { workflow, inputs: {} } }),
   );
-  await expect.poll(() => existsSync(join(worktree, "hold-started"))).toBe(true);
+  await expect.poll(() => existsSync(join(worktree, "after-tool-started"))).toBe(true);
   return { surface, worktree };
 }
 
@@ -95,7 +96,7 @@ test("the session line follows the run through a user's answer to done", async (
   await expect(chip).toHaveAttribute("title", new RegExp(`^${branch} — implement · `));
   await expect(chip).not.toHaveAttribute("title", /needs your answer/);
 
-  await writeFile(join(worktree, "release-hold"), "");
+  await writeFile(join(worktree, "release-after-tool"), "");
   await expect(chip).toHaveAttribute("title", line(branch, "implement · waiting on you"));
 
   await submitAcpDraft(
@@ -136,11 +137,13 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   const run = surface.locator(".pane-head .pane-run");
   const dot = run.locator(".session-status");
   const sessionDot = page.locator(".session-chip.active .session-status");
+  const footerDot = page.locator('.terminal-surface[data-kind="terminal:shell"] .session-status');
 
   await expect(run).toHaveText("two-step · implement");
   await expect(run).toHaveAttribute("title", "two-step · implement · working");
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--busy"));
   await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--busy"));
+  await expect(footerDot).toHaveCSS("background-color", await tokenColor(page, "--busy"));
   await expect(dot).toHaveCSS("animation-name", "none");
   await expect(surface).toHaveClass(/\bactive\b/);
   const label = surface.locator(".pane-head .pane-label");
@@ -154,10 +157,12 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   await expect(run).toHaveCSS("font-weight", "400");
   await expect(run).toHaveCSS("color", await tokenColor(page, "--dim"));
 
-  await writeFile(join(worktree, "release-hold"), "");
+  await writeFile(join(worktree, "release-after-tool"), "");
   await expect(run).toHaveAttribute("title", "two-step · implement · waiting on you");
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
   await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(footerDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(footerDot.locator("..")).toHaveText("Needs input");
 
   await submitAcpDraft(
     surface,
@@ -173,6 +178,8 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   );
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
   await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(footerDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(footerDot.locator("..")).toHaveText("Needs input");
   await expect(dot).toHaveCSS("box-shadow", "none");
 
   await createAcpSession(page, "workflow-header-other");

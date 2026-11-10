@@ -194,7 +194,7 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | --- | --- |
 | `skill` / `prompt` | what to run; `skill` is sent as the provider's real slash command (`/spec <args>`) |
 | `args` | text passed to the skill |
-| `agent` | `{ provider, model, options }`, all provider-native |
+| `agent` | `{ provider, model, options }`, all provider-native ([workflow-agent-selection.md](workflow-agent-selection.md)) |
 | `context` | `continue`, `fork`, or `fresh` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
@@ -241,7 +241,9 @@ is the uniform channel for what the agent did, for terminal Claude and ACP agent
 (ACP config options; Claude's own switches). An unknown option or value fails the stage loudly, naming what the
 provider supports. A model that only answers typed choices (e.g. Jev, OpenAI Decisions) is valid only on decisions;
 this is checked at load. Provider-native ids are never inferred. Model aliases ("roles") are deferred: built-in
-workflows use only the defaults above, so they ship without naming a model.
+workflows use only the defaults above, so they ship without naming a model. Which model and provider run each step,
+and how a stage switches the model on the session's conversation, is designed in
+[workflow-agent-selection.md](workflow-agent-selection.md).
 
 ## Starting a run
 

@@ -65,11 +65,17 @@ public abstract record AgentMutation {
 	public sealed record Files(IReadOnlyList<File> Items) : AgentMutation;
 }
 
+/// <summary>A tool's mutation and whether another interaction still requires the user.</summary>
+public abstract record AgentToolEvent(AgentMutation Mutation) : AgentEvent {
+	/// <summary>Whether the provider still has an unanswered permission, input, or authentication request.</summary>
+	public bool RequiresUserInput { get; init; }
+}
+
 /// <summary>A tool is about to run.</summary>
-public sealed record AgentToolStarting(AgentMutation Mutation) : AgentEvent;
+public sealed record AgentToolStarting(AgentMutation Mutation) : AgentToolEvent(Mutation);
 
 /// <summary>A tool finished running.</summary>
-public sealed record AgentToolCompleted(AgentMutation Mutation) : AgentEvent;
+public sealed record AgentToolCompleted(AgentMutation Mutation) : AgentToolEvent(Mutation);
 
 /// <summary>The agent reported line-anchored review findings; relative paths resolve against <paramref name="Cwd"/>.</summary>
 public sealed record AgentReviewFindingsReported(IReadOnlyList<ReviewFinding> Findings, string? Cwd) : AgentEvent;

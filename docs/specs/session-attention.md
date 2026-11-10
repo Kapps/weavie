@@ -19,6 +19,27 @@ host.
 
 Startup, ordinary waiting, and return-to-work transitions do not raise attention.
 
+## Status presentation
+
+The session list, mobile inbox, workflow header, and terminal footer share one display status.
+Workflow state contributes to that status; an idle agent in an unfinished stage is waiting on the user,
+not a finished workflow. An agent error or pending input takes precedence over workflow progress.
+
+| State | Colour | Session group |
+| --- | --- | --- |
+| Starting, working, deciding | Blue | Working |
+| Scheduled or background work | Blue | Working |
+| Input required, workflow answer, paused run | Amber | Needs you |
+| Error, stalled run, reload required | Red | Needs you |
+| Unseen completed turn without a live workflow | Green | Finished |
+| Idle | Neutral | Idle |
+| Unloaded | Hollow neutral | Parked |
+
+A completed command does not end an active turn. Native ACP prompt delivery owns completion through
+publication, so cleanup from an earlier turn cannot clear its successor's running state. Tool activity
+also carries the native conversation's pending-input state: another command cannot clear an open
+approval or cause repeated attention notifications.
+
 ## Ownership and delivery
 
 `HostCore.WireAttention` subscribes to every loaded `HostSession`. On a classified transition it publishes:

@@ -40,6 +40,8 @@ internal sealed partial class AcpConversation {
 	private bool _ready;
 	private bool _disposed;
 	private bool _promptActive;
+	// Completion publication still owns the slot after the prompt response, including reentrant submissions.
+	private bool _promptDeliveryActive;
 	private bool _steering;
 	private bool _loadingTranscript;
 	private bool _sessionOpening;
@@ -178,8 +180,13 @@ internal sealed partial class AcpConversation {
 	}
 
 	internal void Observe(AgentEvent value) {
-		var feedback = _port.Observe(value);
-		foreach (string message in feedback.Messages) Notice(message);
+		lock (_turnTransitionGate) {
+			if (value is AgentToolEvent tool) {
+				lock (_gate) value = tool with { RequiresUserInput = HasPendingInteractionLocked() };
+			}
+			var feedback = _port.Observe(value);
+			foreach (string message in feedback.Messages) Notice(message);
+		}
 	}
 
 	/// <summary>Adds a host line to this conversation's transcript.</summary>

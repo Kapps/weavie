@@ -32,7 +32,7 @@ export const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--list-hover-fg": ["list.hoverForeground", "editor.foreground", "foreground"],
   "--dim": ["descriptionForeground", "editorLineNumber.foreground"],
   // Session-status accents for the pane/rail indicator, mapped to the ANSI/error palette so they
-  // re-theme live: --ok (idle/done), --warn (needs input), --bad (error), --busy (working/starting).
+  // re-theme live: --ok (finished), --warn (needs input), --bad (error), --busy (working/starting).
   "--ok": ["terminal.ansiGreen", "charts.green", "gitDecoration.addedResourceForeground"],
   "--warn": ["terminal.ansiYellow", "charts.yellow", "editorWarning.foreground"],
   "--bad": ["errorForeground", "terminal.ansiRed", "editorError.foreground"],

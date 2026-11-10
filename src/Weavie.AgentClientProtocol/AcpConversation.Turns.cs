@@ -48,7 +48,7 @@ internal sealed partial class AcpConversation {
 		bool steer = false;
 		lock (_gate) {
 			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
-				|| _steering && !_promptActive) {
+				|| (_steering || _promptDeliveryActive) && !_promptActive) {
 				return;
 			}
 			threadId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
@@ -62,6 +62,7 @@ internal sealed partial class AcpConversation {
 			} else {
 				submission = _pendingSubmissions.Dequeue();
 				_promptActive = true;
+				_promptDeliveryActive = true;
 				_waitingForBackground = false;
 				_turnNumber++;
 			}
@@ -141,14 +142,6 @@ internal sealed partial class AcpConversation {
 			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
-	}
-
-	private bool ClaimBackgroundSettleLocked() {
-		if (_promptActive || HasBackgroundWorkLocked() || !_waitingForBackground) {
-			return false;
-		}
-		_waitingForBackground = false;
-		return true;
 	}
 
 	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {

@@ -69,6 +69,12 @@ internal sealed partial class WorkflowTransitions(
 		return Pause(run with { Kickoff = null }, $"The agent couldn't finish stage \"{run.Stage}\": {reason}");
 	}
 
+	/// <summary>The current stage couldn't open, so its turn was never sent; the run pauses with <paramref name="reason"/>.</summary>
+	public WorkflowStep Halt(WorkflowRun run, string reason) {
+		Require(run, WorkflowPhase.Open, "open");
+		return Pause(run, reason);
+	}
+
 	/// <summary>The user answers the question the run is asking, with <paramref name="feedback"/> (empty for none).</summary>
 	public WorkflowStep Answer(WorkflowRun run, string choice, string feedback) {
 		Require(run, WorkflowPhase.Asking, "answer");

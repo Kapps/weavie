@@ -130,6 +130,9 @@ public sealed record WorkflowHold {
 	/// <summary>The name of the agent the values were held for.</summary>
 	public required string Agent { get; init; }
 
+	/// <summary>The stage the values were held for; once the run moves on, they are that stage's until the next opens.</summary>
+	public required string Stage { get; init; }
+
 	/// <summary>The session's own value of every axis the run may change.</summary>
 	public required Dictionary<string, string> Own { get; init; }
 

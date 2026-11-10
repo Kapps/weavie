@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.TestSupport;
 using Weavie.Workflows;
@@ -65,16 +67,22 @@ public sealed class HostCoreWorkflowAgentTests {
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("agent").GetString() == "builder");
 		Assert.Equal("GPT Test", session.Workflow.Current!.Hold!.Own["model"]);
 
+		session.Status.Observe(new AgentPromptSubmitted(null, "completing"));
 		session.Workflow.CompleteStage(Json("{}"), "built");
+		await WaitForRunLineAsync(host, session, line => line?.GetProperty("stage").GetString() == "ship");
+		Assert.Equal("", host.Bridge.PostedEvents(session.Address, "status", "run")[^1].GetProperty("run").GetProperty("agent").GetString());
+		session.Status.Observe(new AgentTurnStopped(false));
 		await WaitForEchoAsync(host, session, "ship it");
 		Assert.Equal(["apply model=GPT Next", "apply model=GPT Test"], provider.ControlChanges);
 		await WaitForNoticeAsync(host, session, "Workflow: ship runs on GPT Test");
-		await WaitForRunLineAsync(host, session, line => line?.GetProperty("agent").GetString() == "");
 		Assert.Null(session.Workflow.Current!.Hold);
+		Assert.All(
+			host.Bridge.PostedEvents(session.Address, "status", "run").Select(line => line.GetProperty("run")).Where(run => run.ValueKind == JsonValueKind.Object),
+			run => Assert.Contains(run.GetProperty("agent").GetString(), run.GetProperty("stage").GetString() == "build" ? ["builder", ""] : new[] { "" }));
 	}
 
 	[Fact]
-	public async Task AModelTheAgentRefusesPausesTheRunWithoutSendingTheTurn() {
+	public async Task AModelTheAgentRefusesReturnsTheConversationAndPausesWithoutSendingTheTurn() {
 		var (host, session, _) = await StartAsync();
 		await using var _ = host;
 		var run = session.Workflow.Start("agents", Json("{}"));
@@ -83,8 +91,54 @@ public sealed class HostCoreWorkflowAgentTests {
 		session.Workflow.Jump(run.Id, "broken");
 
 		await Eventually(() => session.Workflow.Current!.Phase == WorkflowPhase.Paused);
-		Assert.Contains("GPT Gone is gone.", session.Workflow.Current!.PausedReason, StringComparison.Ordinal);
+		Assert.Equal("GPT Gone is gone.", session.Workflow.Current!.PausedReason);
+		await WaitForNoticeAsync(host, session, "Workflow: broken didn't open, back on GPT Test");
+		Assert.Equal(("GPT Test", null), (Model(session), session.Workflow.Current.Hold));
 		Assert.DoesNotContain(Pane(host, session), m => m.GetProperty("text").GetString() == "echo: never sent");
+	}
+
+	[Fact]
+	public async Task AStageThatCantOpenReturnsTheConversationAndPausesWithItsOwnReason() {
+		using var state = new TempDirectory("weavie-workflow-open");
+		var (host, session, _) = await StartAsync();
+		await using var _ = host;
+		host.AgentProviders.Register(new AcpAgentProvider(
+			new AcpAgentDefinition {
+				Id = "effort-acp",
+				Name = "Effort ACP",
+				Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+				Arguments = [],
+				Environment = new Dictionary<string, string> { ["WEAVIE_FAKE_ACP_MODE"] = "model-effort", ["WEAVIE_ROOT"] = state.Path },
+			},
+			host.AcpSessions, new AcpControlStore(new LocalFileSystem(), state.Combine("acp-controls.json")), _ => { }));
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "effort", Base = "main", AgentProviderId = "effort-acp" })).Ok);
+		var effort = host.Session("effort");
+		await Eventually(() => effort.Agent.Controls!.ControlState.Ready);
+		File.WriteAllText(Path.Combine(effort.WorkspaceRoot, ".weavie", "workflows", "effort-on-alpha.yaml"), """
+			id: effort-on-alpha
+			description: effort exists only on beta
+			agents: { planner: { provider: effort-acp, model: alpha, options: { effort: high } } }
+			stages:
+			  - id: plan
+			    run: { prompt: "never sent", agent: planner }
+			""");
+		await effort.SetAgentControlAsync("model", "beta");
+		await Eventually(() => Model(effort) == "beta");
+
+		var run = effort.Workflow.Start("effort-on-alpha", Json("{}"));
+
+		await Eventually(() => effort.Workflow.Current!.Phase == WorkflowPhase.Paused);
+		const string reason = "Stage \"plan\" sets option \"effort\", which the agent doesn't advertise; it advertises fast.";
+		Assert.Equal(reason, effort.Workflow.Current!.PausedReason);
+		Assert.Null(effort.Workflow.Current.Hold);
+		await WaitForNoticeAsync(host, effort, "Workflow: plan didn't open, back on Beta");
+		Assert.Equal("beta", Model(effort));
+		Assert.Contains(host.Bridge.PostedEvents(effort.Address, "notifications", "show"), m => m.GetProperty("message").GetString() == $"Workflow effort-on-alpha paused: {reason}");
+		Assert.DoesNotContain(Pane(host, effort), m => m.GetProperty("text").GetString() == "never sent");
+
+		effort.Workflow.Resume(run.Id);
+		await Eventually(() => Pane(host, effort).Count(m => m.GetProperty("text").GetString() == "Workflow: plan didn't open, back on Beta") == 2);
+		Assert.Equal((WorkflowPhase.Paused, reason), (effort.Workflow.Current!.Phase, effort.Workflow.Current.PausedReason));
 	}
 
 	[Fact]

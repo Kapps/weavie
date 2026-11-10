@@ -149,7 +149,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		var kickoff = run.Kickoff!;
 		Assert.True(runner.Owes(kickoff));
 		Assert.False(runner.Owes(kickoff with { Opens = "" }));
-		var hold = new WorkflowHold { Agent = "builder", Own = new() { ["model"] = "alpha" }, Held = new() { ["model"] = "beta" } };
+		var hold = new WorkflowHold { Agent = "builder", Stage = "a", Own = new() { ["model"] = "alpha" }, Held = new() { ["model"] = "beta" } };
 		Assert.True(runner.SetHold(run.Id, hold));
 		Assert.False(runner.SetHold("r-000000000000", null));
 		var saved = WorkflowRunDocument.Read(_store.Text)!.Hold!;
@@ -160,6 +160,23 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.True(runner.SetHold(run.Id, hold));
 		Assert.Same(hold, runner.Start("flow", Json("{}")).Hold);
 		Assert.False(runner.SetHold(run.Id, null));
+	}
+
+	[Fact]
+	public void AStageThatCantOpenPausesWithItsReasonAloneAndResumeOpensItAgain() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		var kickoff = run.Kickoff!;
+
+		runner.RefuseOpen(kickoff with { Opens = "b" }, "stale");
+		Assert.Equal(WorkflowPhase.Open, runner.Current!.Phase);
+		runner.RefuseOpen(kickoff, "Stage \"a\" sets option \"fast\".");
+
+		Assert.Equal((WorkflowPhase.Paused, "Stage \"a\" sets option \"fast\"."), (runner.Current!.Phase, runner.Current.PausedReason));
+		Assert.Equal(["Workflow flow paused: Stage \"a\" sets option \"fast\"."], _port.Notices);
+		Assert.False(runner.Owes(kickoff));
+		runner.Resume(run.Id);
+		Assert.True(runner.Owes(kickoff));
 	}
 
 	[Fact]

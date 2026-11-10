@@ -15,7 +15,7 @@ public sealed partial class HostSession {
 		Status,
 		new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
 		_ => ReleaseWorkflowAsync(),
-		(_, ex) => Notify("error", $"Weavie couldn't return the agent to the session's own settings: {ex.Message}"));
+		(_, ex) => Notify("error", ReturnFailed + ex.Message));
 
 	// A conversation that reopened since the run ended already runs on the user's own values.
 	private void WireWorkflowHold() {
@@ -25,40 +25,63 @@ public sealed partial class HostSession {
 		};
 	}
 
-	// The opening stage's agent takes effect before its turn is sent; a stage that names none returns the
-	// conversation to the session's own values.
-	private async Task OpenStageAsync(WorkflowKickoff kickoff) {
+	// The opening stage's agent takes effect before its turn is sent, all or nothing: a stage that can't open returns
+	// the conversation to the session's own values and pauses the run unsent. A stage naming none returns it too.
+	private async Task<bool> OpenStageAsync(WorkflowKickoff kickoff) {
 		await _controlGate.WaitAsync().ConfigureAwait(false);
 		try {
-			if (!Workflow.Owes(kickoff) || Workflow.Current is not { } run) return;
-			string subject = $"{kickoff.Opens} runs";
+			if (!Workflow.Owes(kickoff) || Workflow.Current is not { } run) return false;
+			string? refusal = null;
 			if (Workflow.AgentOf(kickoff.Opens) is not { } agent) {
-				if (run.Hold is not { } own) return;
-				await HoldAsync(own, kickoff.Opens, null, subject).ConfigureAwait(false);
-				Workflow.SetHold(run.Id, null);
-				return;
+				if (run.Hold is not { } own) return true;
+				refusal = await ReturnAsync(run.Id, own, kickoff.Opens, $"{kickoff.Opens} runs").ConfigureAwait(false);
+			} else {
+				try {
+					await TakeAgentAsync(run, kickoff.Opens, agent).ConfigureAwait(false);
+				} catch (Exception ex) {
+					refusal = Workflow.Current is { Hold: { } held }
+						&& await ReturnAsync(run.Id, held, kickoff.Opens, $"{kickoff.Opens} didn't open, back").ConfigureAwait(false) is { } failed
+						? $"{ex.Message} {failed}"
+						: ex.Message;
+				}
 			}
 
-			var axes = StageControls.ControlState.Axes;
-			var held = new Dictionary<string, string>(StringComparer.Ordinal);
-			if (WorkflowAgentControls.Model(kickoff.Opens, agent, axes) is { } model) held[model.Axis] = model.Value;
-			foreach (var (axis, value) in agent.Options) held[axis] = value;
-			var hold = new WorkflowHold { Agent = agent.Name, Own = run.Hold?.Own ?? WorkflowAgentControls.Own(axes), Held = held };
-			if (Workflow.SetHold(run.Id, hold)) await HoldAsync(hold, kickoff.Opens, agent, subject).ConfigureAwait(false);
+			if (refusal is not null) Workflow.RefuseOpen(kickoff, refusal);
+			return refusal is null;
 		} finally {
 			_controlGate.Release();
 		}
 	}
 
+	private async Task TakeAgentAsync(WorkflowRun run, string stage, WorkflowAgent agent) {
+		var axes = StageControls.ControlState.Axes;
+		var held = new Dictionary<string, string>(StringComparer.Ordinal);
+		if (WorkflowAgentControls.Model(stage, agent, axes) is { } model) held[model.Axis] = model.Value;
+		foreach (var (axis, value) in agent.Options) held[axis] = value;
+		var hold = new WorkflowHold { Agent = agent.Name, Stage = stage, Own = run.Hold?.Own ?? WorkflowAgentControls.Own(axes), Held = held };
+		if (Workflow.SetHold(run.Id, hold)) await HoldAsync(hold, stage, agent, $"{stage} runs").ConfigureAwait(false);
+	}
+
+	// Returns the conversation to the session's own values and holds nothing; the failure when it couldn't, holding on.
+	private async Task<string?> ReturnAsync(string runId, WorkflowHold hold, string stage, string subject) {
+		try {
+			await HoldAsync(hold, stage, null, subject).ConfigureAwait(false);
+			Workflow.SetHold(runId, null);
+			return null;
+		} catch (Exception ex) {
+			return ReturnFailed + ex.Message;
+		}
+	}
+
+	private const string ReturnFailed = "Weavie couldn't return the agent to the session's own settings: ";
+
 	private async Task ReleaseWorkflowAsync() {
 		await _controlGate.WaitAsync().ConfigureAwait(false);
 		try {
 			if (Workflow.Current is not { IsFinished: true, Hold: { } hold } run) return;
-			try {
-				await HoldAsync(hold, run.Stage, null, $"{run.WorkflowId} ended, back").ConfigureAwait(false);
-			} finally {
-				Workflow.SetHold(run.Id, null);
-			}
+			if (await ReturnAsync(run.Id, hold, run.Stage, $"{run.WorkflowId} ended, back").ConfigureAwait(false) is not { } failed) return;
+			Workflow.SetHold(run.Id, null);
+			Notify("error", failed);
 		} finally {
 			_controlGate.Release();
 		}
@@ -105,7 +128,7 @@ public sealed partial class HostSession {
 		try {
 			if (Workflow.Current is { Hold: { } hold } run && controls.ControlState.Axes.FirstOrDefault(a => a.Id == axis) is { } picked
 				&& WorkflowAgentControls.Changeable(picked)) {
-				if (!run.IsFinished && run.Kickoff is not { Opens.Length: > 0 }) {
+				if (!run.IsFinished && hold.Stage == run.Stage && run.Kickoff is not { Opens.Length: > 0 }) {
 					Workflow.SetHold(run.Id, hold with { Held = new(hold.Held, StringComparer.Ordinal) { [axis] = value } });
 					try {
 						await controls.ApplyControlsAsync([new(axis, value)]).ConfigureAwait(false);

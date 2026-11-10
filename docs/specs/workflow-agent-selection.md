@@ -83,7 +83,7 @@ the agent advertises it, so a step never inherits the previous step's options.
 
 - A workflow change is never remembered as the user's default for that provider. Only the picker remembers.
 - The run persists one **hold**: the session's own value of every axis outside the `mode` category, recorded when a
-  step first takes an agent, and the values the open step holds over them (its agent's model and options, plus any
+  step first takes an agent, and the step and values it holds over them (its agent's model and options, plus any
   picks made during it). The hold is recorded before the change is applied. Every conversation that opens while the
   run is live (a restart, `/clear`, Rewind, a reload after a host restart) opens on the user's defaults overlaid with
   the held values, model first.
@@ -105,7 +105,12 @@ Nothing is substituted. Each refusal names the step, what it asked for, and what
 | Run start | any step with an `agent` on a terminal Claude session (use the Claude ACP agent); a step whose agent's provider differs from the session's, which covers an unknown or unavailable provider; a model the session's provider doesn't advertise; an option in the `mode` category; an unknown option or value on a step whose model is the one in effect |
 | Step open | a model, option, or value the conversation doesn't advertise at that moment |
 
-A refusal at run start leaves no run. A refusal at step open pauses the run with the reason.
+A refusal at run start leaves no run. A step opens all or nothing: when it can't, the conversation returns to the
+session's own values for every axis the step changed, with a transcript line (`Workflow: plan didn't open, back on
+Opus 5.5`), the run holds nothing, and the run pauses with the refusal as its reason, unsent: `Workflow spec-then-build
+paused: Stage "plan" sets option "fast", which the agent doesn't advertise; it advertises effort, ultracode, agent.`
+Resume opens the step again. When the return fails too, the reason adds why, and the hold stays for the run's end to
+return.
 
 The options an agent advertises depend on its model, so a step that switches the model has its options checked when it
 opens, after the switch. A run started by `weavie.session.new` starts before the new session's agent advertises
@@ -123,7 +128,8 @@ which is the authoritative list.
 - The pane's model control shows the running model with no new UI: the switch goes through the same control state.
 - Each change on the session's conversation adds one transcript line naming the model and every option the step sets:
   `Workflow: implement runs on Opus 5.5, Effort High`, and at the end `Workflow: spec-then-build ended, back on Fable 5.1`.
-- The header's run tooltip adds the step's agent when it holds values over the session's own:
+- The header's run tooltip adds the current step's agent while that step holds values over the session's own; between
+  a step completing and the next opening it names none:
   `spec-then-build · build on builder · working`.
 - Background steps show their provider and model on their background-work card.
 - The session list is unchanged.
@@ -146,8 +152,9 @@ checks agents against the advertised axes and words refusals.
 runner's lock. The stage's turn is delivered only while the session is idle; before sending it the session records the
 hold and calls `IStructuredAgentControls.ApplyControlsAsync`, an awaited, unremembered batch beside the picker's
 `SetControl` on the same ordered queue. It completes once the agent confirms each change, faults with the advertised
-values when one isn't offered at that moment, and faults when the conversation is replaced first. A fault fails the
-stage through the existing turn-failure path. The conversation reads the held values from `IAgentControlHold` when it
+values when one isn't offered at that moment, and faults when the conversation is replaced first. A fault returns the
+conversation to the session's own values and pauses the run through `WorkflowRunner.RefuseOpen`, which pauses only
+while the run still owes that stage's turn; the turn-failure path stays for a turn that couldn't be sent. The conversation reads the held values from `IAgentControlHold` when it
 opens, as it reads the stage block from `IAgentTurnContext`. Background steps will apply the same values when their
 `AcpConversation` opens.
 
@@ -159,7 +166,7 @@ flowchart LR
   Live --> Ok{confirmed?}
   Own --> Ok
   Ok -- yes --> Turn[Send the stage's turn]
-  Ok -- no --> Pause[Pause the run with the reason]
+  Ok -- no --> Back[Return to the session's own values] --> Pause[Pause the run with the reason]
 ```
 
 ## Verified behaviour

@@ -78,10 +78,11 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		var paused = run with { Phase = WorkflowPhase.Paused, PausedReason = "stuck" };
 		Assert.Equal("stuck", WorkflowRunSummary.From(paused, SessionStatus.Idle)!.Reason);
 		Assert.Equal("", WorkflowRunSummary.From(run, SessionStatus.Idle)!.Agent);
-		var hold = new WorkflowHold { Agent = "builder", Own = new() { ["model"] = "alpha" }, Held = [] };
+		var hold = new WorkflowHold { Agent = "builder", Stage = "a", Own = new() { ["model"] = "alpha" }, Held = [] };
 		Assert.Equal("", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
 		hold.Held["model"] = "beta";
 		Assert.Equal("builder", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
+		Assert.Equal("", WorkflowRunSummary.From(run with { Stage = "b", Hold = hold }, SessionStatus.Working)!.Agent);
 	}
 
 	[Theory]

@@ -150,6 +150,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The agent can't finish the current stage.</summary>
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
 
+	/// <summary>
+	/// The stage <paramref name="turn"/> opens couldn't open, so the turn is never sent and the run pauses with
+	/// <paramref name="reason"/>; nothing changes once the run no longer owes that turn.
+	/// </summary>
+	public void RefuseOpen(WorkflowKickoff turn, string reason) {
+		lock (_gate) {
+			if (Owes(turn)) Apply(Transitions().Halt(_run!, reason));
+		}
+	}
+
 	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
 	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback));
 

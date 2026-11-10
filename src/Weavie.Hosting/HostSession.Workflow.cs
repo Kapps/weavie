@@ -55,7 +55,7 @@ public sealed partial class HostSession {
 	}
 
 	private async Task SendWorkflowTurn(WorkflowKickoff kickoff) {
-		if (kickoff.Opens.Length > 0) await OpenStageAsync(kickoff).ConfigureAwait(false);
+		if (kickoff.Opens.Length > 0 && !await OpenStageAsync(kickoff).ConfigureAwait(false)) return;
 		if (Workflow.TryClaimKickoff(kickoff)) {
 			SendAgentInput(kickoff.Submission());
 		}

@@ -26,14 +26,26 @@ export function visibleSpellRanges(
 ): SpellSpan[] {
   const spans: SpellSpan[] = [];
   const unwrapped = editor.getOption(monaco.editor.EditorOption.wrappingInfo).wrappingColumn === -1;
-  const bounds = unwrapped ? editor.getDomNode()?.getBoundingClientRect() : undefined;
   const layout = editor.getLayoutInfo();
+  const reach = layout.contentWidth - layout.verticalScrollbarWidth;
+  const glyph = editor.getOption(
+    monaco.editor.EditorOption.fontInfo,
+  )?.typicalFullwidthCharacterWidth;
+  let bounds: DOMRect | undefined;
   for (const range of editor.getVisibleRanges()) {
     for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
       const limit = model.getLineMaxColumn(line) - 1;
       let start = line === range.startLineNumber ? range.startColumn - 1 : 0;
       let end = line === range.endLineNumber ? range.endColumn - 1 : limit;
-      if (unwrapped) {
+      // A scrolled view, or a line whose widest possible rendering outruns the viewport, needs hit-testing
+      // for its visible columns; a short line is visible whole, so scanning it reads no layout.
+      if (
+        unwrapped &&
+        (editor.getScrollLeft() > 0 ||
+          limit * glyph > reach ||
+          model.getLineContent(line).includes("\t"))
+      ) {
+        bounds ??= editor.getDomNode()?.getBoundingClientRect();
         const row = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
         if (bounds === undefined || row === null) continue;
         const y = bounds.top + Math.max(0, Math.min(layout.height - 1, row.top + row.height / 2));

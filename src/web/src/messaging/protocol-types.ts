@@ -317,6 +317,7 @@ export interface EditorOptionsSpec {
   markdownView: "preview" | "source";
   markdownChangeMarks: "current" | "all";
   paneShortcutHints: boolean;
+  fullscreenCenter: "window" | "container";
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;
   gitBlameMaxLines: number;

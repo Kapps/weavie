@@ -26,6 +26,10 @@
     {
       "path": "./lint/typography.grit",
       "includes": ["**/src/**/*.css", "!**/fonts.css", "!**/*.prose.css"]
+    },
+    {
+      "path": "./lint/font-tokens.grit",
+      "includes": ["**/src/**/*.css", "!**/src/styles.css"]
     }
   ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

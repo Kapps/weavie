@@ -190,8 +190,10 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   Editor-adjacent text uses `var(--font-content)` (small text inside it `--font-content-secondary-size`) and
   rendered documents `var(--font-prose)`; only these follow the editor font. Emphasis is the same role plus
   `--font-weight-emphasis` (`--font-weight-mono-bold` in the mono face), never a second `font-family`. Raw
-  `font`, `font-size`, `font-weight` and `line-height` fail `biome check`; `em` sizes live only in
-  `*.prose.css`. See [docs/concepts/design-system.md](docs/concepts/design-system.md).
+  `font`, `font-size`, `font-weight` and `line-height`, and `--font-*` declarations outside `styles.css`, fail
+  `biome check`. `em` font sizes live only in prose (`*.prose.css`, `SOURCE_STYLES`); new chrome geometry is
+  px, with `em` only where it should scale with the content font. See
+  [docs/concepts/design-system.md](docs/concepts/design-system.md).
 - **Build chrome from the primitives.** Lists and menus use `.ui-row`, buttons `.ui-button`, inputs
   `.ui-field`, section headings `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons
   `.ui-icon`; editor-font-sized surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title`
@@ -200,7 +202,8 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
 - **Alignment and height by construction.** Text beside text aligns on the baseline; an icon or control
   beside text sits in a box one line tall (`.ui-icon`). Rows and controls take their height from the row and
   control tokens — never from `em` padding, a literal height, or `align-items: center` over mixed sizes.
-  Touch sizes set `--row-pad` / `--control-h`, not `min-height`.
+  Touch sizes set the primitives' variables (`--row-pad`, `--control-h`, `--icon-button-size`,
+  `--pane-head-h`), not `min-height`.
 - **UI text is a title and control labels.** Any other line needs a reason: a warning, an input format, a
   limitation, a keyboard hint. No description by default — rename the options instead (data-supplied
   descriptions are exempt). No heading that restates its container. A tooltip is the command name plus its

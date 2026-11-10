@@ -160,14 +160,6 @@ export function OpenPrPrompt(props: {
             </li>
           </ul>
         </Show>
-        <Show when={directRef() === null && loading()}>
-          <div class="session-prompt-hint">Searching pull requests…</div>
-        </Show>
-        <Show when={directRef() === null && !loading() && results().length === 0}>
-          <div class="session-prompt-hint">
-            No matching pull requests (or no GitHub credential).
-          </div>
-        </Show>
         <Show when={directRef() === null && results().length > 0}>
           <ul class="session-prompt-suggestions">
             <For each={results()}>
@@ -195,6 +187,12 @@ export function OpenPrPrompt(props: {
               )}
             </For>
           </ul>
+        </Show>
+      </div>
+      <div class="session-prompt-hint">
+        <Show when={directRef() === null && loading()}>Searching pull requests…</Show>
+        <Show when={directRef() === null && !loading() && results().length === 0}>
+          No matching pull requests (or no GitHub credential).
         </Show>
       </div>
     </ModalShell>

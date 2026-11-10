@@ -3,19 +3,19 @@ language css
 CssGenericProperty(name=$p, value=$v) as $d where {
   or {
     and {
-      $p <: r"^font-size$",
+      $p <: r"(?i)^font-size$",
       not $v <: r"^(?:inherit|var\(--font-(?:chrome-hero|chrome-display|chrome-lead|chrome-title|chrome|chrome-secondary|chrome-badge|content|content-secondary|content-title|prose)-size\))$"
     },
     and {
-      $p <: r"^font-weight$",
+      $p <: r"(?i)^font-weight$",
       not $v <: r"^(?:inherit|var\(--font-(?:weight-regular|weight-emphasis|weight-mono-bold|content-weight|prose-weight)\))$"
     },
     and {
-      $p <: r"^line-height$",
+      $p <: r"(?i)^line-height$",
       not $v <: r"^(?:inherit|var\(--font-(?:chrome-line|chrome-line-wrap|chrome-display-line|chrome-hero-line|content-line|content-row-line|prose-line)\))$"
     },
     and {
-      $p <: r"^font$",
+      $p <: r"(?i)^font$",
       not $v <: r"^(?:inherit|var\(--font-(?:chrome-hero|chrome-display|chrome-lead|chrome-title|chrome-body|chrome-body-wrap|chrome-secondary|chrome-badge|chrome-mono|content|prose)\))$"
     }
   },

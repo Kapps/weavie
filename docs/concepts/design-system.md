@@ -55,9 +55,11 @@ Content roles follow the editor font — `font.size` and `editor.font.size`, inc
 | `--font-content-row-line` | editor size × 1.5 | line box of content rows, buttons and fields |
 | `--font-prose` | prose family, editor size; line 1.5 | rendered documents: agent markdown, preview, plans, PR comments |
 
-`em` font sizes and `em` spacing tied to them are allowed only in the four `*.prose.css` files
-(`agent/agent-markdown.prose.css`, `editor/preview/preview.prose.css`, `editor/plan.prose.css`,
-`editor/comment.prose.css`), where headings and inline code scale with the document. Chrome geometry is px.
+`em` font sizes are allowed only in prose: the four `*.prose.css` files (`agent/agent-markdown.prose.css`,
+`editor/preview/preview.prose.css`, `editor/plan.prose.css`, `editor/comment.prose.css`) and `SOURCE_STYLES`
+(`editor/source/source-styles.ts`), prose CSS held in TypeScript. New chrome geometry is px; `em` geometry belongs
+where it should scale with the content font, as in the agent transcript and the preview, though some older chrome
+rules still use it (connection banner, update card, shell tabs, parts of the review view).
 
 ## Primitives
 
@@ -67,13 +69,15 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-row`** — 26px list/menu row, baseline-aligned, body role. Variants: `-compact` (24px), `-content`
   (editor-font line box), `-stack` (multi-line; `min-height` instead of a fixed height). Slots:
   `.ui-row-text` (label column), `.ui-row-desc` (secondary, dim), `.ui-row-end` (trailing shortcut or meta).
-- **`.ui-icon`** — inline box one line tall (`--row-line`), top-aligned, its `svg` at `--icon-size`.
+- **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
+  top-aligned, its `svg` at `--icon-size`.
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
   `-content` (editor-font sized), `-primary`, `-danger`. **`.ui-icon-button`** — 20px square, no border.
 - **`.ui-field`** — 28px text input. Variants: `-mono`, `-content` (editor-font sized).
 - **`.ui-section-label`** — the section heading style.
-- **`.ui-kbd`** — key hint chip, badge role, on a `<span>`; `-plain` drops the chip border. Inside a button
-  it is `aria-hidden` so the accessible name stays the label.
+- **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
+  `<small>`); `-plain` drops the chip border. Inside a button it is `aria-hidden` so the accessible name
+  stays the label.
 - **`ModalShell`** (`chrome/ModalShell.tsx`, styled by `editor/confirm-dialog.css`) — every dialog. It
   renders the title role in `header.confirm-head > h2.confirm-title` (with an optional `titleEnd`), the body,
   and `footer.confirm-actions`; a surface that draws its own display heading passes `labelledBy` instead of
@@ -88,8 +92,9 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
   same construction gives `-content` rows a height that grows with the editor font instead of clipping.
 - **Icons and controls beside text** sit in `.ui-icon`, a box one line tall, top-aligned so they stay on the
   first line of a wrapping row.
-- **Touch sizes** set the variables (`--row-pad`, `--control-h`) on the compact-mode selectors; a
-  `min-height` on a fixed-height row would leave the text top-aligned.
+- **Touch sizes** set the primitives' variables (`--row-pad`, `--control-h`, `--icon-button-size`,
+  `--pane-head-h`) on the compact-mode selectors; a `min-height` on a fixed-height row would leave the text
+  top-aligned.
 
 ```mermaid
 flowchart TB
@@ -127,11 +132,15 @@ unlayered `button { font: inherit }` would beat every `.ui-button`.
 
 ## Enforcement
 
-- **Lint.** `src/web/lint/typography.grit`, registered under `plugins` in `src/web/biome.json`, runs in
-  `biome check` over every `src/**/*.css`. A `font`, `font-size`, `font-weight` or `line-height` must be
-  `inherit` or exactly `var(--font-…)` of a listed token. The list is closed, so the plugin is the token
-  registry: an invented `--font-my-thing` fails. Token definitions are custom properties and never match.
-- **Exemptions.** `fonts.css` (`@font-face` descriptors) and `*.prose.css`.
+- **Lint.** Two GritQL plugins, registered under `plugins` in `src/web/biome.json`, run in `biome check` over
+  `src/**/*.css`. Property names match in any case.
+  - `lint/typography.grit`: a `font`, `font-size`, `font-weight` or `line-height` must be `inherit` or
+    exactly `var(--font-…)` of a listed token. The list is closed, so the plugin is the token registry: an
+    invented `--font-my-thing` fails.
+  - `lint/font-tokens.grit`: a `--font-*` custom property may be declared only in `src/styles.css`, so no
+    feature rule can redefine a role token.
+- **Exemptions.** `typography.grit` skips `fonts.css` (`@font-face` descriptors) and `*.prose.css`;
+  `font-tokens.grit` skips only `styles.css`.
 - **Reviewer.** The lint does not see `font-family`, CSS held in TypeScript (`SOURCE_STYLES`), inline
   `style`, alignment, heights or UI text. `AGENTS.md` states those rules and `weavie-reviewer` checks them:
   hand-styled controls, dialog titles outside `ModalShell`, centred mixed-size rows, `em` or literal

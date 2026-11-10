@@ -25,19 +25,34 @@ public sealed partial class HostCore {
 		if (ActiveReview(session) is not { } review) return ReviewHeadSnapshot.None;
 		var git = new GitService();
 		try {
-			string branch = await git.GetCurrentBranchAsync(review.Worktree, ct).ConfigureAwait(false) ?? string.Empty;
-			// Read after the branch: an operation that detaches HEAD records itself before it does.
-			if (branch != review.Branch) {
-				return await git.IsRebasingOrBisectingAsync(review.Worktree, ct).ConfigureAwait(false)
-					? ReviewHeadSnapshot.Waiting
-					: new(review, branch, null);
-			}
-
-			return new(review, branch, await git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", ct).ConfigureAwait(false));
+			return await ReadReviewHeadAsync(
+				review,
+				token => git.GetCurrentBranchAsync(review.Worktree, token),
+				token => git.IsRebasingOrBisectingAsync(review.Worktree, token),
+				token => git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", token),
+				ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Log($"[weavie] review '{review.Label}': couldn't read its branch: {ex.Message}");
 			return ReviewHeadSnapshot.None;
 		}
+	}
+
+	internal static async Task<ReviewHeadSnapshot> ReadReviewHeadAsync(
+		ReviewContext review,
+		Func<CancellationToken, Task<string?>> readBranch,
+		Func<CancellationToken, Task<bool>> operationInProgress,
+		Func<CancellationToken, Task<string?>> readMergeBase,
+		CancellationToken ct) {
+		string branch = await readBranch(ct).ConfigureAwait(false) ?? string.Empty;
+		if (branch != review.Branch) {
+			if (await operationInProgress(ct).ConfigureAwait(false)) return ReviewHeadSnapshot.Waiting;
+			// A finishing rebase restores its branch before removing its marker; use that restored identity.
+			branch = await readBranch(ct).ConfigureAwait(false) ?? string.Empty;
+		}
+
+		return new(review, branch, branch == review.Branch
+			? await readMergeBase(ct).ConfigureAwait(false)
+			: null);
 	}
 
 	private async Task FollowReviewHeadAsync(HostSession session, ReviewHeadSnapshot head, CancellationToken ct) {

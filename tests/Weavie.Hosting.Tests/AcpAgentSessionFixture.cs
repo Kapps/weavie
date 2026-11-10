@@ -696,6 +696,8 @@ internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 
 	public void Notify(string message) {
 	}
+
+	public string? Refusal(WorkflowDefinition definition) => null;
 }
 
 internal sealed class UnusedWorkflowDecider : IWorkflowDecider {

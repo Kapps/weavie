@@ -21,7 +21,7 @@ public static partial class WorkflowSchema {
 	private static partial Regex NamePattern();
 
 	[GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9:_.-]*$")]
-	private static partial Regex SkillPattern();
+	private static partial Regex NativeIdPattern();
 
 	private static WorkflowShape Build() {
 		const string idHint = "lowercase words joined by hyphens";
@@ -34,9 +34,19 @@ public static partial class WorkflowSchema {
 			new("prompt", new TextShape("Instruction text sent as the stage's turn; may use {{…}} references."), false),
 			new("skill", new TextShape(
 				"A skill or slash command the agent already has, without the leading slash.",
-				SkillPattern(), "a skill name without the leading slash"), false),
+				NativeIdPattern(), "a skill name without the leading slash"), false),
 			new("args", new TextShape("Text passed after the skill name; may use {{…}} references."), false),
 			new("outputs", outputs, false),
+			new("agent", new TextShape(
+				"The name of an agents entry that runs this step; omit to run on the session's own model.", IdPattern(), idHint), false),
+		]);
+		var agent = new ObjectShape("An agent steps refer to by name; every id is the provider's own, never inferred.", [
+			new("provider", new TextShape(
+				"The provider id, e.g. claude-acp; a step using the agent runs only in that provider's sessions."), true),
+			new("model", new TextShape("The provider's model id; omit for the session's model as it stands."), false),
+			new("options", new MapShape(
+				"The provider's config option values by option id, applied after the model.",
+				NativeIdPattern(), "a provider config option id", new TextShape("The option's value id.")), false),
 		]);
 		var ask = new TextShape(
 			"Ask about observable criteria, one concern per question. A model has no tools or conversation history: it sees "
@@ -81,6 +91,7 @@ public static partial class WorkflowSchema {
 			new("inputs", new MapShape(
 				"Values the run starts with, by name; a ? suffix on the type marks one optional.",
 				NamePattern(), nameHint, new EnumShape("The value's type.", inputTypes)), false),
+			new("agents", new MapShape("Agents steps refer to by name.", IdPattern(), idHint, agent), false),
 			new("stages", new ListShape("The stages, run in order unless a stage's then says otherwise.", stage), true),
 		]);
 	}

@@ -10,6 +10,9 @@ public interface IWorkflowRunPort {
 
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
+
+	/// <summary>Why this session can't run <paramref name="definition"/>, or <see langword="null"/>; called outside the runner's lock.</summary>
+	string? Refusal(WorkflowDefinition definition);
 }
 
 /// <summary>
@@ -104,6 +107,10 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	/// <summary>Starts the resolved <paramref name="launch"/>; refuses while another run is live.</summary>
 	public WorkflowRun Start(WorkflowLaunch launch) {
+		if (_port.Refusal(launch.Definition) is { } refusal) {
+			throw new WorkflowException(refusal);
+		}
+
 		lock (_gate) {
 			if (_closed) {
 				throw new WorkflowException("This session is closing; it can't start a workflow run.");
@@ -115,7 +122,8 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 			_definition = launch.Definition;
 			Problem = null;
-			Apply(Transitions().Start($"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}", launch.SourcePath, launch.Inputs));
+			Apply(Transitions().Start(
+				$"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}", launch.SourcePath, launch.Inputs, _run?.Hold));
 			return _run!;
 		}
 	}
@@ -154,17 +162,43 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The user cancels run <paramref name="runId"/>.</summary>
 	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
 
+	/// <summary>The agent that runs stage <paramref name="stage"/> of the run's definition, or <see langword="null"/> for the session's own.</summary>
+	public WorkflowAgent? AgentOf(string stage) {
+		lock (_gate) {
+			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
+			return definition.Stages.First(s => s.Id == stage).Run.Agent is { } name ? definition.Agents.First(a => a.Name == name) : null;
+		}
+	}
+
+	/// <summary>Whether the run still owes exactly <paramref name="turn"/>.</summary>
+	public bool Owes(WorkflowKickoff turn) {
+		lock (_gate) {
+			return !_closed && _run?.Kickoff == turn;
+		}
+	}
+
+	/// <summary>Records the control values the run holds, on a live or finished run.</summary>
+	public void SetHold(WorkflowHold? hold) {
+		lock (_gate) {
+			if (_closed || _run is null) {
+				throw new WorkflowException("This session has no workflow run to hold its controls.");
+			}
+
+			Commit(_run with { Hold = hold }, []);
+		}
+	}
+
 	/// <summary>
 	/// Claims <paramref name="turn"/> for sending: true only while the run still owes exactly that turn, which it then
 	/// stops owing. A turn the run no longer owes (cancelled, paused, replaced, or the session closing) is never sent.
 	/// </summary>
 	public bool TryClaimKickoff(WorkflowKickoff turn) {
 		lock (_gate) {
-			if (_closed || _run?.Kickoff != turn) {
+			if (!Owes(turn)) {
 				return false;
 			}
 
-			Commit(_run with { Kickoff = null }, []);
+			Commit(_run! with { Kickoff = null }, []);
 			return true;
 		}
 	}

@@ -11,8 +11,11 @@ internal sealed partial class WorkflowTransitions(
 	private const string Yes = "yes";
 	private const string No = "no";
 
-	/// <summary>A new run of the definition with <paramref name="inputs"/>, entering its first stage.</summary>
-	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs) {
+	/// <summary>
+	/// A new run of the definition with <paramref name="inputs"/>, entering its first stage; it keeps the
+	/// predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
+	/// </summary>
+	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, WorkflowHold? hold) {
 		var run = new WorkflowRun {
 			Id = runId,
 			WorkflowId = definition.Id,
@@ -30,6 +33,7 @@ internal sealed partial class WorkflowTransitions(
 			Note = "",
 			PausedReason = null,
 			Kickoff = null,
+			Hold = hold,
 		};
 		return Enter(run, definition.Stages[0].Id);
 	}
@@ -194,8 +198,8 @@ internal sealed partial class WorkflowTransitions(
 		}
 
 		var kickoff = stage.Run.Skill is { } skill
-			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill }
-			: WorkflowKickoff.Prompt(Join(run.Note, rendered));
+			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
+			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
 		return new WorkflowStep(
 			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);

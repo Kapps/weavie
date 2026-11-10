@@ -100,9 +100,9 @@ public sealed class WorkflowAdapterTests : IDisposable {
 	}
 
 	[Fact]
-	public void KickoffRoundTripsThroughAnAgentTurn() {
-		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec" };
-		Assert.Equal(skill, skill.Submission().Kickoff());
+	public void AKickoffBecomesAnAgentTurnOfItsKind() {
+		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" };
+		Assert.Equal(("/spec x", "spec"), (skill.Submission().Text, skill.Submission().CommandName));
 		Assert.Equal(AgentTurnSubmissionKind.ProviderCommand, skill.Submission().Kind);
 		Assert.Equal(AgentTurnSubmissionKind.Prompt, WorkflowKickoff.Prompt("go").Submission().Kind);
 	}
@@ -118,5 +118,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 		public void Notify(string message) {
 		}
+
+		public string? Refusal(WorkflowDefinition definition) => null;
 	}
 }

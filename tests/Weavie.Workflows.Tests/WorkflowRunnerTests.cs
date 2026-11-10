@@ -122,6 +122,45 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	}
 
 	[Fact]
+	public void ARefusedStartLeavesNoRun() {
+		_port.Refuses = "not here";
+		using var runner = Runner();
+		Assert.Equal("not here", Assert.Throws<WorkflowException>(() => runner.Start("flow", Json("{}"))).Message);
+		Assert.Null(runner.Current);
+		Assert.Empty(_port.Kickoffs);
+	}
+
+	[Fact]
+	public void TheHoldPersistsOutlivesItsRunAndPassesToTheNextOne() {
+		_dir.WriteFile("worktree/.weavie/workflows/held.yaml", """
+			id: held
+			description: d
+			agents: { builder: { provider: fake-acp, model: beta } }
+			stages:
+			  - id: a
+			    run: { prompt: "do a", agent: builder }
+			  - id: b
+			    run: { prompt: "do b" }
+			""");
+		using var runner = Runner();
+		var run = runner.Start("held", Json("{}"));
+		Assert.Equal("beta", runner.AgentOf("a")!.Model);
+		Assert.Null(runner.AgentOf("b"));
+		var kickoff = run.Kickoff!;
+		Assert.True(runner.Owes(kickoff));
+		Assert.False(runner.Owes(kickoff with { Opens = "" }));
+		var hold = new WorkflowHold { Agent = "builder", Own = new() { ["model"] = "alpha" }, Held = new() { ["model"] = "beta" } };
+		runner.SetHold(hold);
+		var saved = WorkflowRunDocument.Read(_store.Text)!.Hold!;
+		Assert.Equal(("builder", "alpha", "beta"), (saved.Agent, saved.Own["model"], saved.Held["model"]));
+		Assert.True(runner.TryClaimKickoff(kickoff));
+		Assert.False(runner.Owes(kickoff));
+		runner.Cancel(run.Id);
+		runner.SetHold(hold);
+		Assert.Same(hold, runner.Start("flow", Json("{}")).Hold);
+	}
+
+	[Fact]
 	public void UserCommandsTargetOnlyTheLiveRun() {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
@@ -171,7 +210,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		_port.Kickoffs.Clear();
 		using (var reloaded = Runner()) {
 			Assert.Equal(["do a"], _port.Kickoffs);
-			Assert.True(reloaded.TryClaimKickoff(WorkflowKickoff.Prompt("do a")));
+			Assert.True(reloaded.TryClaimKickoff(WorkflowKickoff.Prompt("do a") with { Opens = "a" }));
 		}
 
 		_port.Kickoffs.Clear();
@@ -300,6 +339,10 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		public void Kickoff(WorkflowKickoff turn) => Kickoffs.Add(turn.Text);
 
 		public void Notify(string message) => Notices.Add(message);
+
+		public string? Refuses { get; set; }
+
+		public string? Refusal(WorkflowDefinition definition) => Refuses;
 	}
 
 	private sealed class MemoryStore : IWorkflowRunStore {

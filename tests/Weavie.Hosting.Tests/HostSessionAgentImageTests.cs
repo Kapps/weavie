@@ -49,6 +49,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		session.Status.Observe(new AgentSessionStarted("startup"));
 		session.Status.Observe(new AgentSessionStarted("resume"));
 
+		await structured.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 		var submission = Assert.Single(structured.Submissions);
 		Assert.Equal("start here", submission.Text);
 		var attachment = Assert.Single(submission.Attachments);
@@ -165,7 +166,12 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
 
-		public void Submit(AgentTurnSubmission submission) => Submissions.Add(submission);
+		public TaskCompletionSource Submitted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public void Submit(AgentTurnSubmission submission) {
+			Submissions.Add(submission);
+			Submitted.TrySetResult();
+		}
 
 		public void PrefillPrompt(string prompt) { }
 

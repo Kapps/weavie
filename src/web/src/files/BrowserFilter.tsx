@@ -145,7 +145,7 @@ export function BrowserFilter(props: {
                     role="option"
                     id={`${listId}-${index()}`}
                     aria-selected={index() === navigation.index()}
-                    class="browser-row browser-filter-result file-tree-row"
+                    class="browser-row browser-filter-result file-tree-row ui-row ui-row-stack"
                     classList={{
                       selected: index() === navigation.index(),
                       active:
@@ -154,15 +154,15 @@ export function BrowserFilter(props: {
                     title={match.row.rel}
                     onClick={() => props.onOpen(match.row.abs)}
                   >
-                    <span class="browser-icon file-tree-icon">
+                    <span class="browser-icon file-tree-icon ui-icon">
                       <File />
                     </span>
-                    <span class="browser-filter-path">
+                    <span class="browser-filter-path ui-row-text">
                       <span class="browser-name file-tree-name">
                         {highlightSlice(match.row.leaf, match.positions, match.row.leafStart)}
                       </span>
                       <Show when={match.row.dir.length > 0}>
-                        <span class="browser-filter-dir">
+                        <span class="browser-filter-dir ui-row-desc">
                           {highlightSlice(match.row.dir, match.positions, 0)}
                         </span>
                       </Show>

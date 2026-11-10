@@ -71,7 +71,10 @@ export function OverviewConversation(props: {
         when={composing()}
         fallback={
           <button type="button" class="session-overview-compose" onClick={() => setComposing(true)}>
-            <MessageSquarePlus size="1em" /> Comment on this pull request…
+            <span class="ui-icon">
+              <MessageSquarePlus />
+            </span>
+            Comment on this pull request…
           </button>
         }
       >

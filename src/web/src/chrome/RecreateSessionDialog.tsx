@@ -77,6 +77,7 @@ function RecreateSessionDialog(props: { session: RailSession; onClose: () => voi
             title={confirming() ? "Recreate session" : "Continue"}
             onClick={() => void submit()}
             disabled={busy() || !provider()?.available}
+            primary
           />
         </>
       }
@@ -93,7 +94,7 @@ function RecreateSessionDialog(props: { session: RailSession; onClose: () => voi
         <Show
           when={confirming()}
           fallback={
-            <label>
+            <label class="confirm-field">
               Agent for “{props.session.label}”
               <select
                 class="ui-field"

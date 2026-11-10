@@ -1,3 +1,4 @@
+import { Minus } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { keyHint } from "../commands/key-hint";
@@ -71,12 +72,12 @@ export function UpdateIndicator(): JSX.Element {
                 <span class="update-card-title">Update ready</span>
                 <button
                   type="button"
-                  class="update-card-collapse"
+                  class="update-card-collapse ui-icon-button"
                   title="Collapse"
                   aria-label="Collapse update details"
                   onClick={() => setOpen(false)}
                 >
-                  –
+                  <Minus />
                 </button>
               </div>
               <span class="update-card-body">
@@ -88,7 +89,7 @@ export function UpdateIndicator(): JSX.Element {
               </ul>
               <button
                 type="button"
-                class="update-card-restart"
+                class="update-card-restart ui-button"
                 title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
                 onClick={() => void runCommandWithFeedback(CommandIds.restartForUpdate)}
               >

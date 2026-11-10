@@ -46,8 +46,24 @@
   overflow-wrap: anywhere;
 }
 
+.confirm-body > p {
+  margin: 8px 0 0;
+}
+
+.confirm-body > p:first-child {
+  margin-top: 0;
+}
+
+/* A labelled control on its own line below its label. */
+.confirm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .confirm-actions {
   display: flex;
+  align-items: baseline;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;

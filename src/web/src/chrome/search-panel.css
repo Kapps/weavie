@@ -6,35 +6,6 @@
   overflow: hidden;
 }
 
-.search-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  background: transparent;
-  color: var(--dim);
-  border: none;
-  border-radius: 3px;
-  padding: 2px;
-  cursor: pointer;
-}
-
-.search-icon-btn svg {
-  width: 1.15em;
-  height: 1.15em;
-}
-
-.search-icon-btn:hover {
-  color: var(--fg);
-}
-
-.search-icon-btn.active {
-  color: var(--accent);
-}
-
-.search-icon-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .search-input-row {
   flex: 0 0 auto;
   display: flex;
@@ -51,24 +22,18 @@
 }
 
 .search-input-icon svg {
-  width: 1.05em;
-  height: 1.05em;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .search-input {
   flex: 1 1 auto;
   min-width: 0;
-  background: var(--bar);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font: inherit;
 }
 
-.search-input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
+.search-input,
+.search-glob {
+  background: var(--bar);
 }
 
 /* The match-option toggles (Aa / word / regex); `active` mirrors aria-pressed. */
@@ -90,8 +55,8 @@
 }
 
 .search-toggle svg {
-  width: 1.15em;
-  height: 1.15em;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 .search-toggle:hover {
@@ -119,25 +84,11 @@
   border-bottom: 1px solid var(--border);
 }
 
-.search-glob {
-  background: var(--bar);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 8px;
-  font: inherit;
-}
-
-.search-glob:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .search-summary {
+  font: var(--font-chrome-secondary);
   flex: 0 0 auto;
   padding: 6px 12px;
   color: var(--dim);
-  font-size: var(--font-hint-size);
   border-bottom: 1px solid var(--border);
 }
 
@@ -146,10 +97,10 @@
 }
 
 .search-error {
+  font: var(--font-chrome-secondary);
   flex: 0 0 auto;
   padding: 6px 12px;
   color: var(--err, #e06c75);
-  font-size: var(--font-hint-size);
   border-bottom: 1px solid var(--border);
 }
 
@@ -169,19 +120,9 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  display: flex;
-  align-items: center;
   gap: 6px;
-  width: 100%;
-  padding: 3px 8px;
-  border: none;
   background: var(--bg);
   color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
 }
 
 .search-group-head:hover {
@@ -189,46 +130,31 @@
 }
 
 .search-twisty {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: 0 0 16px;
   color: var(--dim);
   user-select: none;
 }
 
 .search-twisty svg {
-  width: 0.95em;
-  height: 0.95em;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .search-group-name {
+  font-weight: var(--font-weight-emphasis);
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--font-metadata-size);
 }
 
 .search-group-count {
-  margin-left: auto;
+  font: var(--font-chrome-badge);
   color: var(--dim);
-  font-size: var(--font-hint-size);
-  font-weight: 400;
 }
 
 .search-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 2px 8px 2px 30px;
-  border: none;
-  background: transparent;
+  padding-left: 30px;
   color: var(--fg);
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
   overflow: hidden;
-  cursor: pointer;
 }
 
 .search-row:hover {
@@ -242,20 +168,15 @@
 }
 
 .search-row-line {
+  font-size: var(--font-content-secondary-size);
+  font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
   color: var(--dim);
-  font-family: var(--font-content-family);
-  font-size: var(--font-metadata-size);
-  font-weight: var(--font-content-weight);
-  font-variant-numeric: tabular-nums;
 }
 
 .search-row-preview {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--font-content-family);
-  font-size: var(--font-content-size);
-  font-weight: var(--font-content-weight);
 }
 
 /* Matched substrings reuse the omnibar's .tb-hl mark; underline on the selected row for contrast. */
@@ -266,19 +187,15 @@
 
 /* Keyboard hints footer — the discoverable map of the panel's keys. */
 .search-hints {
+  font: var(--font-chrome-secondary);
   flex: 0 0 auto;
   display: flex;
   gap: 12px;
   padding: 6px 12px;
   color: var(--dim);
-  font-size: var(--font-hint-size);
   border-top: 1px solid var(--border);
 }
 
 .search-hints kbd {
-  font-family: inherit;
   background: var(--bar);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0 4px;
 }

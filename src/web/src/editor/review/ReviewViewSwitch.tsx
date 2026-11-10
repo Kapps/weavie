@@ -11,7 +11,11 @@ export function ReviewViewSwitch(props: { view: ReviewView | undefined }): JSX.E
   const segment = (target: ReviewView, label: string, icon: JSX.Element) => (
     <button
       type="button"
-      classList={{ "editor-review-segment": true, "editor-review-open": target === "all" }}
+      classList={{
+        "editor-review-segment": true,
+        "ui-button": true,
+        "editor-review-open": target === "all",
+      }}
       aria-label={label}
       aria-pressed={props.view === target}
       title={props.view === target ? label : `${label}${keyHint(CommandIds.reviewOpen)}`}
@@ -26,11 +30,13 @@ export function ReviewViewSwitch(props: { view: ReviewView | undefined }): JSX.E
       fallback={
         <button
           type="button"
-          class="editor-review-action editor-review-open"
+          class="editor-review-action editor-review-open ui-button"
           title={`Review Changes${keyHint(CommandIds.reviewOpen)}`}
           onClick={open}
         >
-          <Rows3 size={14} />
+          <span class="ui-icon">
+            <Rows3 />
+          </span>
           Review Changes
         </button>
       }

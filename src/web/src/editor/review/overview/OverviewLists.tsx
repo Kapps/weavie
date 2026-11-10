@@ -8,10 +8,10 @@ import type { CheckState, PrDetail, ReviewCommit, ReviewerState } from "./overvi
 const CHECK_ORDER: CheckState[] = ["failure", "pending", "neutral", "success"];
 
 const CHECK_ICON: Record<CheckState, () => JSX.Element> = {
-  failure: () => <X size="1em" />,
-  pending: () => <CircleDashed size="1em" />,
-  neutral: () => <CircleMinus size="1em" />,
-  success: () => <Check size="1em" />,
+  failure: () => <X />,
+  pending: () => <CircleDashed />,
+  neutral: () => <CircleMinus />,
+  success: () => <Check />,
 };
 
 const REVIEWER_LABEL: Record<ReviewerState, string> = {
@@ -40,12 +40,12 @@ export function OverviewChecks(props: { detail: PrDetail }): JSX.Element {
           <li>
             <button
               type="button"
-              class={`session-overview-row session-overview-check-${check.state}`}
+              class={`session-overview-row ui-row ui-row-compact session-overview-check-${check.state}`}
               disabled={!/^https?:\/\//.test(check.url)}
               title={check.url}
               onClick={() => openUrlExternal(check.url)}
             >
-              <span class="session-overview-icon">{CHECK_ICON[check.state]()}</span>
+              <span class="session-overview-icon ui-icon">{CHECK_ICON[check.state]()}</span>
               <span class="session-overview-row-text">{check.name}</span>
             </button>
           </li>
@@ -64,7 +64,7 @@ export function OverviewReviewers(props: { detail: PrDetail }): JSX.Element {
         fallback={<li class="session-overview-empty">No reviewers</li>}
       >
         {(reviewer) => (
-          <li class="session-overview-row">
+          <li class="session-overview-row ui-row ui-row-compact">
             <Avatar user={reviewer.user} />
             <span class="session-overview-row-text">{reviewer.user.login}</span>
             <span class={`session-overview-row-end session-overview-verdict-${reviewer.state}`}>
@@ -87,7 +87,7 @@ export function OverviewCommits(props: {
       <For each={props.commits} fallback={<li class="session-overview-empty">No commits yet</li>}>
         {(commit) => (
           <li
-            class="session-overview-row"
+            class="session-overview-row ui-row ui-row-compact"
             classList={{ "session-overview-outside": props.reviewing && !commit.inReview }}
             title={`${commit.summary}\n${commit.author}${!props.reviewing || commit.inReview ? "" : "\nNot in this review"}`}
           >

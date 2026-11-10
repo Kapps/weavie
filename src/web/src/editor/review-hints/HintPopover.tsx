@@ -75,7 +75,7 @@ export function HintPopover(props: {
       onMouseLeave={() => props.onPointer(false)}
     >
       <div class="weavie-hint-meta">
-        <b>{SEVERITY_LABELS[hint().severity]}</b>
+        <b class="ui-section-label">{SEVERITY_LABELS[hint().severity]}</b>
         <span class="weavie-hint-who">✦ {hint().agent}</span>
         <Show when={hint().category}>{(category) => <span>{category()}</span>}</Show>
         <Show when={props.placed.changed}>

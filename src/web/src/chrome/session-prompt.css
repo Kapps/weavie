@@ -1,47 +1,10 @@
 /* Shared prompt fields and typeaheads. Loads after editor/confirm-dialog.css. */
 .session-prompt {
-  font-size: 16px;
   width: min(496px, 92vw);
-  padding: 2em 2.1em 1.8em;
-  border-radius: 13px;
-}
-
-.session-prompt .confirm-title {
-  font-size: 1.2em;
-  margin-bottom: 0.45em;
-}
-
-.session-prompt .confirm-body {
-  font-size: 0.92em;
-  line-height: 1.55;
-}
-
-.session-prompt-input {
-  width: 100%;
-  margin-top: 1.4em;
-  padding: 0.7em 0.8em;
-  box-sizing: border-box;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: var(--font-content-family);
-  font-size: 0.95em;
-  font-weight: var(--font-content-weight);
-  transition: border-color 120ms ease;
-}
-
-.session-prompt-input::placeholder {
-  color: var(--dim);
 }
 
 .session-prompt-field {
   position: relative;
-  margin-top: 1.4em;
-}
-
-.session-prompt-field .session-prompt-input {
-  margin-top: 0;
 }
 
 .session-prompt-suggestions {
@@ -51,9 +14,9 @@
   right: 0;
   top: calc(100% + 4px);
   margin: 0;
-  padding: 0.3em;
+  padding: 4px;
   list-style: none;
-  max-height: 11em;
+  max-height: calc(6 * (var(--font-content-row-line) + 4px) + 8px);
   overflow-y: auto;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -62,16 +25,14 @@
 }
 
 .session-prompt-suggestion {
-  padding: 0.42em 0.6em;
   border-radius: 6px;
-  font-family: var(--font-content-family);
-  font-size: 0.9em;
-  font-weight: var(--font-content-weight);
-  color: var(--fg);
-  white-space: nowrap;
+  overflow: hidden;
+}
+
+.session-prompt-suggestion > * {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
 }
 
 .session-prompt-suggestion:hover,
@@ -82,97 +43,65 @@
 
 /* Open-PR picker rows: "#num title [draft] @author · branch" on one ellipsized line. */
 .session-prompt-suggestion .pr-suggestion-number {
+  flex: none;
   color: var(--accent);
-  margin-right: 0.5em;
 }
 
 .session-prompt-suggestion .pr-suggestion-meta {
-  margin-left: 0.5em;
   opacity: 0.6;
 }
 
 .session-prompt-suggestion .pr-suggestion-draft {
-  margin-left: 0.5em;
-  padding: 0 0.4em;
+  flex: none;
+  padding: 0 4px;
   border-radius: 4px;
-  font-size: 0.82em;
+  font: var(--font-chrome-badge);
   background: color-mix(in srgb, var(--fg) 14%, transparent);
   opacity: 0.85;
 }
 
 .session-prompt-error {
-  margin-top: 0.8em;
   white-space: pre-wrap;
-  color: var(--danger, #f85149);
-  font-size: 0.85em;
+  color: var(--danger);
+  font: var(--font-chrome-secondary);
 }
 
 .session-prompt-hint {
   position: absolute;
-  left: 0.2em;
-  top: calc(100% + 6px);
+  left: 2px;
+  top: calc(100% + 4px);
   color: var(--dim);
-  font-size: 0.82em;
-}
-
-.session-prompt-input:focus {
-  outline: none;
-  border-color: var(--accent);
+  font: var(--font-chrome-secondary);
 }
 
 .acp-registry-dialog {
   width: min(760px, 94vw);
   max-height: min(760px, 90vh);
-  padding: 24px;
   overflow: hidden;
 }
 
 .acp-registry-heading,
 .acp-registry-agent,
-.acp-registry-agent-title,
 .acp-registry-agent-actions {
   display: flex;
   align-items: center;
 }
 
 .acp-registry-heading {
-  justify-content: space-between;
-  gap: 20px;
+  gap: 8px;
 }
 
-.acp-registry-heading > button {
-  border: 0;
-  background: transparent;
+.acp-registry-heading > .ui-field,
+.acp-registry-agent-actions > .ui-field {
+  width: auto;
+}
+
+.acp-registry-heading > .ui-icon-button {
   color: var(--dim);
-  font: inherit;
-  font-size: 1.4em;
-  cursor: pointer;
-}
-
-.acp-registry-heading > select {
-  margin-left: auto;
-  padding: 0.3em 0.5em;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font: inherit;
-}
-
-.acp-registry-filter {
-  width: 100%;
-  margin-top: 18px;
-  padding: 0.45em 0.7em;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font: inherit;
 }
 
 .acp-registry-list {
   max-height: min(560px, 64vh);
-  margin-top: 12px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
 }
@@ -189,6 +118,8 @@
 }
 
 .acp-registry-agent-title {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
 }
 
@@ -196,12 +127,11 @@
 .acp-registry-agent p,
 .acp-registry-state {
   color: var(--dim);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
 }
 
 .acp-registry-agent p {
-  margin: 5px 0 0;
-  line-height: 1.35;
+  margin: 4px 0 0;
 }
 
 .acp-registry-agent-title > span.acp-registry-installed {
@@ -215,22 +145,7 @@
 
 .acp-registry-agent-actions {
   flex: 0 0 auto;
-  gap: 7px;
-}
-
-.acp-registry-agent-actions button,
-.acp-registry-agent-actions select {
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: var(--font-hint-size);
-}
-
-.acp-registry-agent-actions button:not(:disabled) {
-  cursor: pointer;
+  gap: 8px;
 }
 
 .acp-registry-state {

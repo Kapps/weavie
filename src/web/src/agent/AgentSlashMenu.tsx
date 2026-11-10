@@ -56,7 +56,7 @@ export function AgentSlashMenu(props: {
           {(entry, index) => (
             <div
               {...nav.row(index())}
-              class="agent-slash-option"
+              class="agent-slash-option ui-row ui-row-content"
               role="option"
               tabindex={-1}
               aria-selected={index() === nav.index()}

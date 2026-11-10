@@ -295,7 +295,7 @@ export function BlamePopover(props: { target: BlameTarget }): JSX.Element {
             <button
               type="button"
               role="tab"
-              class="weavie-blame-tab"
+              class="weavie-blame-tab ui-row"
               aria-selected={scope() === "line"}
               onClick={() => setScope("line")}
             >
@@ -304,7 +304,7 @@ export function BlamePopover(props: { target: BlameTarget }): JSX.Element {
             <button
               type="button"
               role="tab"
-              class="weavie-blame-tab"
+              class="weavie-blame-tab ui-row"
               aria-selected={scope() === "file"}
               onClick={() => setScope("file")}
             >
@@ -336,7 +336,7 @@ export function BlamePopover(props: { target: BlameTarget }): JSX.Element {
                 {(entry) => (
                   <button
                     type="button"
-                    class="weavie-blame-entry"
+                    class="weavie-blame-entry ui-row"
                     aria-current={entry.sha === commit().sha}
                     title={`${entry.author} — ${entry.summary}`}
                     onClick={() =>

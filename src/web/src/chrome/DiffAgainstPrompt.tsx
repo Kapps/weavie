@@ -1,4 +1,4 @@
-import { createSignal, type JSX } from "solid-js";
+import { createSignal, type JSX, Show } from "solid-js";
 import { type ClientSession, requestDiffRefs } from "../bridge";
 import { BranchTypeahead } from "./BranchTypeahead";
 import { ModalShell, PromptButton } from "./ModalShell";
@@ -54,10 +54,7 @@ export function DiffAgainstPrompt(props: {
       onDismiss={props.onCancel}
       class="session-prompt"
     >
-      <div class="confirm-body">
-        Review the working tree's changes against a branch, tag, or commit (from its merge-base with
-        HEAD).
-      </div>
+      <div class="confirm-body">Changes since the merge-base with HEAD</div>
       <div class="session-prompt-field">
         <BranchTypeahead
           idPrefix="diff-against"
@@ -70,7 +67,11 @@ export function DiffAgainstPrompt(props: {
           onCancel={() => props.onCancel()}
         />
       </div>
-      <div role="alert">{error()}</div>
+      <Show when={error()}>
+        <div class="session-prompt-error" role="alert">
+          {error()}
+        </div>
+      </Show>
     </ModalShell>
   );
 }

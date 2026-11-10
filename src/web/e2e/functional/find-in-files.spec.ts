@@ -204,7 +204,7 @@ test("code results follow editor typography while search chrome stays compact", 
 
   const editorLine = page.locator(".monaco-editor .view-line").first();
   const preview = page.locator(".search-row-preview").first();
-  const metadata = page.locator(".search-group-name").first();
+  const metadata = page.locator(".search-row-line").first();
   const input = page.locator(".search-input");
   const hint = page.locator(".search-summary");
   await expect(preview).toBeVisible();

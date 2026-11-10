@@ -1,6 +1,6 @@
 import { For, onCleanup, Show } from "solid-js";
-import { ModalShell } from "../chrome/ModalShell";
-import { keyHint } from "../commands/key-hint";
+import { ModalShell, PromptButton } from "../chrome/ModalShell";
+import { keyLabel } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { currentThemeType } from "./controller";
 import { createThemePicker } from "./picker-model";
@@ -39,6 +39,7 @@ function Picker(props: { opened: ThemePickerState }) {
     }
   }
   const accept = () => (m.registry() ? openExtension(m.selected()) : m.accept());
+  const applyLabel = () => (m.saving() ? "Applying…" : m.registry() ? "Preview themes" : "Apply");
   function keys(event: KeyboardEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -91,23 +92,56 @@ function Picker(props: { opened: ThemePickerState }) {
 
   return (
     <ModalShell
-      labelledBy="theme-picker-title"
-      class={`theme-picker${m.registry() ? " theme-picker-registry" : ""}`}
-      onDismiss={m.close}
-      onKeyDown={keys}
-    >
-      <div class="theme-picker-header">
-        <strong id="theme-picker-title" title={`${title}${keyHint(command)}`}>
+      title={
+        <>
           {title}
           <Show when={mode}>
             <small>{mode}</small>
           </Show>
-        </strong>
-        <span>{keyHint(command)}</span>
-      </div>
+        </>
+      }
+      titleEnd={
+        <Show when={keyLabel(command)}>{(keys) => <span class="ui-kbd">{keys()}</span>}</Show>
+      }
+      actions={
+        <>
+          <small>{m.registry() ? "↑ ↓ Browse · → Open variants" : "↑ ↓ Preview"}</small>
+          <Show when={m.reset}>
+            {(reset) => (
+              <PromptButton
+                label="Reset"
+                shortcut=""
+                title="Revert the editor to the app theme"
+                disabled={m.saving()}
+                onClick={() => void reset()()}
+              />
+            )}
+          </Show>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            disabled={m.saving()}
+            onClick={m.close}
+          />
+          <PromptButton
+            label={applyLabel()}
+            shortcut="Enter"
+            title={`${applyLabel()} (Enter)`}
+            disabled={m.saving() || m.count() === 0}
+            onClick={() => void accept()}
+            primary
+          />
+        </>
+      }
+      class={`theme-picker${m.registry() ? " theme-picker-registry" : ""}`}
+      onDismiss={m.close}
+      onKeyDown={keys}
+    >
       <div class="theme-picker-sources">
         <button
           type="button"
+          class="ui-button"
           aria-pressed={!m.registry()}
           disabled={m.saving()}
           onClick={() => {
@@ -119,6 +153,7 @@ function Picker(props: { opened: ThemePickerState }) {
         </button>
         <button
           type="button"
+          class="ui-button"
           aria-pressed={m.registry()}
           disabled={m.saving()}
           onClick={() => {
@@ -132,6 +167,7 @@ function Picker(props: { opened: ThemePickerState }) {
       <div class="theme-picker-body">
         <section class="theme-picker-results" aria-label="Theme results">
           <input
+            class="ui-field"
             ref={(el) => {
               input = el;
               queueMicrotask(() => el.focus());
@@ -153,6 +189,7 @@ function Picker(props: { opened: ThemePickerState }) {
             <label class="theme-picker-sort">
               Sort by
               <select
+                class="ui-field"
                 aria-label="Sort Open VSX themes"
                 value={m.sortBy()}
                 disabled={m.saving()}
@@ -188,6 +225,7 @@ function Picker(props: { opened: ThemePickerState }) {
                 {(extension, index) => (
                   <button
                     type="button"
+                    class="ui-row ui-row-stack"
                     role="option"
                     id={`theme-options-${index()}`}
                     aria-selected={m.selected() === index()}
@@ -217,6 +255,7 @@ function Picker(props: { opened: ThemePickerState }) {
           <Show when={m.registry() && m.extensions().length < m.total()}>
             <button
               type="button"
+              class="ui-button"
               disabled={m.searchLoading() || m.saving()}
               onClick={() => void m.loadMore()}
             >
@@ -244,35 +283,6 @@ function Picker(props: { opened: ThemePickerState }) {
           {m.error()}
         </p>
       </Show>
-      <div class="theme-picker-footer">
-        <small>
-          {m.registry()
-            ? "↑ ↓ Browse · Enter or → Open variants · Esc Cancel"
-            : "↑ ↓ Preview · Enter Apply · Esc Cancel"}
-        </small>
-        <Show when={m.reset}>
-          {(reset) => (
-            <button
-              type="button"
-              disabled={m.saving()}
-              title="Revert the editor to the app theme"
-              onClick={() => void reset()()}
-            >
-              Reset
-            </button>
-          )}
-        </Show>
-        <button type="button" disabled={m.saving()} onClick={m.close}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          disabled={m.saving() || m.count() === 0}
-          onClick={() => void accept()}
-        >
-          {m.saving() ? "Applying…" : m.registry() ? "Preview themes" : "Apply"}
-        </button>
-      </div>
     </ModalShell>
   );
 }

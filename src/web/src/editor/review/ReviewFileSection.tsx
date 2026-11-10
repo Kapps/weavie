@@ -145,7 +145,7 @@ export function ReviewFileSection(props: {
       <header class="unified-review-file-header" ref={header}>
         <button
           type="button"
-          class="unified-review-file-toggle"
+          class="unified-review-file-toggle ui-icon-button"
           title={`${collapsed() ? "Expand" : "Collapse"} ${props.displayPath(summary().path)}${keyHint(CommandIds.reviewToggleFile)}`}
           aria-controls={bodyId()}
           aria-expanded={!collapsed()}
@@ -170,7 +170,7 @@ export function ReviewFileSection(props: {
         </button>
         <button
           type="button"
-          class="unified-review-file-context"
+          class="unified-review-file-context ui-icon-button"
           title={`${fullContext() ? "Collapse unchanged lines" : "Show full file"}${keyHint(CommandIds.reviewToggleContext)}`}
           aria-pressed={fullContext()}
           onClick={() =>
@@ -202,7 +202,7 @@ export function ReviewFileSection(props: {
         <Show when={pending()} fallback={<ReviewStatus file={props.file} />}>
           <button
             type="button"
-            class="unified-review-file-action keep"
+            class="unified-review-file-action keep ui-button"
             title={`Keep file${keyHint(CommandIds.keepFile)}`}
             onClick={() =>
               void runCommandWithFeedback(CommandIds.keepFile, { path: summary().path })
@@ -212,7 +212,7 @@ export function ReviewFileSection(props: {
           </button>
           <button
             type="button"
-            class="unified-review-file-action revert"
+            class="unified-review-file-action revert ui-button"
             title={`Revert file${keyHint(CommandIds.revertFile)}`}
             onClick={() =>
               void runCommandWithFeedback(CommandIds.revertFile, { path: summary().path })

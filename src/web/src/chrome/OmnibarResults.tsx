@@ -106,11 +106,11 @@ export function OmnibarResults(props: {
               {(item, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row tb-symbol-row"
+                  class="tb-omnibar-row tb-symbol-row ui-row"
                   classList={{ selected: i() === props.selected() }}
                   onMouseDown={press(i(), () => props.onActivateSymbol(item.sym))}
                 >
-                  <span class="tb-symbol-kind" aria-hidden="true">
+                  <span class="tb-symbol-kind ui-icon" aria-hidden="true">
                     {kindIcon(item.sym.kind)}
                   </span>
                   <span class="tb-row-leaf">
@@ -133,7 +133,7 @@ export function OmnibarResults(props: {
               {(item, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row"
+                  class="tb-omnibar-row ui-row"
                   classList={{ selected: i() === props.selected() }}
                   onMouseDown={press(i(), () => props.onRunCommand(item.cmd))}
                 >
@@ -144,7 +144,9 @@ export function OmnibarResults(props: {
                     <span class="tb-row-dir">{item.cmd.category}</span>
                   </Show>
                   <Show when={item.cmd.keys.length > 0}>
-                    <span class="tb-row-keys">{item.cmd.keys.map(formatKey).join(" / ")}</span>
+                    <span class="tb-row-keys ui-kbd ui-kbd-plain ui-row-end">
+                      {item.cmd.keys.map(formatKey).join(" / ")}
+                    </span>
                   </Show>
                 </button>
               )}
@@ -162,13 +164,13 @@ export function OmnibarResults(props: {
               {(row, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row tb-tree-row file-tree-row"
+                  class="tb-omnibar-row tb-tree-row file-tree-row ui-row"
                   classList={{
                     dir: row.node.kind === "directory",
                     selected: i() === props.selected(),
                     current: isCurrent(row.node.kind === "file" ? row.node.value : undefined),
                   }}
-                  style={`padding-left: ${10 + row.depth * 14}px`}
+                  style={`padding-left: ${8 + row.depth * 14}px`}
                   onMouseDown={press(i(), () =>
                     row.node.kind === "directory"
                       ? props.onToggleDir(row.node.key)
@@ -194,7 +196,7 @@ export function OmnibarResults(props: {
               {(item, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row"
+                  class="tb-omnibar-row ui-row"
                   classList={{
                     selected: i() === props.selected(),
                     current: isCurrent(item.row.abs),
@@ -228,11 +230,11 @@ export function OmnibarResults(props: {
               {(entry, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row"
+                  class="tb-omnibar-row ui-row"
                   classList={{ selected: i() === props.selected(), dir: entry.isDir }}
                   onMouseDown={press(i(), () => props.onActivatePath(entry))}
                 >
-                  <span class="tb-tree-icon" aria-hidden="true">
+                  <span class="tb-tree-icon ui-icon" aria-hidden="true">
                     <Show when={entry.isDir} fallback={<FileIcon />}>
                       <Folder />
                     </Show>

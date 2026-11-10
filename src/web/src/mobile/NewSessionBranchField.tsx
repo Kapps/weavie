@@ -97,6 +97,7 @@ export function NewSessionBranchField(props: {
     <div class="session-composer-branch">
       <label for="new-session-branch">Branch</label>
       <input
+        class="ui-field ui-field-content"
         id="new-session-branch"
         type="text"
         aria-label="Branch for the new session"
@@ -111,13 +112,13 @@ export function NewSessionBranchField(props: {
       />
       <button
         type="button"
-        class="session-composer-resuggest"
+        class="session-composer-resuggest ui-icon-button"
         aria-label="Suggest a branch name again"
         title={`Suggest again${keyHint(CommandIds.resuggestBranch)}`}
         disabled={!props.inputReady || !online() || state().status === "loading"}
         onClick={() => preview.refresh()}
       >
-        <RefreshCw size={16} aria-hidden="true" />
+        <RefreshCw aria-hidden="true" />
       </button>
       <Show when={state().status === "error"}>
         <small role="alert">

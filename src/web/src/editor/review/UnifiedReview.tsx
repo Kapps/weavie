@@ -37,7 +37,8 @@ import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface
 import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
-const SECTION_HEADER_HEIGHT = 42;
+// The 32px file header plus the section's 2px border-block (unified-review.css).
+const SECTION_HEADER_HEIGHT = 34;
 const FILE_GAP = 20;
 
 export function UnifiedReview(props: {

@@ -25,7 +25,6 @@
   width: 100%;
   height: 100%;
   max-width: none;
-  line-height: normal;
 }
 
 .editor-preview-svg img {
@@ -37,8 +36,18 @@
 
 .editor-preview-error {
   color: var(--bad);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
   text-align: center;
+}
+
+/* Mermaid's parse error, above the fence source it failed on. */
+.editor-preview-body pre.mermaid-source[data-mermaid-error]::before {
+  content: attr(data-mermaid-error);
+  display: block;
+  margin-bottom: 8px;
+  color: var(--bad);
+  font: var(--font-chrome-secondary);
+  white-space: normal;
 }
 
 /* An HTML page paints edge to edge on a browser-default white canvas; its own styles cover it. */
@@ -91,8 +100,6 @@
   padding: 0 0.5em;
   border: 0;
   overflow-wrap: anywhere;
-  font: inherit;
-  line-height: inherit;
 }
 
 .wv-preview-block-input {
@@ -105,9 +112,7 @@
 }
 
 .wv-preview-block-box[data-code] {
-  font-family: var(--font-content-family);
-  font-size: var(--font-content-size);
-  font-weight: var(--font-content-weight);
+  font: var(--font-content);
 }
 
 .wv-preview-block-hint {
@@ -116,13 +121,12 @@
   right: 0;
   z-index: 1;
   display: flex;
-  gap: 0.8em;
-  align-items: center;
-  padding: 0 0.4em;
+  gap: 9px;
+  align-items: baseline;
+  padding: 0 4px;
   color: var(--dim);
   background: var(--bg);
-  font-size: var(--font-hint-size);
-  line-height: 1.6;
+  font: var(--font-chrome-secondary);
 }
 
 /* Pending agent changes, read as margin bars; the shown change marks its words. */
@@ -131,15 +135,15 @@
 .editor-preview-body .wv-md-fold,
 .editor-preview-body .wv-md-note {
   color: var(--dim);
-  font: var(--font-metadata-size) / 1.5 var(--font-chrome-family);
+  font: var(--font-chrome-secondary);
 }
 
 .wv-md-banner {
   display: flex;
-  gap: 1em;
+  gap: 12px;
   max-width: 48rem;
-  margin: 0 auto 1.4em;
-  padding: 0.5em 0.9em;
+  margin: 0 auto 18px;
+  padding: 6px 12px;
   background: var(--bar);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -156,7 +160,6 @@
   color: var(--accent);
   background: none;
   border: 0;
-  font: inherit;
   cursor: pointer;
 }
 
@@ -241,7 +244,7 @@
 }
 
 .editor-preview-body .wv-md-note {
-  margin-left: 0.6em;
+  margin-left: 8px;
 }
 
 /* A removal reads as a quiet chip where its blocks were; shown, it opens into their struck-through text. */
@@ -260,9 +263,9 @@
 
 .editor-preview-body .wv-md-removed-chip {
   display: inline-flex;
-  gap: 0.55em;
+  gap: 7px;
   max-width: 100%;
-  padding: 0.1em 0.75em;
+  padding: 1px 10px;
   border-radius: 999px;
   cursor: pointer;
 }
@@ -273,7 +276,7 @@
 
 .editor-preview-body .wv-md-removed-label {
   color: var(--diff-removed);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .editor-preview-body .wv-md-removed-summary {
@@ -290,9 +293,6 @@
 
 .editor-preview-body .wv-md-removed-body > .wv-md-removed-label {
   display: block;
-  font: var(--font-hint-size) / 1.4 var(--font-chrome-family);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .editor-preview-body .wv-md-removed-body > :not(.wv-md-removed-label) {
@@ -311,9 +311,9 @@
 /* A fold reads as a dashed divider where the unchanged blocks were. */
 .editor-preview-body .wv-md-fold {
   display: flex;
-  gap: 0.7em;
+  gap: 9px;
   align-items: center;
-  margin: 1em 0;
+  margin: 13px 0;
 }
 
 .editor-preview-body .wv-md-fold::before,
@@ -339,6 +339,6 @@
 
 .wv-preview-block-hint > * + *::before {
   content: "·";
-  margin-right: 0.8em;
+  margin-right: 9px;
   color: var(--dim);
 }

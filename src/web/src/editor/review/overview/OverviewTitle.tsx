@@ -20,7 +20,10 @@ function ReviewBranchLink(props: { shown: boolean }): JSX.Element {
         title={`Review everything this branch changes${keyHint(CommandIds.diffAgainstBranchBase)}`}
         onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
       >
-        <GitCompare size="1em" /> Review branch
+        <span class="ui-icon">
+          <GitCompare />
+        </span>
+        Review branch
       </button>
     </Show>
   );

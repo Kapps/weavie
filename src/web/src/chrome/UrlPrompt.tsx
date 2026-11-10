@@ -63,9 +63,6 @@ export function UrlPrompt(props: {
         </>
       }
     >
-      <div class="confirm-body">
-        Open an http(s) page in a web tab — e.g. a local dev server to preview your app.
-      </div>
       <input
         ref={(element) => {
           queueMicrotask(() => element.focus());

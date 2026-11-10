@@ -1,3 +1,4 @@
+import { ArrowUp, Square } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -13,6 +14,7 @@ import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { MobileActionLabel } from "../mobile/MobileActionLabel";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
@@ -463,29 +465,28 @@ export function AgentComposer(props: {
         <Show when={canInterrupt()}>
           <button
             type="button"
+            class="ui-button ui-button-content"
             aria-label="Interrupt"
             title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
           >
-            <span class="mobile-action-wide">Interrupt</span>
-            <span class="mobile-action-compact mobile-action-stop" aria-hidden="true" />
+            <MobileActionLabel icon={<Square />}>Interrupt</MobileActionLabel>
           </button>
         </Show>
         <button
           type="submit"
-          class="mobile-primary-action"
+          class="mobile-primary-action ui-button ui-button-content"
           aria-label={props.turnActive ? "Steer" : "Run"}
           title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}
         >
-          <span class="mobile-action-wide">
+          <MobileActionLabel icon={<ArrowUp />}>
             {composer().pendingSubmission !== null
               ? "Sending…"
               : props.turnActive
                 ? "Steer"
                 : "Run"}
-          </span>
-          <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+          </MobileActionLabel>
         </button>
       </div>
       <Show when={draftAction().kind === "loading"}>

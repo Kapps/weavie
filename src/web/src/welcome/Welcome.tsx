@@ -26,7 +26,7 @@ export function Welcome(): JSX.Element {
       <main class="welcome-inner">
         <header class="welcome-head">
           <span class="welcome-mark" aria-hidden="true">
-            <WeavieIcon />
+            <WeavieIcon size={43} />
           </span>
           <div class="welcome-titles">
             <h1 class="welcome-wordmark">weavie</h1>
@@ -41,18 +41,26 @@ export function Welcome(): JSX.Element {
         </Show>
         <Show when={!settingUp()}>
           <div class="welcome-actions">
-            <button type="button" class="welcome-open" onClick={openFolder}>
+            <button
+              type="button"
+              class="welcome-open ui-button ui-button-xl ui-button-primary"
+              onClick={openFolder}
+            >
               <FolderOpen size="1.1em" aria-hidden="true" />
               <span>Open Folder…</span>
             </button>
-            <button type="button" class="welcome-setup" onClick={() => setSettingUp(true)}>
+            <button
+              type="button"
+              class="welcome-setup ui-button ui-button-xl"
+              onClick={() => setSettingUp(true)}
+            >
               <Sparkles size="1em" aria-hidden="true" />
               <span>Getting Started</span>
             </button>
           </div>
 
           <section class="welcome-recent">
-            <h2 class="welcome-recent-label">Recent</h2>
+            <h2 class="welcome-recent-label ui-section-label">Recent</h2>
             <Show
               when={recents().length > 0}
               fallback={
@@ -63,9 +71,13 @@ export function Welcome(): JSX.Element {
                 <For each={recents()}>
                   {(path) => (
                     <li>
-                      <button type="button" class="welcome-row" onClick={() => openRecent(path)}>
+                      <button
+                        type="button"
+                        class="welcome-row ui-row ui-row-stack"
+                        onClick={() => openRecent(path)}
+                      >
                         <FolderClosed size="1.15em" class="welcome-row-icon" aria-hidden="true" />
-                        <span class="welcome-row-text">
+                        <span class="welcome-row-text ui-row-text">
                           <span class="welcome-row-name">{folderLeaf(path)}</span>
                           <span class="welcome-row-path">{path}</span>
                         </span>

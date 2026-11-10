@@ -32,9 +32,10 @@
 }
 
 .tool-title {
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
   flex: 1;
   color: var(--accent);
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -62,8 +63,8 @@
 }
 
 .tool-head svg {
-  width: 1.15em;
-  height: 1.15em;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 .app.compact .tool-head button {

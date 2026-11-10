@@ -117,7 +117,7 @@ export function PrThreadCard(props: {
               <>
                 <button
                   type="button"
-                  class="weavie-pr-icon-button"
+                  class="weavie-pr-icon-button ui-icon-button"
                   title={`Fix${keyHint(CommandIds.reviewHintsFix)}`}
                   aria-label="Fix"
                   onClick={() => fixLine(props.session, item(), "")}
@@ -126,7 +126,7 @@ export function PrThreadCard(props: {
                 </button>
                 <button
                   type="button"
-                  class="weavie-pr-icon-button"
+                  class="weavie-pr-icon-button ui-icon-button"
                   title={`Fix with…${keyHint(CommandIds.reviewHintsFixWith)}`}
                   aria-label="Fix with…"
                   onClick={() => fixWith(props.session, item())}
@@ -138,7 +138,7 @@ export function PrThreadCard(props: {
           </Show>
           <button
             type="button"
-            class="weavie-pr-icon-button"
+            class="weavie-pr-icon-button ui-icon-button"
             title="Collapse thread"
             aria-label="Collapse thread"
             aria-expanded="true"

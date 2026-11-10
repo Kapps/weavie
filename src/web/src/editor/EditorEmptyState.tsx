@@ -56,7 +56,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
       <div class="editor-empty-inner">
         <header class="editor-empty-head">
           <span class="editor-empty-mark" aria-hidden="true">
-            <WeavieIcon />
+            <WeavieIcon size={28} />
           </span>
           <div class="editor-empty-titles">
             <h1 class="editor-empty-wordmark">weavie</h1>
@@ -66,21 +66,23 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
         <Show when={props.reviewCount > 0}>
           <button
             type="button"
-            class="editor-empty-review"
+            class="editor-empty-review ui-row ui-row-stack"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
           >
-            <GitPullRequestArrow size="1.15em" />
-            <span class="editor-empty-action-text">
+            <span class="ui-icon">
+              <GitPullRequestArrow />
+            </span>
+            <span class="editor-empty-action-text ui-row-text">
               <span class="editor-empty-action-label">
                 Review changes — {props.reviewCount} file{props.reviewCount === 1 ? "" : "s"}
               </span>
-              <span class="editor-empty-action-hint">
+              <span class="editor-empty-action-hint ui-row-desc">
                 See every changed file and diff in one view.
               </span>
             </span>
             {keysOf(CommandIds.reviewOpen) !== "" && (
-              <kbd class="editor-empty-keys">{keysOf(CommandIds.reviewOpen)}</kbd>
+              <kbd class="editor-empty-keys ui-kbd ui-row-end">{keysOf(CommandIds.reviewOpen)}</kbd>
             )}
           </button>
         </Show>
@@ -93,18 +95,20 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                 <li>
                   <button
                     type="button"
-                    class="editor-empty-action"
+                    class="editor-empty-action ui-row ui-row-stack"
                     // Don't steal focus on press: these actions hand focus to the omnibar, and a button
                     // holding focus would trip its focus-out close. preventDefault keeps the click firing.
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => void runCommandWithFeedback(action.id)}
                   >
-                    <Icon size="1.15em" />
-                    <span class="editor-empty-action-text">
-                      <span class="editor-empty-action-label">{action.label}</span>
-                      <span class="editor-empty-action-hint">{action.hint}</span>
+                    <span class="ui-icon">
+                      <Icon />
                     </span>
-                    {keys !== "" && <kbd class="editor-empty-keys">{keys}</kbd>}
+                    <span class="editor-empty-action-text ui-row-text">
+                      <span class="editor-empty-action-label">{action.label}</span>
+                      <span class="editor-empty-action-hint ui-row-desc">{action.hint}</span>
+                    </span>
+                    {keys !== "" && <kbd class="editor-empty-keys ui-kbd ui-row-end">{keys}</kbd>}
                   </button>
                 </li>
               );

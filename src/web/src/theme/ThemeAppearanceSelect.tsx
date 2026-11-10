@@ -5,6 +5,7 @@ export function ThemeAppearanceSelect(props: { model: ThemePickerModel; onChosen
     <label class="theme-picker-sort">
       Appearance
       <select
+        class="ui-field"
         aria-label="Theme appearance"
         value={props.model.mode()}
         disabled={props.model.saving()}

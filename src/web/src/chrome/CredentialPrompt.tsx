@@ -65,31 +65,29 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
         </a>
         , then paste it here.
       </div>
-      <div class="session-prompt-field">
-        <input
-          class="session-prompt-input"
-          type="password"
-          placeholder={`Paste your ${props.prompt.displayName} ${props.prompt.keyNoun}`}
-          spellcheck={false}
-          autocomplete="off"
-          disabled={submitting()}
-          value={key()}
-          onInput={(event) => {
-            setKey(event.currentTarget.value);
-            setError(null);
-          }}
-          ref={(el) => {
-            queueMicrotask(() => el.focus());
-          }}
-        />
-        <Show when={error()}>
-          {(message) => (
-            <div class="session-prompt-error" role="alert">
-              {message()}
-            </div>
-          )}
-        </Show>
-      </div>
+      <input
+        class="session-prompt-input ui-field ui-field-mono"
+        type="password"
+        placeholder={`Paste your ${props.prompt.displayName} ${props.prompt.keyNoun}`}
+        spellcheck={false}
+        autocomplete="off"
+        disabled={submitting()}
+        value={key()}
+        onInput={(event) => {
+          setKey(event.currentTarget.value);
+          setError(null);
+        }}
+        ref={(el) => {
+          queueMicrotask(() => el.focus());
+        }}
+      />
+      <Show when={error()}>
+        {(message) => (
+          <div class="session-prompt-error" role="alert">
+            {message()}
+          </div>
+        )}
+      </Show>
     </ModalShell>
   );
 }

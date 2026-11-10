@@ -62,7 +62,7 @@ export function AsideEntry(props: {
             fallback={
               <button
                 type="button"
-                class="agent-aside-reply-button"
+                class="agent-aside-reply-button ui-button ui-button-content"
                 disabled={props.entry.asideActive === true}
                 onClick={() => composer.setOpen(true)}
               >

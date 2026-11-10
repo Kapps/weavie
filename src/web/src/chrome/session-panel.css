@@ -13,29 +13,23 @@
 }
 .session-panel-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   padding: 4px 8px 6px;
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
 }
 .session-panel-head > span:first-child {
   flex: 1;
 }
-.session-panel-key {
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-size: var(--font-hint-size);
-}
 .session-panel-pin {
-  display: flex;
-  padding: 2px;
-  border: 0;
   border-radius: 3px;
-  background: transparent;
   color: var(--dim);
-  cursor: pointer;
+}
+/* Icon-only, so no baseline: centred on the head's line instead. */
+.session-panel-head > .session-panel-pin {
+  align-self: center;
 }
 .session-panel-pin:hover,
 .session-panel-pin.on {
@@ -43,10 +37,6 @@
 }
 .session-panel-group {
   padding: 10px 8px 3px;
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 .session-panel-parked {
   display: flex;
@@ -61,18 +51,8 @@
   color: var(--fg);
 }
 .session-panel-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
   border-radius: 5px;
-  background: transparent;
   color: var(--fg);
-  font-size: var(--font-chrome-size);
-  text-align: left;
-  cursor: pointer;
 }
 .session-panel-row:hover {
   background: var(--list-hover-bg);
@@ -89,35 +69,16 @@
 .session-panel-row.offline {
   color: var(--dim);
 }
-.session-panel-row .session-status-slot {
-  margin-top: 2px;
-}
 .session-panel-num {
   flex: 0 0 10px;
-  margin-top: 1px;
   color: var(--dim);
-  font-size: var(--font-hint-size);
-}
-.session-panel-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  font: var(--font-chrome-badge);
 }
 .session-panel-title,
 .session-panel-activity {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.session-panel-activity {
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-}
-
-/* Pinned, the panel stands in for the rail and carries its new-session and remote-agents buttons. */
-.session-panel-head .session-rail-add,
-.session-panel-head .session-rail-cloud {
-  margin-top: 0;
 }
 .session-panel-resize {
   position: absolute;

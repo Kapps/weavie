@@ -53,9 +53,9 @@ export const SOURCE_STYLES = `
   border-radius: 4px; padding: 0.15em 0.6em;
 }
 .wv-source .wv-open-external {
-  float: right; margin-left: 1em; cursor: pointer; font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
+  float: right; margin-left: 12px; cursor: pointer; font: var(--font-chrome-secondary);
   color: var(--accent, #54c6a4); background: none; border: 1px solid var(--border, #191c21);
-  border-radius: 4px; padding: 0.25em 0.7em;
+  border-radius: 4px; padding: 3px 9px;
 }
 .wv-source .wv-content > :first-child { margin-top: 0; }
 .wv-source h1 { font-size: 1.9em; font-weight: 700; margin: 1.4em 0 0.4em; line-height: 1.2; }
@@ -126,8 +126,8 @@ export const SOURCE_STYLES = `
 }
 .wv-source pre.mermaid-pending { color: var(--dim, #6f7884); }
 .wv-source pre.mermaid-source[data-mermaid-error]::before {
-  content: attr(data-mermaid-error); display: block; margin-bottom: 0.7em; color: var(--bad, #e07a7a);
-  font: var(--font-metadata-size) / 1.4 var(--font-chrome-family); white-space: normal;
+  content: attr(data-mermaid-error); display: block; margin-bottom: 8px; color: var(--bad, #e07a7a);
+  font: var(--font-chrome-secondary); white-space: normal;
 }
 .wv-source .mermaid-rendered { margin: 1em 0; text-align: center; }
 .wv-source .mermaid-rendered svg { max-width: 100%; height: auto; }

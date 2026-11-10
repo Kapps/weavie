@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { createSignal, For, type JSX } from "solid-js";
 
 /** One transient notification surfaced to the user (e.g. an autosave write that failed). */
@@ -199,7 +200,7 @@ export function Toasts(props: {
             {toast.action !== undefined && (
               <button
                 type="button"
-                class="toast-action"
+                class="toast-action ui-button"
                 onClick={() => {
                   toast.action?.run();
                   props.onDismiss(toast.id);
@@ -210,11 +211,11 @@ export function Toasts(props: {
             )}
             <button
               type="button"
-              class="toast-close"
+              class="toast-close ui-icon-button"
               aria-label="Dismiss"
               onClick={() => props.onDismiss(toast.id)}
             >
-              ✕
+              <X />
             </button>
           </div>
         )}

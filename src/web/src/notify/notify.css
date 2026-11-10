@@ -24,7 +24,7 @@
   position: relative;
   overflow: hidden; /* clip the drain fill to the rounded corners */
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 10px;
   padding: 8px 10px;
   background: var(--bar);
@@ -111,10 +111,10 @@
   flex: 0 0 auto;
   width: 12px;
   height: 12px;
-  margin-top: 2px;
   border: 2px solid color-mix(in srgb, var(--toast-accent) 35%, transparent);
   border-top-color: var(--toast-accent);
   border-radius: 50%;
+  align-self: center;
   animation: weavie-spin 0.7s linear infinite;
 }
 
@@ -134,27 +134,18 @@
 
 .toast-action {
   flex: 0 0 auto;
-  background: none;
-  border: 1px solid var(--dim);
-  border-radius: 4px;
-  color: var(--fg);
-  cursor: pointer;
-  font: inherit;
-  padding: 1px 8px;
+  border-color: var(--dim);
 }
 
 .toast-action:hover {
   border-color: var(--fg);
 }
 
+/* Icon-only, so no baseline: centred on the toast instead. */
 .toast-close {
   flex: 0 0 auto;
-  background: none;
-  border: none;
+  align-self: center;
   color: var(--dim);
-  cursor: pointer;
-  font: inherit;
-  padding: 0 2px;
 }
 
 .toast-close:hover {

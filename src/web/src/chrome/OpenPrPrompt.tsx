@@ -111,13 +111,9 @@ export function OpenPrPrompt(props: {
       onKeyDown={nav.onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-body">
-        Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
-        directly.
-      </div>
       <div class="session-prompt-field">
         <input
-          class="session-prompt-input"
+          class="session-prompt-input ui-field ui-field-mono"
           type="text"
           placeholder="search, #number, or URL"
           spellcheck={false}
@@ -135,7 +131,7 @@ export function OpenPrPrompt(props: {
         <Show when={directRef() !== null}>
           <ul class="session-prompt-suggestions">
             <li
-              class="session-prompt-suggestion active"
+              class="session-prompt-suggestion ui-row ui-row-content active"
               onPointerDown={(event) => {
                 event.preventDefault();
                 openTarget(directRef() ?? undefined);
@@ -178,7 +174,7 @@ export function OpenPrPrompt(props: {
               {(pr, i) => (
                 <li
                   {...nav.row(i())}
-                  class="session-prompt-suggestion"
+                  class="session-prompt-suggestion ui-row ui-row-content"
                   classList={{ active: i() === nav.index() }}
                   title={`Open #${pr.number}`}
                   onPointerDown={(event) => {

@@ -74,14 +74,14 @@ export function ChoiceRequestActions(
           {props.question.question}
         </p>
         <Show when={keyRange()}>
-          {(range) => <small class="agent-choice-keys">{range()}</small>}
+          {(range) => <small class="agent-choice-keys ui-kbd ui-kbd-plain">{range()}</small>}
         </Show>
       </div>
       <For each={props.question.options}>
         {(option, index) => (
           <button
             type="button"
-            class="agent-choice-row"
+            class="agent-choice-row ui-row ui-row-stack"
             classList={{ default: option.value === preferred() }}
             title={withKey(
               [option.label, option.description].filter(Boolean).join(" — "),
@@ -89,10 +89,10 @@ export function ChoiceRequestActions(
             )}
             onClick={() => answer(option.value)}
           >
-            <kbd class="agent-choice-key">{gutterKey(index())}</kbd>
+            <kbd class="agent-choice-key ui-kbd ui-kbd-plain">{gutterKey(index())}</kbd>
             <span class="agent-choice-label">{option.label}</span>
             <Show when={option.description}>
-              <span class="agent-choice-description">{option.description}</span>
+              <span class="agent-choice-description ui-row-desc">{option.description}</span>
             </Show>
           </button>
         )}

@@ -126,7 +126,7 @@ Removed: `--ui-font` (duplicate of `--font-chrome-family`), `--font-metadata-siz
 ```tsx
 <button class="context-menu-item ui-row">
   <span>{item.label}</span>
-  <kbd class="context-menu-keys ui-kbd ui-kbd-plain ui-row-end">{formatKey(item.keys)}</kbd>
+  <span class="context-menu-keys ui-kbd ui-kbd-plain ui-row-end">{formatKey(item.keys)}</span>
 </button>
 ```
 
@@ -201,7 +201,8 @@ export function PromptButton(props: {
 ### 2. Primitives (`src/web/src/primitives.css`, new)
 
 Imported right after `styles.css` in `main.tsx` and `welcome/index.tsx`, all inside `@layer ui`. Primitives
-own geometry and type; hover/selected colours stay in feature CSS.
+own geometry and type, plus the button and field states (hover, disabled, focus); row hover and selected
+colours stay in feature CSS.
 
 ```css
 @layer ui {
@@ -279,14 +280,14 @@ Rules the primitives encode:
 ```
 ModalShell renders:
   backdrop
-    dialog.confirm-dialog[.class]            aria-labelledby = generated id | props.labelledBy
+    div.confirm-dialog[.class][role=dialog]  aria-labelledby = generated id | props.labelledBy
       if title:  header.confirm-head > h2.confirm-title#id {title} + {titleEnd}
       {children}
       if actions: footer.confirm-actions {actions}
 PromptButton renders:
   button.session-prompt-btn.ui-button.ui-button-lg[.ui-button-primary|.ui-button-danger][.class]
     {label}
-    if shortcut != "": kbd.ui-kbd.ui-kbd-plain[aria-hidden] {shortcut}
+    if shortcut != "": span.ui-kbd.ui-kbd-plain[aria-hidden] {shortcut}
 ```
 
 - `aria-hidden` on the hint keeps accessible names equal to the label (specs match button names exactly).
@@ -331,7 +332,7 @@ Glyph-as-icon buttons ("+", "×", "■") become lucide icons at `--icon-size`. `
 ### 6. Lint (`src/web/lint/typography.grit`, new; `src/web/biome.json`)
 
 ```grit
-language css;
+language css
 
 CssGenericProperty(name = $p, value = $v) as $d where {
   or {

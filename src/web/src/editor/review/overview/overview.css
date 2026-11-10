@@ -1,8 +1,8 @@
 /* The session overview at the top of the review tab shares the file headers' grid below it: section chevrons sit
    in the files' collapse-toggle column, and text starts where file names do. */
 .session-overview {
-  --overview-indent: calc(1.5em + 0.65em);
-  padding: 1.6em calc(var(--review-scrollbar-size) + 0.65em) 0.4em 0.65em;
+  --overview-indent: calc(var(--icon-button-size) + 8px);
+  padding: 20px calc(var(--review-scrollbar-size) + 8px) 5px 8px;
 }
 
 .session-overview-top {
@@ -21,20 +21,19 @@
 .session-overview-pr-title,
 .session-overview-branch {
   margin: 0;
-  font-weight: 600;
-  line-height: 1.25;
+  font-size: var(--font-content-title-size);
+  font-weight: var(--font-weight-emphasis);
+  line-height: var(--font-content-line);
   overflow-wrap: anywhere;
 }
 
 .session-overview-pr-title {
   font-family: var(--font-prose-family);
-  font-size: calc(var(--font-prose-size) * 1.45);
 }
 
 .session-overview-branch {
   font-family: var(--font-content-family);
-  font-size: calc(var(--font-content-size) * 1.3);
-  font-weight: 400;
+  font-weight: var(--font-content-weight);
 }
 
 .session-overview-number {
@@ -42,8 +41,7 @@
   border: 0;
   background: none;
   color: var(--dim);
-  font: inherit;
-  font-weight: 400;
+  font-weight: var(--font-weight-regular);
   cursor: pointer;
 }
 
@@ -57,7 +55,7 @@
   border-color: var(--button-bg);
   background: var(--button-bg);
   color: var(--button-fg);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .session-overview-byline .finish-review-button:hover {
@@ -67,42 +65,40 @@
 .session-overview-byline {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45em;
-  margin-top: 0.55em;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 7px;
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 .session-overview-byline .weavie-pr-avatar {
+  align-self: center;
   width: 16px;
   height: 16px;
-  font-size: calc(var(--font-hint-size) * 0.8);
 }
 
 .session-overview-author {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .session-overview-ref,
 .session-overview-sha {
-  font-family: var(--font-content-family);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-mono);
 }
 
 .session-overview-ref {
-  padding: 0.05em 0.45em;
+  padding: 0 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   color: var(--fg);
 }
 
 .session-overview-pill {
-  padding: 0.1em 0.6em;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: var(--font-hint-size);
-  font-weight: 600;
+  font: var(--font-chrome-badge);
   text-transform: capitalize;
 }
 
@@ -125,19 +121,18 @@
 .session-overview-pill-none {
   border: 1px solid var(--border);
   color: var(--dim);
-  font-weight: 400;
+  font-weight: var(--font-weight-regular);
 }
 
 .session-overview-link,
 .session-overview-compose {
   display: inline-flex;
-  align-items: center;
-  gap: 0.35em;
+  align-items: baseline;
+  gap: 4px;
   padding: 0;
   border: 0;
   background: none;
   color: var(--accent);
-  font: inherit;
   cursor: pointer;
 }
 
@@ -163,15 +158,14 @@
 
 .session-overview-heading {
   display: flex;
-  align-items: center;
-  gap: 0.65em;
+  align-items: baseline;
+  gap: 8px;
   width: 100%;
-  margin: 0 0 0.45em;
+  margin: 0 0 5px;
   padding: 0;
   border: 0;
   background: none;
   color: var(--dim);
-  font: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -181,10 +175,12 @@
   outline-offset: 2px;
 }
 
-/* Sized like a file header's collapse toggle, so the two columns line up. */
+/* As wide as a file header's collapse toggle, so the two columns line up. */
 .session-overview-chevron {
   flex: none;
-  width: 1.5em;
+  align-self: center;
+  width: var(--icon-button-size);
+  height: var(--icon-size);
   transition: transform 120ms ease;
 }
 
@@ -196,25 +192,17 @@
   transform: rotate(90deg);
 }
 
-.session-overview-title {
-  font-size: var(--font-metadata-size);
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
 .session-overview-meta {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.5em;
-  font-size: var(--font-metadata-size);
+  gap: 6px;
+  font: var(--font-chrome-secondary);
 }
 
 .session-overview-description {
-  padding-bottom: 0.4em;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-prose-family);
-  font-size: var(--font-prose-size);
+  font: var(--font-prose);
 }
 
 .session-overview-list {
@@ -223,24 +211,16 @@
   list-style: none;
 }
 
-/* Long lists scroll in place after about ten rows, so the overview never pushes the diffs far away. */
+/* Long lists scroll in place after about ten compact rows, so the overview never pushes the diffs far away. */
 .session-overview-scroll {
-  max-height: 20.5em;
+  max-height: calc(10.25 * (var(--font-chrome-line) + 2 * var(--row-pad-y-compact)));
   overflow-y: auto;
 }
 
 .session-overview-row {
-  display: flex;
-  align-items: center;
-  gap: 0.55em;
-  width: 100%;
-  min-height: 2em;
-  padding: 0.15em 0;
-  border: 0;
-  background: none;
+  padding-inline: 0;
   color: var(--fg);
-  font: inherit;
-  text-align: left;
+  cursor: default;
 }
 
 button.session-overview-row:not(:disabled) {
@@ -248,9 +228,9 @@ button.session-overview-row:not(:disabled) {
 }
 
 .session-overview-row .weavie-pr-avatar {
+  align-self: center;
   width: 18px;
   height: 18px;
-  font-size: calc(var(--font-hint-size) * 0.8);
 }
 
 .session-overview-row-text {
@@ -269,17 +249,12 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 .session-overview-when {
   flex: none;
   color: var(--dim);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
 }
 
 .session-overview-sha {
   flex: none;
   color: var(--accent);
-}
-
-.session-overview-icon {
-  display: inline-flex;
-  flex: none;
 }
 
 .session-overview-check-failure .session-overview-icon,
@@ -322,7 +297,7 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 
 .session-overview-comment-head strong {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .session-overview-comment-where {
@@ -331,9 +306,8 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 }
 
 .session-overview-comment-body {
-  margin-top: 0.25em;
-  font-family: var(--font-prose-family);
-  font-size: var(--font-prose-size);
+  margin-top: 4px;
+  font: var(--font-prose);
 }
 
 .session-overview-compose {
@@ -345,27 +319,27 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 }
 
 .session-overview-error {
-  margin: 0 0 1em;
+  margin: 0 0 12px;
   color: var(--bad);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 .session-overview-empty {
-  margin: 0.2em 0;
+  margin: 2px 0;
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 /* Inside the overview's column the tree has no scrollbar beside it, so its totals end at the column edge. */
 .session-overview .unified-review-tree-row {
-  padding-right: 0.65em;
+  padding-right: var(--row-pad-x);
 }
 
 /* Commit rows share one set of columns, so SHAs and times line up whatever each time's width. */
 .session-overview-commits {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
-  column-gap: 0.55em;
+  column-gap: var(--row-gap);
 }
 
 .session-overview-commits > li {

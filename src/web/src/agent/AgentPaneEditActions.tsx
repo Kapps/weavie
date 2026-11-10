@@ -33,7 +33,12 @@ export function EditLocationActions(props: {
       <div class="agent-approval-actions">
         <For each={targets()}>
           {(target) => (
-            <button type="button" title={`Review ${target.path}`} onClick={() => review(target)}>
+            <button
+              type="button"
+              class="ui-button ui-button-content"
+              title={`Review ${target.path}`}
+              onClick={() => review(target)}
+            >
               Review {targets().length > 1 ? target.path.split(/[\\/]/).at(-1) : "edit"}
             </button>
           )}
@@ -61,12 +66,13 @@ export function PlanActions(props: {
       <div class="agent-approval-actions">
         <button
           type="button"
+          class="ui-button ui-button-content"
           title={key() === "" ? "Open plan in editor" : `Open plan in editor (${key()})`}
           onClick={open}
         >
           Open plan
           <Show when={key() !== ""}>
-            <kbd class="agent-key-chip">{key()}</kbd>
+            <kbd class="agent-key-chip ui-kbd">{key()}</kbd>
           </Show>
         </button>
       </div>

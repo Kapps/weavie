@@ -5,16 +5,7 @@
 }
 
 .finish-review-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45em;
-  padding: 0.2em 0.5em 0.2em 0.6em;
-  border: 1px solid var(--border);
-  border-radius: 5px;
   background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
 }
 
 .finish-review-button:hover,
@@ -33,9 +24,7 @@
   border-radius: 8px;
   background: var(--warn);
   color: var(--bg);
-  font-size: var(--font-hint-size);
-  font-weight: 700;
-  line-height: 16px;
+  font: var(--font-chrome-badge);
   text-align: center;
 }
 
@@ -55,8 +44,7 @@
   border-radius: 8px;
   background: var(--bar);
   box-shadow: 0 12px 32px color-mix(in srgb, #000 60%, transparent);
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-chrome-size);
+  font: var(--font-chrome-body-wrap);
   color: var(--fg);
 }
 
@@ -64,16 +52,14 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-weight: 600;
+  font: var(--font-chrome-title);
 }
 
 .finish-review-title span,
 .finish-review-note,
-.finish-review-detail,
-.finish-review-where {
+.finish-review-detail {
   color: var(--dim);
-  font-weight: 400;
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 .finish-review-title span {
@@ -112,7 +98,7 @@
 }
 
 .finish-review-verdict b {
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .finish-review-selected {
@@ -143,7 +129,6 @@
   border-radius: 4px;
   background: none;
   color: var(--fg);
-  font: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -155,7 +140,8 @@
 
 .finish-review-where {
   flex: none;
-  font-family: var(--font-content-family);
+  color: var(--dim);
+  font: var(--font-chrome-mono);
 }
 
 .finish-review-body {

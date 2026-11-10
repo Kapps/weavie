@@ -57,7 +57,7 @@ export function SuggestionProfile(props: {
                 }
               }}
             >
-              <small>{axis.label}</small>
+              <small class="ui-section-label">{axis.label}</small>
               <span>
                 {axis.valueLabel}
                 <ChevronDown size="0.95em" aria-hidden="true" />
@@ -73,7 +73,7 @@ export function SuggestionProfile(props: {
                 aria-busy="true"
                 title={`${label}: asking the agent…`}
               >
-                <small>{label}</small>
+                <small class="ui-section-label">{label}</small>
                 <i />
               </span>
             )}

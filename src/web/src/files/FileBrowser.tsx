@@ -63,27 +63,33 @@ function Node(props: {
         classList={{
           "browser-row": true,
           "file-tree-row": true,
+          "ui-row": true,
           dir: props.entry.isDir,
           active: props.currentFile !== null && samePath(props.currentFile, props.entry.path),
         }}
         title={props.entry.path}
         onClick={onClick}
       >
-        <span class="browser-twisty">
+        <span class="browser-twisty ui-icon">
           <Show when={props.entry.isDir}>
             <Show when={open()} fallback={<ChevronRight />}>
               <ChevronDown />
             </Show>
           </Show>
         </span>
-        <span class="browser-icon file-tree-icon">
+        <span class="browser-icon file-tree-icon ui-icon">
           <Show when={props.entry.isDir} fallback={<File />}>
             <Show when={open()} fallback={<Folder />}>
               <FolderOpen />
             </Show>
           </Show>
         </span>
-        <span class="browser-name file-tree-name">{props.entry.name}</span>
+        <span
+          class="browser-name file-tree-name"
+          classList={{ "ui-section-label": props.entry.isDir }}
+        >
+          {props.entry.name}
+        </span>
       </button>
       <Show when={props.entry.isDir && open()}>
         <div class="browser-children">

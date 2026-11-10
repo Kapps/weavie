@@ -70,7 +70,6 @@
   border-radius: 4px;
   background: transparent;
   color: var(--fg);
-  font: inherit;
   padding: 0 5px;
   cursor: pointer;
 }
@@ -89,14 +88,14 @@
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 0.5em;
-  width: min(90%, 26em);
-  padding: 0.7em 0.85em;
+  gap: 6px;
+  width: min(90%, 280px);
+  padding: 8px 10px;
   border: 1px solid var(--busy);
   border-radius: 8px;
   background: var(--bar);
   color: var(--fg);
-  font-size: 0.85em;
+  font: var(--font-chrome-secondary);
   box-shadow: 0 6px 22px rgb(0 0 0 / 50%);
 }
 .update-card-head {
@@ -105,39 +104,27 @@
   justify-content: space-between;
 }
 .update-card-title {
-  font-weight: 600;
+  font: var(--font-chrome-title);
 }
 .update-card-collapse {
-  padding: 0 0.45em;
-  border: none;
-  background: transparent;
   color: var(--dim);
-  font-size: 1.1em;
-  line-height: 1;
-  cursor: pointer;
 }
 .update-card-collapse:hover {
   color: var(--fg);
 }
 .update-card-body {
   color: var(--dim);
-  line-height: 1.35;
 }
 .update-card-holds {
   margin: 0;
-  padding-left: 1.1em;
-  max-height: 6em;
+  padding-left: 12px;
+  max-height: 64px;
   overflow-y: auto;
   color: var(--dim);
 }
 .update-card-restart {
   align-self: flex-start;
-  padding: 0.3em 0.8em;
-  border: 1px solid var(--busy);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
+  border-color: var(--busy);
 }
 .update-card-restart:hover {
   background: color-mix(in srgb, var(--busy) 20%, transparent);
@@ -209,14 +196,19 @@
   flex-grow: 1;
 }
 
+/* Fixed height with its 16px line centred by padding (less the bottom border), so text sits on one baseline. */
 .pane-head {
+  --pane-head-h: 24px;
+  --pane-head-pad: calc((var(--pane-head-h) - var(--font-chrome-line)) / 2);
   flex: 0 0 auto;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  padding: 3px 9px;
+  height: var(--pane-head-h);
+  padding: var(--pane-head-pad) 9px calc(var(--pane-head-pad) - 1px);
   background: var(--bar);
   border-bottom: 1px solid var(--border);
+  font: var(--font-chrome-body);
   cursor: pointer;
   user-select: none;
 }
@@ -224,7 +216,7 @@
 .pane-label {
   flex: none;
   color: var(--dim);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .left-pane.active .pane-label {
@@ -242,8 +234,10 @@
   white-space: pre;
 }
 
+/* The text, not the status dot, gives the run its baseline in the head. */
 .pane-run-text {
   display: flex;
+  align-self: baseline;
   overflow: hidden;
 }
 
@@ -405,28 +399,16 @@
    the editor.paneShortcutHints setting). The tab-bar placement is refined in editor.css. */
 .pane-shortcut {
   margin-left: auto;
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--dim);
-  font-size: 10px;
-  line-height: 16px;
   user-select: none;
 }
 
 /* A pane head's fullscreen toggle leads its trailing controls; anything after it drops its own auto margin,
    or the two would split the free space between them. */
 .pane-fullscreen {
-  display: inline-flex;
-  align-items: center;
   align-self: center;
   margin-left: auto;
-  padding: 2px 4px;
-  border: none;
   border-radius: 3px;
-  background: none;
   color: var(--dim);
-  cursor: pointer;
 }
 
 .pane-fullscreen:hover,
@@ -470,12 +452,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 2px 9px;
+  height: 22px;
+  padding: 0 9px;
   background: var(--bar);
   border-top: 1px solid var(--border);
   color: var(--dim);
-  font-size: var(--font-hint-size);
-  line-height: 17px;
+  font: var(--font-chrome-secondary);
   user-select: none;
   overflow: hidden;
   white-space: nowrap;
@@ -499,7 +481,7 @@
 
 .footer-network-problem {
   color: var(--warn);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .footer-outside-repo {
@@ -518,7 +500,6 @@
   border: none;
   background: transparent;
   color: inherit;
-  font: inherit;
   cursor: pointer;
 }
 
@@ -539,10 +520,6 @@
 .session-reload-button {
   pointer-events: auto;
   flex: none;
-  padding: 2px 10px;
+  border-color: currentcolor;
   color: inherit;
-  background: transparent;
-  border: 1px solid currentcolor;
-  border-radius: 3px;
-  cursor: pointer;
 }

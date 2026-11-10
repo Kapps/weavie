@@ -13,8 +13,6 @@
   background: var(--bar);
   border-bottom: 1px solid var(--border);
   user-select: none;
-  /* Font intentionally inherited from .app — same UI font (Chivo), weight and 12px size as the rest of
-     the chrome (the menu bar reads better matched to the tabs than enlarged). */
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -55,8 +53,6 @@
   align-items: center;
   color: var(--accent);
   padding: 0 6px 0 2px;
-  /* The logo is sized in em (it renders at 1em), so it scales with the chrome font — no fixed px. */
-  font-size: 1.5em;
 }
 
 .titlebar.blurred .tb-icon {
@@ -97,10 +93,10 @@
 /* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular
    numerals keep it from jittering; the full version sits in its tooltip. */
 .tb-build {
+  font: var(--font-chrome-secondary);
+  font-variant-numeric: tabular-nums;
   padding: 0 10px;
   color: var(--dim);
-  font-size: 0.85em;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
 }
@@ -109,11 +105,10 @@
   opacity: 0.6;
 }
 
-/* Lucide UI glyphs (search + window controls) sized in em off the chrome font — never a fixed px height. */
 .tb-ctl svg,
 .tb-omnibar-icon svg {
-  width: 1.15em;
-  height: 1.15em;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 /* Menus */
@@ -127,7 +122,6 @@
   background: transparent;
   border: none;
   color: inherit;
-  font: inherit;
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;

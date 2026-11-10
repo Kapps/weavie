@@ -40,8 +40,11 @@ export function Suggestions(props: {
                 {(action) => (
                   <button
                     type="button"
-                    class="suggestion-action"
-                    classList={{ primary: action.kind === "RunCommand" }}
+                    class="suggestion-action ui-button"
+                    classList={{
+                      primary: action.kind === "RunCommand",
+                      "ui-button-primary": action.kind === "RunCommand",
+                    }}
                     onClick={() => onAction(suggestion, action)}
                   >
                     {actionLabel(action)}

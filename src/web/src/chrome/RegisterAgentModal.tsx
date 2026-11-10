@@ -70,12 +70,9 @@ export function RegisterAgentModal(props: {
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-body">
-        Point Weavie at a remote runner. URL + token are printed in the runner's console at startup
-        (reachable over Tailscale, e.g. http://your-host:8800).
-      </div>
+      <div class="confirm-body">The runner prints its URL and token at startup</div>
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="name (e.g. devbox)"
         spellcheck={false}
@@ -85,7 +82,7 @@ export function RegisterAgentModal(props: {
         ref={(el) => queueMicrotask(() => el.focus())}
       />
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="runner URL (http://host:8800)"
         spellcheck={false}
@@ -94,7 +91,7 @@ export function RegisterAgentModal(props: {
         onInput={(e) => setUrl(e.currentTarget.value)}
       />
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="runner token"
         spellcheck={false}

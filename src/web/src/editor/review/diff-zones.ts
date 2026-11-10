@@ -5,7 +5,7 @@
 import { monaco } from "../monaco-setup";
 import type { DiffMarkers } from "./diff-markers";
 
-// Height of the "New file" header band shown above a wholly-new file's first line.
+// Height of the "New file" band above a wholly-new file's first line; its 20px tag centres in it (diff.css).
 const NEW_FILE_BADGE_HEIGHT = 24;
 
 /**
@@ -104,7 +104,7 @@ function buildGhostLines(
   return { node, onDomNodeTop };
 }
 
-// The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added
+// The "New file" header band: a green chrome-face pill above a wholly-new file's first line, so an all-added
 // file is labelled once instead of washed green on every line.
 function buildNewFileBadge(): HTMLElement {
   const node = document.createElement("div");

@@ -26,14 +26,13 @@
 }
 
 .suggestion-title {
-  font-weight: 600;
   margin-bottom: 4px;
+  font: var(--font-chrome-title);
 }
 
 .suggestion-body {
   color: var(--dim);
-  font-size: 0.9em;
-  line-height: 1.4;
+  font: var(--font-chrome-secondary);
 }
 
 .suggestion-actions {
@@ -43,28 +42,8 @@
   margin-top: 10px;
 }
 
-.suggestion-action {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--fg);
-  cursor: pointer;
-  font: inherit;
-  padding: 3px 10px;
-}
-
 .suggestion-action:hover {
   border-color: var(--accent);
-}
-
-.suggestion-action.primary {
-  background: var(--button-bg);
-  border-color: var(--button-bg);
-  color: var(--button-fg);
-}
-
-.suggestion-action.primary:hover {
-  background: var(--button-hover-bg);
 }
 
 @keyframes suggestion-in {

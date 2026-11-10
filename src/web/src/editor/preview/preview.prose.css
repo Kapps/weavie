@@ -126,15 +126,6 @@
   color: var(--dim);
 }
 
-.editor-preview-body pre.mermaid-source[data-mermaid-error]::before {
-  content: attr(data-mermaid-error);
-  display: block;
-  margin-bottom: 0.7em;
-  color: var(--bad);
-  font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
-  white-space: normal;
-}
-
 .editor-preview-body :is(strong, b, th) {
   font-weight: 700;
 }

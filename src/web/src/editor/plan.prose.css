@@ -26,15 +26,6 @@
   margin-bottom: 1.6em;
 }
 
-.editor-plan-kicker {
-  display: block;
-  margin-bottom: 0.35em;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .editor-plan h1 {
   margin: 0;
   color: var(--fg);
@@ -49,12 +40,6 @@
   font-size: var(--font-prose-size);
   font-weight: var(--font-prose-weight);
   line-height: 1.6;
-}
-
-.editor-plan-notice {
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  text-align: center;
 }
 
 .editor-plan :is(strong, b, th) {

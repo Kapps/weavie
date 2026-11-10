@@ -229,7 +229,7 @@ const KEY_COMMANDS: { id: string; detail: string }[] = [
   { id: CommandIds.focusOmnibarCommands, detail: "Find any action" },
   { id: CommandIds.focusOmnibarFiles, detail: "Open a file" },
   { id: CommandIds.showSessions, detail: "Start a session" },
-  { id: CommandIds.reviseSelection, detail: "Ask the agent to rewrite selected code" },
+  { id: CommandIds.reviewOpen, detail: "Inspect your agent’s changes" },
 ];
 
 /** A shortcut label (e.g. `Ctrl+Shift+P`) drawn as one keycap per key. */

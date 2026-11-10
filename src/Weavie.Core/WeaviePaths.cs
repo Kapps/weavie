@@ -9,7 +9,8 @@ namespace Weavie.Core;
 public static class WeaviePaths {
 	/// <summary>
 	/// The Weavie root — the user's home directory plus <c>.weavie</c> (e.g. <c>~/.weavie</c>), unless
-	/// <c>WEAVIE_ROOT</c> overrides it with an absolute path. The override is a bootstrap relocation seam (it can't
+	/// <c>WEAVIE_ROOT</c> overrides it. Relative paths are resolved against the host's startup directory so child
+	/// processes use the same root from any workspace. The override is a bootstrap relocation seam (it can't
 	/// be a setting — settings live under this root): the test harness points it at a throwaway dir so a run never
 	/// reads or writes the developer's real config, which on Windows <c>$HOME</c> can't redirect (the user-profile
 	/// known folder ignores it).
@@ -20,7 +21,7 @@ public static class WeaviePaths {
 		string? overrideRoot = Environment.GetEnvironmentVariable("WEAVIE_ROOT");
 		return string.IsNullOrEmpty(overrideRoot)
 			? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".weavie")
-			: overrideRoot;
+			: Path.GetFullPath(overrideRoot);
 	}
 
 	/// <summary>Where user settings live: <c>~/.weavie/settings</c>.</summary>

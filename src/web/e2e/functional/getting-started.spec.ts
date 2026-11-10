@@ -191,6 +191,8 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   await expect(setup.locator(".gs-keys kbd", { hasText: "Unbound" })).toHaveCount(0);
   await page.keyboard.press("Enter");
   await expect(setup).toBeHidden();
+  await expect(page.getByRole("combobox", { name: "Go to file", exact: true })).toBeFocused();
+  await expect(page.locator(".tb-omnibar-row", { hasText: "hello.ts" })).toBeVisible();
 
   await page.reload();
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
@@ -223,6 +225,46 @@ test("Browse more themes hands setup off to the Open VSX picker and back", async
   await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose a look");
+});
+
+test("the standalone welcome screen opens a usable theme picker and returns to setup", async ({
+  page,
+}) => {
+  const bootstrap = await page.evaluate(() => ({
+    __WEAVIE_AGENT__: window.__WEAVIE_AGENT__,
+    __WEAVIE_FONTS__: window.__WEAVIE_FONTS__,
+    __WEAVIE_THEME__: window.__WEAVIE_THEME__,
+    __WEAVIE_COMMANDS__: window.__WEAVIE_COMMANDS__,
+    __WEAVIE_KEYBINDINGS__: window.__WEAVIE_KEYBINDINGS__,
+    __WEAVIE_BRIDGE_WS__: "auto",
+    __WEAVIE_WELCOME__: { recents: [], setupCompleted: false },
+  }));
+  await page.addInitScript((values) => Object.assign(window, values), bootstrap);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(new URL("/welcome.html", page.url()).href);
+  const setup = page.locator(".welcome .getting-started");
+  const browse = setup.getByRole("button", { name: /Browse more themes/ });
+  const picker = page.getByRole("dialog", { name: "Select Color Theme" });
+
+  await browse.click();
+  await expect(picker).toBeInViewport({ ratio: 1 });
+  await expect(picker.getByRole("option", { name: /Popular Theme/ })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(browse).toBeFocused();
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose a look");
+
+  await page.keyboard.press("Enter");
+  await expect(picker).toBeInViewport({ ratio: 1 });
+  await picker.getByRole("button", { name: "Installed", exact: true }).click();
+  await picker.getByLabel("Theme appearance").selectOption("light");
+  await picker.getByRole("combobox", { name: "Filter themes", exact: true }).fill("Weavie Light");
+  await page.keyboard.press("Enter");
+  await expect(picker).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
+  await expect(browse).toBeFocused();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Pick your agent");
 });
 
 test("choosing a suggested agent installs and checks it, and shows why a failed install failed", async ({

@@ -1,6 +1,7 @@
 import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { requestModal } from "./modal-state";
+import "./modal-shell.css";
 
 export function modalSubmitKeys(
   onSubmit: () => void,

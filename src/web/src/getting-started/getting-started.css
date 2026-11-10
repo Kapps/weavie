@@ -340,7 +340,7 @@ fieldset.gs-choices {
   transition: opacity 0.15s ease;
 }
 
-.gs-row .gs-text {
+.gs-row label.gs-text {
   cursor: pointer;
 }
 
@@ -554,26 +554,9 @@ fieldset.gs-choices {
 /* Smart suggestions: what they run on, one bar of pickers echoing the agent status line. */
 
 .gs-profile {
-  display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding: 10px 14px;
-  background: var(--gs-surface);
-  border-radius: 10px;
-}
-
-.gs-profile-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 8px;
-  margin: 0;
-}
-
-.gs-profile-head small,
-.gs-pick small {
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
 }
 
 .gs-bar {
@@ -604,6 +587,7 @@ fieldset.gs-choices {
 }
 
 .gs-pick small {
+  color: var(--dim);
   font-size: var(--font-hint-size);
   font-weight: 600;
   letter-spacing: 0.06em;

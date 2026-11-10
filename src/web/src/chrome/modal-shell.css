@@ -1,0 +1,35 @@
+/* Modal confirm dialog (e.g. "discard unsaved scratch?"): a dimmed backdrop with a centered card. Above the
+   panels/toolbars but below toasts, so a failed-save toast still shows. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  /* Scroll the backdrop (not the card) and pad it, so a card taller than a short viewport stays fully
+     reachable. The card centres via margin:auto below — keeping overflow off the card itself so the
+     session-prompt's absolutely-positioned typeahead can still overlay past the card's edge. */
+  overflow: auto;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  /* Softly defocus the workspace behind the modal so the dialog reads as a floating layer. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  /* Modals render through a Portal to <body>, OUTSIDE the .app font scope — without this they fall back
+     to the WebView's default serif and render fuzzily. Re-assert the chrome UI font (Chivo) here so the
+     dialog text is crisp. 13px reads a touch larger than the 12px chrome, which suits a focused dialog. */
+  font: 13px / 1.5 var(--ui-font);
+}
+
+.confirm-dialog {
+  width: min(420px, 86vw);
+  /* Centre within the flex backdrop. When the card is taller than the viewport the auto margins collapse
+     and the backdrop scrolls, so the top and the action buttons both stay reachable (the classic flex
+     align-items:center centred-overflow top-clip is avoided), with no overflow on the card. */
+  margin: auto;
+  padding: 1em 1.1em;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}

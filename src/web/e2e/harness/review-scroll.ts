@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 export async function reviewScroll(page: Page): Promise<{ top: number; maximum: number }> {
   const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
@@ -21,6 +21,16 @@ export async function scrollReview(page: Page, target: "start" | "middle" | "end
     await focused.dispose();
     return;
   }
+  // The drag lands relative to the thumb's measured box, so a glide still moving the thumb would shift it.
+  let previous = Number.NaN;
+  await expect
+    .poll(async () => {
+      const { top } = await reviewScroll(page);
+      const settled = top === previous;
+      previous = top;
+      return settled;
+    })
+    .toBe(true);
   const thumb = await scrollbar.locator(".slider").boundingBox();
   const track = await scrollbar.boundingBox();
   if (thumb === null || track === null) throw new Error("Review scrollbar is missing");

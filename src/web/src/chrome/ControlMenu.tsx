@@ -80,46 +80,54 @@ export function ControlMenu(props: {
       aria-label={props.axis.label}
     >
       {/* Redundant to the listbox aria-label; hidden so the listbox has only option children. */}
-      <div class="control-menu-head" aria-hidden="true">
+      <div class="control-menu-head ui-section-label" aria-hidden="true">
         {props.axis.label}
       </div>
       <For each={props.axis.options}>
         {(option, index) => (
-          <div
-            {...nav.row(index())}
-            class="control-menu-option"
-            role="option"
-            tabindex={-1}
-            aria-selected={option.id === props.axis.value}
-            aria-disabled={option.unavailable !== undefined}
-            title={option.unavailable}
-            classList={{ active: index() === nav.index() }}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              if (option.unavailable === undefined) props.onPick(option.id);
-            }}
-          >
+          <>
             <Show
               when={
                 option.group !== null &&
                 (index() === 0 || props.axis.options[index() - 1]?.group !== option.group)
               }
             >
-              <span class="control-menu-option-group">{option.group}</span>
+              <div class="control-menu-option-group ui-section-label" aria-hidden="true">
+                {option.group}
+              </div>
             </Show>
-            <span class="control-menu-option-label">
+            <div
+              {...nav.row(index())}
+              class="control-menu-option ui-row ui-row-stack"
+              role="option"
+              tabindex={-1}
+              aria-selected={option.id === props.axis.value}
+              aria-disabled={option.unavailable !== undefined}
+              title={option.unavailable}
+              classList={{ active: index() === nav.index() }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                if (option.unavailable === undefined) props.onPick(option.id);
+              }}
+            >
               <Show when={option.unavailable !== undefined}>
-                <Ban size="0.95em" aria-label="Unavailable" />
+                <span class="control-menu-option-unavailable ui-icon">
+                  <Ban aria-label="Unavailable" />
+                </span>
               </Show>
-              {option.label}
-            </span>
-            <Show when={option.description !== null}>
-              <span class="control-menu-option-desc">{option.description}</span>
-            </Show>
-            <Show when={option.unavailable}>
-              {(reason) => <span class="control-menu-option-reason">{reason()}</span>}
-            </Show>
-          </div>
+              <span class="ui-row-text">
+                <span class="control-menu-option-label">{option.label}</span>
+                <Show when={option.description !== null}>
+                  <span class="control-menu-option-desc ui-row-desc">{option.description}</span>
+                </Show>
+                <Show when={option.unavailable}>
+                  {(reason) => (
+                    <span class="control-menu-option-reason ui-row-desc">{reason()}</span>
+                  )}
+                </Show>
+              </span>
+            </div>
+          </>
         )}
       </For>
       <Show when={props.axis.options.length === 0}>

@@ -1,3 +1,4 @@
+import { ArrowUp } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { selectedSession } from "../bridge";
@@ -8,6 +9,7 @@ import { keyHint } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
+import { MobileActionLabel } from "./MobileActionLabel";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import { type NewSessionWorkflowActions, NewSessionWorkflowField } from "./NewSessionWorkflowField";
 import {
@@ -207,6 +209,7 @@ export function NewSessionComposer(props: {
         <label>
           <span>From</span>
           <select
+            class="ui-field"
             aria-label="Branch starting point"
             value={props.base}
             onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
@@ -245,13 +248,14 @@ export function NewSessionComposer(props: {
         {props.destination}
         <button
           type="submit"
-          class="session-composer-submit mobile-primary-action"
+          class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
           aria-label={props.starting ? "Starting session" : "Start"}
           title={`Start${keyHint(CommandIds.submitNewSession)}`}
           disabled={!canStart()}
         >
-          <span class="mobile-action-wide">{props.starting ? "Starting…" : "Start"}</span>
-          <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+          <MobileActionLabel icon={<ArrowUp />}>
+            {props.starting ? "Starting…" : "Start"}
+          </MobileActionLabel>
         </button>
       </div>
     </form>

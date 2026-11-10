@@ -89,9 +89,9 @@
   }
 
   .app.compact .pane-head {
+    --pane-head-h: 36px;
     position: relative;
     z-index: 5;
-    min-height: 36px;
     padding-inline: 12px;
     min-width: 0;
   }
@@ -137,7 +137,7 @@
 
   .app.compact .browser-toggle {
     bottom: calc(8px + var(--mobile-nav-block-size));
-    min-height: 44px;
+    min-height: var(--touch-target);
     border-radius: 10px;
   }
 
@@ -160,13 +160,13 @@
   }
 
   .app.compact .agent-compose-actions > button {
-    width: 44px;
-    flex: 0 0 44px;
+    width: var(--touch-target);
+    flex: 0 0 var(--touch-target);
     padding-inline: 0;
   }
 
   .app.compact .agent-compose textarea {
-    min-height: 44px;
+    min-height: var(--touch-target);
     max-height: 96px;
   }
 
@@ -189,7 +189,7 @@
   }
 
   .app.compact .agent-working-compact .agent-working-time {
-    font-size: var(--font-hint-size);
+    font-size: var(--font-chrome-secondary-size);
   }
 
   .app.compact .agent-status-line-compact {
@@ -198,35 +198,34 @@
     min-width: 0;
     padding: 0;
     background: transparent;
-    font-size: var(--font-hint-size);
+    font-size: var(--font-chrome-secondary-size);
   }
 
-  .app.compact .agent-status-line-compact .agent-model-picker,
   .app.compact .agent-status-line-compact .agent-control-picker {
     top: calc(100% + 4px);
     bottom: auto;
   }
 
-  .app.compact .agent-compose-actions > button,
-  .app.compact .agent-approval-actions > button {
-    border-radius: 8px;
-    font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
+  /* Touch targets share the inbox buttons' chrome type, not the composer's editor-sized type. */
+  .app.compact .agent-compose-actions > button {
+    --control-line: var(--font-chrome-line);
+    font: var(--font-chrome-body);
   }
 
-  .app.compact .browser-close,
+  .app.compact .toast-action,
+  .app.compact .agent-compose-actions > button,
+  .app.compact .agent-approval-actions > button {
+    --control-h: var(--touch-target);
+    min-width: var(--touch-target);
+  }
+
   .app.compact .toast-close {
-    display: inline-grid;
-    min-width: 44px;
-    min-height: 44px;
-    place-items: center;
+    --icon-button-size: var(--touch-target);
   }
 
   .app.compact .browser-row,
-  .app.compact .toast-action,
-  .app.compact .agent-compose-actions button,
-  .app.compact .agent-approval-actions button {
-    min-width: 44px;
-    min-height: 44px;
+  .session-prompt-suggestion {
+    --row-pad: calc((var(--touch-target) - var(--row-line)) / 2);
   }
 
   .modal-backdrop {
@@ -235,23 +234,18 @@
 
   .session-prompt {
     width: 100%;
-    padding: 1.25em;
   }
 
-  .session-prompt-input,
-  .session-prompt-select,
-  .session-prompt-location-remove,
-  .session-prompt-suggestion {
-    min-height: 44px;
+  .session-prompt-input {
+    --control-h: var(--touch-target);
   }
 
-  .session-prompt-actions {
+  .confirm-actions {
     flex-wrap: wrap;
   }
 
   .session-prompt-btn {
-    min-width: 0;
-    min-height: 44px;
+    --control-h: var(--touch-target);
   }
 }
 
@@ -273,28 +267,16 @@
   display: none;
 }
 
-.mobile-action-stop::before {
-  content: "■";
-}
-
-.mobile-action-submit::before {
-  content: "↑";
-}
-
-.mobile-action-more::before {
-  content: "…";
-}
-
 .mobile-surface-button {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--touch-target);
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--dim);
-  font-size: var(--font-hint-size);
-  font-weight: 600;
+  font: var(--font-chrome-secondary);
+  font-weight: var(--font-weight-emphasis);
 }
 
 .mobile-surface-button.active {
@@ -312,7 +294,7 @@
   }
 
   .app.compact .mobile-action-compact {
-    display: inline;
+    display: inline-flex;
   }
 
   .app.compact .mobile-primary-action:not(:disabled) {
@@ -320,11 +302,5 @@
     background: var(--button-bg);
     color: var(--button-fg);
     box-shadow: 0 2px 10px color-mix(in srgb, var(--button-bg) 35%, transparent);
-  }
-
-  .app.compact .mobile-primary-action .mobile-action-compact {
-    font-size: 20px;
-    font-weight: 700;
-    line-height: 1;
   }
 }

@@ -152,7 +152,7 @@ export function PrCommentComposer(props: {
         </Show>
         <button
           type="button"
-          class="weavie-pr-button"
+          class="weavie-pr-button ui-button"
           title={`Cancel${keyHint(CommandIds.prCancelComment)} — keeps your draft`}
           onClick={() => props.onCancel()}
         >
@@ -162,7 +162,7 @@ export function PrCommentComposer(props: {
           {(alternate) => (
             <button
               type="button"
-              class="weavie-pr-button"
+              class="weavie-pr-button ui-button"
               disabled={busy() || text().trim() === ""}
               title={`${alternate().label}${keyHint(CommandIds.prPostCommentNow)}`}
               onClick={() => void send(alternate().onSubmit)}
@@ -173,7 +173,7 @@ export function PrCommentComposer(props: {
         </Show>
         <button
           type="button"
-          class="weavie-pr-button weavie-pr-button-primary"
+          class="weavie-pr-button weavie-pr-button-primary ui-button"
           disabled={busy() || text().trim() === ""}
           title={`${props.submitLabel}${keyHint(CommandIds.prSubmitComment)}`}
           onClick={() => handle.submit()}

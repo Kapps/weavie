@@ -14,22 +14,13 @@
 }
 
 .control-menu-head {
-  padding: 3px 7px 4px;
+  padding: 3px 8px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   margin-bottom: 3px;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .control-menu-option {
-  display: grid;
-  gap: 1px;
-  padding: 4px 7px;
   border-radius: 3px;
-  cursor: pointer;
 }
 
 .control-menu-option.active {
@@ -53,17 +44,14 @@
   color: var(--dim);
 }
 
-.control-menu-option-label svg {
-  margin-right: 5px;
+.control-menu-option-unavailable {
   color: var(--bad);
-  vertical-align: -0.1em;
 }
 
 /* A pointer shows the reason as the row's tooltip; touch has no hover, so it reads it in the row. */
 .control-menu-option-reason {
   display: none;
   color: var(--bad);
-  font-size: var(--font-hint-size);
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -73,20 +61,10 @@
 }
 
 .control-menu-option-group {
-  padding-top: 2px;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.control-menu-option-desc {
-  color: var(--dim);
-  font-size: var(--font-hint-size);
+  padding: 6px 8px 2px;
 }
 
 .control-menu-empty {
-  padding: 5px 7px;
+  padding: 5px 8px;
   color: var(--dim);
 }

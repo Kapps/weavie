@@ -29,6 +29,7 @@ export function AgentQuestionControl(props: {
     };
     return (
       <textarea
+        class="ui-field"
         rows={Math.max(2, props.values.length)}
         value={props.values.join("\n")}
         placeholder="One value per line"
@@ -50,6 +51,7 @@ export function AgentQuestionControl(props: {
   };
   return (
     <input
+      class="ui-field"
       type={type()}
       required={props.question.required}
       value={single()}
@@ -163,6 +165,7 @@ function ChoiceList(props: {
         </label>
         <Show when={custom()}>
           <input
+            class="ui-field"
             type="text"
             required={props.question.required}
             value={customAnswer()}

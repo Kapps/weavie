@@ -11,10 +11,7 @@ export function ChoicePicker(props: {
   onClose: () => void;
 }): JSX.Element {
   return (
-    <ModalShell labelledBy="choice-picker-title" onDismiss={props.onClose} class="choice-picker">
-      <div class="confirm-title" id="choice-picker-title">
-        {props.picker.title}
-      </div>
+    <ModalShell title={props.picker.title} onDismiss={props.onClose} class="choice-picker">
       <ControlMenu
         axis={{
           label: props.picker.title,

@@ -45,7 +45,7 @@ export function BranchTypeahead(props: {
   return (
     <>
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-content"
         type="text"
         placeholder={props.placeholder}
         role="combobox"
@@ -78,7 +78,7 @@ export function BranchTypeahead(props: {
             {(name, i) => (
               <div
                 {...nav.row(i())}
-                class="session-prompt-suggestion"
+                class="session-prompt-suggestion ui-row ui-row-content"
                 role="option"
                 tabindex={-1}
                 id={`${props.idPrefix}-opt-${i()}`}
@@ -91,7 +91,7 @@ export function BranchTypeahead(props: {
                   props.onSubmit(name, false, true);
                 }}
               >
-                {name}
+                <span>{name}</span>
               </div>
             )}
           </For>

@@ -71,7 +71,7 @@ export function NewSessionWorkflowField(props: {
       <span id="new-session-workflow-label">Workflow</span>
       <button
         type="button"
-        class="session-composer-workflow-toggle"
+        class="session-composer-workflow-toggle ui-field"
         aria-labelledby="new-session-workflow-label new-session-workflow-value"
         aria-haspopup="listbox"
         aria-expanded={anchor() !== null}
@@ -87,11 +87,15 @@ export function NewSessionWorkflowField(props: {
           }
         }}
       >
-        <span id="new-session-workflow-value">{label()}</span>
+        <span id="new-session-workflow-value" class="session-composer-workflow-value">
+          {label()}
+        </span>
         <Show when={state().status === "suggesting"}>
-          <small>Suggesting…</small>
+          <span class="ui-row-desc">Suggesting…</span>
         </Show>
-        <ChevronDown size="0.95em" aria-hidden="true" />
+        <span class="ui-icon" aria-hidden="true">
+          <ChevronDown />
+        </span>
       </button>
       <Show when={state().problem}>{(problem) => <small role="alert">{problem()}</small>}</Show>
       <Show when={anchor()} keyed>

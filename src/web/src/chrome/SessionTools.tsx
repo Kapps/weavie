@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Pin, PinOff } from "lucide-solid";
+import { ChevronDown, ChevronRight, Pin, PinOff, Plus } from "lucide-solid";
 import { createSignal, type JSX, Show } from "solid-js";
 import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { captureCommandRunner } from "../commands/registry";
@@ -27,7 +27,7 @@ export function SessionTools(props: {
       <Show when={props.hasRemotes}>
         <button
           type="button"
-          class="session-rail-cloud"
+          class="session-rail-cloud ui-icon-button"
           title="Remote agents"
           onClick={(event) => props.onToggleRemotes(event.currentTarget.getBoundingClientRect())}
         >
@@ -38,11 +38,11 @@ export function SessionTools(props: {
       </Show>
       <button
         type="button"
-        class="session-rail-add"
+        class="session-rail-add ui-icon-button"
         title={newSessionTitle()}
         onClick={() => props.onNew()}
       >
-        +
+        <Plus />
       </button>
     </>
   );
@@ -88,18 +88,18 @@ export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
   return (
     <>
       <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
-        {(keys) => <span class="session-panel-key">{keys()}</span>}
+        {(keys) => <span class="session-panel-key ui-kbd">{keys()}</span>}
       </Show>
       <button
         type="button"
-        class="session-panel-pin"
+        class="session-panel-pin ui-icon-button"
         classList={{ on: panelPinned() }}
         title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
         aria-pressed={panelPinned()}
         onClick={() => props.onTogglePin()}
       >
-        <Show when={panelPinned()} fallback={<Pin size={13} />}>
-          <PinOff size={13} />
+        <Show when={panelPinned()} fallback={<Pin />}>
+          <PinOff />
         </Show>
       </button>
     </>
@@ -109,9 +109,12 @@ export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
 /** A session's full name and what its agent is doing: a pinned panel row or an expanded chip. */
 export function SessionText(props: { session: RailSession; now: number }): JSX.Element {
   return (
-    <span class="session-panel-text">
+    <span class="session-panel-text ui-row-text">
       <span class="session-panel-title">{props.session.title}</span>
-      <span class="session-panel-activity" title={sessionDetail(props.session) || undefined}>
+      <span
+        class="session-panel-activity ui-row-desc"
+        title={sessionDetail(props.session) || undefined}
+      >
         {sessionSubtitle(props.session, props.now)}
       </span>
     </span>

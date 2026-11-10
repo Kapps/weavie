@@ -15,7 +15,7 @@ export function SessionReloadBar(props: { session: RailSession }): JSX.Element {
       <span>{props.session.reloadRequired} This session needs a reload.</span>
       <button
         type="button"
-        class="session-reload-button"
+        class="session-reload-button ui-button"
         title={title()}
         onClick={() =>
           void dispatchCommand(CommandIds.reloadSessionPrompt, {

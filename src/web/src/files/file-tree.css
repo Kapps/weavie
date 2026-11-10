@@ -7,12 +7,6 @@
 }
 
 .file-tree-row.dir .file-tree-name {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: var(--font-hint-size);
+  color: inherit;
   opacity: 0.9;
-}
-
-.file-tree-row:not(.dir) .file-tree-name {
-  letter-spacing: 0.02em;
 }

@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 
 export type AgentAttachmentViewStatus = "reading" | "transferring" | "ready" | "failed";
@@ -29,10 +30,11 @@ export function AgentAttachmentStrip(props: {
             </Show>
             <button
               type="button"
+              class="ui-icon-button"
               title="Remove attachment"
               onClick={() => props.onRemove(attachment.id)}
             >
-              ×
+              <X aria-hidden="true" />
             </button>
           </div>
         )}

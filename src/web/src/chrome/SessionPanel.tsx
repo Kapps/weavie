@@ -221,10 +221,10 @@ export function SessionPanel(props: {
               <Show when={members().length > 0}>
                 <Show
                   when={group.id === "parked"}
-                  fallback={<div class="session-panel-group">{group.title}</div>}
+                  fallback={<div class="session-panel-group ui-section-label">{group.title}</div>}
                 >
                   <ParkedToggle
-                    class="session-panel-group session-panel-parked"
+                    class="session-panel-group session-panel-parked ui-section-label"
                     count={members().length}
                     label={`${group.title} · ${members().length}`}
                   />
@@ -239,7 +239,7 @@ export function SessionPanel(props: {
                         return (
                           <button
                             type="button"
-                            class="session-panel-row"
+                            class="session-panel-row ui-row ui-row-stack"
                             classList={{
                               active: session().active,
                               parked: !session().loaded,
@@ -253,7 +253,9 @@ export function SessionPanel(props: {
                             onContextMenu={(event) => menu.open(event, session())}
                           >
                             <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
-                            <SessionStatus session={session()} />
+                            <span class="ui-icon">
+                              <SessionStatus session={session()} />
+                            </span>
                             <SessionText session={session()} now={now()} />
                           </button>
                         );

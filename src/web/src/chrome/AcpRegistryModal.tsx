@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { connectedBackends, LOCAL_BACKEND_ID } from "../bridge";
 import { setContext } from "../commands/context";
@@ -43,7 +44,46 @@ export function AcpRegistryModal(props: {
 
   return (
     <ModalShell
-      labelledBy="acp-registry-title"
+      title="ACP agents"
+      titleEnd={
+        <div class="acp-registry-heading">
+          <Show when={connectedBackends().length > 1}>
+            <select
+              class="ui-field"
+              aria-label="Host"
+              title="Host whose ACP agents are shown"
+              value={backendId()}
+              onChange={(event) => {
+                setError(null);
+                setBackendId(event.currentTarget.value);
+              }}
+            >
+              <For each={connectedBackends()}>
+                {(backend) => (
+                  <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
+                )}
+              </For>
+            </select>
+          </Show>
+          <button
+            type="button"
+            class="ui-button ui-button-lg"
+            onClick={() => void reload()}
+            title={`Reload custom agents${liveKeyLabel(CommandIds.reloadAcpAgents) === "" ? "" : ` (${liveKeyLabel(CommandIds.reloadAcpAgents)})`}`}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            class="ui-icon-button"
+            onClick={props.onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+          >
+            <X aria-hidden="true" />
+          </button>
+        </div>
+      }
       onDismiss={props.onClose}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -53,43 +93,6 @@ export function AcpRegistryModal(props: {
       }}
       class="acp-registry-dialog"
     >
-      <div class="acp-registry-heading">
-        <div>
-          <div class="confirm-title" id="acp-registry-title">
-            ACP agents
-          </div>
-          <div class="confirm-body">
-            Install agents from the official Agent Client Protocol registry.
-          </div>
-        </div>
-        <Show when={connectedBackends().length > 1}>
-          <select
-            aria-label="Host"
-            title="Host whose ACP agents are shown"
-            value={backendId()}
-            onChange={(event) => {
-              setError(null);
-              setBackendId(event.currentTarget.value);
-            }}
-          >
-            <For each={connectedBackends()}>
-              {(backend) => (
-                <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
-              )}
-            </For>
-          </select>
-        </Show>
-        <button
-          type="button"
-          onClick={() => void reload()}
-          title={`Reload custom agents${liveKeyLabel(CommandIds.reloadAcpAgents) === "" ? "" : ` (${liveKeyLabel(CommandIds.reloadAcpAgents)})`}`}
-        >
-          Reload
-        </button>
-        <button type="button" onClick={props.onClose} title="Close (Esc)" aria-label="Close">
-          ×
-        </button>
-      </div>
       <Show when={error()}>{(message) => <div class="session-prompt-error">{message()}</div>}</Show>
       <Show when={backendId()} keyed>
         {(id) => <AcpRegistryList backendId={id} removable={true} />}

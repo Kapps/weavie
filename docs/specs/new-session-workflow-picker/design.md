@@ -453,8 +453,9 @@ moves into `ControlMenu.tsx` instead of being copied).
 - `SessionInboxSurface.onKeyDown` (`SessionInboxSurface.tsx:29-55`) must return early while `controlMenuOpen()`,
   or Escape closes the whole Sessions modal and Tab is trapped. `GettingStarted.tsx` already does this.
 - Tab order is DOM order: branch, suggest-again, **workflow**, location, agent, Start.
-- Typography: label and row as `.session-composer-branch` (`--font-metadata-size`); the problem line is
-  `small[role=alert]` at `--font-hint-size`; menu rows come from `control-menu.css`. No new font variables.
+- Built from the design-system primitives: the toggle is a `.ui-field` (so touch sizing comes from
+  `--control-h`), its status text `.ui-row-desc`, its chevron and the unavailable mark `.ui-icon`; menu rows are
+  `ControlMenu`'s `.ui-row`s. No font is set in feature CSS.
 
 `SessionInbox.tsx` is 556 lines and holds the new-session composer, the open-existing form, and the list. The
 composer `<form>` and its state move to `NewSessionComposer.tsx` first, as a pure move.

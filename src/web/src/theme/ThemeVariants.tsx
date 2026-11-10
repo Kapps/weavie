@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { Show } from "solid-js";
 import type { ThemePickerModel } from "./picker-model";
 import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
@@ -17,11 +18,12 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
               <strong>{extension().displayName ?? extension().name}</strong>
               <button
                 type="button"
+                class="ui-icon-button"
                 disabled={m.saving()}
                 onClick={props.onClose}
                 aria-label="Close variants"
               >
-                ×
+                <X aria-hidden="true" />
               </button>
             </div>
             <Show when={m.packageLoading()}>
@@ -36,6 +38,7 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
             </Show>
             <Show when={m.variants().length > 0}>
               <input
+                class="ui-field"
                 id="theme-variant-filter"
                 aria-label="Filter theme variants"
                 role="combobox"
@@ -68,6 +71,7 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
               <small>Hover or ↑ ↓ to preview · Enter to install · ← to results</small>
               <button
                 type="button"
+                class="ui-button"
                 disabled={m.saving() || m.variantChoices().length === 0}
                 onClick={() => void m.acceptVariant()}
               >

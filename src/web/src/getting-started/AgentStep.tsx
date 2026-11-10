@@ -82,12 +82,14 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
           {(provider) => (
             <button
               type="button"
-              class="gs-choice"
+              class="gs-choice ui-row ui-row-stack"
               aria-pressed={defaultAgentProvider(LOCAL_BACKEND_ID) === provider.id}
               disabled={!provider.available || installing() !== null}
               onClick={() => use(provider.id)}
             >
-              <span class="gs-radio" aria-hidden="true" />
+              <span class="ui-icon" aria-hidden="true">
+                <span class="gs-radio" />
+              </span>
               <span class="gs-text">
                 <strong>
                   {provider.name}
@@ -112,12 +114,14 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
           {(agent) => (
             <button
               type="button"
-              class="gs-choice"
+              class="gs-choice ui-row ui-row-stack"
               aria-pressed={false}
               disabled={installing() !== null || agent.distributions[0] === undefined}
               onClick={() => installAndUse(agent, agent.distributions[0]!)}
             >
-              <span class="gs-radio" aria-hidden="true" />
+              <span class="ui-icon" aria-hidden="true">
+                <span class="gs-radio" />
+              </span>
               <span class="gs-text">
                 <strong>
                   {agent.name}

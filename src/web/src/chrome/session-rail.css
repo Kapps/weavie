@@ -31,12 +31,12 @@
   position: relative;
   flex: 0 0 auto;
   display: flex;
-  padding: 6px 2px;
+  padding: 4px 2px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--fg);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
   cursor: pointer;
 }
 /* The chip's dot over the first words of its name, unchanged when the rail expands. */
@@ -46,7 +46,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 .session-chip-detail {
@@ -60,8 +60,7 @@
   gap: 8px;
 }
 .session-chip .session-panel-text {
-  flex: 1 1 auto;
-  font-size: var(--font-chrome-size);
+  font: var(--font-chrome-body);
   text-align: left;
 }
 .session-chip:hover {
@@ -82,7 +81,6 @@
   max-width: 100%;
   overflow: hidden;
   overflow-wrap: anywhere;
-  line-height: 1.15;
   text-align: center;
 }
 .session-chip:focus-visible,
@@ -128,7 +126,7 @@
   border-top: 1px solid var(--border);
   background: transparent;
   color: var(--dim);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
   cursor: pointer;
 }
 .session-rail-parked:hover {
@@ -145,43 +143,27 @@
   gap: 8px;
   padding: 0 10px 0 2px;
   color: var(--dim);
-  font-size: var(--font-metadata-size);
 }
 .session-rail-tools {
   flex: 0 0 var(--chip-face);
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 4px;
   margin-right: auto;
+  padding-top: 4px;
 }
 .session-rail-add,
 .session-rail-cloud {
-  position: relative;
   flex: 0 0 auto;
   align-self: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-top: 4px;
-  padding: 0;
-  border: 0;
   border-radius: 4px;
-  background: transparent;
   color: var(--dim);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
 }
 .session-rail-add:hover,
 .session-rail-cloud:hover {
   color: var(--fg);
   background: var(--list-hover-bg);
-}
-.session-rail-cloud svg {
-  width: 13px;
-  height: 13px;
 }
 /* A session's status dot, shared by the rail, the session panel, the title bar, and the pane footer
    (idle = calm green, finished = haloed green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */

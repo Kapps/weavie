@@ -1,8 +1,7 @@
 /* Editor chrome: the empty-state placeholder (EditorEmptyState.tsx) and the tab strip (TabStrip.tsx). */
 
 /* Editor empty state: covers the blank Monaco host when no file is open. Opaque background so the void
-   underneath never shows; centered identity + keyboard-first starter actions. Relative sizing (em/%) so it
-   scales with the pane and reads at any split width. */
+   underneath never shows; centered identity + keyboard-first starter actions. */
 .editor-empty {
   position: absolute;
   inset: 0;
@@ -11,7 +10,7 @@
   align-items: center;
   justify-content: center;
   overflow: auto;
-  padding: 2em;
+  padding: 24px;
   /* Faint brand glow off the top, over the editor background — distinct from a flat empty pane. */
   background:
     radial-gradient(120% 80% at 50% -10%, rgb(84 198 164 / 7%) 0%, transparent 55%), var(--bg);
@@ -21,20 +20,14 @@
 .editor-empty-inner {
   display: flex;
   flex-direction: column;
-  width: min(28em, 100%);
+  width: min(336px, 100%);
 }
 
 .editor-empty-head {
   display: flex;
   align-items: center;
-  gap: 0.85em;
-  margin-bottom: 1.75em;
-}
-
-.editor-empty-mark {
-  display: inline-flex;
-  font-size: 2.4em; /* WeavieIcon defaults to 1em, so it tracks this */
-  line-height: 1;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .editor-empty-titles {
@@ -45,15 +38,13 @@
 
 .editor-empty-wordmark {
   margin: 0;
-  font-size: 1.7em;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font: var(--font-chrome-display);
   color: var(--fg);
 }
 
 .editor-empty-tagline {
-  margin: 0.15em 0 0;
-  font-size: 0.95em;
+  margin: 2px 0 0;
+  font: var(--font-chrome-secondary);
   color: var(--dim);
 }
 
@@ -63,44 +54,26 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2em;
+  gap: 2px;
 }
 
 .editor-empty-action {
-  display: flex;
-  align-items: center;
-  gap: 0.85em;
-  width: 100%;
-  padding: 0.6em 0.7em;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 0.5em;
+  border-radius: 6px;
   color: var(--dim);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition:
     background 0.1s ease,
-    border-color 0.1s ease,
+    box-shadow 0.1s ease,
     color 0.1s ease;
 }
 
 /* The "Claude changed files this turn" nudge: an accented variant of an action row, since when no file is
    open it's the only place the pending review is visible. */
 .editor-empty-review {
-  display: flex;
-  align-items: center;
-  gap: 0.85em;
-  width: 100%;
-  margin-bottom: 0.6em;
-  padding: 0.6em 0.7em;
+  margin-bottom: 8px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid var(--accent);
-  border-radius: 0.5em;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 6px;
   color: var(--fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background 0.1s ease;
 }
 
@@ -110,61 +83,35 @@
 
 .editor-empty-review:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.editor-empty-review > svg {
-  flex: none;
-  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 2px var(--accent);
 }
 
 .editor-empty-action:hover {
   background: var(--bar);
-  border-color: var(--border);
+  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--fg);
 }
 
 .editor-empty-action:focus-visible {
   outline: none;
-  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
   color: var(--fg);
 }
 
-.editor-empty-action > svg {
-  flex: none;
+:is(.editor-empty-action, .editor-empty-review) > .ui-icon {
   color: var(--accent);
 }
 
-.editor-empty-action-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.3;
-}
-
 .editor-empty-action-label {
-  font-size: 0.95em;
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
   color: var(--fg);
-}
-
-.editor-empty-action-hint {
-  font-size: 0.8em;
-  color: var(--dim);
 }
 
 /* The action's shortcut badge — keyboard-first: read from the command catalog, never hardcoded. */
 .editor-empty-keys {
-  flex: none;
-  margin-left: auto;
-  padding: 0.15em 0.5em;
-  border: 1px solid var(--border);
-  border-radius: 3px;
   background: var(--bar);
-  color: var(--dim);
-  font-family: inherit;
-  font-size: 0.78em;
-  white-space: nowrap;
 }
 
 /* Left/right tab-scroll buttons occupying the strip's edges; rendered only when the tabs overflow, and
@@ -173,7 +120,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  padding: 0 0.35em;
+  padding: 0 5px;
   border: none;
   background: var(--bar);
   color: var(--dim);
@@ -204,12 +151,12 @@
 }
 
 .editor-tab {
-  max-width: 16em;
+  max-width: 192px;
 }
 
 /* The clickable label area (activate / double-click promote / middle-click close / right-click menu). */
 .editor-tab-main {
-  gap: 0.5em;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -219,21 +166,15 @@
 
 /* Pinned tabs are compact and float furthest-left (the store orders them; this just narrows them). */
 .editor-tab.pinned {
-  max-width: 10em;
+  max-width: 120px;
 }
 
 /* Unsaved-changes marker: a `*` after the filename, held until the debounced autosave reaches disk. Never
    shrinks (it sits outside the ellipsised label) so it stays visible on a narrow tab. */
 .editor-tab-dirty {
   flex: 0 0 auto;
-  margin-left: -0.25em;
+  margin-left: -3px;
   color: var(--fg);
-}
-
-.editor-tab-close {
-  margin-right: 0.4em;
-  padding: 0;
-  color: inherit;
 }
 
 .editor-tab:hover .editor-tab-close,
@@ -260,7 +201,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  padding: 0 0.6em;
+  padding: 0 8px;
   border: none;
   border-left: 1px solid var(--border);
   background: var(--bar);
@@ -280,17 +221,11 @@
    from a disabled one, and this is the affordance that teaches the mode exists. */
 .editor-review-action {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  margin: 0 0.45em;
-  padding: 0.2em 0.7em;
+  align-self: center;
+  margin: 0 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
 }
 
 button.editor-review-action:not(:disabled):hover {
@@ -306,19 +241,21 @@ button.editor-review-action:not(:disabled):hover {
 
 /* While reviewing, the entry is a two-way switch: the pressed half is the view on screen. */
 .editor-review-switch {
+  display: inline-flex;
   min-inline-size: 0;
   padding: 0;
   overflow: hidden;
   background: transparent;
 }
 
+/* Icon-only halves inside the switch's 1px frame, so the whole switch is one 24px control. */
 .editor-review-segment {
-  display: inline-flex;
-  padding: 0.25em 0.5em;
+  --control-h: calc(var(--control-height) - 2px);
+  align-items: center;
+  padding-inline: 6px;
   border: 0;
-  background: transparent;
+  border-radius: 0;
   color: var(--dim);
-  cursor: pointer;
 }
 
 .editor-review-segment + .editor-review-segment {
@@ -350,7 +287,6 @@ button.editor-review-action:not(:disabled):hover {
   border: none;
   background: transparent;
   color: var(--dim);
-  font: inherit;
   cursor: pointer;
 }
 
@@ -371,8 +307,8 @@ button.editor-review-action:not(:disabled):hover {
   z-index: 60;
   display: flex;
   flex-direction: column;
-  min-width: 18em;
-  max-width: 30em;
+  min-width: 216px;
+  max-width: 360px;
   overflow: hidden;
   padding: 4px;
   background: var(--bar);
@@ -384,17 +320,6 @@ button.editor-review-action:not(:disabled):hover {
 .recent-search {
   flex: 0 0 auto;
   margin-bottom: 4px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-}
-
-.recent-search:focus-visible {
-  outline: none;
-  border-color: var(--accent);
 }
 
 /* The results scroll; the search box above stays pinned. */
@@ -410,18 +335,8 @@ button.editor-review-action:not(:disabled):hover {
 }
 
 .recent-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
   border-radius: 4px;
-  background: transparent;
   color: var(--fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 /* One highlight, driven by both keyboard roaming and mouse-move (see RecentFilesButton). */
@@ -443,8 +358,6 @@ button.editor-review-action:not(:disabled):hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dim);
-  font-size: var(--font-hint-size);
 }
 
 .recent-row.selected .recent-dir {
@@ -455,7 +368,7 @@ button.editor-review-action:not(:disabled):hover {
 /* Web-tab icon in the tab strip (a globe before the host label). */
 .editor-tab-icon {
   flex: 0 0 auto;
-  margin-right: 0.4em;
+  margin-right: 5px;
   color: var(--dim);
 }
 
@@ -575,7 +488,7 @@ button.editor-review-action:not(:disabled):hover {
   border-radius: 6px;
   background: var(--bar);
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 .editor-media-controls {
@@ -591,7 +504,7 @@ button.editor-review-action:not(:disabled):hover {
   border-radius: 8px;
   background: var(--bar);
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
   font-variant-numeric: tabular-nums;
   pointer-events: auto;
 }
@@ -620,10 +533,11 @@ video.editor-media-content {
 }
 
 /* The pane's loud non-media states: loading, too-large, read failure, deletion. */
-.editor-media-notice {
-  padding: 1em;
+.editor-media-notice,
+.editor-plan-notice {
+  padding: 12px;
   color: var(--dim);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
   text-align: center;
 }
 
@@ -637,63 +551,9 @@ video.editor-media-content {
   background: var(--bg);
 }
 
-/* A completed agent plan is a transient, read-only Markdown document. It uses the same prose roles as Preview,
-   while AgentMarkdown retains its strict safe-rendering/link-handling profile. */
-.editor-plan {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  overflow: auto;
-  padding: 1.5em 2em;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-prose-family);
-  font-size: var(--font-prose-size);
-  font-weight: var(--font-prose-weight);
-}
-
-.editor-plan:focus-visible {
-  outline: none;
-}
-
-.editor-plan-body {
-  max-width: 48rem;
-  margin: 0 auto;
-}
-
-.editor-plan-head {
-  margin-bottom: 1.6em;
-}
-
 .editor-plan-kicker {
   display: block;
-  margin-bottom: 0.35em;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.editor-plan h1 {
-  margin: 0;
-  color: var(--fg);
-  font-size: var(--font-prose-size);
-  font-weight: 650;
-  line-height: 1.25;
-}
-
-.editor-plan .agent-markdown {
-  max-width: none;
-  font-family: var(--font-prose-family);
-  font-size: var(--font-prose-size);
-  font-weight: var(--font-prose-weight);
-  line-height: 1.6;
-}
-
-.editor-plan-notice {
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  text-align: center;
+  margin-bottom: 4px;
 }
 
 /* Below the editor pane in the surface's flow, so it never covers the plan. */
@@ -704,7 +564,7 @@ video.editor-media-content {
   padding: 6px 10px;
   border-top: 1px solid var(--border);
   background: var(--bar);
-  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+  font: var(--font-chrome-body-wrap);
 }
 
 .plan-review-row {

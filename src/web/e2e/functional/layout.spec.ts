@@ -83,6 +83,8 @@ test("fullscreen centers the pane in a draggable column", async ({ page }) => {
   expect(await focusedPane()).toBe(pane);
 
   await page.reload();
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.locator(".pane-fullscreen").first().click();
   await expect.poll(width).toBeCloseTo(resized, 0);
 
@@ -184,6 +186,8 @@ test("fullscreen centering changes live through MCP and stays clear of the pinne
   await expect.poll(midpoint).toBeCloseTo(1000, 0);
   await setCenter("container");
   await page.reload();
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await surface.locator(".pane-fullscreen").click();
   await expect.poll(midpoint).toBeCloseTo(await containerCenter(), 0);
   await setCenter("window");

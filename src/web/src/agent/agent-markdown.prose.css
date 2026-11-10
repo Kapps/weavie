@@ -1,0 +1,193 @@
+/* Assistant prose uses the rendered-document role; code follows the editor content role. */
+.agent-markdown {
+  font: var(--font-prose);
+  max-width: 96ch;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown p,
+.agent-markdown ul,
+.agent-markdown ol,
+.agent-markdown blockquote,
+.agent-markdown table,
+.agent-markdown pre {
+  margin: 0.8em 0;
+}
+
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+  margin: 1.1em 0 0.4em;
+  color: var(--fg);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.agent-markdown h1 {
+  font-size: 1.25em;
+}
+
+.agent-markdown h2 {
+  font-size: 1.15em;
+}
+
+.agent-markdown h3,
+.agent-markdown h4 {
+  font-size: 1.05em;
+}
+
+.agent-markdown h1,
+.agent-markdown h2 {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  padding-left: 1.55em;
+}
+
+.agent-markdown li + li {
+  margin-top: 0.2em;
+}
+
+.agent-markdown summary {
+  cursor: pointer;
+}
+
+.agent-markdown blockquote {
+  padding-left: 0.75em;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: color-mix(in srgb, var(--fg) 70%, var(--dim));
+}
+
+.agent-markdown a {
+  color: color-mix(in srgb, var(--accent) 88%, white);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+/* Code surfaces mix from --fg, not --bar, so they hold contrast on light and dark themes alike. */
+.agent-markdown code {
+  padding: 0.08em 0.3em;
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg) 8%, var(--bg));
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
+}
+
+.agent-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg));
+  white-space: pre;
+}
+
+.agent-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-markdown pre.mermaid-pending {
+  color: var(--dim);
+}
+
+.agent-mermaid-block,
+.agent-code-block {
+  position: relative;
+  margin: 0.8em 0;
+}
+
+.agent-mermaid-block > pre,
+.agent-code-block > pre {
+  margin: 0;
+  padding-right: 40px;
+}
+
+.agent-markdown .mermaid-rendered {
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  text-align: center;
+}
+
+.agent-markdown .mermaid-rendered svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.agent-markdown .agent-mermaid-block > .mermaid-rendered {
+  margin: 0;
+}
+
+.agent-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-collapse: collapse;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.agent-markdown th {
+  background: color-mix(in srgb, var(--fg) 6%, var(--bg));
+  color: var(--fg);
+}
+
+.markdown-image-blocked {
+  color: var(--dim);
+  font-style: italic;
+}
+
+.github-media {
+  display: block;
+  margin: 0.6em 0;
+}
+
+.github-media > img,
+.github-media > video {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.github-media-status {
+  color: var(--dim);
+  font-size: var(--font-content-secondary-size);
+}
+
+.github-media > video {
+  width: 100%;
+}
+
+.agent-markdown :is(strong, b, th) {
+  font-weight: 700;
+}

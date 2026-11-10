@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
 import { createListNavigation } from "../list-navigation";
-import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
+import { ModalShell, PromptButton } from "./ModalShell";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -88,21 +88,32 @@ export function OpenPrPrompt(props: {
 
   return (
     <ModalShell
-      labelledBy="open-pr-title"
+      title="Open pull request"
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onCancel}
+          />
+          <PromptButton
+            label="Open PR"
+            shortcut="Enter"
+            title="Open the selected pull request (Enter)"
+            disabled={directRef() === null && results().length === 0}
+            onClick={() => openTarget(selected())}
+            primary
+          />
+        </>
+      }
       onDismiss={props.onCancel}
       onKeyDown={nav.onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-title" id="open-pr-title">
-        Open pull request
-      </div>
-      <div class="confirm-body">
-        Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
-        directly.
-      </div>
       <div class="session-prompt-field">
         <input
-          class="session-prompt-input"
+          class="session-prompt-input ui-field ui-field-content"
           type="text"
           placeholder="search, #number, or URL"
           spellcheck={false}
@@ -120,7 +131,7 @@ export function OpenPrPrompt(props: {
         <Show when={directRef() !== null}>
           <ul class="session-prompt-suggestions">
             <li
-              class="session-prompt-suggestion active"
+              class="session-prompt-suggestion ui-row ui-row-content active"
               onPointerDown={(event) => {
                 event.preventDefault();
                 openTarget(directRef() ?? undefined);
@@ -149,21 +160,13 @@ export function OpenPrPrompt(props: {
             </li>
           </ul>
         </Show>
-        <Show when={directRef() === null && loading()}>
-          <div class="session-prompt-hint">Searching pull requests…</div>
-        </Show>
-        <Show when={directRef() === null && !loading() && results().length === 0}>
-          <div class="session-prompt-hint">
-            No matching pull requests (or no GitHub credential).
-          </div>
-        </Show>
         <Show when={directRef() === null && results().length > 0}>
           <ul class="session-prompt-suggestions">
             <For each={results()}>
               {(pr, i) => (
                 <li
                   {...nav.row(i())}
-                  class="session-prompt-suggestion"
+                  class="session-prompt-suggestion ui-row ui-row-content"
                   classList={{ active: i() === nav.index() }}
                   title={`Open #${pr.number}`}
                   onPointerDown={(event) => {
@@ -186,17 +189,12 @@ export function OpenPrPrompt(props: {
           </ul>
         </Show>
       </div>
-      <PromptActions>
-        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
-        <PromptButton
-          label="Open PR"
-          shortcut="Enter"
-          title="Open the selected pull request (Enter)"
-          disabled={directRef() === null && results().length === 0}
-          onClick={() => openTarget(selected())}
-          primary
-        />
-      </PromptActions>
+      <div class="session-prompt-hint">
+        <Show when={directRef() === null && loading()}>Searching pull requests…</Show>
+        <Show when={directRef() === null && !loading() && results().length === 0}>
+          No matching pull requests (or no GitHub credential).
+        </Show>
+      </div>
     </ModalShell>
   );
 }

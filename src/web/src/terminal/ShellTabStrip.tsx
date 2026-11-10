@@ -48,12 +48,12 @@ export function ShellTabStrip(props: {
               </button>
               <button
                 type="button"
-                class="shell-tab-close pane-tab-close"
+                class="shell-tab-close pane-tab-close ui-icon-button"
                 aria-label="Close terminal"
                 title={`Close terminal${liveKeyHint(CommandIds.closeTerminalPrompt)}`}
                 onClick={() => props.onClose(id)}
               >
-                <X size={13} />
+                <X />
               </button>
             </div>
           )}

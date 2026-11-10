@@ -99,6 +99,10 @@ load it only when you need it.
   `if`/`then` decisions answered by a model or the user) that a session runs, started from the new-session composer
   or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
   [docs/specs/workflows.md](docs/specs/workflows.md).
+- **Design system** — fixed-px chrome type roles, content and prose roles that follow the editor font, and
+  layered primitives (row, button, field, section label, key hint, icon box, `ModalShell`) that make
+  alignment and height automatic; a Biome plugin rejects raw typography. See
+  [docs/concepts/design-system.md](docs/concepts/design-system.md).
 
 ## Keyboard-first navigation
 
@@ -181,10 +185,29 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
 
 ## Code standards
 
-- **Use the shared typography roles.** Feature chrome inherits `--font-chrome-*`; editor-adjacent code uses
-  the authoritative `--font-content-*`; rendered documents use `--font-prose-*`; secondary text uses
-  `--font-metadata-size` or `--font-hint-size`. Never add a feature-local font stack, raw content size, or
-  invented font variable.
+- **Type comes from roles, never from values.** Chrome is fixed px: `font: var(--font-chrome-title | -body |
+  -body-wrap | -secondary | -badge | -mono | -display)`, with `-hero` and `-lead` for landing surfaces only.
+  Editor-adjacent text uses `var(--font-content)` (small text inside it `--font-content-secondary-size`) and
+  rendered documents `var(--font-prose)`; only these follow the editor font. Emphasis is the same role plus
+  `--font-weight-emphasis` (`--font-weight-mono-bold` in the mono face), never a second `font-family`. Raw
+  `font`, `font-size`, `font-weight` and `line-height`, and `--font-*` declarations outside `styles.css`, fail
+  `biome check`. `em` font sizes live only in prose (`*.prose.css`, `SOURCE_STYLES`); new chrome geometry is
+  px, with `em` only where it should scale with the content font. See
+  [docs/concepts/design-system.md](docs/concepts/design-system.md).
+- **Build chrome from the primitives.** Lists and menus use `.ui-row`, buttons `.ui-button`, inputs
+  `.ui-field`, section headings `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons
+  `.ui-icon`; editor-font-sized surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title`
+  and `actions`) with `PromptButton`s. Add the primitive beside the feature class; never restyle a button,
+  row or field from scratch, and never set a font on a control.
+- **Alignment and height by construction.** Text beside text aligns on the baseline; an icon or control
+  beside text sits in a box one line tall (`.ui-icon`). Rows and controls take their height from the row and
+  control tokens — never from `em` padding, a literal height, or `align-items: center` over mixed sizes.
+  Touch sizes set the primitives' variables (`--row-pad`, `--control-h`, `--icon-button-size`,
+  `--pane-head-h`), not `min-height`.
+- **UI text is a title and control labels.** Any other line needs a reason: a warning, an input format, a
+  limitation, a keyboard hint. No description by default — rename the options instead (data-supplied
+  descriptions are exempt). No heading that restates its container. A tooltip is the command name plus its
+  shortcut. No "you can", no "please", no trailing period on labels.
 
 - **Do the proper fix, not the smallest fix — and never stage a hack first.** Optimize for the simplest
   correct architecture, not the fewest changed lines. When a defect exposes a broken ownership boundary,

@@ -111,7 +111,7 @@ function SettingRow(props: {
 }): JSX.Element {
   const id = createUniqueId();
   return (
-    <div class="gs-row" classList={{ "gs-disabled": props.disabled }}>
+    <div class="gs-row ui-row ui-row-stack" classList={{ "gs-disabled": props.disabled }}>
       <label class="gs-text" for={id}>
         <strong>{props.title}</strong>
         <small>{props.detail}</small>
@@ -229,14 +229,14 @@ const KEY_COMMANDS: { id: string; detail: string }[] = [
   { id: CommandIds.focusOmnibarCommands, detail: "Find any action" },
   { id: CommandIds.focusOmnibarFiles, detail: "Open a file" },
   { id: CommandIds.showSessions, detail: "Start a session" },
-  { id: CommandIds.reviseSelection, detail: "Ask the agent to rewrite selected code" },
+  { id: CommandIds.reviewOpen, detail: "Inspect your agent’s changes" },
 ];
 
 /** A shortcut label (e.g. `Ctrl+Shift+P`) drawn as one keycap per key. */
 export function Keycaps(props: { label: string }): JSX.Element {
   return (
     <span class="gs-keycaps">
-      <For each={props.label.split("+")}>{(key) => <kbd>{key}</kbd>}</For>
+      <For each={props.label.split("+")}>{(key) => <kbd class="ui-kbd">{key}</kbd>}</For>
     </span>
   );
 }
@@ -252,13 +252,15 @@ export function FinishStep(): JSX.Element {
   return (
     <>
       <div class="gs-ask">
-        <MessageCircle size="1.4em" aria-hidden="true" />
+        <span class="ui-icon" aria-hidden="true">
+          <MessageCircle />
+        </span>
         <p>
           <strong>Just ask your agent.</strong> Not sure how to do something in Weavie? Ask your
           agent. It can change settings, run commands, and explain features for you.
         </p>
       </div>
-      <p class="gs-subhead">A few keys to start with</p>
+      <p class="gs-subhead ui-section-label">A few keys to start with</p>
       <ul class="gs-keys">
         <For each={KEY_COMMANDS}>
           {(command) => (

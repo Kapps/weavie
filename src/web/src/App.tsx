@@ -60,6 +60,7 @@ import {
   selectedChoicePicker,
   selectedCredentialPrompt,
 } from "./chrome/host-asks";
+import { createInitialFileSearch } from "./chrome/initial-file-search";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -282,6 +283,7 @@ export default function App(): JSX.Element {
   onCleanup(() => deferredFocus.dispose());
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
+  createInitialFileSearch(compact);
   const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
   const mobileHistory = createMobileHistory(compact);
   const mobileSurface = mobileHistory.surface;
@@ -1290,11 +1292,14 @@ export default function App(): JSX.Element {
                 <Show when={editor.review.canClose()}>
                   <button
                     type="button"
-                    class="editor-review-action editor-review-close"
+                    class="editor-review-action editor-review-close ui-button"
                     title={`Accept remaining changes and close diff${keyHint(CommandIds.reviewClose)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
                   >
-                    <X size={14} /> Close Diff
+                    <span class="ui-icon">
+                      <X />
+                    </span>
+                    Close Diff
                   </button>
                 </Show>
                 {paneHeadEnd("editor")}
@@ -1495,7 +1500,7 @@ export default function App(): JSX.Element {
       <Show when={!compact()}>
         <button
           type="button"
-          class="pane-fullscreen"
+          class="pane-fullscreen ui-icon-button"
           title={`${fullscreen() ? "Exit fullscreen" : "Fullscreen"}${fullscreenKeyHint()}`}
           aria-pressed={fullscreen()}
           onMouseDown={(event) => event.preventDefault()}
@@ -1504,11 +1509,11 @@ export default function App(): JSX.Element {
             toggleFullscreen();
           }}
         >
-          {fullscreen() ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          {fullscreen() ? <Minimize2 /> : <Maximize2 />}
         </button>
       </Show>
       <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
-        <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
+        <span class="pane-shortcut ui-kbd">{paneShortcut(numberOf(kind))}</span>
       </Show>
     </>
   );
@@ -2079,12 +2084,12 @@ export default function App(): JSX.Element {
                 </span>
                 <button
                   type="button"
-                  class="toast-close connection-banner-close"
+                  class="toast-close connection-banner-close ui-icon-button"
                   aria-label="Dismiss build mismatch warning"
                   title="Dismiss build mismatch warning"
                   onClick={() => setBuildMismatchDismissed(true)}
                 >
-                  ✕
+                  <X />
                 </button>
               </output>
             )}

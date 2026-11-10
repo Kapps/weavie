@@ -1,0 +1,6 @@
+language css
+
+CssGenericProperty(name=$p) as $d where {
+  $p <: r"(?i)^--font-.*$",
+  register_diagnostic(span=$d, message="--font-* role tokens are defined only in src/styles.css (docs/concepts/design-system.md)", severity="error")
+}

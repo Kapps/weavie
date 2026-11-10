@@ -125,6 +125,7 @@ export class ChangeMarks {
     const label = make("span", "wv-md-removed-label", "Removed");
     if (shown) {
       const body = make("div", "wv-md-removed-body", "");
+      label.classList.add("ui-section-label");
       body.append(label, ...old);
       removal.append(this.bar(change, state), body);
     } else {

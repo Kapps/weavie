@@ -7,6 +7,7 @@ import { ThemePicker } from "../theme/ThemePicker";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "../styles.css";
+import "../primitives.css";
 import "../chrome/session-prompt.css";
 import "./welcome.css";
 

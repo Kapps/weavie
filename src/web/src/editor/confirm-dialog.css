@@ -1,34 +1,27 @@
-/* Modal confirm dialog shell + buttons (ConfirmDialog.tsx, also reused by DeleteSessionDialog.tsx). */
+/* The one dialog stylesheet: ModalShell's backdrop, card, title and action row, plus shared dialog content. */
 
-/* Modal confirm dialog (e.g. "discard unsaved scratch?"): a dimmed backdrop with a centered card. Above the
-   panels/toolbars but below toasts, so a failed-save toast still shows. */
+/* Above the panels/toolbars but below toasts, so a failed-save toast still shows. */
 .modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 70;
   display: flex;
-  /* Scroll the backdrop (not the card) and pad it, so a card taller than a short viewport stays fully
-     reachable. The card centres via margin:auto below — keeping overflow off the card itself so the
-     session-prompt's absolutely-positioned typeahead can still overlay past the card's edge. */
+  /* The backdrop scrolls (not the card), so a tall card stays reachable and the typeahead can overlay its edge. */
   overflow: auto;
   padding: 16px;
   background: rgba(0, 0, 0, 0.5);
-  /* Softly defocus the workspace behind the modal so the dialog reads as a floating layer. */
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
-  /* Modals render through a Portal to <body>, OUTSIDE the .app font scope — without this they fall back
-     to the WebView's default serif and render fuzzily. Re-assert the chrome UI font (Chivo) here so the
-     dialog text is crisp. 13px reads a touch larger than the 12px chrome, which suits a focused dialog. */
-  font: 13px / 1.5 var(--ui-font);
 }
 
 .confirm-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   width: min(420px, 86vw);
-  /* Centre within the flex backdrop. When the card is taller than the viewport the auto margins collapse
-     and the backdrop scrolls, so the top and the action buttons both stay reachable (the classic flex
-     align-items:center centred-overflow top-clip is avoided), with no overflow on the card. */
+  /* Auto margins centre the card and collapse when it is taller than the viewport, keeping its top reachable. */
   margin: auto;
-  padding: 1em 1.1em;
+  padding: 16px;
   background: var(--bar);
   color: var(--fg);
   border: 1px solid var(--border);
@@ -36,99 +29,58 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
+.confirm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .confirm-title {
-  font-weight: 600;
-  margin-bottom: 0.5em;
+  margin: 0;
+  font: var(--font-chrome-title);
 }
 
 .confirm-body {
   color: var(--dim);
-  line-height: 1.45;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.confirm-body > p {
+  margin: 8px 0 0;
+}
+
+.confirm-body > p:first-child {
+  margin-top: 0;
+}
+
+/* A labelled control on its own line below its label. */
+.confirm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .confirm-actions {
   display: flex;
+  align-items: baseline;
   justify-content: flex-end;
-  gap: 0.5em;
-  margin-top: 1.1em;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-.confirm-btn,
-.confirm-select {
-  padding: 0.4em 0.9em;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-
-.confirm-select {
-  display: block;
-  width: 100%;
-  margin-top: 0.5em;
-  background: var(--bg);
-}
-
-/* Ghost buttons only. The filled primary/danger buttons set their own hover below; without this exclusion the
-   generic rule's translucent fill outranks their solid background and makes them go dark on hover. */
-.confirm-btn:not(.confirm-btn-primary):not(.confirm-btn-danger):hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.confirm-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.confirm-btn-primary {
-  border-color: var(--button-bg);
-  background: var(--button-bg);
-  color: var(--button-fg);
-}
-
-.confirm-btn-primary:hover {
-  background: var(--button-hover-bg);
-}
-
-/* Destructive confirm (delete session): a saturated danger red with white text — a deliberate button, not a
-   pale highlight. No contrasting border; hover lightens; focus shows a soft light-red ring (not a same-color
-   halo around the fill). */
-.confirm-btn-danger {
-  border-color: transparent;
-  background: var(--danger);
-  color: #fff;
-}
-
-.confirm-btn-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 85%, #fff);
-}
-
-.confirm-btn:focus-visible,
-.confirm-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.confirm-btn-danger:focus-visible {
-  outline-color: color-mix(in srgb, var(--danger) 45%, #fff);
-}
-
-/* Acknowledgement controls inside a delete confirm: a warning line (the untracked two-step) and the checkbox
-   that gates deleting a worktree with tracked changes. */
+/* Acknowledgement controls inside a delete confirm: a warning line and the checkbox gating a destructive delete. */
 .confirm-warn {
-  margin-top: 0.7em;
+  margin-top: 8px;
   color: var(--bad);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .confirm-check {
   display: flex;
   align-items: center;
-  gap: 0.5em;
-  margin-top: 0.9em;
+  gap: 6px;
+  margin-top: 12px;
   color: var(--fg);
   cursor: pointer;
 }
@@ -137,26 +89,24 @@
   cursor: pointer;
 }
 
-/* The named untracked files a delete would remove: a monospace, scrollable list with an "…and N more" tail. */
+/* The named files a delete would remove: a monospace, scrollable list with an "…and N more" tail. */
 .confirm-file-list {
-  margin: 0.7em 0 0;
-  padding: 0.5em 0.7em;
-  max-height: 8em;
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  max-height: 104px;
   overflow-y: auto;
   list-style: none;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: var(--font-content-family);
-  font-size: 0.9em;
-  font-weight: var(--font-content-weight);
   color: var(--fg);
+  font: var(--font-chrome-mono);
 }
 
 /* Running background work (BackgroundStopPrompt.tsx): one line per item, the name truncating before its status. */
 .confirm-background-list li {
   display: flex;
-  gap: 1em;
+  gap: 12px;
   justify-content: space-between;
   white-space: nowrap;
 }
@@ -174,32 +124,7 @@
   color: var(--dim);
 }
 
-/* URL prompt (UrlPrompt.tsx) — a single value field reusing the confirm-dialog shell. */
-.url-prompt-input {
-  width: 100%;
-  margin-top: 1.1em;
-  padding: 0.55em 0.7em;
-  box-sizing: border-box;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-family: var(--font-content-family);
-  font-size: 0.95em;
-  font-weight: var(--font-content-weight);
-}
-
-.url-prompt-input::placeholder {
-  color: var(--dim);
-}
-
-.url-prompt-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .url-prompt-error {
-  margin-top: 0.6em;
   color: var(--bad);
-  font-size: 0.9em;
+  font: var(--font-chrome-secondary);
 }

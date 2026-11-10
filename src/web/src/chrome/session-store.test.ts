@@ -235,6 +235,7 @@ describe("session run", () => {
       stage: "pr",
       state: "needsAnswer",
       reason: "",
+      agent: "",
     };
     session("local", "main").run?.({ run, problem: "" });
     deliverCatalog("local", ["main"]);
@@ -250,6 +251,7 @@ describe("session run", () => {
       stage: "pr",
       state: "working",
       reason: "",
+      agent: "",
     };
     deliverCatalog("local", ["main", "other"]);
     session("local", "main").run?.({ run, problem: "" });

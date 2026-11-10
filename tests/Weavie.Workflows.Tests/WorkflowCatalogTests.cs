@@ -161,7 +161,10 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
 		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
-		Assert.Equal(["prompt", "skill", "args", "outputs"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal(["prompt", "skill", "args", "outputs", "agent"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		var agent = schema["properties"]!["agents"]!["additionalProperties"]!;
+		Assert.Equal(["provider", "model", "options"], agent["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal(["provider"], agent["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		Assert.Equal(["ask", "choices", "limit", "by", "confidence"], stage["then"]!["oneOf"]![1]!["properties"]!.AsObject().Select(p => p.Key));
 		string ask = stage["then"]!["oneOf"]![1]!["properties"]!["ask"]!["description"]!.GetValue<string>();
 		Assert.Contains("observable criteria, one concern per question", ask, StringComparison.Ordinal);

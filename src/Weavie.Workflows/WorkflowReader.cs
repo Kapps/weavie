@@ -44,6 +44,16 @@ internal static class WorkflowReader {
 					Optional = Text(input.Value).EndsWith('?'),
 				})]
 				: [],
+			Agents = root["agents"] is JsonObject agents
+				? [.. agents.Select(agent => new WorkflowAgent {
+					Name = agent.Key,
+					Provider = Text(agent.Value!["provider"]),
+					Model = agent.Value!["model"] is { } model ? Text(model) : null,
+					Options = agent.Value!["options"] is JsonObject options
+						? options.ToDictionary(option => option.Key, option => Text(option.Value), StringComparer.Ordinal)
+						: new Dictionary<string, string>(),
+				})]
+				: [],
 			Stages = [.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))],
 			SourceText = text,
 		};
@@ -66,6 +76,7 @@ internal static class WorkflowReader {
 						Type = WorkflowValues.ParseType(Text(output.Value)),
 					})]
 					: [],
+				Agent = work["agent"] is { } agent ? Text(agent) : null,
 			},
 			Then = stage["then"] switch {
 				null => new WorkflowThen.Sequential(),

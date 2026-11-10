@@ -124,6 +124,7 @@ public sealed class WorkflowEvidenceRunnerTests : IDisposable {
 	private sealed class Port : IWorkflowRunPort {
 		public void Kickoff(WorkflowKickoff turn) { }
 		public void Notify(string message) { }
+		public string? Refusal(WorkflowDefinition definition) => null;
 	}
 	private sealed class Store : IWorkflowRunStore {
 		public string Text { get; private set; } = WorkflowRunDocument.Write(null);

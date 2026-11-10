@@ -8,9 +8,9 @@ namespace Weavie.Core.Configuration;
 /// analogue of <see cref="FontSettings"/>. All are <see cref="ApplyMode.Live"/>: a change re-pushes the
 /// resolved options to the web, which applies them with <c>editor.updateOptions</c>.
 /// <para>
-/// <see cref="SuggestExpandDocs"/>, <see cref="CommentProse"/>, <see cref="PaneShortcutHints"/>, and
-/// <see cref="VideoAutoplay"/> have no <c>updateOptions</c> field; the web maps them to small custom
-/// behaviors. Everything else is a straight passthrough.
+/// <see cref="SuggestExpandDocs"/>, <see cref="CommentProse"/>, <see cref="PaneShortcutHints"/>,
+/// <see cref="FullscreenCenter"/>, and <see cref="VideoAutoplay"/> have no <c>updateOptions</c> field;
+/// the web maps them to small custom behaviors. Everything else is a straight passthrough.
 /// </para>
 /// </summary>
 public static class EditorSettings {
@@ -84,6 +84,9 @@ public static class EditorSettings {
 	/// <summary>Show the Ctrl+N pane-switch shortcut hint badges on the panes (custom behavior).</summary>
 	public const string PaneShortcutHints = "editor.paneShortcutHints";
 
+	/// <summary>The reference used to center the fullscreen pane column.</summary>
+	public const string FullscreenCenter = "editor.fullscreenCenter";
+
 	/// <summary>Start playback when a video file opens in the media pane (custom behavior).</summary>
 	public const string VideoAutoplay = "editor.videoAutoplay";
 
@@ -109,7 +112,7 @@ public static class EditorSettings {
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks,
+		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks, FullscreenCenter,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -270,6 +273,13 @@ public static class EditorSettings {
 				"hide shortcut hints"],
 			true));
 
+		registry.Register(Choice(FullscreenCenter,
+			"Center the fullscreen pane on the 'window' (the default) or its 'container' beside the session panel. "
+				+ "Window centering keeps the column centered on screen when space permits; wide columns stay inside "
+				+ "the pane area. Applies immediately.",
+			["fullscreen center", "fullscreen alignment", "center on window", "zen mode centering"],
+			["window", "container"], "window"));
+
 		registry.Register(Toggle(VideoAutoplay,
 			"Start playback automatically when a video file opens in the media pane. On by default; "
 				+ "turn it off to open videos paused.",
@@ -339,6 +349,7 @@ public static class EditorSettings {
 		writer.WriteString("markdownView", store.RequireString(MarkdownView));
 		writer.WriteString("markdownChangeMarks", store.RequireString(MarkdownChangeMarks));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
+		writer.WriteString("fullscreenCenter", store.RequireString(FullscreenCenter));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));
 		writer.WriteNumber("gitBlameMaxLines", store.RequireInt(GitBlameMaxLines));

@@ -50,6 +50,12 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 	public Action<AgentSessionContext> CreatingSession { get; set; } = _ => { };
 
+	/// <summary>Every control change sessions took, in order: <c>apply</c> for a workflow's, <c>set</c> for the picker's.</summary>
+	public ConcurrentQueue<string> ControlChanges { get; } = new();
+
+	/// <summary>A model value whose apply the fake refuses, as an agent does a value it no longer advertises.</summary>
+	public const string RefusedModel = "GPT Gone";
+
 	// Probes report nothing, so any model in the catalog was harvested from a live session.
 	public Task<IReadOnlyList<AgentControlAxis>> ProbeControlsAsync(CancellationToken ct) =>
 		Task.FromResult<IReadOnlyList<AgentControlAxis>>([]);
@@ -62,12 +68,13 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		CreatingSession(context);
 		return new FakeStructuredAgentSession(
 			context.Events,
-			Transcripts.GetOrAdd(context.Workspace, static _ => []));
+			Transcripts.GetOrAdd(context.Workspace, static _ => []),
+			ControlChanges);
 	}
 
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
-	private sealed class FakeStructuredAgentSession(IAgentEventSink events, List<AgentPaneMessage> transcript)
+	private sealed class FakeStructuredAgentSession(IAgentEventSink events, List<AgentPaneMessage> transcript, ConcurrentQueue<string> controlChanges)
 		: IStructuredAgentSession, IStructuredAgentControls, IStructuredAgentBackgroundWork {
 		private bool _started;
 		private int _turns;
@@ -96,13 +103,17 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			PaneMessage?.Invoke(message);
 		}
 
-		public AgentControlState ControlState { get; } = new() {
+		public AgentControlState ControlState { get; private set; } = new() {
 			Ready = true,
 			Rewindable = false,
 			Axes = [
 				Axis("model", "Model", "GPT Test") with {
 					Category = "model",
-					Options = [new AgentControlOption { Id = "GPT Test", Label = "GPT Test" }],
+					Options = [
+						new AgentControlOption { Id = "GPT Test", Label = "GPT Test" },
+						new AgentControlOption { Id = "GPT Next", Label = "GPT Next" },
+						new AgentControlOption { Id = RefusedModel, Label = RefusedModel },
+					],
 				},
 				Axis("approvalPolicy", "Approvals", "On request"),
 				Axis("sandbox", "Sandbox", "Workspace write"),
@@ -240,6 +251,8 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		public void PrefillPrompt(string prompt) {
 		}
 
+		public void Notice(string text) => Emit(new AgentPaneMessage { Type = "notice", ProviderId = "structured", Text = text });
+
 		public void Interrupt() {
 		}
 
@@ -267,6 +280,25 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		}
 
 		public void SetControl(string axis, string value) {
+			controlChanges.Enqueue($"set {axis}={value}");
+			Take(axis, value);
+		}
+
+		public Task ApplyControlsAsync(IReadOnlyList<AgentControlValue> values) {
+			foreach (var value in values) {
+				controlChanges.Enqueue($"apply {value.Axis}={value.Value}");
+				if (value.Value == RefusedModel) return Task.FromException(new AgentControlException($"{RefusedModel} is gone."));
+				Take(value.Axis, value.Value);
+			}
+
+			return Task.CompletedTask;
+		}
+
+		private void Take(string axis, string value) {
+			ControlState = ControlState with {
+				Axes = [.. ControlState.Axes.Select(a => a.Id == axis ? a with { Value = value, ValueLabel = value } : a)],
+			};
+			ControlStateChanged?.Invoke(ControlState);
 		}
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;

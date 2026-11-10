@@ -288,11 +288,19 @@
   transition: opacity 0.15s ease;
 }
 
-/* Fullscreen centers the pane in a column (persisted width) whose edges drag symmetrically; a column wider
-   than the pane area, or a saved fill, fills it. */
+/* The column keeps its saved width, moving only as far toward the chosen center as the pane area allows. */
+.pane-area.fullscreen {
+  --fullscreen-column-width: min(100%, var(--fullscreen-width));
+  --fullscreen-left: clamp(
+    0px,
+    calc(var(--fullscreen-center) - var(--fullscreen-column-width) / 2),
+    calc(100% - var(--fullscreen-column-width))
+  );
+}
+
 .pane-area.fullscreen > .layout-root {
-  flex: 0 1 var(--fullscreen-width);
-  margin: 0 auto;
+  flex: 0 0 var(--fullscreen-column-width);
+  margin-left: var(--fullscreen-left);
   border-inline: 1px solid var(--border);
 }
 
@@ -303,11 +311,11 @@
 }
 
 .fullscreen-edge.left {
-  left: max(10px, calc(50% - var(--fullscreen-width) / 2));
+  left: max(10px, var(--fullscreen-left));
 }
 
 .fullscreen-edge.right {
-  left: min(calc(100% - 10px), calc(50% + var(--fullscreen-width) / 2));
+  left: min(calc(100% - 10px), calc(var(--fullscreen-left) + var(--fullscreen-column-width)));
 }
 
 .pane-slot {

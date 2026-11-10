@@ -47,7 +47,7 @@ export class BlockEditor {
 
   constructor(
     private readonly host: HTMLElement,
-    body: HTMLElement,
+    private readonly body: HTMLElement,
     private readonly document: PreviewDocument,
     private readonly review: BlockReview,
     private readonly rendered: () => void,
@@ -174,8 +174,12 @@ export class BlockEditor {
   }
 
   private belowContent(event: MouseEvent): boolean {
-    const body = this.host.firstElementChild as HTMLElement;
-    return event.clientY > (body.lastElementChild?.getBoundingClientRect().bottom ?? 0);
+    const bounds = this.body.getBoundingClientRect();
+    const bottom =
+      this.body.childElementCount === 0
+        ? bounds.top
+        : bounds.bottom - Number.parseFloat(getComputedStyle(this.body).paddingBottom);
+    return event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY > bottom;
   }
 
   // A pointer press closes the block on its click instead, so the layout can't shift under the press.

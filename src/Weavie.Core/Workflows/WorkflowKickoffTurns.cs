@@ -14,7 +14,4 @@ public static class WorkflowKickoffTurns {
 		Attachments = [],
 		CarriesTurnContext = true,
 	};
-
-	/// <summary>The kickoff <paramref name="turn"/> delivers.</summary>
-	public static WorkflowKickoff Kickoff(this AgentTurnSubmission turn) => new() { Text = turn.Text, Command = turn.CommandName };
 }

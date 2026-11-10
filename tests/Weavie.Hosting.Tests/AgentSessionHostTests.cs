@@ -548,6 +548,7 @@ public sealed partial class AgentSessionHostTests {
 				CurrentSessionId = slot,
 				AuthenticationTerminal = authenticationTerminal,
 				TurnContext = AgentTurnContext.None,
+				ControlHold = AgentControlHold.None,
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),
@@ -628,6 +629,8 @@ public sealed partial class AgentSessionHostTests {
 		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();
 
 		public void PrefillPrompt(string prompt) => throw new NotSupportedException();
+
+		public void Notice(string text) => throw new NotSupportedException();
 
 		public void Interrupt() => throw new NotSupportedException();
 

@@ -32,7 +32,18 @@ public sealed partial class AcpAgentSession {
 	public void SetControl(string axis, string value) => Primary.SetControl(axis, value);
 
 	/// <inheritdoc/>
+	public Task ApplyControlsAsync(IReadOnlyList<AgentControlValue> values) => Primary.ApplyControlsAsync(values);
+
+	/// <inheritdoc/>
 	public void PrefillPrompt(string prompt) => Primary.Prefill(prompt);
+
+	/// <inheritdoc/>
+	public void Notice(string text) {
+		lock (_turnTransitionGate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			_primary.Notice(text);
+		}
+	}
 
 	/// <inheritdoc/>
 	public void Interrupt() {

@@ -64,6 +64,8 @@ export interface SessionRun {
   state: SessionRunState;
   /** Why a paused run stopped, or the question awaiting the user (and why the model handed it over); empty otherwise. */
   reason: string;
+  /** The agent the stage runs on when it differs from the session's own; empty otherwise. */
+  agent: string;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";
@@ -317,6 +319,7 @@ export interface EditorOptionsSpec {
   markdownView: "preview" | "source";
   markdownChangeMarks: "current" | "all";
   paneShortcutHints: boolean;
+  fullscreenCenter: "window" | "container";
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;
   gitBlameMaxLines: number;

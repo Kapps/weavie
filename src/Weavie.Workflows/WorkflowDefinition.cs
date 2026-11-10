@@ -11,11 +11,35 @@ public sealed record WorkflowDefinition {
 	/// <summary>Values a run starts with.</summary>
 	public required IReadOnlyList<WorkflowInputSpec> Inputs { get; init; }
 
+	/// <summary>The agents steps name, in file order.</summary>
+	public required IReadOnlyList<WorkflowAgent> Agents { get; init; }
+
 	/// <summary>The stages in file order.</summary>
 	public required IReadOnlyList<WorkflowStage> Stages { get; init; }
 
 	/// <summary>The exact file text this definition was read from.</summary>
 	public required string SourceText { get; init; }
+
+	/// <summary>The agent that runs <paramref name="stage"/>, or <see langword="null"/> for the session's own.</summary>
+	public WorkflowAgent? AgentOf(WorkflowStage stage) {
+		ArgumentNullException.ThrowIfNull(stage);
+		return stage.Run.Agent is { } name ? Agents.First(a => a.Name == name) : null;
+	}
+}
+
+/// <summary>A named agent: provider-native ids the host applies, opaque to the engine.</summary>
+public sealed record WorkflowAgent {
+	/// <summary>The name steps refer to.</summary>
+	public required string Name { get; init; }
+
+	/// <summary>The provider id.</summary>
+	public required string Provider { get; init; }
+
+	/// <summary>The provider's model id, or <see langword="null"/> for the model as it stands.</summary>
+	public required string? Model { get; init; }
+
+	/// <summary>The provider's config option values by option id, in file order.</summary>
+	public required IReadOnlyDictionary<string, string> Options { get; init; }
 }
 
 /// <summary>The type of a workflow input or output value.</summary>
@@ -85,6 +109,9 @@ public sealed record WorkflowWork {
 
 	/// <summary>The typed values the stage must report.</summary>
 	public required IReadOnlyList<WorkflowOutputSpec> Outputs { get; init; }
+
+	/// <summary>The name of the agent that runs the step, or <see langword="null"/> for the session's own.</summary>
+	public required string? Agent { get; init; }
 }
 
 /// <summary>Who answers a decision.</summary>

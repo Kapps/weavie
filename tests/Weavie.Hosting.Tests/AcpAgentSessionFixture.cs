@@ -550,7 +550,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
-	public void Deliver(WorkflowKickoff kickoff) => Session.Submit(kickoff.Submission());
+	public void Deliver(WorkflowKickoff kickoff, IReadOnlyList<WorkflowTurnImage> images) => Session.Submit(kickoff.Submission(images));
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
@@ -709,7 +709,7 @@ internal sealed class RecordingAgentEventBlock(Func<AgentEvent, bool> matches) {
 internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 	public ConcurrentQueue<WorkflowKickoff> Kickoffs { get; } = new();
 
-	public void Kickoff(WorkflowKickoff turn) => Kickoffs.Enqueue(turn);
+	public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => Kickoffs.Enqueue(turn);
 
 	public void Notify(string message) {
 	}

@@ -109,7 +109,8 @@ public static class SessionCommands {
 				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
-				+ "Alternatively 'workflow' (an id from listWorkflows) with 'inputs' starts that workflow in the new session, its first stage as the first input. "
+				+ "With 'workflow' (an id from listWorkflows) the new session starts that workflow instead, its first stage as the first input: "
+				+ "'prompt' and 'attachments' become the run's {{run.prompt}}, and 'inputs' maps each input the workflow declares to its value. "
 				+ "'agentProviderId' is any provider advertised by the current host; "
 				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions surface.",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],

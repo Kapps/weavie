@@ -21,8 +21,9 @@ public static partial class CoreCommands {
 
 	private static void RegisterWorkflows(CommandRegistry registry) {
 		foreach (var (id, title, description, args) in new[] {
-			(WorkflowRun, "Run Workflow", "Start a Weavie workflow in this session. 'workflow' is an id from listWorkflows; 'inputs' maps each declared input to its value.",
-				"\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"}"),
+			(WorkflowRun, "Run Workflow", "Start a Weavie workflow in this session. 'workflow' is an id from listWorkflows; 'prompt' is the request the run reads as "
+				+ "{{run.prompt}}; 'inputs' maps each declared input to its value.",
+				"\"workflow\":{\"type\":\"string\"},\"prompt\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"}"),
 			(WorkflowAnswer, "Answer Workflow Question", "Give the user's answer to the question a workflow run is asking. Only when the user explicitly answers; never answer for them.",
 				RunArg + ",\"choice\":{\"type\":\"string\",\"description\":\"One of the question's answers\"},"
 				+ "\"feedback\":{\"type\":\"string\",\"description\":\"The user's own words with their answer; empty when they gave none\"}"),

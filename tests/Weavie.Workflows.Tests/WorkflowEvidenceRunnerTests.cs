@@ -122,7 +122,7 @@ public sealed class WorkflowEvidenceRunnerTests : IDisposable {
 		public WorkflowFileRead Read(string relativePath, string documentsDirectory) => read(relativePath);
 	}
 	private sealed class Port : IWorkflowRunPort {
-		public void Kickoff(WorkflowKickoff turn) { }
+		public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) { }
 		public void Notify(string message) { }
 		public string? Refusal(WorkflowDefinition definition) => null;
 	}

@@ -237,7 +237,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				TurnId = $"turn-{_turns}",
 				ItemId = item,
 				ItemType = "agentMessage",
-				Text = $"echo: {submission.Text}",
+				Text = $"echo: {submission.Text}" + (submission.Attachments.Count == 0 ? "" : $" [{submission.Attachments.Count} image(s)]"),
 				Status = "completed",
 			});
 		}

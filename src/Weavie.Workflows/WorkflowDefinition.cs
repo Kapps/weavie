@@ -20,6 +20,11 @@ public sealed record WorkflowDefinition {
 	/// <summary>The exact file text this definition was read from.</summary>
 	public required string SourceText { get; init; }
 
+	/// <summary>Whether any stage's work or question reads <c>{{run.prompt}}</c>.</summary>
+	public bool UsesPrompt => Stages
+		.SelectMany(stage => new[] { stage.Run.Prompt, stage.Run.Args, stage.If?.Ask, (stage.Then as WorkflowThen.Decide)?.Question.Ask })
+		.Any(template => template?.References.Any(reference => reference.IsPrompt) == true);
+
 	/// <summary>The agent that runs <paramref name="stage"/>, or <see langword="null"/> for the session's own.</summary>
 	public WorkflowAgent? AgentOf(WorkflowStage stage) {
 		ArgumentNullException.ThrowIfNull(stage);

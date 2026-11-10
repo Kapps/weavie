@@ -165,9 +165,6 @@ internal sealed partial class AcpConversation {
 		if (submission.Kind != AgentTurnSubmissionKind.ProviderCommand) {
 			throw new InvalidOperationException($"Unknown agent submission kind '{submission.Kind}'.");
 		}
-		if (submission.Attachments.Count != 0) {
-			throw new InvalidOperationException("Provider commands cannot include attachments.");
-		}
 		if (submission.CommandName.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
 		if (_ready) ResolveProviderCommandLocked(submission.CommandName);
 		return submission with { Text = CanonicalCommandText(submission.Text, submission.CommandName) };

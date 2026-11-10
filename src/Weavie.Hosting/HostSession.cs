@@ -633,7 +633,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>
 	private void SendAgentInput(AgentTurnSubmission input) {
 		if (Claude is not null) {
-			Claude.WriteAgentTurn([.. input.Attachments.Select(attachment => attachment.Path), input.Text]);
+			Claude.WriteAgentTurn(input.TerminalParts());
 			return;
 		}
 

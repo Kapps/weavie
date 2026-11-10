@@ -39,7 +39,6 @@
   border: none;
   outline: none;
   color: var(--fg);
-  font: inherit;
   text-align: center;
 }
 
@@ -76,19 +75,8 @@
 }
 
 .tb-omnibar-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  padding: 4px 10px;
-  border: none;
   border-radius: 4px;
-  background: transparent;
   color: var(--fg);
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
 }
 
 .tb-omnibar-row:hover {
@@ -108,8 +96,8 @@
 }
 
 .tb-row-dir {
+  font: var(--font-chrome-secondary);
   color: var(--dim);
-  font-size: var(--font-hint-size);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -118,7 +106,7 @@
 .tb-hl {
   background: transparent;
   color: var(--accent);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 /* On the current/selected row the leaf already goes accent; keep matched chars distinguishable. */
@@ -131,27 +119,17 @@
 /* Tree mode: a twisty + file/folder icon precede the name; rows indent via inline padding-left per depth. */
 .tb-tree-row {
   gap: 4px;
-  /* Center the chevron/icon with the name. The base row aligns to the text baseline (correct for the
-     flat leaf+dir search rows), which in tree mode drops the icons off the name's vertical center. */
-  align-items: center;
 }
 
 .tb-tree-twisty,
-.tb-tree-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  /* Reserve the column even when empty: file rows have no chevron, so without a fixed width the
-     twisty collapses and pushes their icons ~14px left of the folder icons at the same depth. */
-  min-width: 14px;
+.tb-tree-icon,
+.tb-symbol-kind {
   color: var(--dim);
 }
 
-.tb-tree-twisty svg,
-.tb-tree-icon svg {
-  width: 14px;
-  height: 14px;
+/* Reserves the column on file rows, which have no chevron, so their icons line up with the folders'. */
+.tb-tree-twisty {
+  min-width: var(--icon-size);
 }
 
 /* Air between the icon and the name so rows don't read cramped — the row's own gap (4px) stays tight
@@ -160,40 +138,16 @@
   margin-right: 5px;
 }
 
-/* Symbol modes (@ / #): a kind glyph precedes the name; the container/file context is dimmed and flush right. */
-.tb-symbol-row {
-  align-items: center;
-}
-
-.tb-symbol-kind {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 14px;
-  color: var(--dim);
-}
-
-.tb-symbol-kind svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Push the container/file to the right edge and let it ellipsis rather than shove the name off-screen. */
+/* Symbol modes (@ / #): the container/file sits flush right and ellipsizes before the name does. */
 .tb-symbol-row .tb-row-dir {
   margin-left: auto;
   min-width: 0;
   padding-left: 12px;
 }
 
-/* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
+/* Command-palette row: the keybinding hint sits flush right. */
 .tb-row-keys {
-  margin-left: auto;
-  flex: 0 0 auto;
-  color: var(--dim);
-  font-size: var(--font-hint-size);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
 }
 
 .tb-omnibar-empty,
@@ -204,5 +158,5 @@
 
 .tb-omnibar-more {
   border-top: 1px solid var(--border);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
 }

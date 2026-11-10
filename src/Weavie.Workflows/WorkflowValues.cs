@@ -34,7 +34,11 @@ internal static class WorkflowValues {
 	/// <paramref name="worktree"/>, or explains why it doesn't fit.
 	/// </summary>
 	public static bool TryRead(
-		JsonElement element, WorkflowValueType type, string worktree, out WorkflowValue value, out string error) {
+		JsonElement element, WorkflowValueType type, string worktree, out WorkflowValue value, out string error) =>
+		TryRead(element, type, worktree, null, out value, out error);
+
+	public static bool TryRead(
+		JsonElement element, WorkflowValueType type, string worktree, string? documentsDirectory, out WorkflowValue value, out string error) {
 		value = WorkflowValue.Empty;
 		switch (type) {
 			case WorkflowValueType.Text:
@@ -60,8 +64,8 @@ internal static class WorkflowValues {
 					return false;
 				}
 
-				if (type == WorkflowValueType.Files && items.FirstOrDefault(item => !IsWorktreeFile(worktree, item)) is { } missing) {
-					error = $"\"{missing}\" isn't a non-empty file inside the worktree";
+				if (type == WorkflowValueType.Files && items.FirstOrDefault(item => !IsFile(worktree, documentsDirectory, item)) is { } missing) {
+					error = $"\"{missing}\" isn't a non-empty file inside the worktree or run documents directory";
 					return false;
 				}
 
@@ -84,9 +88,9 @@ internal static class WorkflowValues {
 	private static bool IsWebUrl(string text) =>
 		Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
-	private static bool IsWorktreeFile(string worktree, string relative) {
+	private static bool IsFile(string worktree, string? documentsDirectory, string relative) {
 		try {
-			return WorkflowFilePaths.TryResolve(worktree, relative, out _, out string full)
+			return WorkflowFilePaths.TryResolve(worktree, documentsDirectory, relative, out _, out string full)
 				&& File.Exists(full) && new FileInfo(full).Length > 0;
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return false;

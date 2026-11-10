@@ -1,0 +1,23 @@
+language css
+
+CssGenericProperty(name=$p, value=$v) as $d where {
+  or {
+    and {
+      $p <: r"^font-size$",
+      not $v <: r"^(?:inherit|var\(--font-(?:chrome-hero|chrome-display|chrome-lead|chrome-title|chrome|chrome-secondary|chrome-badge|content|content-secondary|content-title|prose)-size\))$"
+    },
+    and {
+      $p <: r"^font-weight$",
+      not $v <: r"^(?:inherit|var\(--font-(?:weight-regular|weight-emphasis|weight-mono-bold|content-weight|prose-weight)\))$"
+    },
+    and {
+      $p <: r"^line-height$",
+      not $v <: r"^(?:inherit|var\(--font-(?:chrome-line|chrome-line-wrap|chrome-display-line|chrome-hero-line|content-line|content-row-line|prose-line)\))$"
+    },
+    and {
+      $p <: r"^font$",
+      not $v <: r"^(?:inherit|var\(--font-(?:chrome-hero|chrome-display|chrome-lead|chrome-title|chrome-body|chrome-body-wrap|chrome-secondary|chrome-badge|chrome-mono|content|prose)\))$"
+    }
+  },
+  register_diagnostic(span=$d, message="Typography must use a --font-* role token (docs/concepts/design-system.md)", severity="error")
+}

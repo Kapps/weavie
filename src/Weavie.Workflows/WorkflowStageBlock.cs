@@ -21,6 +21,7 @@ internal static class WorkflowStageBlock {
 			WorkflowPhase.Paused => $"The run is paused: {run.PausedReason} Only the user resumes, jumps, or cancels it ({words.RunCommand} {words.Resume}, {words.JumpToStage}, or {words.Cancel} with run \"{run.Id}\"), and only when they say so.",
 			_ => "",
 		});
+		text.Append($" Shared documents: {run.DocumentsDirectory}. Sessions started from this run share this folder; use it for documents that must cross worktrees.");
 		return text.ToString();
 	}
 

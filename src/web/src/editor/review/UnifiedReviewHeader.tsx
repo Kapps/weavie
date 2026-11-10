@@ -28,11 +28,14 @@ export function UnifiedReviewHeader(props: {
         >
           <button
             type="button"
-            class="unified-review-action"
+            class="unified-review-action ui-button"
             title={`Show the session overview${keyHint(CommandIds.reviewOverview)}`}
             onClick={() => props.onOverview()}
           >
-            <ArrowUp size="1em" /> Overview
+            <span class="ui-icon">
+              <ArrowUp />
+            </span>
+            Overview
           </button>
           <Show when={detail()}>
             {(pull) => (
@@ -61,33 +64,40 @@ export function UnifiedReviewHeader(props: {
       <div class="unified-review-header-actions">
         <button
           type="button"
-          class="unified-review-action"
+          class="unified-review-action ui-button"
           disabled={!props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0)}
           title={`Undo rejection${keyHint(CommandIds.undoRevert)}`}
           aria-label="Undo rejection"
           onClick={() => void runCommandWithFeedback(CommandIds.undoRevert)}
         >
-          <RotateCcw size="1em" />
+          <span class="ui-icon">
+            <RotateCcw />
+          </span>
           <Show when={!props.showIdentity()}> Undo rejection</Show>
         </button>
         <button
           type="button"
-          class="unified-review-action keep"
+          class="unified-review-action keep ui-button"
           disabled={!props.overview().fullyLoaded()}
           title={`Keep all changes and close diff${keyHint(CommandIds.keepAll)}`}
           onClick={() => void runCommandWithFeedback(CommandIds.keepAll)}
         >
-          <Check size="1em" /> Keep all
+          <span class="ui-icon">
+            <Check />
+          </span>
+          Keep all
         </button>
         <button
           type="button"
-          class="unified-review-action revert"
+          class="unified-review-action revert ui-button"
           disabled={!props.overview().fullyLoaded() || !props.overview().hasPending()}
           title={`Revert every pending change${keyHint(CommandIds.undoChange)}`}
           aria-label="Revert pending"
           onClick={() => void runCommandWithFeedback(CommandIds.undoChange)}
         >
-          <RotateCcw size="1em" />
+          <span class="ui-icon">
+            <RotateCcw />
+          </span>
           <Show when={!props.showIdentity()}> Revert pending</Show>
         </button>
         <Show when={props.showIdentity()}>

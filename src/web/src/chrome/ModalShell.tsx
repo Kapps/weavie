@@ -1,7 +1,7 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createUniqueId, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { requestModal } from "./modal-state";
-import "./modal-shell.css";
+import "../editor/confirm-dialog.css";
 
 export function modalSubmitKeys(
   onSubmit: () => void,
@@ -18,14 +18,20 @@ export function modalSubmitKeys(
   };
 }
 
-export function ModalShell(props: {
-  children: JSX.Element;
-  labelledBy: string;
-  onDismiss: () => void;
-  class?: string;
-  onKeyDown?: (event: KeyboardEvent) => void;
-}): JSX.Element {
+// labelledBy: the surface draws its own display heading (Getting Started).
+type ModalHeading = { title: JSX.Element; titleEnd?: JSX.Element } | { labelledBy: string };
+
+export function ModalShell(
+  props: ModalHeading & {
+    children: JSX.Element;
+    actions?: JSX.Element;
+    onDismiss: () => void;
+    class?: string;
+    onKeyDown?: (event: KeyboardEvent) => void;
+  },
+): JSX.Element {
   const onKeyDown = props.onKeyDown;
+  const titleId = createUniqueId();
   const [active, setActive] = createSignal(false);
   let cancelModal = (): void => {};
   onMount(() => {
@@ -51,10 +57,23 @@ export function ModalShell(props: {
             class={`confirm-dialog${props.class === undefined ? "" : ` ${props.class}`}`}
             role="dialog"
             aria-modal="true"
-            aria-labelledby={props.labelledBy}
+            aria-labelledby={"labelledBy" in props ? props.labelledBy : titleId}
             onPointerDown={(event) => event.stopPropagation()}
           >
+            <Show when={"title" in props && props}>
+              {(heading) => (
+                <header class="confirm-head">
+                  <h2 class="confirm-title" id={titleId}>
+                    {heading().title}
+                  </h2>
+                  {heading().titleEnd}
+                </header>
+              )}
+            </Show>
             {props.children}
+            <Show when={"actions" in props}>
+              <footer class="confirm-actions">{props.actions}</footer>
+            </Show>
           </div>
         </div>
       </Show>
@@ -62,28 +81,32 @@ export function ModalShell(props: {
   );
 }
 
-export function PromptActions(props: { children: JSX.Element }): JSX.Element {
-  return <div class="session-prompt-actions">{props.children}</div>;
-}
-
 export function PromptButton(props: {
   label: JSX.Element;
-  shortcut: string;
+  shortcut: string; // "" renders no hint
   title: string;
   onClick: () => void;
   primary?: boolean;
+  danger?: boolean;
   disabled?: boolean;
+  class?: string;
+  ref?: (element: HTMLButtonElement) => void;
 }): JSX.Element {
   return (
     <button
+      ref={props.ref}
       type="button"
-      class={`session-prompt-btn${props.primary === true ? " session-prompt-btn-primary" : ""}`}
+      class={`session-prompt-btn ui-button ui-button-lg${props.primary === true ? " ui-button-primary" : ""}${props.danger === true ? " ui-button-danger" : ""}${props.class === undefined ? "" : ` ${props.class}`}`}
       disabled={props.disabled}
       onClick={() => props.onClick()}
       title={props.title}
     >
-      <span class="session-prompt-btn-label">{props.label}</span>
-      <span class="session-prompt-btn-key">{props.shortcut}</span>
+      {props.label}
+      <Show when={props.shortcut !== ""}>
+        <span class="ui-kbd ui-kbd-plain" aria-hidden="true">
+          {props.shortcut}
+        </span>
+      </Show>
     </button>
   );
 }

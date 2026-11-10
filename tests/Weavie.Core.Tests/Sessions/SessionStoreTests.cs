@@ -30,13 +30,26 @@ public sealed class SessionStoreTests {
 	private static readonly DateTimeOffset ActiveAt = new(2026, 10, 11, 9, 41, 0, TimeSpan.Zero);
 
 	[Fact]
+	public void FailedSaveKeepsTheLastDurableOwnershipAndReportsFailure() {
+		using var dir = new TempDirectory("session-ownership-save");
+		string path = dir.Combine("sessions.json");
+		var store = new SessionStore(new LocalFileSystem(), path);
+		var owner = Descriptor("aaaa", "a", loaded: false) with { WorkflowDocumentsDirectory = dir.Combine("documents") };
+		store.Save([owner]);
+		File.Delete(path);
+		Directory.CreateDirectory(path);
+		Assert.Throws<IOException>(() => store.Save([]));
+		Assert.Equal(owner, Assert.Single(store.Items));
+	}
+
+	[Fact]
 	public void Save_PersistsLoadedFlagsAndLastActiveWithoutClientSelection_AndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
 		store.Save([
 			Descriptor("aaaa", "a", loaded: true) with { LastActiveAt = ActiveAt, Unseen = true },
-			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp" },
+			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp", WorkflowDocumentsDirectory = "/shared/documents" },
 		]);
 
 		var reloaded = new SessionStore(fs, StorePath);
@@ -44,6 +57,7 @@ public sealed class SessionStoreTests {
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
+		Assert.Equal("/shared/documents", reloaded.Items.Single(i => i.Id.Value == "bbbb").WorkflowDocumentsDirectory);
 		Assert.Equal(ActiveAt, reloaded.Items.Single(i => i.Id.Value == "aaaa").LastActiveAt);
 		Assert.Null(reloaded.Items.Single(i => i.Id.Value == "bbbb").LastActiveAt);
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Unseen);

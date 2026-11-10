@@ -3,13 +3,16 @@ using System.Text.RegularExpressions;
 
 namespace Weavie.Workflows;
 
-/// <summary>A <c>{{inputs.name}}</c> or <c>{{stage.output}}</c> reference inside a template.</summary>
+/// <summary>A run directory, input, or stage output reference inside a template.</summary>
 public sealed record WorkflowReference(string Scope, string Name) {
 	/// <summary>The scope naming the run's inputs rather than a stage.</summary>
 	public const string Inputs = "inputs";
 
 	/// <summary>Whether this names a run input.</summary>
 	public bool IsInput => Scope == Inputs;
+
+	/// <summary>Whether this names the shared documents directory.</summary>
+	public bool IsDocuments => Scope == "run" && Name == "documents";
 
 	/// <inheritdoc/>
 	public override string ToString() => $"{{{{{Scope}.{Name}}}}}";
@@ -55,7 +58,7 @@ public sealed partial class WorkflowTemplate {
 			var match = ReferencePattern().Match(text[(open + 2)..close]);
 			if (!match.Success) {
 				return Fail(
-					$"\"{text[open..(close + 2)]}\" must be {{{{inputs.<name>}}}} or {{{{<stage>.<output>}}}}",
+					$"\"{text[open..(close + 2)]}\" must be {{{{run.documents}}}}, {{{{inputs.<name>}}}} or {{{{<stage>.<output>}}}}",
 					out template, out error);
 			}
 

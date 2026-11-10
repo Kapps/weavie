@@ -27,7 +27,7 @@ public sealed class WorkflowEvidenceRunnerTests : IDisposable {
 	public void Dispose() => _dir.Dispose();
 	private WorkflowRunner Runner(IWorkflowFileReader files) => new(
 		TestWorkflows.Catalog(_dir.Path, _dir.Combine("personal")), _store, _decider, files, new Port(),
-		() => 3, () => true, () => _confidence, _dir.Path, TestWorkflows.Words);
+		() => 3, () => true, () => _confidence, _dir.Path, TestWorkflows.Words, id => _dir.Combine("documents", id));
 	private static JsonElement Inputs() => JsonDocument.Parse("""{"document":["review.md"]}""").RootElement;
 
 	[Fact]
@@ -119,7 +119,7 @@ public sealed class WorkflowEvidenceRunnerTests : IDisposable {
 	}
 
 	private sealed class Reader(Func<string, WorkflowFileRead> read) : IWorkflowFileReader {
-		public WorkflowFileRead Read(string relativePath) => read(relativePath);
+		public WorkflowFileRead Read(string relativePath, string documentsDirectory) => read(relativePath);
 	}
 	private sealed class Port : IWorkflowRunPort {
 		public void Kickoff(WorkflowKickoff turn) { }

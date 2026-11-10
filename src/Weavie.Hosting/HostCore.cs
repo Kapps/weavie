@@ -214,6 +214,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_credentials = services.Credentials;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
+		_workflowDocuments = new Weavie.Core.Workflows.WorkflowDocumentFolders(WeaviePaths.WorkspaceWorkflowDocumentsDir(Id), message => _ui.Post(() => Notify("error", message)));
 
 		// Back per-workspace settings (worktree.setupCommand, test.profile) from the workspace's out-of-repo overlay.
 		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.

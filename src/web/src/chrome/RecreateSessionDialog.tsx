@@ -2,7 +2,7 @@ import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { agentProviders } from "./agent-default";
-import { ModalShell } from "./ModalShell";
+import { ModalShell, PromptButton } from "./ModalShell";
 import { type RailSession, sessions } from "./session-store";
 
 /** Owns the captured session target throughout provider selection and confirmation. */
@@ -61,7 +61,26 @@ function RecreateSessionDialog(props: { session: RailSession; onClose: () => voi
   };
   return (
     <ModalShell
-      labelledBy="recreate-session-title"
+      title="Recreate with…"
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={close}
+            disabled={busy()}
+          />
+          <PromptButton
+            label={busy() ? "Recreating…" : confirming() ? "Recreate session" : "Continue"}
+            shortcut=""
+            title={confirming() ? "Recreate session" : "Continue"}
+            onClick={() => void submit()}
+            disabled={busy() || !provider()?.available}
+            primary
+          />
+        </>
+      }
       onDismiss={close}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -71,65 +90,47 @@ function RecreateSessionDialog(props: { session: RailSession; onClose: () => voi
         }
       }}
     >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <div class="confirm-title" id="recreate-session-title">
-          Recreate with…
-        </div>
-        <div class="confirm-body">
-          <Show
-            when={confirming()}
-            fallback={
-              <label>
-                Agent for “{props.session.label}”
-                <select
-                  class="confirm-select"
-                  aria-label="Agent"
-                  value={providerId()}
-                  onChange={(event) => setProviderId(event.currentTarget.value)}
-                  ref={(element) => queueMicrotask(() => element.focus())}
-                >
-                  <For each={providers()}>
-                    {(entry) => (
-                      <option
-                        value={entry.id}
-                        disabled={!entry.available}
-                        title={entry.unavailableReason ?? entry.name}
-                      >
-                        {entry.name}
-                        {entry.available ? "" : " (Unavailable)"}
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </label>
-            }
-          >
-            <p>
-              Start a fresh conversation with {provider()?.name} in “{props.session.label}”?
-            </p>
-            <p>
-              Your files, edits, and editor tabs will stay. Running agent and shell work will stop,
-              and shell terminals will restart. Previous conversations won't be resumed.
-            </p>
-          </Show>
-          <Show when={error()}>
-            <p role="alert">{error()}</p>
-          </Show>
-        </div>
-        <div class="confirm-actions">
-          <button type="button" class="confirm-btn" disabled={busy()} onClick={close}>
-            Cancel
-          </button>
-          <button type="submit" class="confirm-btn" disabled={busy() || !provider()?.available}>
-            {busy() ? "Recreating…" : confirming() ? "Recreate session" : "Continue"}
-          </button>
-        </div>
-      </form>
+      <div class="confirm-body">
+        <Show
+          when={confirming()}
+          fallback={
+            <label class="confirm-field">
+              Agent for “{props.session.label}”
+              <select
+                class="ui-field"
+                aria-label="Agent"
+                value={providerId()}
+                onChange={(event) => setProviderId(event.currentTarget.value)}
+                ref={(element) => queueMicrotask(() => element.focus())}
+              >
+                <For each={providers()}>
+                  {(entry) => (
+                    <option
+                      value={entry.id}
+                      disabled={!entry.available}
+                      title={entry.unavailableReason ?? entry.name}
+                    >
+                      {entry.name}
+                      {entry.available ? "" : " (Unavailable)"}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </label>
+          }
+        >
+          <p>
+            Start a fresh conversation with {provider()?.name} in “{props.session.label}”?
+          </p>
+          <p>
+            Your files, edits, and editor tabs will stay. Running agent and shell work will stop,
+            and shell terminals will restart. Previous conversations won't be resumed.
+          </p>
+        </Show>
+        <Show when={error()}>
+          <p role="alert">{error()}</p>
+        </Show>
+      </div>
     </ModalShell>
   );
 }

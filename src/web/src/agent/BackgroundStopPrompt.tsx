@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
-import { ModalShell, modalSubmitKeys } from "../chrome/ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "../chrome/ModalShell";
 import { backgroundStatus } from "./background-format";
 import {
   type BackgroundWorkSummary,
@@ -27,13 +27,29 @@ export function BackgroundStopPrompt(): JSX.Element {
           caughtUp() ? (request.running() ?? []) : request.refused;
         return (
           <ModalShell
-            labelledBy="background-stop-title"
+            title="Stop background work?"
             onDismiss={keep}
             onKeyDown={modalSubmitKeys(keep, keep)}
+            actions={
+              <>
+                <PromptButton
+                  label={request.confirmLabel}
+                  shortcut=""
+                  title={request.confirmLabel}
+                  onClick={() => request.settle("stop")}
+                />
+                <PromptButton
+                  label="Keep running"
+                  shortcut="Enter"
+                  title="Keep running (Enter)"
+                  onClick={keep}
+                  primary
+                  class="confirm-btn-primary"
+                  ref={(element) => queueMicrotask(() => element.focus())}
+                />
+              </>
+            }
           >
-            <div class="confirm-title" id="background-stop-title">
-              Stop background work?
-            </div>
             <div class="confirm-body">
               <div>
                 This work is still running. Stopping it ends it, and its results won't come back.
@@ -57,19 +73,6 @@ export function BackgroundStopPrompt(): JSX.Element {
                   )}
                 </For>
               </ul>
-            </div>
-            <div class="confirm-actions">
-              <button type="button" class="confirm-btn" onClick={() => request.settle("stop")}>
-                {request.confirmLabel}
-              </button>
-              <button
-                type="button"
-                class="confirm-btn confirm-btn-primary"
-                ref={(element) => queueMicrotask(() => element.focus())}
-                onClick={keep}
-              >
-                Keep running
-              </button>
             </div>
           </ModalShell>
         );

@@ -1,3 +1,4 @@
+import { ArrowUp } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
@@ -17,6 +18,7 @@ import { captureCommandRunner, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
+import { MobileActionLabel } from "./MobileActionLabel";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import {
   createNewSessionAttachments,
@@ -317,6 +319,7 @@ export function SessionInbox(props: {
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
       <select
+        class="ui-field"
         aria-label={locationLabel}
         value={backendId()}
         onChange={(event) => selectBackend(event.currentTarget.value)}
@@ -328,6 +331,7 @@ export function SessionInbox(props: {
         </For>
       </select>
       <select
+        class="ui-field"
         aria-label={providerLabel}
         disabled={savingProvider()}
         onChange={(event) => selectProvider(event.currentTarget.value)}
@@ -371,7 +375,7 @@ export function SessionInbox(props: {
         </div>
         <button
           type="button"
-          class="session-inbox-manage-acp"
+          class="session-inbox-manage-acp ui-button"
           onClick={() => props.onManageAcp(backendId())}
           title={`Manage ACP agents${keyHint(CommandIds.manageAcpAgents)}`}
         >
@@ -427,6 +431,7 @@ export function SessionInbox(props: {
               <label>
                 <span>From</span>
                 <select
+                  class="ui-field"
                   aria-label="Branch starting point"
                   value={base()}
                   onChange={(event) => setBase(event.currentTarget.value as "source" | "main")}
@@ -459,15 +464,14 @@ export function SessionInbox(props: {
               {destinationFields("Session location", "Agent provider")}
               <button
                 type="submit"
-                class="session-composer-submit mobile-primary-action"
+                class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
                 aria-label={submitting() === "new" ? "Starting session" : "Start"}
                 title={`Start${keyHint(CommandIds.submitNewSession)}`}
                 disabled={!canStart()}
               >
-                <span class="mobile-action-wide">
+                <MobileActionLabel icon={<ArrowUp />}>
                   {submitting() === "new" ? "Starting…" : "Start"}
-                </span>
-                <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+                </MobileActionLabel>
               </button>
             </div>
           </form>
@@ -489,6 +493,7 @@ export function SessionInbox(props: {
             <label class="session-composer-branch">
               <span>Branch</span>
               <input
+                class="ui-field ui-field-content"
                 type="text"
                 list="session-existing-branches"
                 aria-label="Existing branch for the session"
@@ -513,14 +518,13 @@ export function SessionInbox(props: {
               {destinationFields("Open on", "Open with")}
               <button
                 type="submit"
-                class="session-composer-submit mobile-primary-action"
+                class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
                 disabled={submitting() !== null || existingBranch().trim().length === 0}
               >
-                <span class="mobile-action-wide">
+                <MobileActionLabel icon={<ArrowUp />}>
                   {submitting() === "existing" ? "Opening…" : "Open"}
-                </span>
-                <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+                </MobileActionLabel>
               </button>
             </div>
           </form>

@@ -129,7 +129,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
         </span>
         <input
           ref={input}
-          class="search-input"
+          class="search-input ui-field"
           type="text"
           spellcheck={false}
           placeholder="Search in files"
@@ -140,7 +140,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
       </div>
       <div class="search-filters">
         <input
-          class="search-glob"
+          class="search-glob ui-field"
           type="text"
           spellcheck={false}
           placeholder="Files to include (e.g. src/, *.ts)"
@@ -148,7 +148,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
           onInput={(e) => setGlobs("include", e.currentTarget.value)}
         />
         <input
-          class="search-glob"
+          class="search-glob ui-field"
           type="text"
           spellcheck={false}
           placeholder="Files to exclude (e.g. *.test.ts, dist/)"
@@ -190,18 +190,18 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
               <div class="search-group">
                 <button
                   type="button"
-                  class="search-group-head"
+                  class="search-group-head ui-row"
                   tabindex={-1}
                   title={group.path}
                   onClick={() => toggleGroup(group.path)}
                 >
-                  <span class="search-twisty" aria-hidden="true">
+                  <span class="search-twisty ui-icon" aria-hidden="true">
                     <Show when={s.collapsed().has(group.path)} fallback={<ChevronDown />}>
                       <ChevronRight />
                     </Show>
                   </span>
                   <span class="search-group-name">{leafName(group.path)}</span>
-                  <span class="search-group-count">{group.matches.length}</span>
+                  <span class="search-group-count ui-row-end">{group.matches.length}</span>
                 </button>
                 <Show when={!s.collapsed().has(group.path)}>
                   <For each={group.matches}>
@@ -210,7 +210,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
                       return (
                         <button
                           type="button"
-                          class="search-row"
+                          class="search-row ui-row ui-row-content"
                           tabindex={-1}
                           data-selected={index() === s.selected()}
                           classList={{ selected: index() === s.selected() }}
@@ -234,16 +234,16 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
       </div>
       <div class="search-hints">
         <span>
-          <kbd>↑↓</kbd> preview
+          <kbd class="ui-kbd">↑↓</kbd> preview
         </span>
         <span>
-          <kbd>Alt+↑↓</kbd> history
+          <kbd class="ui-kbd">Alt+↑↓</kbd> history
         </span>
         <span>
-          <kbd>Enter</kbd> open
+          <kbd class="ui-kbd">Enter</kbd> open
         </span>
         <span>
-          <kbd>{keyLabel(CommandIds.searchNextResult)}</kbd> from editor
+          <kbd class="ui-kbd">{keyLabel(CommandIds.searchNextResult)}</kbd> from editor
         </span>
       </div>
     </div>

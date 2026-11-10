@@ -51,6 +51,9 @@ public sealed record WorkflowRun {
 	/// <summary>The run's id (<c>r-</c> plus 12 hex digits).</summary>
 	public required string Id { get; init; }
 
+	/// <summary>The shared documents directory outside every session worktree.</summary>
+	public required string DocumentsDirectory { get; init; }
+
 	/// <summary>The workflow id.</summary>
 	public required string WorkflowId { get; init; }
 

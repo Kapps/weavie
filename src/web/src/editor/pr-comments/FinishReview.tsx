@@ -90,7 +90,7 @@ export function FinishReview(props: { session: ClientSession }): JSX.Element {
           <div class="finish-review" ref={root}>
             <button
               type="button"
-              class="finish-review-button"
+              class="finish-review-button ui-button"
               classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
               aria-expanded={open()}
               title={`Finish your review of PR #${active().number}${keyHint(CommandIds.prFinishReview)}`}
@@ -100,7 +100,9 @@ export function FinishReview(props: { session: ClientSession }): JSX.Element {
               <Show when={count() > 0}>
                 <span class="finish-review-count">{count()}</span>
               </Show>
-              <ChevronDown size="1em" />
+              <span class="ui-icon">
+                <ChevronDown />
+              </span>
             </button>
             <Show when={open()}>
               <ReviewPanel
@@ -253,7 +255,7 @@ function ReviewPanel(props: {
         <Show when={props.set.pending !== null}>
           <button
             type="button"
-            class="weavie-pr-button finish-review-discard"
+            class="weavie-pr-button finish-review-discard ui-button"
             title={`Discard pending review${keyHint(CommandIds.prDiscardReview)}`}
             onClick={() => props.onDiscard()}
           >
@@ -262,7 +264,7 @@ function ReviewPanel(props: {
         </Show>
         <button
           type="button"
-          class="weavie-pr-button"
+          class="weavie-pr-button ui-button"
           title={`Cancel${keyHint(CommandIds.prCancelComment)}`}
           onClick={() => props.onClose()}
         >
@@ -270,7 +272,7 @@ function ReviewPanel(props: {
         </button>
         <button
           type="button"
-          class="weavie-pr-button weavie-pr-button-primary"
+          class="weavie-pr-button weavie-pr-button-primary ui-button"
           disabled={busy()}
           title={`Submit review${keyHint(CommandIds.prSubmitComment)}`}
           onClick={() => void submit()}

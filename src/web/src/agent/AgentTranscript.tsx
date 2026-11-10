@@ -124,7 +124,7 @@ function EmptyState(props: { compact: boolean; providerName: string }): JSX.Elem
 
   return (
     <div class="agent-empty">
-      <div class="agent-empty-title">{props.providerName}</div>
+      <div class="agent-empty-title ui-section-label">{props.providerName}</div>
       <p class="agent-empty-tagline">
         Describe a change, ask a question, or hand over a task — it runs in this session's worktree.
       </p>

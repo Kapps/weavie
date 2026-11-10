@@ -173,7 +173,10 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
 
-	/// <summary>A session worktree's workflow run: <c>~/.weavie/workspaces/&lt;id&gt;/workflow-run.json</c>.</summary>
+	/// <summary>A run's shared documents, retained independently of its sessions and worktrees.</summary>
+	public static string WorkspaceWorkflowDocumentsDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "workflow-documents");
+
+	/// <summary>The persisted run for one session worktree.</summary>
 	public static string WorkspaceWorkflowRunFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "workflow-run.json");
 
 	/// <summary>A workspace's recent answered workflow decisions: <c>~/.weavie/workspaces/&lt;id&gt;/decision-history.json</c>.</summary>

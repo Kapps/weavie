@@ -402,7 +402,7 @@ applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no r
 | key                    | kind   | default                         | meaning                                  |
 |------------------------|--------|---------------------------------|------------------------------------------|
 | `font.family`          | String | cross-platform monospace stack  | global family (a CSS font-family stack)  |
-| `font.size`            | Int    | `13`                            | global size in px (6–72)                 |
+| `font.size`            | Int    | `16`                            | global size in px (6–72)                 |
 | `font.weight`          | String | `normal`                        | global weight (`normal`/`bold`/`100`–`900`) |
 | `editor.font.family`   | String | `""` → inherit                  | editor family override                   |
 | `editor.font.size`     | Int    | `0` → inherit                   | editor size override (0, or 6–72)        |
@@ -425,6 +425,9 @@ a `{ type: "fonts", … }` bridge message on any change. The web `fonts.ts` read
 editor/terminal creation and applies live pushes via `onFontsChanged`; it also publishes the
 `--interface-font-family` / `--prose-font-family` CSS vars behind the `--font-chrome-family` /
 `--font-prose-family` typography roles.
+
+Chrome text sizes are fixed px role tokens; only the content and prose roles follow `font.size` /
+`editor.font.size`. See the [design system concept](../concepts/design-system.md).
 
 The three-segment keys (`editor.font.size`) required lifting the TOML key writer's previous
 two-segment cap (`SettingsStore.BuildKeySyntax`), which now appends dotted keys for arbitrary depth.

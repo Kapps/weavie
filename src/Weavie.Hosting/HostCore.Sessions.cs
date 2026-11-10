@@ -341,6 +341,7 @@ public sealed partial class HostCore {
 
 			PushSessionList();
 		} catch (GitException ex) {
+			_worktreeReconciliationFailed = true;
 			Console.WriteLine($"[weavie] worktree reconcile failed: {ex.Message}");
 			Notify("warn", "Couldn't list existing worktrees — some sessions may not appear on the rail.");
 		}
@@ -533,6 +534,7 @@ public sealed partial class HostCore {
 				_layout,
 				cwd,
 				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
+				_workflowDocuments.ForRun,
 				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 				// one session's images never touches another's.
 				Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
@@ -597,6 +599,7 @@ public sealed partial class HostCore {
 				slot.AgentProviderId,
 				slot.Id,
 				slot.ShellTerminals);
+			slot.Session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(slot.Session, slot);
 		}
 	}
@@ -663,6 +666,10 @@ public sealed partial class HostCore {
 		try {
 			PushSessionList();
 			PersistSessionState();
+			if (removeSlot) {
+				ForgetWorkflowRun(slot.WorktreePath);
+				_workflowDocuments.Bind(slot.WorktreePath, null);
+			}
 		} catch (Exception catalogError) {
 			failures.Add(catalogError);
 		}
@@ -690,9 +697,10 @@ public sealed partial class HostCore {
 			if (sourceAddress is not null && (source = await CurrentSourceAsync(sourceAddress, ct).ConfigureAwait(false)) is null) {
 				return SourceGone();
 			}
+			using var documents = _workflowDocuments.Acquire(source?.WorktreePath);
 			if (request.Workflow is { } workflow) {
 				try {
-					var launch = PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs);
+					var launch = PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs, documents.Directory);
 					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
 					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");
 					if (WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
@@ -705,8 +713,8 @@ public sealed partial class HostCore {
 			}
 
 			return await (request.Existing
-				? AttachExistingSessionAsync(request.Branch, input, provider, ct)
-				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct)).ConfigureAwait(false);
+				? AttachExistingSessionAsync(request.Branch, input, provider, documents.Directory, ct)
+				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, documents.Directory, ct)).ConfigureAwait(false);
 		}, ct);
 	}
 
@@ -717,16 +725,18 @@ public sealed partial class HostCore {
 		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
 		var input = InitialSessionInput.FromText(request.Handoff);
-		return GatedAsync(_sessionCatalog, async () =>
-			await CurrentSourceAsync(source.Address, ct).ConfigureAwait(false) is { } sourceSlot
-				? await CreateWorktreeSessionAsync(
+		return GatedAsync(_sessionCatalog, async () => {
+			if (await CurrentSourceAsync(source.Address, ct).ConfigureAwait(false) is not { } sourceSlot) return SourceGone();
+			using var documents = _workflowDocuments.Acquire(sourceSlot.WorktreePath);
+			return await CreateWorktreeSessionAsync(
 					sourceSlot,
 					request.Branch,
 					"source",
 					input,
 					sourceSlot.AgentProviderId,
-					ct).ConfigureAwait(false)
-				: SourceGone(), ct);
+					documents.Directory,
+					ct).ConfigureAwait(false);
+		}, ct);
 	}
 
 	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
@@ -1000,7 +1010,6 @@ public sealed partial class HostCore {
 				force,
 				CancellationToken.None).ConfigureAwait(false);
 			await RetireSlotAsync(target).ConfigureAwait(false);
-			ForgetWorkflowRun(worktreePath);
 			Notify("info", branchless
 				? $"Session '{label}' was deleted. Its checkout had no branch to keep."
 				: $"Session '{label}' was deleted. Its branch was kept.");
@@ -1059,11 +1068,13 @@ public sealed partial class HostCore {
 	/// interleave with a concurrent switch reading the slot set.
 	/// </summary>
 	private async Task RetireSlotAsync(SessionSlot slot) {
+		ForgetWorkflowRun(slot.WorktreePath);
 		_acpSessions.ClearWorkspace(slot.WorktreePath);
 		await _ui.InvokeAsync(() => {
 			_sessions?.Remove(slot);
 			PushSessionList();
 			PersistSessionState();
+			_workflowDocuments.Bind(slot.WorktreePath, null);
 			return Task.CompletedTask;
 		}, CancellationToken.None).ConfigureAwait(false);
 	}
@@ -1105,6 +1116,7 @@ public sealed partial class HostCore {
 		string? baseSpec,
 		InitialSessionInput? input,
 		string agentProviderId,
+		string? workflowDocumentsDirectory,
 		CancellationToken ct) {
 		try {
 			_agentProviders.RequireAvailable(agentProviderId);
@@ -1163,6 +1175,7 @@ public sealed partial class HostCore {
 			record,
 			input,
 			agentProviderId,
+			workflowDocumentsDirectory,
 			$"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
@@ -1174,6 +1187,7 @@ public sealed partial class HostCore {
 		string? requestedBranch,
 		InitialSessionInput? input,
 		string agentProviderId,
+		string? workflowDocumentsDirectory,
 		CancellationToken ct) {
 		try {
 			_agentProviders.RequireAvailable(agentProviderId);
@@ -1247,6 +1261,7 @@ public sealed partial class HostCore {
 			record,
 			input,
 			slotProviderId,
+			workflowDocumentsDirectory,
 			$"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
@@ -1264,6 +1279,7 @@ public sealed partial class HostCore {
 		WorktreeRecord record,
 		InitialSessionInput? input,
 		string agentProviderId,
+		string? workflowDocumentsDirectory,
 		string successMessage) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
@@ -1276,11 +1292,13 @@ public sealed partial class HostCore {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
+					WorkflowDocumentsDirectory = workflowDocumentsDirectory,
 					AgentProviderId = agentProviderId,
 					Session = CreateSession(record.Path, agentProviderId, branch, shellTerminals),
 					EditorSession = EditorSession.Empty,
 					ShellTerminals = shellTerminals,
 				};
+				slot.Session.InheritedWorkflowDocuments = workflowDocumentsDirectory;
 				sessions.Add(slot);
 				PushSessionList();
 				if (input?.Workflow is { } workflow) {
@@ -1290,6 +1308,7 @@ public sealed partial class HostCore {
 				}
 				ActivateSessionRuntimeAndMessages(slot.Session);
 				PersistSessionState();
+				_workflowDocuments.Bind(slot.WorktreePath, slot.Session.WorkflowDocumentsDirectory);
 
 				result.SetResult(CommandResult.Success(
 					successMessage,

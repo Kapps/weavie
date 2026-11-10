@@ -27,6 +27,19 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		Load();
 	}
 
+	/// <summary>Why persisted session ownership could not be restored, if any.</summary>
+	public string? LoadFailure { get; private set; }
+
+	/// <inheritdoc/>
+	protected override void OnUnusable(string? text, Exception cause) {
+		LoadFailure = $"Could not read session ownership in {FilePath}: {cause.Message}";
+		base.OnUnusable(text, cause);
+	}
+
+	/// <inheritdoc/>
+	protected override void OnPersistFailed(Exception cause) =>
+		throw new IOException($"Could not persist sessions in {FilePath}: {cause.Message}", cause);
+
 	/// <summary>Snapshot of the persisted sessions. Safe to enumerate.</summary>
 	public IReadOnlyList<SessionDescriptor> Items {
 		get {
@@ -72,8 +85,14 @@ public sealed partial class SessionStore : JsonDocumentStore {
 	public void Save(IReadOnlyList<SessionDescriptor> sessions) {
 		ArgumentNullException.ThrowIfNull(sessions);
 		lock (Gate) {
+			var previous = _items;
 			_items = [.. sessions];
-			PersistLocked();
+			try {
+				PersistLocked();
+			} catch {
+				_items = previous;
+				throw;
+			}
 		}
 	}
 
@@ -152,6 +171,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			LastActiveAt = entry.LastActiveAt,
 			Unseen = entry.Unseen,
 			WorktreePath = entry.WorktreePath,
+			WorkflowDocumentsDirectory = entry.WorkflowDocumentsDirectory,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
 			EditorSession = editorSession,
@@ -174,6 +194,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		LastActiveAt = session.LastActiveAt,
 		Unseen = session.Unseen,
 		WorktreePath = session.WorktreePath,
+		WorkflowDocumentsDirectory = session.WorkflowDocumentsDirectory,
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
 		EditorSession = session.EditorSession,
@@ -209,6 +230,9 @@ public sealed partial class SessionStore : JsonDocumentStore {
 
 		[JsonPropertyName("worktreePath")]
 		public string? WorktreePath { get; set; }
+
+		[JsonPropertyName("workflowDocumentsDirectory")]
+		public string? WorkflowDocumentsDirectory { get; set; }
 
 		[JsonPropertyName("loaded")]
 		public bool? Loaded { get; set; }

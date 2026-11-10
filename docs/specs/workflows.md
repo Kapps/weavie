@@ -203,7 +203,8 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | `context` | `continue`, `fork`, or `fresh` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
-Templates reference `{{inputs.<name>}}`, `{{<stage>.<output>}}`, and `{{item}}`. There is no expression language.
+Templates reference `{{inputs.<name>}}`, `{{<stage>.<output>}}`, and `{{run.documents}}`. The `run` stage id is reserved.
+`{{item}}` belongs to the deferred child-run syntax. There is no expression language.
 
 ### Defaults
 
@@ -258,6 +259,39 @@ and how a stage switches the model on the session's conversation, is designed in
   shows the default with the failure reason.
 - `weavie.session.new` gains `workflow` and `inputs` arguments, so an agent can start a session running a workflow.
 - **Run Workflow** starts a workflow in the current session.
+
+## Shared documents
+
+Every root run gets a documents folder outside all worktrees, under the host workspace's
+`~/.weavie/workspaces/<id>/workflow-documents/<run-id>`. `{{run.documents}}` resolves to its absolute path in
+prompts, skill arguments, and questions. The folder is created before the first stage starts; failures prevent the
+run from starting and report the path and reason. Its path is saved with the run and restated in agent turn context.
+
+```yaml
+stages:
+  - id: design
+    run:
+      prompt: "Write {{run.documents}}/design.md and report its absolute path."
+      outputs: { design: files }
+```
+
+Sessions created through `weavie.session.new` or `weavie.session.fork` inherit the invoking session's documents,
+regardless of which session the user is viewing. Their workflow runs use the same `{{run.documents}}`; plain sessions
+receive the directory in their turn context. Descendants inherit it too, without passing paths as inputs. Existing
+sessions merely selected by a creation command keep their own context. Automatic child-workflow stages remain deferred.
+
+Shared files open and save through the editor's normal absolute-path support. Typed `files` inputs and outputs accept
+absolute files contained within the granted documents directory as well as existing worktree-relative paths. Unrelated
+absolute paths and traversal outside either scope are rejected. A directory reference supplies a path, not contents;
+model decisions still require an explicit `files` reference to receive evidence. Containment remains lexical, not a
+symlink sandbox. Shared edits use ordinary file semantics; Weavie does not serialize concurrent appends or edits.
+
+The directory survives completion, cancellation, unloading, and recreation. It is deleted automatically when the last
+referencing session is deleted or replaces its run. A parent's deletion or replacement cannot delete documents still
+used by a child. Temporary references protect sessions being created, including failed creation. On host startup,
+ownership is rebuilt from persisted sessions and runs, including dormant sessions, and orphaned directories are removed
+from the managed documents folder only. Invalid ownership records stop cleanup with a visible error; deletion failures
+also report an error and are reconciled on a later startup. Worktrees are never scanned for this cleanup.
 
 ## Running a stage
 
@@ -344,7 +378,7 @@ such as `{"approve":0.91,"revise":0.09}`; probabilities are estimated from evide
 
 A model `ask` that references a `files` input or output receives each file's complete current text as separate,
 path-labelled evidence. Inputs, current-stage outputs, and earlier-stage outputs work alike. Paths resolve inside
-the session worktree and normalized duplicates appear once, in reference order. The question and output values
+the session worktree or its shared documents folder and normalized duplicates appear once, in reference order. The question and output values
 keep their path labels. Initial `files` validation still requires existing, non-empty files; a later empty file
 contributes empty text. Text readability uses the shared content decoder, including BOM support, not extensions.
 

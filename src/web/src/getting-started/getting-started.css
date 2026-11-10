@@ -17,18 +17,9 @@
   outline: none;
 }
 
-.getting-started button,
-.getting-started select {
+.getting-started :where(button:not(.ui-button), select) {
   color: var(--fg);
-  font-size: var(--font-chrome-size);
   cursor: pointer;
-}
-
-.getting-started select {
-  padding: 0.4em 0.6em;
-  background: var(--gs-surface);
-  border: 1px solid var(--gs-line);
-  border-radius: 6px;
 }
 
 .getting-started button:disabled,
@@ -65,18 +56,12 @@
 
 .gs-eyebrow {
   margin: 0 0 6px;
-  font-size: var(--font-hint-size);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--accent);
 }
 
 .getting-started h2 {
   margin: 0;
-  font-size: calc(var(--font-chrome-size) * 1.7);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font: var(--font-chrome-display);
 }
 
 .gs-hint {
@@ -90,13 +75,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 17rem;
+  height: 272px;
   overflow-y: auto;
 }
 
 .gs-body:has(.gs-row) {
   height: auto;
-  min-height: 17rem;
+  min-height: 272px;
 }
 
 .gs-text {
@@ -107,18 +92,17 @@
   text-align: left;
 }
 
-.gs-text strong {
-  font-weight: 600;
-}
-
-.gs-text small {
+.getting-started small:not(.ui-section-label) {
   color: var(--dim);
-  font-size: var(--font-metadata-size);
-  line-height: 1.4;
+  font: var(--font-chrome-secondary);
 }
 
-.gs-text small.gs-warning {
+.getting-started small.gs-warning {
   color: var(--warn);
+}
+
+.getting-started small.gs-note {
+  color: var(--accent);
 }
 
 fieldset.gs-modes,
@@ -210,7 +194,7 @@ fieldset.gs-choices {
 }
 
 .gs-mode-label {
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .gs-themes {
@@ -224,7 +208,6 @@ fieldset.gs-choices {
 
 .gs-themes strong {
   color: var(--fg);
-  font-weight: 600;
 }
 
 /* Agent: radio-style cards, then the optional registry. */
@@ -236,8 +219,6 @@ fieldset.gs-choices {
 }
 
 .getting-started .gs-choice {
-  display: flex;
-  align-items: flex-start;
   gap: 12px;
   padding: 10px 14px;
   background: var(--gs-surface);
@@ -256,24 +237,16 @@ fieldset.gs-choices {
 .gs-tag {
   margin-left: 8px;
   padding: 0 5px;
-  font-size: var(--font-hint-size);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font: var(--font-chrome-badge);
   color: var(--dim);
   border: 1px solid var(--gs-line);
   border-radius: 4px;
   cursor: help;
 }
 
-.gs-text small.gs-note {
-  color: var(--accent);
-}
-
 .gs-radio {
-  flex: none;
   width: 14px;
   height: 14px;
-  margin-top: 2px;
   border: 1.5px solid var(--dim);
   border-radius: 50%;
 }
@@ -310,10 +283,6 @@ fieldset.gs-choices {
   min-height: 0;
 }
 
-.gs-registry .acp-registry-filter {
-  margin-top: 0;
-}
-
 .gs-registry .acp-registry-list {
   flex: 1 1 0;
   max-height: none;
@@ -325,23 +294,15 @@ fieldset.gs-choices {
   border-bottom: none;
 }
 
-.getting-started .gs-registry button {
-  padding: 0.35em 0.8em;
-  background: var(--gs-surface);
-  border: 1px solid var(--gs-line);
-  border-radius: 6px;
-}
-
-/* Smart suggestions: setting rows with switches. */
-
+/* Smart suggestions: setting rows, each switch centred on its two-line title + detail. */
 .gs-row {
-  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 12px 14px;
   background: var(--gs-surface);
   border-radius: 10px;
+  cursor: default;
   transition: opacity 0.15s ease;
 }
 
@@ -403,7 +364,7 @@ fieldset.gs-choices {
 
 .gs-keys li {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   padding: 9px 2px;
@@ -422,27 +383,22 @@ fieldset.gs-choices {
 
 .gs-keycaps {
   display: inline-flex;
+  align-items: baseline;
   gap: 3px;
 }
 
 .gs-keycaps kbd {
-  min-width: 1.6em;
-  padding: 1px 6px;
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-hint-size);
-  line-height: 1.6;
+  min-width: 16px;
   text-align: center;
   color: var(--fg);
   background: var(--gs-surface);
-  border: 1px solid var(--gs-line);
-  border-bottom-width: 2px;
-  border-radius: 4px;
+  border-color: var(--gs-line);
 }
 
 /* Footer. */
 
 .gs-error {
-  max-height: 6.5em;
+  max-height: 78px;
   overflow-y: auto;
   margin: 10px 0 0;
   white-space: pre-wrap;
@@ -458,17 +414,9 @@ fieldset.gs-choices {
   border-top: 1px solid var(--gs-line);
 }
 
-.getting-started .gs-nav button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0.5em 1em;
-  border-radius: 7px;
-  border: 1px solid transparent;
-}
-
 .getting-started .gs-skip {
   margin-right: auto;
+  border-color: transparent;
   background: none;
   color: color-mix(in srgb, var(--fg) 70%, transparent);
 }
@@ -477,23 +425,13 @@ fieldset.gs-choices {
   color: var(--fg);
 }
 
-.getting-started .gs-nav .gs-secondary {
+.getting-started .gs-secondary {
   background: var(--gs-surface);
   border-color: var(--gs-line);
 }
 
 .getting-started .gs-secondary:hover {
   background: var(--gs-surface-hover);
-}
-
-.getting-started .gs-primary {
-  font-weight: 600;
-  color: var(--button-fg);
-  background: var(--button-bg);
-}
-
-.getting-started .gs-primary:hover {
-  background: var(--button-hover-bg);
 }
 
 .gs-nav .gs-keycaps kbd {
@@ -504,12 +442,15 @@ fieldset.gs-choices {
 
 .getting-started .acp-registry-filter {
   background: var(--gs-surface);
+}
+
+.getting-started .acp-registry-filter:not(:focus) {
   border-color: var(--gs-line);
 }
 
 .gs-later {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   flex-wrap: wrap;
   gap: 6px;
   margin: 0;
@@ -518,12 +459,12 @@ fieldset.gs-choices {
 
 .gs-later strong {
   color: var(--fg);
-  font-weight: 600;
 }
 
 /* You're ready: the ask-your-agent tip, then the first keys. */
 
 .gs-ask {
+  --row-line: var(--font-chrome-line-wrap);
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -537,21 +478,15 @@ fieldset.gs-choices {
 .gs-ask p {
   margin: 0;
   color: var(--fg);
-  line-height: 1.45;
 }
 
 .gs-subhead {
   margin: 4px 0 -4px;
-  font-size: var(--font-hint-size);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dim);
 }
 
 .gs-combo {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   color: var(--dim);
 }
@@ -575,12 +510,12 @@ fieldset.gs-choices {
 }
 
 .getting-started .gs-pick {
+  font: var(--font-chrome-body);
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
-  gap: 1px;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 4px 10px;
   border: 0;
   border-left: 1px solid var(--gs-line);
   background: none;
@@ -589,14 +524,6 @@ fieldset.gs-choices {
 
 .gs-pick:first-child {
   border-left: 0;
-}
-
-.gs-pick small {
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .gs-pick span {
@@ -617,8 +544,8 @@ fieldset.gs-choices {
 }
 
 .gs-placeholder i {
-  width: 6em;
-  height: 0.9em;
+  width: 72px;
+  height: 10px;
   margin: 3px 0;
   border-radius: 4px;
   background: var(--gs-line);
@@ -637,7 +564,7 @@ fieldset.gs-choices {
   gap: 6px;
   margin: 0;
   color: var(--warn);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
 }
 
 .control-menu.gs-menu {

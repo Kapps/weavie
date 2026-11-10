@@ -55,11 +55,12 @@ export function useInputCommands(
 }
 
 /** Decline and Cancel, titled with their keys while this card owns them. */
-export function DismissButtons(props: InputRequestProps): JSX.Element {
+export function DismissButtons(props: InputRequestProps & { buttonClass: string }): JSX.Element {
   return (
     <>
       <button
         type="button"
+        class={props.buttonClass}
         title={withKey("Decline request", ownedKeyLabel(props, CommandIds.agentDeclineInput))}
         onClick={() => resolveInput(props, "decline", {})}
       >
@@ -67,6 +68,7 @@ export function DismissButtons(props: InputRequestProps): JSX.Element {
       </button>
       <button
         type="button"
+        class={props.buttonClass}
         title={withKey("Cancel request", ownedKeyLabel(props, CommandIds.agentCancelInput))}
         onClick={() => resolveInput(props, "cancel", {})}
       >

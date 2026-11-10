@@ -22,6 +22,9 @@ public sealed record SessionDescriptor {
 	/// <summary>The session's working directory.</summary>
 	public required string WorktreePath { get; init; }
 
+	/// <summary>The documents folder inherited from the session that created this one, if any.</summary>
+	public string? WorkflowDocumentsDirectory { get; set; }
+
 	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
 	public required bool Loaded { get; init; }
 

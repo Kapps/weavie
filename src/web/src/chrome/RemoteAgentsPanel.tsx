@@ -1,4 +1,4 @@
-import { X } from "lucide-solid";
+import { Plus, X } from "lucide-solid";
 import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { registerFloatingPanel } from "./floating-panels";
@@ -54,7 +54,7 @@ export function RemoteAgentsPanel(props: {
   return (
     <Portal>
       <div class="remote-panel" ref={panel}>
-        <div class="remote-panel-head">Remote agents</div>
+        <div class="remote-panel-head ui-section-label">Remote agents</div>
         <For each={props.agents}>
           {(agent) => (
             <div class={`remote-agent${agent.connected ? "" : " offline"}`}>
@@ -73,7 +73,7 @@ export function RemoteAgentsPanel(props: {
                 </Show>
                 <button
                   type="button"
-                  class="remote-agent-x"
+                  class="remote-agent-x ui-icon-button"
                   title={`Disconnect ${agent.name}`}
                   aria-label={`Disconnect ${agent.name}`}
                   onClick={() => props.onDisconnect(agent.name)}
@@ -84,8 +84,15 @@ export function RemoteAgentsPanel(props: {
             </div>
           )}
         </For>
-        <button type="button" class="remote-panel-add" onClick={() => props.onAddRemote()}>
-          ＋ Add remote agent…
+        <button
+          type="button"
+          class="remote-panel-add ui-button"
+          onClick={() => props.onAddRemote()}
+        >
+          <span class="ui-icon">
+            <Plus />
+          </span>
+          Add remote agent…
         </button>
       </div>
     </Portal>

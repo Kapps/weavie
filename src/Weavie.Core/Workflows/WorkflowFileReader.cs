@@ -3,12 +3,12 @@ using Weavie.Workflows;
 
 namespace Weavie.Core.Workflows;
 
-/// <summary>Reads workflow evidence with the shared text decoder and worktree path rule.</summary>
+/// <summary>Reads workflow evidence with the shared text decoder and workflow file path rule.</summary>
 public sealed class WorkflowFileReader(IFileSystem fileSystem, string worktree) : IWorkflowFileReader {
 	/// <inheritdoc/>
-	public WorkflowFileRead Read(string relativePath) {
-		if (!WorkflowFilePaths.TryResolve(worktree, relativePath, out _, out string full)) {
-			return new WorkflowFileRead.Unreadable("not a file path inside the worktree");
+	public WorkflowFileRead Read(string path, string documentsDirectory) {
+		if (!WorkflowFilePaths.TryResolve(worktree, documentsDirectory, path, out _, out string full)) {
+			return new WorkflowFileRead.Unreadable("not a file path inside the worktree or run documents directory");
 		}
 		try {
 			return fileSystem.TryReadAllText(full, out string text)

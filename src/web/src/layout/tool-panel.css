@@ -32,23 +32,17 @@
 }
 
 .tool-title {
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
   flex: 1;
   color: var(--accent);
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tool-head button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
   color: var(--dim);
-  border: none;
-  padding: 3px;
-  cursor: pointer;
 }
 
 .tool-head button:hover,
@@ -61,12 +55,6 @@
   outline-offset: 2px;
 }
 
-.tool-head svg {
-  width: 1.15em;
-  height: 1.15em;
-}
-
 .app.compact .tool-head button {
-  min-width: 44px;
-  min-height: 44px;
+  --icon-button-size: var(--touch-target);
 }

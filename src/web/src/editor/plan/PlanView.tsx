@@ -24,7 +24,7 @@ export default function PlanView(props: {
         {(plan) => (
           <article class="editor-plan-body">
             <header class="editor-plan-head">
-              <span class="editor-plan-kicker">Plan</span>
+              <span class="editor-plan-kicker ui-section-label">Plan</span>
               <h1>{plan().title}</h1>
             </header>
             <AgentMarkdown

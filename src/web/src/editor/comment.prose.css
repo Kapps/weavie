@@ -26,7 +26,7 @@
      unmistakably reads as a comment rather than body text. Colour stays a readable --dim (the raw comment hue
      is deliberately near-invisible); the italics + the rail carry the "this is a comment" signal. */
   font-family: var(--prose-font), system-ui, sans-serif;
-  font-size: var(--font-metadata-size);
+  font-size: var(--font-content-secondary-size);
   font-style: italic;
   line-height: var(--prose-line, 1.5);
   color: var(--dim);
@@ -60,8 +60,7 @@
    faint fill + border so they read as code without shouting. Inline (not inline-block) and with no vertical
    padding contribution to the line box, so a chip never makes its line taller than --prose-line. */
 .weavie-comment-prose .weavie-comment-code {
-  font-family:
-    ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-content-family);
   /* Stay upright inside the italic prose so code reads as code. */
   font-style: normal;
   font-size: 0.92em;

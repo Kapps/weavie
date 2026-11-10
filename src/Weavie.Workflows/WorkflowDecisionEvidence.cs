@@ -1,9 +1,9 @@
 namespace Weavie.Workflows;
 
-/// <summary>Reads current file text from the owning session's worktree.</summary>
+/// <summary>Reads current text from the session worktree or the decision's captured documents directory.</summary>
 public interface IWorkflowFileReader {
-	/// <summary>Reads one normalized relative path, or explains why its text is unavailable.</summary>
-	WorkflowFileRead Read(string relativePath);
+	/// <summary>Reads one normalized workflow file path within the supplied scope, or explains why its text is unavailable.</summary>
+	WorkflowFileRead Read(string path, string documentsDirectory);
 }
 
 /// <summary>The current text of a file or a safe reason it could not be read.</summary>

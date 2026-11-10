@@ -87,7 +87,7 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
       <Show when={error()}>{(message) => <div class="session-prompt-error">{message()}</div>}</Show>
       <input
         type="search"
-        class="acp-registry-filter"
+        class="acp-registry-filter ui-field"
         placeholder="Filter agents"
         aria-label="Filter agents"
         value={filter()}
@@ -128,6 +128,7 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
                   <div class="acp-registry-agent-actions">
                     <Show when={!pinned() && agent.distributions.length > 1}>
                       <select
+                        class="ui-field"
                         aria-label={`Distribution for ${agent.name}`}
                         value={chosen()}
                         onChange={(event) =>
@@ -145,6 +146,7 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
                     <Show when={(!installed() || !current()) && agent.distributions.length > 0}>
                       <button
                         type="button"
+                        class="ui-button ui-button-lg"
                         disabled={busy() !== null || chosen() === ""}
                         onClick={() => void install(agent, chosen())}
                       >
@@ -160,6 +162,7 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
                     <Show when={installed() && props.removable}>
                       <button
                         type="button"
+                        class="ui-button ui-button-lg"
                         disabled={busy() !== null}
                         onClick={() => void remove(agent)}
                       >

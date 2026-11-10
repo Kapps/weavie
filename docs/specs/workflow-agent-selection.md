@@ -8,38 +8,45 @@ One workflow run uses different models for different stages: a top model writes 
 and another vendor's model reviews the result. A stage names what runs it; Weavie applies that and fails loudly when
 it can't.
 
-## What a step names
+## Naming agents
 
-`agent` sits on a step (`run` or `check`). Every value is the provider's own id, never a label and never inferred.
+A workflow defines its agents once, by name, and steps refer to them. Every id is the provider's own, never a label
+and never inferred.
 
 ```yaml
-agent:
-  provider: codex-acp            # required: model and option ids mean nothing without their provider
-  model: gpt-6.1-sol             # optional; omitted means that provider's model as it stands
-  options: { reasoning_effort: high }   # optional; the provider's config option ids and values
+agents:
+  <name>:
+    provider: codex-acp            # required: model and option ids mean nothing without their provider
+    model: gpt-6.1-sol             # optional; omitted means that provider's model as it stands
+    options: { reasoning_effort: high }   # optional; the provider's config option ids and values
 ```
 
-A step with no `agent` runs on the **session's own model**: the one the session had outside the run. A workflow
-that names a provider on a `continue` or `fork` step runs only in that provider's sessions, and says so when refused.
+A step's `agent` (on `run` or `check`) is one of those names; a step can't define an agent inline. A step with no
+`agent` runs on the **session's own model**: the one the session had outside the run. A workflow whose `continue` or
+`fork` step uses an agent runs only in that agent's provider's sessions, and says so when refused.
 
 ```yaml
 id: spec-then-build
 description: Spec with Fable, build with Opus, review with Codex.
 inputs: { feature: text }
+agents:
+  planner: { provider: claude-acp, model: claude-fable-5-1, options: { effort: xhigh } }
+  builder: { provider: claude-acp, model: opus }
+  reviewer: { provider: codex-acp, model: gpt-6-astra }
 stages:
   - id: spec
     run:
-      agent: { provider: claude-acp, model: claude-fable-5-1, options: { effort: xhigh } }
+      agent: planner
       prompt: Interview me, then write docs/specs/<slug>/design.md for "{{inputs.feature}}".
       outputs: { dir: text }
     then: { ask: "Approve {{spec.dir}}/design.md?", by: user, choices: { approve: build, revise: spec } }
   - id: build
     run:
-      agent: { provider: claude-acp, model: opus }
+      agent: builder
       prompt: Implement {{spec.dir}}/design.md.
   - id: review
     run:
-      agent: { provider: codex-acp, model: gpt-6-astra }
+      agent: reviewer
       context: fresh
       prompt: Review this branch against {{spec.dir}}/design.md and report findings.
       outputs: { findings: list }
@@ -83,8 +90,8 @@ Nothing is substituted. Each refusal names the step, what it asked for, and what
 
 | When | Refused |
 | --- | --- |
-| Load (`validateWorkflow`) | an `agent` that isn't a map of `provider`, `model`, `options`, or that omits `provider` |
-| Run start | any step naming a model or options on a terminal Claude session (use the Claude ACP agent); `continue`, `fork`, or an unwritten `context` on a step whose `provider` differs from the session's; an unknown or unavailable provider; a model or option the session's provider doesn't advertise |
+| Load (`validateWorkflow`) | an `agents` entry that isn't `provider`, `model`, `options`, or that omits `provider`; a step `agent` that names no entry |
+| Run start | any step with an `agent` on a terminal Claude session (use the Claude ACP agent); `continue`, `fork`, or an unwritten `context` on a step whose agent's provider differs from the session's; an unknown or unavailable provider; a model or option the session's provider doesn't advertise |
 | Step open | a model, option, or value the conversation no longer advertises; an option in the provider's `mode` category |
 
 A refusal at run start leaves no run. A refusal at step open pauses the run with the reason.
@@ -111,7 +118,7 @@ currency, and Weavie keeps no price table.
 
 ## Architecture
 
-The engine stays provider-free. A step's `agent` travels on the `WorkflowKickoff` the runner hands to
+The engine stays provider-free. A step's resolved agent travels on the `WorkflowKickoff` the runner hands to
 `IWorkflowRunPort`; the session applies it before sending the turn and fails the stage through the existing
 turn-failure path. `IStructuredAgentControls` gains an awaited, unremembered way to apply a set of control values,
 beside the picker's `SetControl`. Background steps apply the same values when their `AcpConversation` opens.
@@ -150,9 +157,9 @@ What a switch costs:
 
 ## Deferred
 
-- **Roles** (`agent: planner`): names mapped to a model per provider in user settings, so built-in and repository
-  workflows can ask for a stronger or cheaper model without naming one. Until then built-in workflows name no
-  model and run on the session's own.
+- **Roles**: a user setting that fills or overrides an agent name per provider, so built-in and repository
+  workflows can ask for a `planner` without naming a model. Until then built-in workflows define no agents and
+  run on the session's own model.
 - A foreground step on another provider.
 - Per-step models on terminal Claude.
 - A model override on a decision.

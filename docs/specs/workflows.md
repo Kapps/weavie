@@ -159,6 +159,7 @@ id: <kebab-case>                 # unique within its scope
 description: <one line>          # shown in the picker; read by the workflow suggestion
 inputs: { <name>: <type> }       # `?` suffix marks optional
 milestones: [<name>]             # optional; points a parent can wait for
+agents: { <name>: <agent> }      # optional; `{ provider, model, options }`, all provider-native
 stages: [<stage>]
 ```
 
@@ -194,7 +195,7 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | --- | --- |
 | `skill` / `prompt` | what to run; `skill` is sent as the provider's real slash command (`/spec <args>`) |
 | `args` | text passed to the skill |
-| `agent` | `{ provider, model, options }`, all provider-native ([workflow-agent-selection.md](workflow-agent-selection.md)) |
+| `agent` | the name of an entry in the workflow's `agents` ([workflow-agent-selection.md](workflow-agent-selection.md)) |
 | `context` | `continue`, `fork`, or `fresh` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
@@ -237,7 +238,7 @@ is the uniform channel for what the agent did, for terminal Claude and ACP agent
 
 ### Agent options
 
-`agent.options` is passed through untouched and validated when the stage starts against what that provider advertises
+An agent's `options` are passed through untouched and validated when the stage starts against what that provider advertises
 (ACP config options; Claude's own switches). An unknown option or value fails the stage loudly, naming what the
 provider supports. A model that only answers typed choices (e.g. Jev, OpenAI Decisions) is valid only on decisions;
 this is checked at load. Provider-native ids are never inferred. Model aliases ("roles") are deferred: built-in

@@ -46,14 +46,16 @@ public sealed class PosixPtyTerminalTests {
 		return exitCode;
 	}
 
+	// Flaked 2026-11-10 04:28 UTC on main (exit 137, not 129): https://github.com/Kapps/weavie/actions/runs/42754564016
+	// Real interactive bash (history + job-control teardown) can outlast Dispose's 500ms grace on a stalled runner and
+	// get SIGKILLed. Fixed by using a child that ignores SIGTERM and dies on the default SIGHUP, with no teardown I/O.
 	[Fact]
-	public void Dispose_HangsUpAnInteractiveShell_InsteadOfKillingIt() {
+	public void Dispose_HangsUpAChildThatIgnoresSigterm_InsteadOfKillingIt() {
 		if (OperatingSystem.IsWindows()) return;
 
 		int exitCode = StopOnceReady(new TerminalStartInfo {
-			Command = "/bin/bash",
-			Arguments = ["--noprofile", "--norc", "-i"],
-			Environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["PS1"] = "ready> " },
+			Command = "/bin/sh",
+			Arguments = ["-c", "trap '' TERM; echo ready; while :; do sleep 0.05; done"],
 			HangUpOnStop = true,
 		});
 

@@ -27,6 +27,7 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   markdownView: "preview",
   markdownChangeMarks: "current",
   paneShortcutHints: true,
+  fullscreenCenter: "window",
   videoAutoplay: true,
   gitBlame: "currentLine",
   gitBlameMaxLines: 5000,

@@ -33,6 +33,12 @@ internal static class WorkflowSemantics {
 			check.Add($"{path}.run.args", "args applies only to a skill");
 		}
 
+		if (work.Agent is { } agent && definition.Agents.All(a => a.Name != agent)) {
+			check.Add($"{path}.run.agent", definition.Agents.Count == 0
+				? $"\"{agent}\" names no agent; this workflow defines no agents"
+				: $"\"{agent}\" names no agent; defined: {string.Join(", ", definition.Agents.Select(a => a.Name))}");
+		}
+
 		if (stage.If is { } condition) {
 			CheckQuestion(definition, condition, $"{path}.if", seesOutputs: false, check);
 		}

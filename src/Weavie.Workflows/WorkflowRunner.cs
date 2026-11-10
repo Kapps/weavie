@@ -10,6 +10,9 @@ public interface IWorkflowRunPort {
 
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
+
+	/// <summary>Why this session can't run <paramref name="definition"/>, or <see langword="null"/>; called outside the runner's lock.</summary>
+	string? Refusal(WorkflowDefinition definition);
 }
 
 /// <summary>
@@ -106,6 +109,10 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	/// <summary>Starts the resolved <paramref name="launch"/>; refuses while another run is live.</summary>
 	public WorkflowRun Start(WorkflowLaunch launch) {
+		if (_port.Refusal(launch.Definition) is { } refusal) {
+			throw new WorkflowException(refusal);
+		}
+
 		lock (_gate) {
 			if (_closed) {
 				throw new WorkflowException("This session is closing; it can't start a workflow run.");
@@ -124,7 +131,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				throw new WorkflowException($"Could not create workflow documents directory {documents}: {ex.Message}");
 			}
-			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents));
+			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold));
 			return _run!;
 		}
 	}
@@ -151,6 +158,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The agent can't finish the current stage.</summary>
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
 
+	/// <summary>
+	/// The stage <paramref name="turn"/> opens couldn't open, so the turn is never sent and the run pauses with
+	/// <paramref name="reason"/>; nothing changes once the run no longer owes that turn.
+	/// </summary>
+	public void RefuseOpen(WorkflowKickoff turn, string reason) {
+		lock (_gate) {
+			if (Owes(turn)) Apply(Transitions().Halt(_run!, reason));
+		}
+	}
+
 	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
 	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback));
 
@@ -163,17 +180,47 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The user cancels run <paramref name="runId"/>.</summary>
 	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
 
+	/// <summary>The agent that runs stage <paramref name="stage"/> of the run's definition, or <see langword="null"/> for the session's own.</summary>
+	public WorkflowAgent? AgentOf(string stage) {
+		lock (_gate) {
+			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
+			return definition.AgentOf(definition.Stages.First(s => s.Id == stage));
+		}
+	}
+
+	/// <summary>Whether the run still owes exactly <paramref name="turn"/>.</summary>
+	public bool Owes(WorkflowKickoff turn) {
+		lock (_gate) {
+			return !_closed && _run?.Kickoff == turn;
+		}
+	}
+
+	/// <summary>
+	/// Records the control values run <paramref name="runId"/> holds, live or finished; false when it is no longer the
+	/// session's run, whose successor then owns the hold.
+	/// </summary>
+	public bool SetHold(string runId, WorkflowHold? hold) {
+		lock (_gate) {
+			if (_closed || _run?.Id != runId) {
+				return false;
+			}
+
+			Commit(_run with { Hold = hold }, []);
+			return true;
+		}
+	}
+
 	/// <summary>
 	/// Claims <paramref name="turn"/> for sending: true only while the run still owes exactly that turn, which it then
 	/// stops owing. A turn the run no longer owes (cancelled, paused, replaced, or the session closing) is never sent.
 	/// </summary>
 	public bool TryClaimKickoff(WorkflowKickoff turn) {
 		lock (_gate) {
-			if (_closed || _run?.Kickoff != turn) {
+			if (!Owes(turn)) {
 				return false;
 			}
 
-			Commit(_run with { Kickoff = null }, []);
+			Commit(_run! with { Kickoff = null }, []);
 			return true;
 		}
 	}
@@ -205,12 +252,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private WorkflowTransitions Transitions() =>
 		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
 
-	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects);
+	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true);
 
-	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) {
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) => Commit(run, effects, replaceDecision: false);
+
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects, bool replaceDecision) {
 		_store.Save(run);
-		_pending?.Dispose();
-		_pending = null;
+		if (replaceDecision) {
+			_pending?.Dispose();
+			_pending = null;
+		}
 		_run = run;
 		foreach (var effect in effects) {
 			switch (effect) {

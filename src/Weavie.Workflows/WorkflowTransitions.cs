@@ -11,8 +11,11 @@ internal sealed partial class WorkflowTransitions(
 	private const string Yes = "yes";
 	private const string No = "no";
 
-	/// <summary>A new run of the definition with <paramref name="inputs"/>, entering its first stage.</summary>
-	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory) {
+	/// <summary>
+	/// A new run of the definition with <paramref name="inputs"/>, entering its first stage; it keeps the
+	/// predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
+	/// </summary>
+	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold) {
 		var run = new WorkflowRun {
 			Id = runId,
 			DocumentsDirectory = documentsDirectory,
@@ -31,6 +34,7 @@ internal sealed partial class WorkflowTransitions(
 			Note = "",
 			PausedReason = null,
 			Kickoff = null,
+			Hold = hold,
 		};
 		return Enter(run, definition.Stages[0].Id);
 	}
@@ -64,6 +68,12 @@ internal sealed partial class WorkflowTransitions(
 	public WorkflowStep Fail(WorkflowRun run, string reason) {
 		Require(run, WorkflowPhase.Open, "fail");
 		return Pause(run with { Kickoff = null }, $"The agent couldn't finish stage \"{run.Stage}\": {reason}");
+	}
+
+	/// <summary>The current stage couldn't open, so its turn was never sent; the run pauses with <paramref name="reason"/>.</summary>
+	public WorkflowStep Halt(WorkflowRun run, string reason) {
+		Require(run, WorkflowPhase.Open, "open");
+		return Pause(run, reason);
 	}
 
 	/// <summary>The user answers the question the run is asking, with <paramref name="feedback"/> (empty for none).</summary>
@@ -195,8 +205,8 @@ internal sealed partial class WorkflowTransitions(
 		}
 
 		var kickoff = stage.Run.Skill is { } skill
-			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill }
-			: WorkflowKickoff.Prompt(Join(run.Note, rendered));
+			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
+			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
 		return new WorkflowStep(
 			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);

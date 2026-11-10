@@ -221,7 +221,7 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForEchoAsync(host, session, "local stage");
 	}
 
-	private static async Task WaitForEchoAsync(TestHost host, HostSession session, string prompt) =>
+	internal static async Task WaitForEchoAsync(TestHost host, HostSession session, string prompt) =>
 		await Eventually(() => host.Bridge.PostedEvents(session.Address, "agent", "pane").Any(message =>
 			message.GetProperty("type").GetString() == "item-completed"
 			&& message.GetProperty("text").GetString()!.StartsWith($"echo: {prompt}", StringComparison.Ordinal)));
@@ -235,7 +235,7 @@ public sealed class HostCoreWorkflowTests {
 		return host.Session(slot);
 	}
 
-	private static async Task Eventually(Func<bool> condition) {
+	internal static async Task Eventually(Func<bool> condition) {
 		for (int i = 0; i < 500 && !condition(); i++) await Task.Delay(10);
 		Assert.True(condition());
 	}

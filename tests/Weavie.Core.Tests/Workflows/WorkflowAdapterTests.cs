@@ -90,6 +90,12 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		Assert.Equal("ship it? (the decision confidence 0.7 is below the required 0.8)", WorkflowRunSummary.From(asking, SessionStatus.Idle)!.Reason);
 		var paused = run with { Phase = WorkflowPhase.Paused, PausedReason = "stuck" };
 		Assert.Equal("stuck", WorkflowRunSummary.From(paused, SessionStatus.Idle)!.Reason);
+		Assert.Equal("", WorkflowRunSummary.From(run, SessionStatus.Idle)!.Agent);
+		var hold = new WorkflowHold { Agent = "builder", Stage = "a", Own = new() { ["model"] = "alpha" }, Held = [] };
+		Assert.Equal("", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
+		hold.Held["model"] = "beta";
+		Assert.Equal("builder", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
+		Assert.Equal("", WorkflowRunSummary.From(run with { Stage = "b", Hold = hold }, SessionStatus.Working)!.Agent);
 	}
 
 	[Theory]
@@ -113,9 +119,9 @@ public sealed class WorkflowAdapterTests : IDisposable {
 	}
 
 	[Fact]
-	public void KickoffRoundTripsThroughAnAgentTurn() {
-		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec" };
-		Assert.Equal(skill, skill.Submission().Kickoff());
+	public void AKickoffBecomesAnAgentTurnOfItsKind() {
+		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" };
+		Assert.Equal(("/spec x", "spec"), (skill.Submission().Text, skill.Submission().CommandName));
 		Assert.Equal(AgentTurnSubmissionKind.ProviderCommand, skill.Submission().Kind);
 		Assert.Equal(AgentTurnSubmissionKind.Prompt, WorkflowKickoff.Prompt("go").Submission().Kind);
 	}
@@ -131,5 +137,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 		public void Notify(string message) {
 		}
+
+		public string? Refusal(WorkflowDefinition definition) => null;
 	}
 }

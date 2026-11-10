@@ -29,7 +29,7 @@ public sealed class WorkflowDocumentsTests {
 		Assert.Throws<WorkflowException>(() => catalog.Prepare("shared", inputs));
 		var launch = catalog.Prepare("shared", inputs, documents);
 		var machine = new WorkflowTransitions(launch.Definition, 3, true, 0.8, worktree, TestWorkflows.Words);
-		var start = machine.Start("r-docs", launch.SourcePath, launch.Inputs, documents);
+		var start = machine.Start("r-docs", launch.SourcePath, launch.Inputs, documents, null);
 		Assert.Equal($"Write {documents}/design.md", start.Run.Kickoff!.Text);
 		var restored = WorkflowRunDocument.Read(WorkflowRunDocument.Write(start.Run))!;
 		Assert.Equal(documents, restored.DocumentsDirectory);
@@ -68,7 +68,7 @@ public sealed class WorkflowDocumentsTests {
 	public void InvalidPersistedDocumentsOwnershipIsRejected(string? documents) {
 		var definition = WorkflowReader.Read(Flow, "shared").Definition!;
 		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
-		var run = machine.Start("r-invalid", "source", [], Path.GetTempPath()).Run with { DocumentsDirectory = documents! };
+		var run = machine.Start("r-invalid", "source", [], Path.GetTempPath(), null).Run with { DocumentsDirectory = documents! };
 		Assert.Throws<JsonException>(() => WorkflowRunDocument.Read(WorkflowRunDocument.Write(run)));
 	}
 

@@ -40,6 +40,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Places text in the provider's compose surface without submitting it.</summary>
 	void PrefillPrompt(string prompt);
 
+	/// <summary>Adds a host line to the primary transcript.</summary>
+	void Notice(string text);
+
 	/// <summary>Interrupts the active turn.</summary>
 	void Interrupt();
 

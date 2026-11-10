@@ -69,13 +69,17 @@ public sealed partial class HostCore {
 	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
 	private static void ForgetWorkflowRun(string worktreePath) {
 		string run = WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(worktreePath));
-		if (File.Exists(run)) File.Delete(run);
+		try {
+			File.Delete(run);
+		} catch (DirectoryNotFoundException) {
+			// This session never saved a workflow run.
+		}
 	}
 
 	private static SessionRunChanged SessionRunLine(HostSession session) =>
 		new(
 			WorkflowRunSummary.From(session.Workflow.Current, session.Status.Status) is { } summary
-				? new SessionRunWire(summary.RunId, summary.Workflow, summary.Stage, summary.State, summary.Reason)
+				? new SessionRunWire(summary.RunId, summary.Workflow, summary.Stage, summary.State, summary.Reason, summary.Agent)
 				: null,
 			session.Workflow.Problem ?? "");
 
@@ -83,8 +87,11 @@ public sealed partial class HostCore {
 		target.Feature("status").Publish("run", WireJson.Default.SessionRunChanged, line);
 }
 
-/// <summary>A session's live workflow run as its session-list line shows it; <c>Reason</c> says why it paused.</summary>
-internal sealed record SessionRunWire(string Id, string Workflow, string Stage, WorkflowRunState State, string Reason);
+/// <summary>
+/// A session's live workflow run as its session-list line shows it; <c>Reason</c> says why it paused, and <c>Agent</c>
+/// names the agent the stage runs on when it differs from the session's own (empty otherwise).
+/// </summary>
+internal sealed record SessionRunWire(string Id, string Workflow, string Stage, WorkflowRunState State, string Reason, string Agent);
 
 /// <summary>
 /// A session's run line changed: its live run (<see langword="null"/> when none) and why its saved run couldn't be

@@ -59,6 +59,11 @@ internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSi
 		lock (transitionGate) return Publishing ? OnControlDefaults() : new Dictionary<string, string>(StringComparer.Ordinal);
 	}
 
+	/// <summary>The values the host holds over the defaults; they are never remembered or forgotten as defaults.</summary>
+	public IReadOnlyDictionary<string, string> HeldControls() {
+		lock (transitionGate) return Publishing ? OnHeldControls() : new Dictionary<string, string>(StringComparer.Ordinal);
+	}
+
 	public void RememberControl(string axis, string value) {
 		lock (transitionGate) if (Publishing) OnRememberControl(axis, value);
 	}
@@ -92,6 +97,7 @@ internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSi
 	protected abstract bool OnFail(Exception error);
 	protected abstract void OnRestartProcess();
 	protected abstract IReadOnlyDictionary<string, string> OnControlDefaults();
+	protected abstract IReadOnlyDictionary<string, string> OnHeldControls();
 	protected abstract void OnRememberControl(string axis, string value);
 	protected abstract void OnForgetControl(string axis, string value);
 	protected abstract void OnBackgroundChanged();
@@ -129,6 +135,8 @@ public sealed partial class AcpAgentSession {
 		protected override void OnRestartProcess() => owner.Restart(clearSubmissions: false);
 
 		protected override IReadOnlyDictionary<string, string> OnControlDefaults() => owner._controlDefaults.Resolve(owner._definition.Id);
+
+		protected override IReadOnlyDictionary<string, string> OnHeldControls() => owner._context.ControlHold.Values();
 
 		protected override void OnRememberControl(string axis, string value) => owner._controlDefaults.Set(owner._definition.Id, axis, value);
 

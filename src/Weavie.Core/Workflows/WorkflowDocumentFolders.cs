@@ -21,8 +21,10 @@ public sealed class WorkflowDocumentFolders(string root, Action<string> reportFa
 				_owners[owner] = PathIdentity.Normalize(directory);
 			}
 			_restored = true;
-			if (Directory.Exists(_root)) {
+			try {
 				foreach (string directory in Directory.EnumerateDirectories(_root)) Collect(directory);
+			} catch (DirectoryNotFoundException) {
+				// No run has created a managed directory yet.
 			}
 		}
 	}
@@ -59,7 +61,9 @@ public sealed class WorkflowDocumentFolders(string root, Action<string> reportFa
 			if (Path.GetDirectoryName(directory) is not { } parent || !PathIdentity.Equals(parent, _root)) {
 				throw new IOException($"The folder is outside the managed workflow documents directory {_root}.");
 			}
-			if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+			Directory.Delete(directory, recursive: true);
+		} catch (DirectoryNotFoundException) {
+			// A previous cleanup already removed this folder.
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			reportFailure($"Could not clean up unused workflow documents at {directory}: {ex.Message}");
 		}

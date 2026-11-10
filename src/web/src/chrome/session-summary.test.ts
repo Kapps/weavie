@@ -58,6 +58,7 @@ describe("sessionGroup", () => {
       stage: "implement",
       state,
       reason: "",
+      agent: "",
     });
     expect(sessionGroup(session({ run: run("needsAnswer") }))).toBe("needs");
     expect(sessionGroup(session({ run: run("paused") }))).toBe("needs");
@@ -115,6 +116,7 @@ describe("sessionSubtitle", () => {
       stage: "implement",
       state: "working",
       reason: "",
+      agent: "",
     };
     expect(
       sessionSubtitle(session({ status: "working", activity: "running pnpm test", run }), NOW),
@@ -139,6 +141,7 @@ describe("sessionSubtitle", () => {
       stage: "pr",
       state: "paused",
       reason: 'The agent couldn\'t finish stage "pr": no remote',
+      agent: "",
     };
     expect(sessionSubtitle(session({ run }), NOW)).toBe("pr · paused");
     expect(sessionDetail(session({ run }))).toBe(run.reason);
@@ -158,17 +161,21 @@ describe("run header", () => {
     expect(runDotColor("stalled")).toBe("var(--bad)");
   });
 
-  it("spells out the run, adding its reason on a second line", () => {
+  it("spells out the run with its stage's own agent, adding its reason on a second line", () => {
     const run: SessionRun = {
       id: "r",
       workflow: "ship-task",
       stage: "review",
       state: "needsAnswer",
       reason: "",
+      agent: "",
     };
     expect(runTooltip(run)).toBe("ship-task · review · needs your answer");
     expect(runTooltip({ ...run, reason: "Anything blocking?" })).toBe(
       "ship-task · review · needs your answer\nAnything blocking?",
+    );
+    expect(runTooltip({ ...run, agent: "reviewer" })).toBe(
+      "ship-task · review on reviewer · needs your answer",
     );
   });
 });

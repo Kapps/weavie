@@ -78,7 +78,8 @@ export function runDotColor(state: SessionRunState): string {
 
 /** A run's header tooltip: workflow, stage and state, then its reason on a second line when it has one. */
 export function runTooltip(run: SessionRun): string {
-  const summary = `${run.workflow} · ${run.stage} · ${RUN_PHRASE[run.state]}`;
+  const agent = run.agent === "" ? "" : ` on ${run.agent}`;
+  const summary = `${run.workflow} · ${run.stage}${agent} · ${RUN_PHRASE[run.state]}`;
   return run.reason === "" ? summary : `${summary}\n${run.reason}`;
 }
 

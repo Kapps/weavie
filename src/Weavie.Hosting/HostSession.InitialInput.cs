@@ -5,7 +5,7 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
 	private readonly Lock _initialInputGate = new();
-	private IdleTurnDelivery? _initialInput;
+	private IdleTurnDelivery<AgentTurnSubmission>? _initialInput;
 	private bool _initialInputAssigned;
 	private bool _acceptInitialInput = true;
 
@@ -32,10 +32,13 @@ public sealed partial class HostSession {
 				return;
 			}
 
-			_initialInput = new IdleTurnDelivery(
+			_initialInput = new IdleTurnDelivery<AgentTurnSubmission>(
 				Status,
 				new HashSet<SessionStatus> { SessionStatus.Idle },
-				SendAgentInput,
+				turn => {
+					SendAgentInput(turn);
+					return Task.CompletedTask;
+				},
 				(_, ex) => Notify("error", $"Weavie couldn't send the session's first prompt to the agent: {ex.Message}"));
 			_initialInput.Queue(input);
 		}

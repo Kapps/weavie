@@ -572,6 +572,8 @@ public sealed class RegistryMcpTests : IDisposable {
 		public void Kickoff(WorkflowKickoff turn) => throw new InvalidOperationException("No kickoff is expected.");
 
 		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
+
+		public string? Refusal(WorkflowDefinition definition) => null;
 	}
 
 	private sealed class FixedTurnContext(string text) : Weavie.Core.Agents.IAgentTurnContext {

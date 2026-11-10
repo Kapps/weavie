@@ -4,7 +4,7 @@ import type { IPosition, editor as MonacoEditor } from "monaco-editor";
 import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit, reviewFileSegment } from "../harness/review";
-import { scrollReview } from "../harness/review-scroll";
+import { awaitReviewScrollSettled, scrollReview } from "../harness/review-scroll";
 
 const paths = ["a-widgets.ts", "b-widgets.ts"];
 const content = Array.from(
@@ -145,6 +145,10 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   const top = await scrollbar.getAttribute("aria-valuenow");
   await scrollbar.press("PageDown");
   await expect(scrollbar).not.toHaveAttribute("aria-valuenow", top ?? "");
+  // Flaked 2026-11-10 06:47 UTC (Linux CI shard 5, PR #1179): https://github.com/Kapps/weavie/actions/runs/42769367958
+  // aria-valuenow moves as the smooth scroll starts, so the line was read 58ms in and had scrolled out of the DOM
+  // by the time it was clicked. Wait for the scroll to land before reading a line.
+  await awaitReviewScrollSettled(page);
   const original = await section
     .locator(".view-line")
     .nth(3)

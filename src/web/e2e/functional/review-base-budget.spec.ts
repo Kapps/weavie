@@ -22,12 +22,17 @@ interface Budget {
 }
 
 // PERFORMANCE CONTRACT: raising any budget below noticeably requires the user's explicit approval — never raise one
-// just to make a failure pass. Measured 2026-11-08; lower a budget whenever a change makes the switch cheaper.
-// Switching a whole-branch review down to the uncommitted files (measured 73 reads, +146 deferred), then back up to
-// every file (137, +79). Read budgets sit ~30% over; the counts are exact. Every file's text is fetched, on screen
+// just to make a failure pass. Measured 2026-11-10; lower a budget whenever a change makes the switch cheaper.
+// Switching a whole-branch review down to the uncommitted files (measured 67 reads, +28 deferred), then back up to
+// every file (132, +61). Read budgets sit ~30% over; the counts are exact. Every file's text is fetched, on screen
 // or not, so `texts` is one per file.
-const TO_FEW: Budget = { reads: 95, deferred: 190, texts: UNCOMMITTED, editors: 3 };
-const TO_MANY: Budget = { reads: 180, deferred: 105, texts: FILES, editors: 3 };
+//
+// FLAKE 2026-11-10 ~05:51 UTC, release run https://github.com/Kapps/weavie/actions/runs/42762641824 (windows, shard 4):
+// +231 deferred against 190. The spell scan hit-tested every visible line (2 forced reads each) on every debounced
+// rescan, so the count grew with how many scroll/layout/token events a slow runner delivered. Fixed in
+// visibleSpellRanges: a line that cannot overflow the viewport is scanned without reading layout.
+const TO_FEW: Budget = { reads: 95, deferred: 40, texts: UNCOMMITTED, editors: 3 };
+const TO_MANY: Budget = { reads: 180, deferred: 80, texts: FILES, editors: 3 };
 
 const names = Array.from({ length: FILES }, (_, index) => `area${index % 4}/file${index}.ts`);
 // Distinct per file: review texts are content-addressed, so identical files would share one fetch.

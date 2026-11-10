@@ -29,3 +29,23 @@ export async function scrollReview(page: Page, target: "start" | "middle" | "end
   await page.mouse.move(thumb.x + thumb.width / 2, track.y + track.height / 2);
   await page.mouse.up();
 }
+
+/** Resolves once the review's scroll position has held for three frames, so a smooth scroll has landed. */
+export async function awaitReviewScrollSettled(page: Page): Promise<void> {
+  const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
+  await scrollbar.evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        let last = "";
+        let held = 0;
+        const frame = (): void => {
+          const top = element.getAttribute("aria-valuenow") ?? "";
+          held = top === last ? held + 1 : 0;
+          last = top;
+          if (held >= 3) resolve();
+          else requestAnimationFrame(frame);
+        };
+        frame();
+      }),
+  );
+}

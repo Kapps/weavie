@@ -1,7 +1,7 @@
 import { createSignal, type JSX, Show } from "solid-js";
 import { openUrlExternal } from "../terminal/terminal-links";
 import { type CredentialPrompt as Prompt, submitCredential } from "./host-asks";
-import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "./ModalShell";
 
 // Paste-your-key dialog for any declared service. The host validates the key before saving it; a rejected key is
 // shown inline so the user can fix it. Enter submits, Esc / backdrop cancels.
@@ -29,14 +29,29 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
   const onKeyDown = modalSubmitKeys(() => void submit(), props.onClose);
   return (
     <ModalShell
-      labelledBy="credential-prompt-title"
+      title={`Connect ${props.prompt.displayName}`}
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onClose}
+          />
+          <PromptButton
+            label={submitting() ? "Connecting…" : "Connect"}
+            shortcut="Enter"
+            title="Connect (Enter)"
+            onClick={() => void submit()}
+            disabled={key().trim() === "" || submitting()}
+            primary
+          />
+        </>
+      }
       onDismiss={props.onClose}
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-title" id="credential-prompt-title">
-        Connect {props.prompt.displayName}
-      </div>
       <div class="confirm-body">
         Create your {props.prompt.keyNoun} at{" "}
         <a
@@ -75,17 +90,6 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
           )}
         </Show>
       </div>
-      <PromptActions>
-        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onClose} />
-        <PromptButton
-          label={submitting() ? "Connecting…" : "Connect"}
-          shortcut="Enter"
-          title="Connect (Enter)"
-          onClick={() => void submit()}
-          disabled={key().trim() === "" || submitting()}
-          primary
-        />
-      </PromptActions>
     </ModalShell>
   );
 }

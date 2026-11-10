@@ -1,6 +1,6 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { type DeleteSessionState, needsAcknowledgement } from "./delete-session-confirm";
-import { ModalShell, modalSubmitKeys } from "./ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "./ModalShell";
 
 export type { DeleteSessionState };
 
@@ -45,10 +45,35 @@ export function DeleteSessionDialog(props: {
   };
 
   return (
-    <ModalShell labelledBy="delete-session-title" onDismiss={props.onCancel} onKeyDown={onKeyDown}>
-      <div class="confirm-title" id="delete-session-title">
-        Delete session?
-      </div>
+    <ModalShell
+      title="Delete session?"
+      onDismiss={props.onCancel}
+      onKeyDown={onKeyDown}
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onCancel}
+          />
+          <PromptButton
+            label={confirmLabel()}
+            shortcut="Enter"
+            title={`${confirmLabel()} (Enter)`}
+            onClick={confirm}
+            danger
+            class="confirm-btn-danger"
+            disabled={!canConfirm()}
+            ref={(el) => {
+              if (!gated()) {
+                queueMicrotask(() => el.focus());
+              }
+            }}
+          />
+        </>
+      }
+    >
       <div class="confirm-body">
         <Show when={props.state === "clean"}>
           <Show
@@ -116,24 +141,6 @@ export function DeleteSessionDialog(props: {
             </span>
           </label>
         </Show>
-      </div>
-      <div class="confirm-actions">
-        <button type="button" class="confirm-btn" onClick={() => props.onCancel()}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="confirm-btn confirm-btn-danger"
-          disabled={!canConfirm()}
-          ref={(el) => {
-            if (!gated()) {
-              queueMicrotask(() => el.focus());
-            }
-          }}
-          onClick={() => confirm()}
-        >
-          {confirmLabel()}
-        </button>
       </div>
     </ModalShell>
   );

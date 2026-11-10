@@ -152,6 +152,8 @@ internal sealed partial class AcpConversation {
 	}
 
 	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {
+		// Refused here, before the turn is accepted, whenever the agent's features are already known.
+		if (_ready) RequireImageSupport(submission);
 		if (submission.Kind == AgentTurnSubmissionKind.Prompt) {
 			if (submission.CommandName.Length != 0) {
 				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");

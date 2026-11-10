@@ -66,4 +66,17 @@ public sealed class AcpWorkflowTests {
 		string context = File.ReadAllText(Path.Combine(fixture.FakeAcpStateDirectory, "assistant-context.log"));
 		Assert.Contains($"Run {run.Id} of workflow \"skilled\" is at stage \"review\"", context, StringComparison.Ordinal);
 	}
+
+	[Fact]
+	public async Task AnAgentWithoutImageSupportRefusesAStageTurnWithImagesBeforeTakingIt() {
+		await using var fixture = AcpAgentSessionFixture.CreateWithoutImagesAdapter();
+		await fixture.StartAsync();
+		string image = Path.Combine(fixture.Workspace, "shot.png");
+		File.WriteAllBytes(image, [1, 2, 3]);
+
+		var refusal = Assert.ThrowsAny<Exception>(() =>
+			fixture.Deliver(WorkflowKickoff.Prompt("look at this"), [new WorkflowTurnImage(image, "image/png")]));
+
+		Assert.Contains("does not accept image prompts", refusal.Message, StringComparison.Ordinal);
+	}
 }

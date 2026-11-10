@@ -28,7 +28,7 @@ public sealed partial class HostSession {
 		Status,
 		new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
 		SendWorkflowTurn,
-		(_, ex) => FailWorkflowTurn(ex));
+		FailWorkflowTurn);
 
 	private WorkflowRunner CreateWorkflowRunner(
 		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot, Func<string, string> documentsDirectory) =>
@@ -61,15 +61,19 @@ public sealed partial class HostSession {
 
 	private async Task SendWorkflowTurn(OwedWorkflowTurn owed) {
 		if (owed.Kickoff.Opens.Length > 0 && !await OpenStageAsync(owed.Kickoff).ConfigureAwait(false)) return;
+		if (owed.Images.FirstOrDefault(image => !File.Exists(image.Path)) is { } missing) {
+			Workflow.RefuseOpen(owed.Kickoff, $"The prompt's image {missing.Path} is missing, so the stage's turn was not sent.");
+			return;
+		}
 		if (Workflow.TryClaimKickoff(owed.Kickoff)) {
 			SendAgentInput(owed.Submission());
 		}
 	}
 
-	private void FailWorkflowTurn(Exception ex) {
+	private void FailWorkflowTurn(OwedWorkflowTurn owed, Exception ex) {
 		string reason = $"Weavie couldn't send the stage's turn to the agent: {ex.Message}";
 		try {
-			Workflow.FailStage(reason);
+			Workflow.FailTurn(owed.Kickoff, reason);
 		} catch (WorkflowException) {
 			Notify("error", reason);
 		}

@@ -81,6 +81,13 @@ public sealed class HostCoreWorkflowStartTests {
 		Assert.Equal((false, null, null), await SuggestAsync(host));
 	}
 
+	[Fact]
+	public async Task AFailedDecisionReportsItsReasonAndAppliesNothing() {
+		await using var host = await StartAsync(new FailingInference());
+
+		Assert.Equal((false, null, "the model is down"), await SuggestAsync(host));
+	}
+
 	// The test host drains every request before returning, so a held one is sent on the bridge directly.
 	[Fact]
 	public async Task ASuggestionAnswersWhileABranchPreviewIsStillRunning() {
@@ -104,6 +111,17 @@ public sealed class HostCoreWorkflowStartTests {
 
 		host.Bridge.Receive(peer, MessageEnvelope.Cancel(MessageScope.Host, null, "held-preview", "sessionCreation", "previewBranch").ToJson());
 		await inference.BranchCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+	}
+
+	private sealed class FailingInference : IInferenceService {
+		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
+			InferenceOwner owner, InferenceModelCategory category, InferenceInput input, InferenceResponseType<TResponse> responseType,
+			InferenceQueryOptions options, CancellationToken ct) =>
+			Task.FromResult<InferenceResult<TResponse>>(new InferenceFailure<TResponse> {
+				Kind = InferenceFailureKind.ProviderUnavailable,
+				Detail = "the model is down",
+				Receipt = null,
+			});
 	}
 
 	// Holds every branch-name query open until it is cancelled, and answers decisions at once.

@@ -131,6 +131,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithoutImagesAdapter() => Create(
+		"fake",
+		"Text-only ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "no-images",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateImmediatelyMalformedAdapter() => Create(
 		"fake",
 		"Malformed ACP",

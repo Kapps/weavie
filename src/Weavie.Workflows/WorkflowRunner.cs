@@ -181,6 +181,15 @@ public sealed partial class WorkflowRunner : IDisposable {
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
 
 	/// <summary>
+	/// The claimed <paramref name="turn"/> never reached the agent, so the stage fails with <paramref name="reason"/>
+	/// and the prompt images it carried are still owed to the agent.
+	/// </summary>
+	public void FailTurn(WorkflowKickoff turn, string reason) {
+		ArgumentNullException.ThrowIfNull(turn);
+		Mutate(null, run => Transitions().Fail(turn.CarriesPromptImages ? run with { PromptImagesSent = false } : run, reason));
+	}
+
+	/// <summary>
 	/// The stage <paramref name="turn"/> opens couldn't open, so the turn is never sent and the run pauses with
 	/// <paramref name="reason"/>; nothing changes once the run no longer owes that turn.
 	/// </summary>

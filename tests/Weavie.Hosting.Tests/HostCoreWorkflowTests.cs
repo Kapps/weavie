@@ -52,6 +52,15 @@ public sealed class HostCoreWorkflowTests {
 			  - id: prove
 			    run: { prompt: "prove: {{run.prompt}}" }
 			""");
+		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "late.yaml"), """
+			id: late
+			description: only the second stage reads the prompt
+			stages:
+			  - id: plan
+			    run: { prompt: "plan it" }
+			  - id: build
+			    run: { prompt: "build: {{run.prompt}}" }
+			""");
 		CommitFlow(repo);
 	}
 
@@ -182,9 +191,34 @@ public sealed class HostCoreWorkflowTests {
 		await Eventually(() => host.Bridge.PostedEvents(reloaded.Address, "agent", "pane").Any(message =>
 			message.GetProperty("type").GetString() == "item-completed" && message.GetProperty("text").GetString() == "echo: prove: add a picker"));
 
+		reloaded.Workflow.Cancel(run.Id);
+		Assert.True(File.Exists(image));
 		host.SelectWorkspaceSession();
 		Assert.True((await host.DeleteSessionAsync("wf", force: true, classify: false)).Ok);
 		await Eventually(() => !File.Exists(image));
+	}
+
+	[Fact]
+	public async Task AStageWhoseTurnWouldCarryAMissingPromptImagePausesInsteadOfSendingIt() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "late",
+			Prompt = "add a picker",
+			Attachments = [new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "iVBORw0KGgo=" }],
+		})).Ok);
+		var session = host.Session("wf");
+		await WaitForEchoAsync(host, session, "plan it");
+		var run = session.Workflow.Current!;
+		File.Delete(Path.Combine(run.DocumentsDirectory, run.Prompt.Images[0].File));
+
+		session.Workflow.CompleteStage(Json("{}"), "planned");
+
+		await Eventually(() => session.Workflow.Current!.Phase == WorkflowPhase.Paused);
+		Assert.Contains("is missing", session.Workflow.Current!.PausedReason, StringComparison.Ordinal);
+		Assert.False(session.Workflow.Current.PromptImagesSent);
 	}
 
 	[Fact]

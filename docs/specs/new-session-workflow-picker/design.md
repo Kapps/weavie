@@ -61,7 +61,6 @@ turn after launch instead would race the agent's startup, which is why opening t
 - The brief names `chrome/Menu.tsx`. That is the application menubar; it sits on `ContextMenu`, which closes
   itself whenever a modal is open (`ContextMenu.tsx:339-343`), and the desktop composer is a modal. The component
   that fits is `chrome/ControlMenu.tsx` (the agent pane's model/effort picker), which already works inside modals.
-  brief.md is updated.
 - The suggestion is an *automatic* query, so it needs `inference.allowAutomatic` as well as `inference.enabled`.
 - `weavie.workflow.run` gains `prompt` as text only. Nothing that invokes it holds image bytes.
 
@@ -222,7 +221,7 @@ public bool OfferedForPrompt => ShadowedBy is null && Definition is not { Inputs
 public WorkflowLaunch Prepare(string id, JsonElement inputs, string? documentsDirectory, WorkflowStartPrompt prompt);
 public sealed record WorkflowLaunch(WorkflowDefinition Definition, string SourcePath,
 	Dictionary<string, WorkflowValue> Inputs, WorkflowStartPrompt Prompt);
-public WorkflowRun Start(string workflowId, JsonElement inputs, WorkflowStartPrompt prompt);
+public void FailTurn(WorkflowKickoff turn, string reason);   // WorkflowRunner: a claimed turn never reached the agent
 void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images);
 ```
 
@@ -302,8 +301,9 @@ private sealed record OwedWorkflowTurn(WorkflowKickoff Kickoff, IReadOnlyList<Wo
   ```
 
   `TryClaimKickoff` sets `PromptImagesSent` in the same commit that stops owing a turn carrying them, so a turn
-  retired before it was sent (cancel, jump, pause) leaves the next one to carry them. Question and revise turns
-  never carry them. A later `fresh` or `fork` context will need its own rule when those are built.
+  retired before it was sent (cancel, jump, pause) leaves the next one to carry them. A claimed turn whose send
+  then fails is reported through `FailTurn`, which pauses the run and clears the flag in one commit, so resuming
+  sends the images again. Question and revise turns never carry them. A later `fresh` or `fork` context will need its own rule when those are built.
 - **Handing a turn out.** The runner resolves the paths, so the host never reads run state. Both call sites
   (`WorkflowRunner.cs:93`, `:268`):
 
@@ -326,8 +326,8 @@ private sealed record OwedWorkflowTurn(WorkflowKickoff Kickoff, IReadOnlyList<Wo
   Images alone count as a prompt. A workflow that never references `{{run.prompt}}` starts either way.
 - **The "startable from the composer" rule** is `WorkflowCatalogEntry.OfferedForPrompt` plus `Error`. An invalid
   winner is offered as unavailable (its inputs are unknowable). `listWorkflows`
-  (`McpServer.WorkflowTools.cs:34-69`) stays the full authoring view and reuses `Error`; the composer's rows are a
-  filter over the same entries, so validity and error text are derived once.
+  (`McpServer.WorkflowTools.cs:34-69`) stays the full authoring view; the composer's rows are a filter over the
+  same catalog entries, and `Error` is the one line the catalog itself reports for an invalid workflow.
 
 ### Where the images live
 
@@ -406,8 +406,8 @@ turns into a paused run with that reason.
   `WorkflowDecisionHistory.Record`, which `ModelWorkflowDecider` switches to as well.
 - **`workflow.default`.** String, `ApplyMode.Live`, default `""`, `SettingScope.Workspace`. It
   is checked when read; the catalog response carries the value and, when it can't be used, `defaultProblem`:
-  "names X, which isn't a workflow here", "…which is invalid: \<error\>", or "…which declares inputs, so the
-  composer can't start it".
+  `The default workflow "x" isn't a workflow here.`, `… is invalid: <error>.`, or `… declares inputs, so a prompt
+  alone can't start it.`
 
 ### Web
 
@@ -427,19 +427,18 @@ export class DraftSettleTimer {
 ```
 
 The branch preview and the workflow owner each hold one, armed by the same prompt edits, so they fire together,
-and each still decides for itself whether it is waiting for anything. One shared instance with subscribers was the
-first plan; it moved the branch preview's eligibility check from arm time to fire time, a behavior change this
-shape avoids. Focus leaving the prompt reaches both through the composer's `onFocusOut`: the branch preview names
+and each still decides for itself, when it arms, whether it is waiting for anything. Focus leaving the prompt reaches both through the composer's `onFocusOut`: the branch preview names
 a draft of any length, the workflow owner asks only for one worth judging.
 
 **Workflow owner** (`chrome/new-session-workflow-choice.ts`), a plain class like the branch preview:
 
 | Event | Rule |
 | --- | --- |
-| target `{backendId, sourceId}` changes | abort; reload the catalog; keep the selection if still offered and valid, else the catalog default; allow one new suggestion if the user has not picked |
-| settled with `enoughWords` | ask once, if the catalog is loaded and the user has not picked; a failure or a below-threshold answer still spends it |
-| settled without `enoughWords` | nothing; the one suggestion is not spent |
-| user picks or clears | value is theirs; abort any request in flight; survives retarget while still offered |
+| target `{backendId, sourceId}` changes | abort; reload the catalog; keep a pick it still offers, else its default; a draft that had earned a suggestion is owed one from the new catalog unless the user has picked |
+| the host becomes unreachable, then returns | nothing is reset; the catalog is re-read and an applied suggestion stays |
+| a draft worth judging settles | ask once, if the catalog is loaded and the user has not picked; a failure or a below-threshold answer still spends it |
+| a shorter draft settles, or a settled draft is cut short before the ask | nothing; the one suggestion is not spent |
+| user picks or clears | value is theirs; abort any request in flight; no suggestion is asked for this draft again |
 | a suggestion lands | applied only if still current, the user has not picked, and the id is *No workflow* or a valid listed option; an `error` shows `Workflow suggestion failed: <error>` |
 | Start | `capture()` returns the value now and discards anything in flight; called before the branch resolve (`SessionInbox.tsx:196`) |
 
@@ -518,7 +517,7 @@ multi-paragraph prompt:
 | Unknown or invalid workflow, or bad inputs, at Start | Existing `WorkflowException` → command failure; no session |
 | Bad attachment (type, size, duplicate id) | Existing decode failure, before anything is created |
 | Image write or run start throws after the session exists | Existing `RollbackSessionLoad` → failure toast naming the path; the unowned folder is collected by `WorkflowDocumentFolders` |
-| Agent rejects images, or an image file is missing | The run pauses with the reason in the session's run line |
+| The agent doesn't accept images, or a prompt image file is missing | The turn is not sent; the run pauses with the reason in the session's run line, still owing the images |
 | Run saved before this change | Loads with an empty prompt; nothing shown |
 
 ## Testing
@@ -547,11 +546,11 @@ multi-paragraph prompt:
 | `src/Weavie.Core/Workflows/WorkflowStartOptions.cs`, `WorkflowSuggester.cs` (new) | composer list and default; the decision |
 | `src/Weavie.Core/Workflows/WorkflowDecisionHistory.cs`, `ModelWorkflowDecider.cs` | `Record(receipt)` |
 | `src/Weavie.Core/Configuration/WorkflowSettings.cs`, `InferenceSettings.cs` | `workflow.default`; descriptions |
-| `src/Weavie.Core/Commands/SessionCommands.cs`, `CoreCommands.Workflows.cs`, `Mcp/AuthorWorkflowPrompt.cs`, `Mcp/McpServer.WorkflowTools.cs` | `prompt` argument; guidance; shared `Error` |
-| `src/Weavie.AgentClientProtocol/AcpConversation.PromptBuilder.cs`, `AcpConversation.Turns.cs` | images on command turns |
+| `src/Weavie.Core/Commands/SessionCommands.cs`, `CoreCommands.Workflows.cs`, `Mcp/AuthorWorkflowPrompt.cs` | `prompt` argument; guidance |
+| `src/Weavie.AgentClientProtocol/AcpConversation.PromptBuilder.cs`, `AcpConversation.Turns.cs` | images on command turns; an agent without image support refuses the turn before taking it |
 | `src/Weavie.Hosting/HostSession.Workflow.cs`, `HostSession.cs`, `Agents/Claude/ClaudeTerminalLifecycle.cs` | owed pair with images, terminal order |
 | `src/Weavie.Hosting/HostCore.WorkflowStart.cs` (new) | `LaunchCatalog`, both handlers, wire records |
-| `src/Weavie.Hosting/HostCore.Workflows.cs`, `HostCore.Sessions.cs`, `HostCore.Messages.cs`, `HostCore.cs`, `Messaging/MessageFeatureChannel.cs`, `Messaging/WireJson.cs` | start path, registrations, concurrent handler, contracts |
+| `src/Weavie.Hosting/HostCore.Workflows.cs`, `HostCore.Sessions.cs`, `HostCore.Messages.cs`, `HostCore.SessionLifecycle.cs`, `Messaging/MessageFeatureChannel.cs`, `Messaging/WireJson.cs` | start path, registrations, concurrent handler, contracts |
 | `src/web/src/chrome/new-session-draft-settle.ts`, `new-session-workflow-choice.ts` (new) | settle timer; suggestion owner with tests |
 | `src/web/src/chrome/new-session-branch-preview.ts` (and test) | timer and word gate removed |
 | `src/web/src/chrome/ControlMenu.tsx`, `control-menu.css`, `getting-started/SuggestionProfile.tsx` | unavailable rows; shared placement |

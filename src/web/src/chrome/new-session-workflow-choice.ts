@@ -39,12 +39,16 @@ const message = (error: unknown): string =>
 /**
  * Owns the workflow a new session starts with: the configured default, until one suggestion for the composed
  * prompt or the user's own pick replaces it. The suggestion is asked once per target, never for a draft too
- * short to judge, and never lands over a pick or a value a start has already taken.
+ * short to judge, never once the user has picked, and never lands over a value a start has already taken.
  */
 export class NewSessionWorkflowChoice {
   private target: WorkflowTarget | null = null;
   private prompt = "";
-  private origin: "default" | "suggestion" | "user" = "default";
+  /** The user chose a workflow for this draft, so no suggestion is wanted for it. */
+  private picked = false;
+  /** The value is a pick or an applied suggestion, kept across a re-read while the catalog still offers it. */
+  private held = false;
+  private online = false;
   private asked = false;
   private due = false;
   private loaded = false;
@@ -67,26 +71,28 @@ export class NewSessionWorkflowChoice {
     private readonly changed: (state: WorkflowChoiceState) => void,
   ) {}
 
-  /** Reads the catalog `target` offers. A different target owes the draft a suggestion of its own. */
+  /**
+   * Reads the catalog `target` offers; null while its host is unreachable, which changes nothing but waits.
+   * A different target owes the draft a suggestion of its own.
+   */
   retarget(target: WorkflowTarget | null): void {
+    this.catalogLoad?.abort();
+    this.catalogLoad = null;
+    this.online = target !== null;
+    if (target === null) {
+      return;
+    }
     if (!sameTarget(this.target, target)) {
       // A draft that had earned its suggestion is owed one from the new catalog too.
-      const owed = (this.asked || this.due) && this.origin !== "user";
+      const owed = this.asked || this.due;
       this.target = target;
       this.dropSuggestion();
       this.asked = false;
       this.due = owed;
       this.loaded = false;
-      if (this.origin === "suggestion") {
-        this.origin = "default";
-      }
+      this.held = this.picked;
       this.catalogProblem = null;
       this.publish({ options: [], status: "loading" });
-    }
-    this.catalogLoad?.abort();
-    this.catalogLoad = null;
-    if (target === null) {
-      return;
     }
 
     const load = new AbortController();
@@ -122,7 +128,8 @@ export class NewSessionWorkflowChoice {
 
   /** The user chose `workflow` (null for none); nothing automatic writes over it. */
   pick(workflow: string | null): void {
-    this.origin = "user";
+    this.picked = true;
+    this.held = true;
     this.settle.clear();
     this.dropSuggestion();
     this.publish({ workflow, status: this.loaded ? "ready" : "loading" });
@@ -142,7 +149,8 @@ export class NewSessionWorkflowChoice {
   /** The draft was submitted: the next one starts from the default and is owed its own suggestion. */
   reset(): void {
     this.prompt = "";
-    this.origin = "default";
+    this.picked = false;
+    this.held = false;
     this.asked = false;
     this.settle.clear();
     this.dropSuggestion();
@@ -156,7 +164,7 @@ export class NewSessionWorkflowChoice {
   }
 
   private get mayAsk(): boolean {
-    return !this.asked && this.origin !== "user" && this.target !== null;
+    return !this.asked && !this.picked;
   }
 
   private selectable(workflow: string | null): boolean {
@@ -176,9 +184,8 @@ export class NewSessionWorkflowChoice {
     this.fallback = catalog.default;
     this.catalogProblem = catalog.defaultProblem;
     this.state = { ...this.state, options: catalog.workflows };
-    // A pick or an applied suggestion outlives a re-read only while the catalog still offers it.
-    if (this.origin === "default" || !this.selectable(this.state.workflow)) {
-      this.origin = "default";
+    this.held &&= this.selectable(this.state.workflow);
+    if (!this.held) {
       this.state = { ...this.state, workflow: catalog.default };
     }
     this.publish({ status: this.suggestion === null ? "ready" : "suggesting" });
@@ -192,11 +199,14 @@ export class NewSessionWorkflowChoice {
 
   private ask(): void {
     const target = this.target;
-    if (!this.due || !this.mayAsk || !this.loaded || target === null) {
+    if (!this.due || !this.mayAsk || !this.loaded || !this.online || target === null) {
       return;
     }
-    // With nothing startable there is no choice to suggest; the draft stays owed one for a later catalog.
-    if (!this.state.options.some((option) => option.error === null)) {
+    // A draft cut short since it settled, or a catalog with nothing startable, stays owed its suggestion.
+    if (
+      !draftWorthQuerying(this.prompt) ||
+      !this.state.options.some((option) => option.error === null)
+    ) {
       return;
     }
 
@@ -225,7 +235,7 @@ export class NewSessionWorkflowChoice {
     this.suggestion = null;
     this.suggestionError = result.error;
     if (result.applies && this.selectable(result.workflow)) {
-      this.origin = "suggestion";
+      this.held = true;
       this.state = { ...this.state, workflow: result.workflow };
     }
     this.publish({ status: "ready" });

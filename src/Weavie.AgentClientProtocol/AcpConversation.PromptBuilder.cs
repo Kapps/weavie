@@ -63,11 +63,15 @@ internal sealed partial class AcpConversation {
 		return new([.. blocks], images);
 	}
 
+	private void RequireImageSupport(AgentTurnSubmission submission) {
+		if (submission.Attachments.Count != 0 && !_features.Images) {
+			throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
+		}
+	}
+
 	private void AddImages(AgentTurnSubmission submission, List<JsonNode> blocks, List<SubmittedImage> images) {
+		RequireImageSupport(submission);
 		foreach (var attachment in submission.Attachments) {
-			if (!_features.Images) {
-				throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
-			}
 			var image = new SubmittedImage(attachment.Id, attachment.Mime,
 				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
 			images.Add(image);

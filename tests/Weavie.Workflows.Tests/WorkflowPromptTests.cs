@@ -107,6 +107,21 @@ public sealed class WorkflowPromptTests : IDisposable {
 	}
 
 	[Fact]
+	public void AClaimedTurnThatNeverReachedTheAgentStillOwesItsImages() {
+		using var runner = Runner();
+		var run = runner.Start(Launch());
+		runner.Jump(run.Id, "b");
+		var (turn, _) = _port.Turns[^1];
+		Assert.True(runner.TryClaimKickoff(turn));
+
+		runner.FailTurn(turn, "the agent refused it");
+		Assert.Equal((WorkflowPhase.Paused, false), (runner.Current!.Phase, runner.Current.PromptImagesSent));
+		runner.Resume(run.Id);
+
+		Assert.Equal(2, _port.Turns[^1].Images.Count);
+	}
+
+	[Fact]
 	public void AnOwedTurnIsRedeliveredWithItsImagesAfterAReload() {
 		string id;
 		using (var runner = Runner()) {

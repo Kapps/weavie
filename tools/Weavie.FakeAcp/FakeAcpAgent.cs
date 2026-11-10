@@ -138,7 +138,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
 			["promptCapabilities"] = new JsonObject {
-				["image"] = true,
+				["image"] = _fakeMode != "no-images",
 				["embeddedContext"] = _fakeMode != "no-embedded-context",
 			},
 			["sessionCapabilities"] = new JsonObject {

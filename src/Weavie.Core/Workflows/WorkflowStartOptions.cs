@@ -17,13 +17,13 @@ public sealed record WorkflowStartOptions(IReadOnlyList<WorkflowCatalogEntry> Of
 	public static WorkflowStartOptions From(WorkflowCatalog catalog, string defaultId) {
 		ArgumentNullException.ThrowIfNull(catalog);
 		ArgumentNullException.ThrowIfNull(defaultId);
-		var winners = catalog.List().Where(entry => entry.ShadowedBy is null).ToList();
-		IReadOnlyList<WorkflowCatalogEntry> offered = [.. winners.Where(entry => entry.OfferedForPrompt)];
+		var entries = catalog.List();
+		IReadOnlyList<WorkflowCatalogEntry> offered = [.. entries.Where(entry => entry.OfferedForPrompt)];
 		if (defaultId.Length == 0) {
 			return new(offered, null, null);
 		}
 
-		string? problem = winners.FirstOrDefault(entry => entry.Id == defaultId) switch {
+		string? problem = entries.FirstOrDefault(entry => entry.ShadowedBy is null && entry.Id == defaultId) switch {
 			null => "isn't a workflow here",
 			{ Definition: null } broken => $"is invalid: {broken.Error}",
 			{ OfferedForPrompt: false } => "declares inputs, so a prompt alone can't start it",

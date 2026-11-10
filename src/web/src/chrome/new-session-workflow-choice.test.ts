@@ -213,16 +213,53 @@ describe("NewSessionWorkflowChoice", () => {
     await answer(applies("remote-only"));
     expect(state().workflow).toBe("remote-only");
 
+    // A pick the new catalog drops falls back to its default, and the user is not second-guessed again.
     choice.pick("remote-only");
     choice.retarget(LOCAL);
     await vi.advanceTimersByTimeAsync(0);
     expect(state().workflow).toBeNull();
+    choice.flush();
+    expect(suggestions).toHaveLength(2);
 
     choice.pick("quick-fix");
     catalogs.set("remote", catalog({}));
     choice.retarget(REMOTE);
     await vi.advanceTimersByTimeAsync(0);
     expect(state().workflow).toBe("quick-fix");
+    expect(suggestions).toHaveLength(2);
+  });
+
+  it("waits out an unreachable host without asking again or losing the applied suggestion", async () => {
+    const { choice, state, suggestions, answer } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft(DRAFT);
+    choice.flush();
+    await answer(applies("quick-fix"));
+
+    choice.retarget(null);
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(suggestions).toHaveLength(1);
+    expect(state()).toMatchObject({ workflow: "quick-fix", status: "ready" });
+  });
+
+  it("never asks about a draft cut short after it settled", async () => {
+    const { choice, suggestions } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft(DRAFT);
+    choice.flush();
+    choice.draft(SHORT);
+
+    choice.retarget(REMOTE);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(suggestions).toHaveLength(1);
+
+    choice.draft(DRAFT);
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
     expect(suggestions).toHaveLength(2);
   });
 

@@ -55,12 +55,23 @@ const [backendList, setBackendList] = createSignal<BackendInfo[]>([]);
 const [selected, setSelected] = createSignal<ClientSession | null>(null);
 const [resourceBases, setResourceBases] = createSignal<Record<string, string>>({});
 type SelectionLocation = NonNullable<HostHello["rail"]["selected"]>;
-let preferredSelection: SelectionLocation | null = null;
-let localSelectionReady = false;
+const [preferredSelection, setPreferredSelection] = createSignal<SelectionLocation | null>(null);
+const [localSelectionReady, setLocalSelectionReady] = createSignal(false);
 let selectionChosenBeforeRestore = false;
 
 export const connectedBackends = backendList;
 export const selectedSession = selected;
+
+/** Whether the selected owner matches the restored selection, including a remote still connecting. */
+export function selectionRestored(): boolean {
+  const owner = selected();
+  const preferred = preferredSelection();
+  return (
+    localSelectionReady() &&
+    owner !== null &&
+    (preferred === null || sameSelection(preferred, selectionLocation(owner)))
+  );
+}
 export const activeBackendId = (): string => selected()?.connection.id ?? LOCAL_BACKEND_ID;
 
 export function clientSession(backendId: string, slot: string): ClientSession | undefined {
@@ -259,11 +270,11 @@ function publishSelection(location: SelectionLocation): void {
 
 function rememberSelection(session: ClientSession): void {
   const location = selectionLocation(session);
-  if (sameSelection(preferredSelection, location)) {
+  if (sameSelection(preferredSelection(), location)) {
     return;
   }
-  preferredSelection = location;
-  if (localSelectionReady) {
+  setPreferredSelection(location);
+  if (localSelectionReady()) {
     publishSelection(location);
   } else {
     selectionChosenBeforeRestore = true;
@@ -272,32 +283,35 @@ function rememberSelection(session: ClientSession): void {
 
 function restoreSelection(hello: HostHello): void {
   if (!selectionChosenBeforeRestore) {
-    preferredSelection = hello.rail.selected;
+    setPreferredSelection(hello.rail.selected);
   }
-  localSelectionReady = true;
+  setLocalSelectionReady(true);
   reconcileSessions();
-  if (selectionChosenBeforeRestore && preferredSelection !== null) {
-    publishSelection(preferredSelection);
+  const preferred = preferredSelection();
+  if (selectionChosenBeforeRestore && preferred !== null) {
+    publishSelection(preferred);
   }
   selectionChosenBeforeRestore = false;
 }
 
 function preferredSession(): ClientSession | undefined {
-  if (preferredSelection === null) {
+  const preferred = preferredSelection();
+  if (preferred === null) {
     return undefined;
   }
-  return hostConnection(preferredSelection.backendId)?.sessionForSlot(preferredSelection.slot);
+  return hostConnection(preferred.backendId)?.sessionForSlot(preferred.slot);
 }
 
 function preferredSelectionIsMissing(): boolean {
-  if (preferredSelection === null) {
+  const preferred = preferredSelection();
+  if (preferred === null) {
     return false;
   }
-  const connection = hostConnection(preferredSelection.backendId);
+  const connection = hostConnection(preferred.backendId);
   return (
     connection?.currentHello !== null &&
     connection?.currentHello !== undefined &&
-    !connection.currentCatalog.some((entry) => entry.id === preferredSelection?.slot)
+    !connection.currentCatalog.some((entry) => entry.id === preferred.slot)
   );
 }
 
@@ -341,7 +355,7 @@ function reconcileSessions(): void {
   // default here would just be overwritten a moment later, and a client-side action (e.g. a reveal-at-line
   // click) landing in that window can bind to a session this default selection is about to supersede, losing
   // its intent. Wait for hello; restoreSelection reconciles again immediately once it knows the real preference.
-  if (localSelectionReady && (active === null || !current.has(active))) {
+  if (localSelectionReady() && (active === null || !current.has(active))) {
     commitSelection(defaultSession());
   }
 }
@@ -881,7 +895,7 @@ export function disconnectBackend(id: string): void {
   backend.transport.dispose();
   backend.connection.disconnect();
   backends.delete(id);
-  if (preferredSelection?.backendId === id) {
+  if (preferredSelection()?.backendId === id) {
     const fallback = defaultSession();
     if (fallback !== null) {
       rememberSelection(fallback);

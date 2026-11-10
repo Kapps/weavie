@@ -42,8 +42,8 @@ keeps a copy. `LogBuffer.Tee(inner)` returns it as a plain `TextWriter` (the sea
 Console); `LogBuffer.InstallConsoleCapture()` wraps `Console.Out` + `Console.Error` and returns the buffer.
 
 The buffer is an **app-global** store (one per process, like `RailStateStore`), created and installed at each host
-entry point — `HostServices.CreateDefault()` (Mac/Headless) and `AppController` (Windows) — and passed to
-`HostCore` via `HostServices.LogBuffer`. Install is deliberately kept **out of `CreateDefault`'s test path**:
+entry point through `HostServices.CreateDefault(ICredentialStore)` — and passed to `HostCore` via
+`HostServices.LogBuffer`. Install is deliberately kept **out of `CreateDefault`'s test path**:
 tests build `HostServices` inline and inject a fresh `new LogBuffer(...)`, never teeing the xunit console.
 
 ## Render

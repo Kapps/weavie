@@ -36,7 +36,7 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 		if (File.Exists("inference-reject")) return 7;
 		string answer = File.Exists("inference-answer.json")
 			? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)
-			: "{\"choice\":\"accept\",\"confidence\":1}";
+			: "{\"accept\":1,\"revise\":0}";
 		Console.Out.WriteLine("{\"is_error\":false,\"structured_output\":" + answer + "}");
 		return 0;
 	}

@@ -92,14 +92,8 @@ public static class WeaviePaths {
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 
-	/// <summary>
-	/// Where source (Notion, …) access tokens live: <c>~/.weavie/sources</c>. Holds personal access tokens, so it
-	/// stays off the Claude-facing settings surface (like <see cref="RemoteAgentsFile"/>).
-	/// </summary>
-	public static string SourcesDir { get; } = Path.Combine(Root, "sources");
-
-	/// <summary>A source's user-supplied access-token file: <c>~/.weavie/sources/&lt;sourceId&gt;.json</c> (<c>{ "token": "…" }</c>).</summary>
-	public static string SourceCredentialsFile(string sourceId) => Path.Combine(SourcesDir, $"{sourceId}.json");
+	/// <summary>The secrets Weavie holds (API keys, access tokens), one owner-only file per service: <c>~/.weavie/credentials</c>.</summary>
+	public static string CredentialsDir { get; } = Path.Combine(Root, "credentials");
 
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
@@ -180,6 +174,9 @@ public static class WeaviePaths {
 
 	/// <summary>A session worktree's workflow run: <c>~/.weavie/workspaces/&lt;id&gt;/workflow-run.json</c>.</summary>
 	public static string WorkspaceWorkflowRunFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "workflow-run.json");
+
+	/// <summary>A workspace's recent answered workflow decisions: <c>~/.weavie/workspaces/&lt;id&gt;/decision-history.json</c>.</summary>
+	public static string WorkspaceDecisionHistoryFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "decision-history.json");
 
 	/// <summary>
 	/// A workspace's recorded post-turn corrections (JSONL ring, oldest first):

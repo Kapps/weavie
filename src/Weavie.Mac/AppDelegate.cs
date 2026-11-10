@@ -1,4 +1,6 @@
 using Foundation;
+using Weavie.Core;
+using Weavie.Core.Credentials;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -52,7 +54,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	/// none resolves), the menu, and the app-level global hotkeys, then activates the app.
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
-		_services = HostServices.CreateDefault();
+		_services = HostServices.CreateDefault(new FileCredentialStore(WeaviePaths.CredentialsDir));
 		// Surfaces in File ▸ Open Recent + the omnibar shell config, and drives reopen-last + the welcome screen.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 

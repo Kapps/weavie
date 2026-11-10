@@ -34,20 +34,6 @@ function sessionForTest(): ClientSession {
   } as unknown as ClientSession;
 }
 
-it("dismisses a token prompt in its owning session and clears the retained host state", () => {
-  const session = sessionForTest();
-  harness.selected = session;
-  const cleanup = harness.installer?.(session);
-  harness.handlers.get("promptToken")?.({ sourceId: "notion", label: "Notion" });
-  expect(store.selectedSourceTokenPrompt()?.session).toBe(session);
-
-  store.dismissSourceTokenPrompt(session);
-
-  expect(store.selectedSourceTokenPrompt()).toBeNull();
-  expect(harness.posted).toEqual([{ name: "dismissToken", payload: {} }]);
-  cleanup?.();
-});
-
 it("rejects replayed snapshots and refreshes invalidated by a cancelled edit", async () => {
   const session = sessionForTest();
   const cleanup = harness.installer?.(session);

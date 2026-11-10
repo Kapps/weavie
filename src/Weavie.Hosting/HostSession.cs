@@ -81,6 +81,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
 		IInferenceService inference,
+		IWorkflowDecider decider,
 		AgentConsultation agentConsultation,
 		ISessionPeers peers,
 		IPtyLauncher ptyLauncher,
@@ -104,6 +105,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(corrections);
 		ArgumentNullException.ThrowIfNull(peers);
 		ArgumentNullException.ThrowIfNull(inference);
+		ArgumentNullException.ThrowIfNull(decider);
 		ArgumentNullException.ThrowIfNull(agentConsultation);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
@@ -227,7 +229,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
-		Workflow = CreateWorkflowRunner(fileSystem, settings, inference, workspaceRoot);
+		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot);
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,

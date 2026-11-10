@@ -155,13 +155,13 @@ infrequent and already discoverable through two surfaces.
 ## The nudge
 
 A second suggestion, `corrections.learn`, mirrors `workspace.setup`: predicate
-`ctx.PendingCorrectionCount >= corrections.learnThreshold`, primary action
+`ctx.Signals.PendingCorrectionCount >= corrections.learnThreshold`, primary action
 `RunCommand(weavie.learn.fromCorrections)`, plus Snooze / DismissForever. It self-regulates — it appears
 once enough corrections accumulate and vanishes after `/learn` clears the ring.
 
-`SuggestionContext` gains `PendingCorrectionCount`. Unlike the one-shot `HasBuildManifest`, the count
-changes over time, so `SuggestionService` reads it fresh each `Evaluate()` from a supplier
-(`() => corpus.Count`, a locked int — free). `IsRelevant` stays a pure, no-I/O predicate. Beyond the
+`SuggestionContext.Signals` carries `PendingCorrectionCount`. Unlike the one-shot `HasBuildManifest`, the count
+changes over time, so `SuggestionService` reads it fresh each `Evaluate()` from the `SuggestionSignals` supplier
+(`corpus.Count`, a locked int — free). `IsRelevant` stays a pure, no-I/O predicate. Beyond the
 existing triggers (probe completion, setting change), **the corpus's `Changed` event re-evaluates** — the
 card appears the moment an append crosses the threshold and withdraws the moment /learn consumes the ring,
 with no per-session trigger plumbing.
@@ -258,6 +258,6 @@ full-stack test drives the real capture seam (the `fs-write` handler) rather tha
    (`SessionChangeTracker.Corrections.cs`).
 4. `CorrectionRecorder` subscriber + `Changes.Corrected` wiring in `HostSession` + the `fs-write` capture
    point (`HostCore.WebBridge.cs`) + capture tests.
-5. `CorrectionsSettings`, `SuggestionContext.PendingCorrectionCount`, the service supplier, the
+5. `CorrectionsSettings`, `SuggestionSignals.PendingCorrectionCount`, the service supplier, the
    `corrections.learn` card, the corpus `Changed` → `Evaluate()` trigger.
 6. `weavie.learn.fromCorrections` + `HostCore.Learn.cs` + `LearnPrompt` — full-stack `/learn` tests.

@@ -15,21 +15,21 @@ public sealed class SuggestionService {
 	private readonly IFileSystem _fileSystem;
 	private readonly string _workspaceRoot;
 	private readonly SuggestionDismissals _dismissals;
-	private readonly Action<IReadOnlyList<SuggestionDefinition>> _push;
+	private readonly Action<IReadOnlyList<ActiveSuggestion>> _push;
 	private readonly Func<bool> _probe;
-	private readonly Func<int> _pendingCorrections;
+	private readonly Func<SuggestionSignals> _signals;
 	private readonly TimeSpan _probeTimeout;
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
 
 	private bool _hasManifest;
-	private IReadOnlyList<SuggestionDefinition> _current = [];
+	private IReadOnlyList<ActiveSuggestion> _current = [];
 
 	/// <summary>
 	/// Creates the service and kicks off the off-the-hot-path <paramref name="probe"/> — the host-supplied walk
 	/// that classifies + auto-configures the workspace and reports whether it carries a build manifest.
 	/// <paramref name="probeTimeout"/> bounds it, failing open (card shown) if it doesn't finish in time.
-	/// <paramref name="pendingCorrections"/> supplies the correction ring's live count per evaluation.
+	/// <paramref name="signals"/> supplies the workspace's live history per evaluation.
 	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
@@ -38,9 +38,9 @@ public sealed class SuggestionService {
 		string workspaceRoot,
 		SuggestionDismissals dismissals,
 		TimeSpan probeTimeout,
-		Action<IReadOnlyList<SuggestionDefinition>> push,
+		Action<IReadOnlyList<ActiveSuggestion>> push,
 		Func<bool> probe,
-		Func<int> pendingCorrections) {
+		Func<SuggestionSignals> signals) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -48,7 +48,7 @@ public sealed class SuggestionService {
 		ArgumentNullException.ThrowIfNull(dismissals);
 		ArgumentNullException.ThrowIfNull(push);
 		ArgumentNullException.ThrowIfNull(probe);
-		ArgumentNullException.ThrowIfNull(pendingCorrections);
+		ArgumentNullException.ThrowIfNull(signals);
 		_registry = registry;
 		_settings = settings;
 		_fileSystem = fileSystem;
@@ -57,23 +57,24 @@ public sealed class SuggestionService {
 		_probeTimeout = probeTimeout;
 		_push = push;
 		_probe = probe;
-		_pendingCorrections = pendingCorrections;
+		_signals = signals;
 		_ = RunProbeAsync();
 	}
 
 	/// <summary>Re-evaluates and pushes the active set. Call on a trigger (setting changed, session created).</summary>
 	public void Evaluate() {
-		IReadOnlyList<SuggestionDefinition> active;
+		IReadOnlyList<ActiveSuggestion> active;
 		lock (_gate) {
 			var context = new SuggestionContext {
 				WorkspaceRoot = _workspaceRoot,
 				Settings = _settings,
 				FileSystem = _fileSystem,
 				HasBuildManifest = _hasManifest,
-				PendingCorrectionCount = _pendingCorrections(),
+				Signals = _signals(),
 			};
-			active = [.. _registry.Definitions.Where(d =>
-				!_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))];
+			active = [.. _registry.Definitions
+				.Where(d => !_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))
+				.Select(d => new ActiveSuggestion(d, d.Body(context)))];
 			_current = active;
 		}
 
@@ -86,7 +87,7 @@ public sealed class SuggestionService {
 
 	/// <summary>Pushes the current active set without re-evaluating (used on the page's first <c>ready</c>).</summary>
 	public void PushCurrent() {
-		IReadOnlyList<SuggestionDefinition> current;
+		IReadOnlyList<ActiveSuggestion> current;
 		lock (_gate) {
 			current = _current;
 		}

@@ -104,12 +104,8 @@ public sealed partial class HostCore {
 		session.Commands.RegisterHandler(
 			CoreCommands.LearnFromCorrections,
 			(_, _) => Task.FromResult(RunLearn(session)));
-		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
-		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
-		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
-			PromptConnectNotion(session);
-			return Task.FromResult(CommandResult.Success("Opening your browser to connect Notion…"));
-		});
+		RegisterCredentialHandlers(session);
+		RegisterDecisionProviderHandler(session);
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
@@ -556,6 +552,7 @@ public sealed partial class HostCore {
 				_themeOverrides,
 				_corrections,
 				_inference,
+				new ModelWorkflowDecider(_decisions, cwd, _decisionHistory),
 				_agentConsultation,
 				new BoundSessionPeers(this, address),
 				_platform.PtyLauncher,

@@ -1,0 +1,11 @@
+/* A host-driven picker's listbox sits flat inside its dialog, which already shows the title. */
+.choice-picker .choice-picker-menu {
+  max-width: none;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+.choice-picker .control-menu-head {
+  display: none;
+}

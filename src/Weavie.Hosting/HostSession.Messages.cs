@@ -10,6 +10,12 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
+	/// <summary>The Connect Service… prompt awaiting this session's pasted key; it ends with the session.</summary>
+	internal PendingReply<PendingConnect> ConnectPrompt { get; } = new();
+
+	/// <summary>The host-driven picker awaiting this session's choice; it ends with the session.</summary>
+	internal PendingReply<PendingPick> OpenPicker { get; } = new();
+
 	private readonly OrderedAfterResponse _fileSaveCompletions = new();
 	private readonly ConditionalWeakTable<MessagePeer, DirectoryWatchSubscriptions> _directoryWatchOwners = [];
 

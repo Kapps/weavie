@@ -2,13 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Credentials;
 
 namespace Weavie.Core.Sources;
 
 /// <summary>
 /// The Notion <see cref="ISource"/>: a thin <see cref="HttpClient"/> client over the Notion API, authenticated by
 /// a user-supplied personal access token. <see cref="Hosts"/> claims <c>notion.so</c>/<c>notion.site</c>/<c>app.notion.com</c> URLs;
-/// <see cref="ValidateAsync"/> checks the token via <c>GET /v1/users/me</c>; <see cref="FetchAsync"/> reads a page's
+/// <see cref="Credential"/> checks the token via <c>GET /v1/users/me</c>; <see cref="FetchAsync"/> reads a page's
 /// title (<c>GET /v1/pages/{id}</c>) and its content as (enhanced) markdown (<c>GET /v1/pages/{id}/markdown</c>) into a
 /// <see cref="SourceDoc"/>. Mirrors <c>GitHubReviewProvider</c> (injectable client, static pure parsers).
 /// </summary>
@@ -24,13 +25,17 @@ public sealed class NotionSource : ISource {
 	public NotionSource(HttpClient http) {
 		ArgumentNullException.ThrowIfNull(http);
 		_http = http;
+		Credential = new CredentialDefinition {
+			Id = SourceId,
+			DisplayName = "Notion",
+			KeyNoun = "personal access token",
+			KeyPageUrl = "https://app.notion.com/developers/tokens",
+			ValidateAsync = ValidateAsync,
+		};
 	}
 
 	/// <inheritdoc/>
-	public string Id => SourceId;
-
-	/// <inheritdoc/>
-	public string SetupUrl => "https://app.notion.com/developers/tokens";
+	public CredentialDefinition Credential { get; }
 
 	/// <inheritdoc/>
 	public IReadOnlyList<string> LinkHosts => Hosts;
@@ -39,9 +44,8 @@ public sealed class NotionSource : ISource {
 	/// (the rest of <c>notion.com</c> is marketing/help). Static so the headless fake shares one rule.</summary>
 	public static IReadOnlyList<string> Hosts { get; } = ["notion.so", ".notion.so", ".notion.site", "app.notion.com"];
 
-	/// <inheritdoc/>
-	public async Task<string> ValidateAsync(string accessToken, CancellationToken ct = default) {
-		ArgumentException.ThrowIfNullOrEmpty(accessToken);
+	// Checks the token via GET /v1/users/me and returns the authorized workspace's name (may be empty).
+	private async Task<string> ValidateAsync(CredentialSecret accessToken, CancellationToken ct) {
 		using var request = BuildRequest(HttpMethod.Get, "https://api.notion.com/v1/users/me", accessToken);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) {
@@ -57,9 +61,9 @@ public sealed class NotionSource : ISource {
 	}
 
 	/// <inheritdoc/>
-	public async Task<SourceDoc> FetchAsync(string target, string accessToken, CancellationToken ct = default) {
+	public async Task<SourceDoc> FetchAsync(string target, CredentialSecret accessToken, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(target);
-		ArgumentException.ThrowIfNullOrEmpty(accessToken);
+		ArgumentNullException.ThrowIfNull(accessToken);
 		string id = ExtractPageId(target);
 		string pageJson = await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false);
 		string body = await GetAsync($"https://api.notion.com/v1/pages/{id}/markdown", accessToken, ct).ConfigureAwait(false);
@@ -69,9 +73,9 @@ public sealed class NotionSource : ISource {
 	}
 
 	/// <inheritdoc/>
-	public async Task<SourceDoc> UpdateAsync(string target, string accessToken, string oldStr, string newStr, CancellationToken ct = default) {
+	public async Task<SourceDoc> UpdateAsync(string target, CredentialSecret accessToken, string oldStr, string newStr, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(target);
-		ArgumentException.ThrowIfNullOrEmpty(accessToken);
+		ArgumentNullException.ThrowIfNull(accessToken);
 		ArgumentException.ThrowIfNullOrEmpty(oldStr);
 		ArgumentException.ThrowIfNullOrEmpty(newStr);
 		string id = ExtractPageId(target);
@@ -171,7 +175,7 @@ public sealed class NotionSource : ISource {
 		return new MarkdownBody(markdown, truncated, unknown);
 	}
 
-	private async Task<string> GetAsync(string url, string accessToken, CancellationToken ct) {
+	private async Task<string> GetAsync(string url, CredentialSecret accessToken, CancellationToken ct) {
 		using var request = BuildRequest(HttpMethod.Get, url, accessToken);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		string payload = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -182,9 +186,9 @@ public sealed class NotionSource : ISource {
 		return payload;
 	}
 
-	private static HttpRequestMessage BuildRequest(HttpMethod method, string url, string accessToken) {
+	private static HttpRequestMessage BuildRequest(HttpMethod method, string url, CredentialSecret accessToken) {
 		var request = new HttpRequestMessage(method, url);
-		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Reveal());
 		request.Headers.Add("Notion-Version", ApiVersion);
 		return request;
 	}

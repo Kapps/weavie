@@ -5,15 +5,12 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// End-to-end tests for the Notion source (personal-access-token auth via the in-app dialog): connect opens the
-/// token page + asks the page for the token, the pasted token is validated against a stubbed <c>GET /v1/users/me</c>
-/// and saved, and fetch serves canned Notion API JSON. Proves the whole stack (web message → HostCore →
-/// SourceConnector → validate/save/fetch → toast / source-doc) without the network.
+/// End-to-end tests for the Notion source: an opened link routes to connect or a fetched tab, and fetch/edit serve
+/// canned Notion API JSON. Proves the whole stack (web message → HostCore → SourceConnector → source-doc) without the
+/// network; the connect dialog itself is covered by <see cref="HostCoreCredentialsTests"/>.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSourcesTests {
-	private static string Msg(object value) => JsonSerializer.Serialize(value);
-
 	[Fact]
 	public async Task OpenTarget_NonSourceUrl_OpensADurableWebOverlay() {
 		await using var host = await TestHost.StartAsync();
@@ -28,99 +25,10 @@ public sealed class HostCoreSourcesTests {
 	}
 
 	[Fact]
-	public async Task ConnectNotion_OpensTheTokenPageAndPromptsForTheToken() {
-		await using var host = await TestHost.StartAsync();
-
-		var result = await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { });
-		Assert.True(result.Ok, result.Error);
-
-		var prompt = await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
-		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
-		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
-	}
-
-	[Fact]
-	public async Task SetSourceToken_ValidatesAndSavesTheToken() {
-		await using var host = await TestHost.StartAsync();
-		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, """{ "bot": { "workspace_name": "Acme" } }""");
-
-		var result = await SaveToken(host, "ntn_secret");
-
-		var toast = await Wait.ForAsync(() => Notify(host, "info"));
-		Assert.Contains("Acme", toast.GetProperty("message").GetString());
-		Assert.True(result.GetProperty("ok").GetBoolean());
-		string tokenFile = Path.Combine(host.SourcesDir, "notion.json");
-		Assert.True(File.Exists(tokenFile));
-		Assert.Contains("ntn_secret", File.ReadAllText(tokenFile));
-		Assert.Contains(host.SourceHttp.Requests, r => r.RequestUri!.AbsoluteUri.Contains("/v1/users/me")
-			&& r.Headers.Authorization is { Scheme: "Bearer", Parameter: "ntn_secret" });
-	}
-
-	[Fact]
-	public async Task ConnectFromPalette_SuccessDoesNotReplayTheTokenPrompt() {
-		await using var host = await TestHost.StartAsync();
-		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, """{ "bot": { "workspace_name": "Acme" } }""");
-		Assert.True((await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { })).Ok);
-		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
-
-		Assert.True((await SaveToken(host, "ntn_secret")).GetProperty("ok").GetBoolean());
-		host.Bridge.Clear();
-		await host.SessionRequestAsync<JsonElement>(
-			host.SelectedSession,
-			"lifecycle",
-			"sync",
-			new { });
-
-		Assert.Null(SourceEvent(host, "promptToken"));
-	}
-
-	[Fact]
-	public async Task DismissTokenPrompt_RemovesItsDurableState() {
-		await using var host = await TestHost.StartAsync();
-		Assert.True((await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { })).Ok);
-		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
-
-		host.SessionEvent(host.SelectedSession, "sources", "dismissToken", new { });
-		host.Bridge.Clear();
-		await host.SessionRequestAsync<JsonElement>(
-			host.SelectedSession,
-			"lifecycle",
-			"sync",
-			new { });
-
-		Assert.Null(SourceEvent(host, "promptToken"));
-	}
-
-	[Fact]
-	public async Task SetSourceToken_RejectedToken_RepliesInlineErrorAndDoesNotSave() {
-		await using var host = await TestHost.StartAsync();
-		host.SourceHttp.Responder = _ => (HttpStatusCode.Unauthorized, "{}");
-
-		var result = await SaveToken(host, "bad");
-
-		// The rejection comes back as an inline result (not a toast), so the dialog stays open for a correction.
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.Contains("rejected", result.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
-		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json"))); // an invalid token is never saved
-	}
-
-	[Fact]
-	public async Task SetSourceToken_ValidateFaults_StillRepliesSoTheDialogNeverHangs() {
-		await using var host = await TestHost.StartAsync();
-		// HttpClient's own request timeout surfaces as TaskCanceledException — the dialog must still get a result.
-		host.SourceHttp.Responder = _ => throw new TaskCanceledException();
-
-		var result = await SaveToken(host, "ntn_x");
-
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json")));
-	}
-
-	[Fact]
 	public async Task SourceFetch_AfterConnect_ReturnsTheMarkdownDoc() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			// The markdown endpoint also lives under /pages/, so match it first.
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body **text**", "truncated": false, "unknown_block_ids": [] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "last_edited_time": "2026-06-30T06:15:48.000Z", "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }"""),
@@ -142,8 +50,8 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task ReconnectReplaysTheSourceDocumentAndItsEditorTab() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body", "truncated": false, "unknown_block_ids": [] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }"""),
 			_ => (HttpStatusCode.NotFound, "{}"),
@@ -176,8 +84,8 @@ public sealed class HostCoreSourcesTests {
 		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
 		// Not connected: instead of a blank tab or an easy-to-miss error toast, the user is sent to connect.
-		var prompt = await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
-		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
+		var prompt = await Wait.ForAsync(() => host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt"));
+		Assert.Equal("notion", prompt.GetProperty("id").GetString());
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
 		Assert.Null(SourceEvent(host, "document"));
 	}
@@ -185,7 +93,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task OpenTarget_NotConnected_ThenConnect_OpensThePendingTarget() {
 		await using var host = await TestHost.StartAsync();
-		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			var u when u.Contains("/users/me") => (HttpStatusCode.OK, """{ "bot": { "workspace_name": "Acme" } }"""),
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body text", "truncated": false, "unknown_block_ids": [] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }"""),
@@ -194,8 +102,8 @@ public sealed class HostCoreSourcesTests {
 
 		// Open before connecting → routed to connect; then pasting a valid token opens the remembered page.
 		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
-		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
-		Assert.True((await SaveToken(host, "ntn_secret")).GetProperty("ok").GetBoolean());
+		await Wait.ForAsync(() => host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt"));
+		Assert.True((await HostCoreCredentialsTests.SaveKey(host, "ntn_secret")).GetProperty("ok").GetBoolean());
 
 		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
@@ -205,8 +113,8 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_Failure_PostsSourceErrorIntoTheTab() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
 		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
@@ -220,10 +128,10 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_NonJsonOkBody_PostsSourceError_NotAStuckSpinner() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		// A 200 carrying non-JSON (proxy / captive-portal / incident HTML) throws JsonException deep in the parse;
 		// the eager spinner is already up, so it must still resolve to an error rather than spin forever.
-		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, "<html>not json</html>");
+		host.Http.Responder = _ => (HttpStatusCode.OK, "<html>not json</html>");
 
 		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
@@ -235,8 +143,8 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_TruncatedPage_FlagsTheDocAndKeepsTheMarkdownVerbatim() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": ["a"] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Big" } ] } } }"""),
 			_ => (HttpStatusCode.NotFound, "{}"),
@@ -255,10 +163,10 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_PatchesTheExactOpAndPushesTheRefreshedDoc() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		string? patchBody = null;
 		HttpRequestMessage? patch = null;
-		host.SourceHttp.Responder = request => {
+		host.Http.Responder = request => {
 			if (request.Method == HttpMethod.Patch) {
 				patch = request;
 				patchBody = request.Content!.ReadAsStringAsync().Result; // read while the request is still alive
@@ -293,8 +201,8 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_ValidationError_PostsAStaleEditError() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = _ =>
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = _ =>
 			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "old_str did not match" }""");
 
 		SaveEdit(
@@ -313,10 +221,10 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_RequestValidationError_IsNotReportedAsStale() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		// A validation_error that isn't about the op's old_str (e.g. a malformed body) is a client bug, not a
 		// stale page — stale:true would offer a re-fetch that can never help. The API's reason must surface.
-		host.SourceHttp.Responder = _ =>
+		host.Http.Responder = _ =>
 			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "body.type should be defined, instead was `undefined`." }""");
 
 		SaveEdit(
@@ -334,8 +242,8 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_ServerFailure_StillResolvesTheSavingState() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
+		host.SaveCredential("notion", "ntn_secret");
+		host.Http.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
 		SaveEdit(
 			host,
@@ -350,20 +258,8 @@ public sealed class HostCoreSourcesTests {
 		Assert.Null(SourceEvent(host, "document"));
 	}
 
-	private static void WriteToken(TestHost host, string token) {
-		Directory.CreateDirectory(host.SourcesDir);
-		File.WriteAllText(Path.Combine(host.SourcesDir, "notion.json"), Msg(new { token }));
-	}
-
 	private static void Open(TestHost host, string url) =>
 		host.SessionEvent(host.SelectedSession, "sources", "open", new { url });
-
-	private static Task<JsonElement> SaveToken(TestHost host, string token) =>
-		host.SessionRequestAsync<JsonElement>(
-			host.SelectedSession,
-			"sources",
-			"saveToken",
-			new { sourceId = "notion", token });
 
 	private static void SaveEdit(
 		TestHost host,
@@ -378,12 +274,4 @@ public sealed class HostCoreSourcesTests {
 
 	private static JsonElement? SourceEvent(TestHost host, string name) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "sources", name);
-
-	// The last toast at a given level, or null until one arrives — the selector the notify-waiting tests poll.
-	private static JsonElement? Notify(TestHost host, string level) =>
-		host.Bridge.LastEvent(host.SelectedSession.Address, "notifications", "show") is { } n
-			&& n.GetProperty("level").GetString() == level
-				? n
-				: null;
-
 }

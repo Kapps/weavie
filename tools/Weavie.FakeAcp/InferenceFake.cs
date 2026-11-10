@@ -136,7 +136,7 @@ internal static class InferenceFake {
 			"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
 			"workflow" => File.Exists(Path.Combine(cwd, "inference-answer.json"))
 				? File.ReadAllText(Path.Combine(cwd, "inference-answer.json"))
-				: "{\"choice\":\"accept\",\"confidence\":1}",
+				: "{\"accept\":1,\"revise\":0}",
 			"image" => JsonSerializer.Serialize(new JsonObject {
 				["branch"] = "feat/fake-branch",
 				["imageMime"] = imageMime,

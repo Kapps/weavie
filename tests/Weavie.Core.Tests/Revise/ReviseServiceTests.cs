@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
@@ -224,7 +223,6 @@ public sealed class ReviseServiceTests {
 		},
 		Receipt = new InferenceReceipt {
 			ProviderId = "claude",
-			Category = InferenceModelCategory.Utility,
 			ModelId = "test",
 			Duration = TimeSpan.Zero,
 		},
@@ -245,7 +243,7 @@ public sealed class ReviseServiceTests {
 			InferenceOwner owner,
 			InferenceModelCategory category,
 			InferenceInput input,
-			JsonTypeInfo<TResponse> responseType,
+			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) {
 			Calls++;

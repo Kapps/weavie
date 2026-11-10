@@ -1,4 +1,5 @@
 using System.Globalization;
+using Weavie.Core.Credentials;
 using Weavie.Core.Inference;
 
 namespace Weavie.Core.Commands;
@@ -481,6 +482,9 @@ public static partial class CoreCommands {
 	/// <summary>Allows isolated automatic model queries for small product suggestions.</summary>
 	public const string EnableAutomaticInference = "weavie.inference.enableAutomatic";
 
+	/// <summary>Sets <c>inference.decisionProvider</c> (arg <c>provider</c>, or a picker), connecting a vendor first when needed; unbound.</summary>
+	public const string ChooseDecisionProvider = "weavie.inference.chooseDecisionProvider";
+
 	/// <summary>Opens the suggestion settings: whether suggestions run, and the agent, model, effort, and Fast Mode they use.</summary>
 	public const string ConfigureSuggestions = "weavie.inference.configure";
 
@@ -493,8 +497,11 @@ public static partial class CoreCommands {
 	/// <summary>Runs the test at the editor cursor (web-resolved to the innermost matched symbol, then dispatched to <see cref="RunTests"/>); bound to <c>$mod+alt+r</c>.</summary>
 	public const string RunTestAtCursor = "weavie.tests.runAtCursor";
 
-	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
-	public const string ConnectNotion = "weavie.source.connectNotion";
+	/// <summary>Connects a declared service (arg <c>service</c>, or a picker) by validating the key the user pastes; unbound.</summary>
+	public const string ConnectService = "weavie.credentials.connect";
+
+	/// <summary>Deletes a connected service's key (arg <c>service</c>, or a picker of connected services); unbound.</summary>
+	public const string DisconnectService = "weavie.credentials.disconnect";
 
 	/// <summary>Opens the active Notion tab's page in the system browser (web-handled, tab-command-bindings.ts).</summary>
 	public const string SourceOpenInBrowser = "weavie.source.openInBrowser";
@@ -2334,20 +2341,6 @@ public static partial class CoreCommands {
 				"learn from my edits", "learn"],
 		});
 
-		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no
-		// default keybinding (like RestartAgent / SetupWorkspace).
-		registry.Register(new CommandDefinition {
-			Id = ConnectNotion,
-			Title = "Connect Notion",
-			RunsIn = CommandLocation.Core,
-			OnTimeout = OperationSeverity.ActionFailed,
-			Category = "Source",
-			Description = "Connect your Notion account so you can open Notion docs (read-only). Opens Notion's token "
-				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
-				+ "it for you.",
-			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
-		});
-
 		registry.Register(new CommandDefinition {
 			Id = SourceOpenInBrowser,
 			Title = "Open in Notion",
@@ -2460,6 +2453,7 @@ public static partial class CoreCommands {
 		RegisterReviewHints(registry);
 		RegisterWorkflows(registry);
 		InferenceCommands.Register(registry);
+		CredentialCommands.Register(registry);
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via
 		// SessionCommands.RegisterHandlers; next/prev/switch are web-handled by the session rail.

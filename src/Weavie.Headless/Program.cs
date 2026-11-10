@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Weavie.Core;
 using Weavie.Core.Configuration;
+using Weavie.Core.Credentials;
 using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
@@ -32,7 +33,7 @@ var dispatcher = new SerialUiDispatcher(ex => {
 	Environment.FailFast("weavie-headless: a dispatched UI action threw", ex);
 });
 var bridge = new WebSocketHostBridge();
-var services = HostServices.CreateDefault();
+var services = HostServices.CreateDefault(new FileCredentialStore(WeaviePaths.CredentialsDir));
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
 	var fakePrs = FakePullRequests.FromFile(fakePrsPath);
 	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs, PullRequestDiscussion = fakePrs };

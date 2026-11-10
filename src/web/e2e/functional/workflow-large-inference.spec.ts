@@ -80,6 +80,10 @@ for (const provider of ["claude", "workflow-acp"]) {
         const workflows = join(weavie.workspace, ".weavie", "workflows");
         await mkdir(workflows, { recursive: true });
         await writeFile(join(workflows, "large-evidence.yaml"), WORKFLOW);
+        await writeFile(
+          join(weavie.workspace, "inference-answer.json"),
+          JSON.stringify({ accept: 1, reject: 0 }),
+        );
         if (rejects) {
           await writeFile(join(weavie.workspace, "inference-reject"), "");
         }

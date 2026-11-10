@@ -19,14 +19,16 @@ export interface Toast {
 export interface ToastAction {
   label: string;
   run: () => void;
+  // A passing offer (a startup tip's command) that doesn't hold the toast open.
+  passing?: true;
 }
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
 const AUTO_DISMISS_MS = 4000;
 // Timed toasts auto-dismiss and show the drain fill; errors, in-flight `busy`, and action-bearing toasts
-// persist (the button IS the point, and the user may be away when it fires).
+// persist (the button IS the point, and the user may be away when it fires) unless the action is passing.
 const isTimed = (level: Toast["level"], action?: ToastAction): boolean =>
-  level !== "error" && level !== "busy" && action === undefined;
+  level !== "error" && level !== "busy" && (action === undefined || action.passing === true);
 // How long the collapse-out animation runs before the toast is actually removed. Keep in sync with the
 // `.toast.leaving` transition in notify.css so the row is gone exactly when its animation finishes.
 const EXIT_MS = 200;

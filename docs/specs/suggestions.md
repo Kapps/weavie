@@ -39,7 +39,7 @@ Mirrors `SettingDefinition` / `CommandDefinition`: declared records, registered 
 public sealed record SuggestionDefinition {
     public required string Id { get; init; }                          // "worktree.setupCommand"
     public required string Title { get; init; }                       // card headline
-    public required string Body { get; init; }                        // one-line explanation
+    public required Func<SuggestionContext, string> Body { get; init; } // one-line explanation, rendered per evaluation
     public required Func<SuggestionContext, bool> IsRelevant { get; init; }
     public required IReadOnlyList<SuggestionAction> Actions { get; init; }
 }
@@ -57,7 +57,11 @@ public sealed record SuggestionContext {
     public required string WorkspaceRoot { get; init; }
     public required SettingsStore Settings { get; init; }
     public required IFileSystem FileSystem { get; init; }
+    public required bool HasBuildManifest { get; init; }
+    public required SuggestionSignals Signals { get; init; }          // live history, read fresh per evaluation
 }
+
+public sealed record SuggestionSignals(int PendingCorrectionCount, DecisionHistorySummary WorkflowDecisions);
 ```
 
 `IsRelevant` is a pure predicate over the context — no side effects, no model calls. It answers only

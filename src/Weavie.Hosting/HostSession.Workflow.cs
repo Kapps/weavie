@@ -1,7 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
-using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
@@ -28,11 +27,11 @@ public sealed partial class HostSession {
 		(_, ex) => FailWorkflowTurn(ex));
 
 	private WorkflowRunner CreateWorkflowRunner(
-		IFileSystem fileSystem, SettingsStore settings, IInferenceService inference, string workspaceRoot) =>
+		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot) =>
 		new(
 			WorkflowCatalog,
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
-			new InferenceWorkflowDecider(inference, workspaceRoot),
+			decider,
 			new WorkflowFileReader(fileSystem, workspaceRoot),
 			new WorkflowPort(this),
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),

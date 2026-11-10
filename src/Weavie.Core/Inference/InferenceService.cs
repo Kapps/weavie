@@ -1,10 +1,6 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Schema;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -21,7 +17,7 @@ public interface IInferenceService {
 		InferenceOwner owner,
 		InferenceModelCategory category,
 		InferenceInput input,
-		JsonTypeInfo<TResponse> responseType,
+		InferenceResponseType<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct);
 }
@@ -31,9 +27,6 @@ public interface IInferenceService {
 /// installed agent provider's stateless facet.
 /// </summary>
 public sealed class InferenceService : IInferenceService {
-	private static readonly JsonSchemaExporterOptions SchemaOptions = new() {
-		TreatNullObliviousAsNonNullable = true,
-	};
 	private readonly SettingsStore _settings;
 	private readonly AgentProviderRegistry _agentProviders;
 
@@ -69,7 +62,7 @@ public sealed class InferenceService : IInferenceService {
 		InferenceOwner owner,
 		InferenceModelCategory category,
 		InferenceInput input,
-		JsonTypeInfo<TResponse> responseType,
+		InferenceResponseType<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(owner);
@@ -93,15 +86,17 @@ public sealed class InferenceService : IInferenceService {
 		}
 		ArgumentNullException.ThrowIfNull(responseType);
 		ArgumentNullException.ThrowIfNull(options);
-		ValidateQuery(responseType, options);
+		// Text-only queries have no image capacity; every query still needs output capacity and time.
+		if (options.MaxImageCount < 0
+			|| options.MaxImageBytes < 0
+			|| options.MaxOutputBytes <= 0
+			|| options.TimeBudget <= TimeSpan.Zero) {
+			throw new ArgumentException("Inference query bounds must be positive.", nameof(options));
+		}
 
 		ct.ThrowIfCancellationRequested();
-		if (!_settings.RequireBool(InferenceSettings.Enabled)) {
-			return Failure<TResponse>(InferenceFailureKind.Disabled, "Ad-hoc inference is disabled.");
-		}
-		if (options.Origin == InferenceInvocationOrigin.Automatic
-			&& !_settings.RequireBool(InferenceSettings.AllowAutomatic)) {
-			return Failure<TResponse>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
+		if (InferencePolicy.Gate(_settings, options.Origin, out string denied) is { } gate) {
+			return Failure<TResponse>(gate, denied);
 		}
 		if (input.Images.Count > options.MaxImageCount) {
 			return Failure<TResponse>(
@@ -134,49 +129,34 @@ public sealed class InferenceService : IInferenceService {
 				$"Agent provider '{agentProviderId}' does not support inference category '{category}'.");
 		}
 
-		string schema = JsonSchemaExporter.GetJsonSchemaAsNode(responseType, SchemaOptions).ToJsonString();
 		var request = new InferenceProviderRequest {
 			Category = category,
 			Profile = profile,
 			Workspace = owner.Workspace,
 			Prompt = input.Prompt,
 			Images = input.Images,
-			OutputSchemaJson = schema,
+			OutputSchemaJson = responseType.SchemaJson,
 			MaxOutputBytes = options.MaxOutputBytes,
 		};
 
-		var stopwatch = Stopwatch.StartNew();
-		using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		attempt.CancelAfter(options.TimeBudget);
-		InferenceProviderResult providerResult;
+		(InferenceProviderResult? Value, TimeSpan Elapsed, bool TimedOut) attempt;
 		try {
-			providerResult = await provider.QueryInferenceAsync(request, attempt.Token).ConfigureAwait(false);
-		} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
-			return Failure<TResponse>(
-				InferenceFailureKind.TimedOut,
-				"The inference query exceeded its time budget.");
+			attempt = await InferencePolicy.AttemptAsync(
+				options.TimeBudget,
+				token => QueryWithinBudgetAsync(provider, request, token),
+				ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException) {
 			ct.ThrowIfCancellationRequested();
-			if (attempt.IsCancellationRequested) {
-				return Failure<TResponse>(
-					InferenceFailureKind.TimedOut,
-					"The inference query exceeded its time budget.");
-			}
 			return Failure<TResponse>(
 				InferenceFailureKind.ProviderUnavailable,
 				$"Agent provider '{agentProviderId}' could not complete the inference process.");
 		}
-		ct.ThrowIfCancellationRequested();
-		stopwatch.Stop();
+		if (attempt.TimedOut) {
+			return Failure<TResponse>(InferenceFailureKind.TimedOut, "The inference query exceeded its time budget.");
+		}
+		var providerResult = attempt.Value!;
 
-		var receipt = new InferenceReceipt {
-			ProviderId = agentProviderId,
-			Category = category,
-			ModelId = providerResult.ModelId,
-			Duration = stopwatch.Elapsed,
-			RequestId = providerResult.RequestId,
-			Usage = providerResult.Usage,
-		};
+		var receipt = providerResult.Receipt(agentProviderId, attempt.Elapsed);
 		if (providerResult is InferenceProviderFailure providerFailure) {
 			return new InferenceFailure<TResponse> {
 				Kind = providerFailure.Kind,
@@ -194,7 +174,7 @@ public sealed class InferenceService : IInferenceService {
 
 		TResponse? value;
 		try {
-			value = JsonSerializer.Deserialize(success.OutputJson, responseType);
+			value = JsonSerializer.Deserialize(success.OutputJson, responseType.TypeInfo);
 		} catch (JsonException) {
 			return Invalid<TResponse>(receipt, "The provider returned JSON that does not match the declared response type.");
 		}
@@ -205,20 +185,14 @@ public sealed class InferenceService : IInferenceService {
 		return new InferenceSuccess<TResponse> { Value = value, Receipt = receipt };
 	}
 
-	private static void ValidateQuery<TResponse>(
-		JsonTypeInfo<TResponse> responseType,
-		InferenceQueryOptions options) {
-		// Text-only queries have no image capacity; every query still needs output capacity and time.
-		if (options.MaxImageCount < 0
-			|| options.MaxImageBytes < 0
-			|| options.MaxOutputBytes <= 0
-			|| options.TimeBudget <= TimeSpan.Zero) {
-			throw new ArgumentException("Inference query bounds must be positive.", nameof(options));
-		}
-		if (responseType.Options.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow
-			|| !responseType.Options.RespectRequiredConstructorParameters) {
-			throw new InvalidOperationException(
-				"Inference response metadata must disallow unmapped members and respect required constructor parameters.");
+	// Killing the process at the budget surfaces as a process or pipe error, which is still the budget's cancellation.
+	private static async Task<InferenceProviderResult> QueryWithinBudgetAsync(
+		IAgentInferenceProvider provider, InferenceProviderRequest request, CancellationToken budget) {
+		try {
+			return await provider.QueryInferenceAsync(request, budget).ConfigureAwait(false);
+		} catch (Exception ex) when (budget.IsCancellationRequested
+			&& ex is Win32Exception or IOException or UnauthorizedAccessException) {
+			throw new OperationCanceledException(budget);
 		}
 	}
 

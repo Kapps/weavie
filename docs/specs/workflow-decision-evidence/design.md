@@ -20,9 +20,9 @@ mutable run dictionaries. Public contracts have XML summaries and no optional co
 | Model → engine | `Answered(string Choice, double Confidence)`, `Refused(string Reason)`, or `Failed(string Reason)`. These are in-memory variants, not a new wire/persistence format. |
 | Settings → runner | Required `Func<double>` accessor, alongside existing attempt/open-review accessors; sampled when a model decision plan is created. |
 
-The utility model's strict response is `{"choice":"approve","confidence":0.91}`. Use required JSON
-members or a required positional constructor so missing confidence cannot deserialize as zero. Retain
-source-generated metadata, unknown-member rejection, and required-constructor enforcement. `unsure` is
+Decision providers return one probability per choice, such as `{"approve":0.91,"revise":0.09}`; the decision
+service rejects missing or unknown labels, non-finite or out-of-range values, and ties
+([inference-providers.md](../inference-providers.md)). `unsure` is
 not requested or reserved: an undeclared label is invalid; any explicitly declared label is ordinary routing.
 
 ## Definition parsing and warnings
@@ -150,10 +150,10 @@ Register `workflow.decisionConfidence` with default `0.8` and `ApplyMode.Live`. 
 `HostSession.CreateWorkflowRunner` supplies the reader and accessor for every host. New contracts and
 required dependencies change all call sites together; no legacy overloads, capability gates, or adapters.
 
-`InferenceWorkflowDecider` calls the existing `InferencePrompts.WithJsonInput` boundary using the prepared
-request. Its instructions ask for one supplied label and estimated numeric confidence from the evidence;
-they expose no threshold and request no tools or prose. Translate `InferenceFailureKind.Refused` into
-`Refused`; translate other failures into `Failed` with their safe detail. Successful values go to the
+`ModelWorkflowDecider` asks the decision service one choice question over the prepared request
+([inference-providers.md](../inference-providers.md)); the live decision provider returns a probability per label,
+and the top label's probability is the confidence. Nothing exposes the threshold or requests tools or prose. A
+refusal becomes `Refused`; other failures become `Failed` with their safe detail. Successful values go to the
 engine for membership/range checks. Source-generated JSON includes the described choices and file bodies.
 
 Remove `MaxPromptBytes` from `InferenceQueryOptions`, `InferenceService`, workflow/branch/revision callers,

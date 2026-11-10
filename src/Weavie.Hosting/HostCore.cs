@@ -11,6 +11,7 @@ using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
+using Weavie.Core.Inference.Decisions;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
@@ -19,6 +20,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
@@ -55,6 +57,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly AgentProviderRegistry _agentProviders;
 	private readonly IAcpAgentCatalog _acpAgents;
 	private readonly IInferenceService _inference;
+	private readonly IDecisionService _decisions;
 	private readonly AgentModelCatalog _agentModels;
 	private readonly AgentConsultation _agentConsultation;
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
@@ -81,11 +84,13 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly Weavie.Core.Review.IPullRequestDiscussion _pullRequestDiscussion;
 	// The source system (Notion personal-access-token validate + fetch); see HostCore.Sources.cs.
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
+	private readonly Weavie.Core.Credentials.CredentialService _credentials;
 	private readonly LayoutStore _layout;
 	// Per-workspace session overlay, so reopen restores each slot's runtime and editor state.
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
+	private readonly WorkflowDecisionHistory _decisionHistory;
 	private readonly WorkspaceFileRoutes _fileRoutes = new();
 	private readonly WorkspaceHttpServer _http;
 	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
@@ -115,6 +120,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<bool>? _onSettingsMalformedChanged;
 	private Action? _onRemoteAgentsChanged;
+	private Action? _onCredentialsChanged;
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
 	private Action? _onReviewOverviewStateChanged;
@@ -190,6 +196,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_agentProviders = services.AgentProviders;
 		_acpAgents = services.AcpAgents;
 		_inference = services.Inference;
+		_decisions = services.Decisions;
 		_agentModels = services.AgentModels;
 		_agentConsultation = services.AgentConsultation;
 		_remoteAgents = services.RemoteAgents;
@@ -204,6 +211,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_reviewComments = services.ReviewComments;
 		_pullRequestDiscussion = services.PullRequestDiscussion;
 		_sources = services.Sources;
+		_credentials = services.Credentials;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
@@ -222,6 +230,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
+		// Workspace-level like the corrections ring, and like it re-evaluates suggestions when it changes.
+		_decisionHistory = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(Id));
+		_decisionHistory.Log += Log;
+		_decisionHistory.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
@@ -414,7 +426,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			}
 
 			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
-				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold) {
+				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold or InferenceSettings.DecisionProvider) {
 				_suggestions?.Evaluate();
 			}
 
@@ -443,6 +455,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// the registry so every page's rail + New Session location list stays in sync. Broadcast marshals itself.
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
 		_remoteAgents.Changed += _onRemoteAgentsChanged;
+
+		// A connect or disconnect (in any window sharing the app-global credentials) re-pushes which links open in Weavie.
+		_onCredentialsChanged = PublishConnectedLinkHosts;
+		_credentials.Changed += _onCredentialsChanged;
 
 		// Session rail UI state (last-used backend, selection, panel layout): same re-push-on-change as remote agents.
 		_onRailStateChanged = PushRailStateToWeb;
@@ -588,6 +604,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onRemoteAgentsChanged is not null) {
 			_remoteAgents.Changed -= _onRemoteAgentsChanged;
 			_onRemoteAgentsChanged = null;
+		}
+
+		if (_onCredentialsChanged is not null) {
+			_credentials.Changed -= _onCredentialsChanged;
+			_onCredentialsChanged = null;
 		}
 
 		if (_onRailStateChanged is not null) {

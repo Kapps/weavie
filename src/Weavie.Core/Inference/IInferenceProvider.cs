@@ -60,7 +60,7 @@ public sealed record InferenceProviderRequest {
 	public required int MaxOutputBytes { get; init; }
 }
 
-/// <summary>A provider response containing either structured JSON or a stable failure.</summary>
+/// <summary>One provider attempt's outcome: a typed query's JSON, a decision's distribution, or a stable failure.</summary>
 public abstract record InferenceProviderResult {
 	/// <summary>The provider-private concrete model id selected for the category.</summary>
 	public required string ModelId { get; init; }
@@ -70,6 +70,10 @@ public abstract record InferenceProviderResult {
 
 	/// <summary>Provider-reported usage, when available.</summary>
 	public InferenceUsage? Usage { get; init; }
+
+	/// <summary>The receipt for this attempt, made through <paramref name="providerId"/> in <paramref name="duration"/>.</summary>
+	public InferenceReceipt Receipt(string providerId, TimeSpan duration) =>
+		new() { ProviderId = providerId, ModelId = ModelId, Duration = duration, RequestId = RequestId, Usage = Usage };
 }
 
 /// <summary>A structured JSON response from the provider.</summary>

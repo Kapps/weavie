@@ -5,9 +5,17 @@ type Handler = (payload: never) => void;
 const harness = vi.hoisted(() => ({
   installer: undefined as ((connection: unknown) => (() => void) | undefined) | undefined,
   splashDismissed: undefined as (() => void) | undefined,
+  commandsChanged: undefined as (() => void) | undefined,
 }));
 const notify = vi.hoisted(() => vi.fn());
 const keyHint = vi.hoisted(() => vi.fn(() => " (Ctrl+Shift+E)"));
+const findCommand = vi.hoisted(() =>
+  vi.fn((_backendId: string, id: string): { id: string; title: string } | undefined => ({
+    id,
+    title: "Revise Selection",
+  })),
+);
+const runCommand = vi.hoisted(() => vi.fn());
 
 vi.mock("../bridge", () => ({
   registerHostFeature: (installer: (connection: unknown) => (() => void) | undefined) => {
@@ -16,6 +24,16 @@ vi.mock("../bridge", () => ({
   },
 }));
 vi.mock("../commands/key-hint", () => ({ keyHintInCatalog: keyHint }));
+vi.mock("../commands/registry", () => ({
+  findCommandInCatalog: findCommand,
+  onCommandsChanged: (listener: () => void) => {
+    harness.commandsChanged = listener;
+    return () => {
+      harness.commandsChanged = undefined;
+    };
+  },
+  runCommandFromCatalogWithFeedback: runCommand,
+}));
 vi.mock("../notify/notify", () => ({ notify }));
 vi.mock("../splash", () => ({
   onSplashDismissed: (listener: () => void) => {
@@ -64,9 +82,11 @@ describe("startup tip intake", () => {
     harness.splashDismissed = undefined;
     notify.mockClear();
     keyHint.mockClear();
+    findCommand.mockClear();
+    runCommand.mockClear();
   });
 
-  it("waits for the splash and appends the local command catalog's effective shortcut", () => {
+  it("waits for the splash, appends the effective shortcut, and offers the command as a button", () => {
     const installed = install(true);
 
     installed.show(tip);
@@ -78,7 +98,39 @@ describe("startup tip intake", () => {
       "info",
       "Tip: Run Revise Selection (Ctrl+Shift+E). Rewrite selected code in one undo step.",
       "startup-tip:revise-selection",
+      { label: "Revise Selection", run: expect.any(Function), passing: true },
     );
+    notify.mock.calls[0]?.[3].run();
+    expect(runCommand).toHaveBeenCalledWith("local", "weavie.revise.selection");
+    installed.cleanup();
+  });
+
+  it("omits the shortcut for an unbound command but keeps its button", () => {
+    keyHint.mockReturnValueOnce("");
+    const installed = install(true);
+    harness.splashDismissed?.();
+
+    installed.show(tip);
+
+    expect(notify).toHaveBeenCalledWith(
+      "info",
+      "Tip: Run Revise Selection. Rewrite selected code in one undo step.",
+      "startup-tip:revise-selection",
+      { label: "Revise Selection", run: expect.any(Function), passing: true },
+    );
+    installed.cleanup();
+  });
+
+  it("holds a command tip until the catalog names its command", () => {
+    findCommand.mockReturnValueOnce(undefined);
+    const installed = install(true);
+    harness.splashDismissed?.();
+
+    installed.show(tip);
+    expect(notify).not.toHaveBeenCalled();
+    harness.commandsChanged?.();
+
+    expect(notify).toHaveBeenCalledOnce();
     installed.cleanup();
   });
 
@@ -94,6 +146,7 @@ describe("startup tip intake", () => {
       "info",
       "Tip: Run Revise Selection. Rewrite selected code in one undo step.",
       "startup-tip:revise-selection",
+      undefined,
     );
     expect(keyHint).not.toHaveBeenCalled();
     installed.cleanup();

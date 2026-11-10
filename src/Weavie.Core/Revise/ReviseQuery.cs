@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Inference;
 
 namespace Weavie.Core.Revise;
@@ -47,7 +46,8 @@ public static class ReviseQuery {
 		+ "only: no commentary, no markdown fences.";
 
 	/// <summary>The strict revision response shape.</summary>
-	public static JsonTypeInfo<ReviseQueryOutput> ResponseType => ReviseQueryJsonContext.Default.ReviseQueryOutput;
+	public static readonly InferenceResponseType<ReviseQueryOutput> ResponseType =
+		InferenceResponseType.Of(ReviseQueryJsonContext.Default.ReviseQueryOutput);
 
 	/// <summary>
 	/// The resource policy for one batched query. The time budget is the outer bound for a whole batch, measured

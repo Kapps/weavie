@@ -126,7 +126,7 @@ export function createAgentPaneScroll(
 
   // A live reply whose top scrolls out of view while following stops there, so it is read from its start. One
   // pushed out by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
-  const pin = (resized: boolean): void => {
+  const pin = (shrunk: boolean): void => {
     const index = model.live() ? shown().latestResultIndex : null;
     const row = layout().rowAt(index);
     // Decided on measured sizes, never on estimates.
@@ -141,7 +141,7 @@ export function createAgentPaneScroll(
       if (overshoot < viewport) topSeen = true;
       return;
     }
-    if (resized) topSeen = false;
+    if (shrunk) topSeen = false;
     if (!topSeen) return;
     pinned = true;
     const placing = !driving();
@@ -157,11 +157,11 @@ export function createAgentPaneScroll(
   };
 
   // After the measured transcript changed: a reader who isn't following stays still; a long live reply pins.
-  const settle = (resized: boolean): void => {
+  const settle = (shrunk: boolean): void => {
     if (viewport === 0 || !element().isConnected) return;
     // Nothing to scroll means everything is in view.
     if (virtualizer().getTotalSize() <= viewport) setFollowing(true);
-    if (following()) pin(resized);
+    if (following()) pin(shrunk);
     else if (gesture.touching() || isAutoscrolling(element())) pickAnchor();
     else keepAnchor();
     updateTurnStartAbove();
@@ -299,12 +299,13 @@ export function createAgentPaneScroll(
      * that a reply placed at the top to be read from its start stays at the top.
      */
     onResize(height: number): void {
+      const shrunk = height < viewport;
       viewport = height;
       measureLineHeight();
       if (!following() && !anchor.keepTop(viewport)) pickAnchor();
       // A remount shows the transcript as the reader left it, then applies what arrived once the viewport is known.
       syncHold();
-      settle(true);
+      settle(shrunk);
     },
     scrollTo: moveTo,
     snapshot: (): AgentPaneScrollState => ({

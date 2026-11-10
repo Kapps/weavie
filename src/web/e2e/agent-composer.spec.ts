@@ -2307,12 +2307,47 @@ test.describe("ACP composer", () => {
     return () => consumed.promise;
   }
 
-  for (const delayed of ["history", "pane"] as const) {
+  for (const delayed of ["history", "pane", "viewport"] as const) {
     test(`a streaming response stays at its top with delayed ${delayed}`, async ({ page }) => {
+      // The first viewport measurement may arrive after the live reply has already been measured.
+      if (delayed === "viewport") {
+        await page.addInitScript(() => {
+          const Observer = window.ResizeObserver;
+          let replyMeasured = false;
+          let pending: (() => void) | undefined;
+          window.ResizeObserver = class extends Observer {
+            private viewport = false;
+            constructor(callback: ResizeObserverCallback) {
+              super((entries, observer) => {
+                if (this.viewport && !replyMeasured) {
+                  pending = () => callback(entries, observer);
+                  return;
+                }
+                callback(entries, observer);
+                if (
+                  entries.some(
+                    ({ target }) =>
+                      target.matches(".agent-virtual-row") &&
+                      target.textContent?.includes("Streamed 8."),
+                  )
+                ) {
+                  replyMeasured = true;
+                  pending?.();
+                  pending = undefined;
+                }
+              });
+            }
+            observe(target: Element, options: ResizeObserverOptions): void {
+              this.viewport = target.matches(".agent-body") && options?.box !== "border-box";
+              super.observe(target, options);
+            }
+          };
+        });
+      }
       const historyRead = await observeHistoryRead(page);
       const gate = Promise.withResolvers<void>();
       await page.route(
-        delayed === "history" ? "**/weavie-agent-history?**" : "**/assets/AgentPaneBody-*.js",
+        delayed === "pane" ? "**/assets/AgentPaneBody-*.js" : "**/weavie-agent-history?**",
         async (route) => {
           await gate.promise;
           await route.continue();

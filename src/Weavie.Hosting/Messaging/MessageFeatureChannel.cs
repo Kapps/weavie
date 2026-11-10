@@ -109,6 +109,15 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
 		_bus.Handle(_feature, name, activity, requestType, responseType, handler, SessionExecution.Concurrent, PendingPresenter.Bus);
 
+	/// <summary>Registers a concurrent request whose caller shows its own in-place progress; see <see cref="HandleWithCallerProgress"/>.</summary>
+	internal IDisposable HandleConcurrentWithCallerProgress<TRequest, TResponse>(
+		string name,
+		MessageActivity activity,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
+		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
+		_bus.Handle(_feature, name, activity, requestType, responseType, handler, SessionExecution.Concurrent, PendingPresenter.Caller);
+
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string name,
 		Func<TRequest, MessageActivity> activity,

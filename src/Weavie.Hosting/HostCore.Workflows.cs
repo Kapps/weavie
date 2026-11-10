@@ -63,10 +63,6 @@ public sealed partial class HostCore {
 			? text
 			: throw new WorkflowException($"'{name}' is required.");
 
-	// The workflows a new session can start, read from where the user starts it, before any worktree exists: an
-	// unknown workflow or bad inputs must not leave a session behind, and the new session runs exactly what was checked.
-	private WorkflowCatalog LaunchCatalog(SessionSlot? source) => WeavieWorkflows.Catalog(source?.WorktreePath ?? WorkspaceRoot);
-
 	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
 	private static void ForgetWorkflowRun(string worktreePath) {
 		string run = WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(worktreePath));

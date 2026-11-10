@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Weavie.Core;
-using Weavie.Core.Workspaces;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Sessions;
+using Weavie.Core.Workspaces;
 using Weavie.Workflows;
 using Xunit;
 
@@ -70,7 +70,10 @@ public sealed class HostCoreWorkflowDocumentsTests {
 	public async Task CorruptOwnershipStopsStartupCleanup(string corrupt) {
 		await using var host = await HostCoreWorkflowTests.StartAsync(new HostCoreWorkflowTests.DecisionStub("yes", 0.9));
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
-			Branch = "owner", Base = "main", AgentProviderId = "structured", Workflow = "flow",
+			Branch = "owner",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "flow",
 		})).Ok);
 		var owner = host.Session("owner");
 		string documents = owner.Workflow.Current!.DocumentsDirectory;

@@ -402,7 +402,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		var workflowPort = new RecordingWorkflowPort();
 		var workflow = new WorkflowRunner(
 			workflowCatalog, new WorkflowRunStore(fileSystem, directory.Combine("workflow-run.json")),
-			new UnusedWorkflowDecider(), new WorkflowFileReader(fileSystem, workspace), workflowPort, () => 3, () => true, () => 0.8, workspace, WeavieWorkflows.Vocabulary);
+			new UnusedWorkflowDecider(), new WorkflowFileReader(fileSystem, workspace), workflowPort, () => 3, () => true, () => 0.8, workspace, WeavieWorkflows.Vocabulary, id => Path.Combine(workspace, "documents", id));
 		var reviewHints = new ReviewHintStore(fileSystem, workspace, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),

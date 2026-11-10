@@ -104,7 +104,7 @@ public sealed class WorkflowReaderTests {
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, no: a }, limit: 2 } }]", "limit applies only to decisions the model answers")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.missing}}\" } }]", "names no declared input")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{a.out}}\" } }]", "names no output declared")]
-	[InlineData("stages: [{ id: a, run: { prompt: \"{{ oops }}\" } }]", "must be {{inputs.<name>}}")]
+	[InlineData("stages: [{ id: a, run: { prompt: \"{{ oops }}\" } }]", "must be {{run.documents}}")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.x\" } }]", "no closing")]
 	public void SemanticErrorsAreReported(string stages, string message) {
 		string fileId = message.Contains("file name", StringComparison.Ordinal) ? "other" : "x";

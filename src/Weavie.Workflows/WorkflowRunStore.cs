@@ -18,7 +18,14 @@ public interface IWorkflowRunStore {
 /// <summary>The persisted form of a run: <c>{"run": …}</c>, with <c>null</c> for none.</summary>
 public static partial class WorkflowRunDocument {
 	/// <summary>The run <paramref name="text"/> holds, or <see langword="null"/>; throws when it isn't a run document.</summary>
-	public static WorkflowRun? Read(string text) => JsonSerializer.Deserialize(text, RunDocumentJson.Default.RunDocument)?.Run;
+	public static WorkflowRun? Read(string text) {
+		var document = JsonSerializer.Deserialize(text, RunDocumentJson.Default.RunDocument)
+			?? throw new JsonException("The workflow run document is null.");
+		if (document.Run is { } run && (string.IsNullOrWhiteSpace(run.DocumentsDirectory) || !Path.IsPathFullyQualified(run.DocumentsDirectory))) {
+			throw new JsonException("The workflow run must have an absolute documents directory.");
+		}
+		return document.Run;
+	}
 
 	/// <summary>The document text for <paramref name="run"/>.</summary>
 	public static string Write(WorkflowRun? run) =>
@@ -26,7 +33,7 @@ public static partial class WorkflowRunDocument {
 
 	internal sealed class RunDocument {
 		[JsonPropertyName("run")]
-		public WorkflowRun? Run { get; set; }
+		public required WorkflowRun? Run { get; set; }
 	}
 
 	[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

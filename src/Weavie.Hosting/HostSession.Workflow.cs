@@ -14,6 +14,10 @@ public sealed partial class HostSession {
 	private readonly IdleTurnDelivery _workflowTurns;
 	private int _runtimeActivated;
 
+	internal string? InheritedWorkflowDocuments { get; set; }
+
+	internal string? WorkflowDocumentsDirectory => Workflow.Current?.DocumentsDirectory ?? InheritedWorkflowDocuments;
+
 	/// <summary>The session's workflow run.</summary>
 	public WorkflowRunner Workflow { get; }
 
@@ -27,7 +31,7 @@ public sealed partial class HostSession {
 		(_, ex) => FailWorkflowTurn(ex));
 
 	private WorkflowRunner CreateWorkflowRunner(
-		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot) =>
+		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot, Func<string, string> documentsDirectory) =>
 		new(
 			WorkflowCatalog,
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
@@ -38,7 +42,8 @@ public sealed partial class HostSession {
 			() => settings.RequireBool(WorkflowSettings.OpenReviewItem),
 			() => settings.RequireNumber(WorkflowSettings.DecisionConfidence),
 			workspaceRoot,
-			WeavieWorkflows.Vocabulary);
+			WeavieWorkflows.Vocabulary,
+			runId => InheritedWorkflowDocuments ?? documentsDirectory(runId));
 
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
@@ -85,6 +90,11 @@ public sealed partial class HostSession {
 	}
 
 	private sealed class WorkflowTurnContext(HostSession session) : IAgentTurnContext {
-		public string Compose() => session.Workflow.StageBlock();
+		public string Compose() {
+			string stage = session.Workflow.StageBlock();
+			return stage.Length > 0 || session.WorkflowDocumentsDirectory is not { } documents
+				? stage
+				: $"[Weavie workflow documents] Shared documents: {documents}. Read and update files here for the workflow that started this session. Sessions started from here share this same folder.";
+		}
 	}
 }

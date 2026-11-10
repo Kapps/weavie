@@ -41,7 +41,7 @@ public sealed class WorkflowTransitionsTests {
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	private static WorkflowStep Started() =>
-		Machine.Start("r-1", "p", WorkflowTransitions.ReadInputs(Definition, Json("""{"task":"auth"}"""), Path.GetTempPath()));
+		Machine.Start("r-1", "p", WorkflowTransitions.ReadInputs(Definition, Json("""{"task":"auth"}"""), Path.GetTempPath(), null), Path.GetTempPath());
 
 	private static WorkflowDecisionPlan Decision(WorkflowStep step) =>
 		Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Plan;
@@ -157,7 +157,7 @@ public sealed class WorkflowTransitionsTests {
 			    run: { prompt: "do b" }
 			""", "flow");
 		var machine = new WorkflowTransitions(read.Definition!, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
-		var asking = machine.Complete(machine.Start("r-1", "p", []).Run, Json("{}"), "s").Step.Run;
+		var asking = machine.Complete(machine.Start("r-1", "p", [], Path.GetTempPath()).Run, Json("{}"), "s").Step.Run;
 		var next = machine.Answer(asking, "yes", "");
 		Assert.Contains("really?", next.Run.Kickoff!.Text);
 		Assert.Null(machine.Cancel(next.Run).Run.Kickoff);
@@ -184,7 +184,7 @@ public sealed class WorkflowTransitionsTests {
 			      choices: { yes: a, no: done }
 			""", "loop").Definition!;
 		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
-		var deciding = machine.Complete(machine.Start("r-3", "p", []).Run, Json("""{"left":["x"]}"""), "one left").Step;
+		var deciding = machine.Complete(machine.Start("r-3", "p", [], Path.GetTempPath()).Run, Json("""{"left":["x"]}"""), "one left").Step;
 		var again = machine.Resolve(deciding.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 		Assert.Equal(("a", WorkflowPhase.Open), (again.Run.Stage, again.Run.Phase));
 		Assert.StartsWith("Host decided \"yes\"", Kickoff(again));
@@ -237,7 +237,7 @@ public sealed class WorkflowTransitionsTests {
 			    run: { prompt: "use {{a.x}}" }
 			""", "refs").Definition!;
 		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
-		var run = machine.Start("r-2", "p", []).Run;
+		var run = machine.Start("r-2", "p", [], Path.GetTempPath()).Run;
 		var paused = machine.Jump(run, "b");
 		Assert.Equal(WorkflowPhase.Paused, paused.Run.Phase);
 		Assert.Contains("{{a.x}}", paused.Run.PausedReason);
@@ -247,7 +247,7 @@ public sealed class WorkflowTransitionsTests {
 	[Fact]
 	public void InputsAreTypeCheckedAndUnknownOrMissingOnesListed() {
 		var ex = Assert.Throws<WorkflowException>(() =>
-			WorkflowTransitions.ReadInputs(Definition, Json("""{"bogus":1}"""), Path.GetTempPath()));
+			WorkflowTransitions.ReadInputs(Definition, Json("""{"bogus":1}"""), Path.GetTempPath(), null));
 		Assert.Contains("missing input \"task\"", ex.Message);
 		Assert.Contains("unknown input \"bogus\"", ex.Message);
 	}

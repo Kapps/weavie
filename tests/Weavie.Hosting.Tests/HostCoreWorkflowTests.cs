@@ -90,7 +90,7 @@ public sealed class HostCoreWorkflowTests {
 		session.Workflow.CompleteStage(Json("{}"), "s");
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
-		Assert.Equal("", turnContext.Compose());
+		Assert.Contains(session.Workflow.Current!.DocumentsDirectory, turnContext.Compose(), StringComparison.Ordinal);
 		Assert.Equal(1, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
 	}
 

@@ -24,6 +24,9 @@ public sealed class SessionSlot {
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }
 
+	/// <summary>The documents folder inherited from the session that created this one, if any.</summary>
+	public string? WorkflowDocumentsDirectory { get; set; }
+
 	/// <summary>The provider this session uses. Existing sessions default to Claude.</summary>
 	public required string AgentProviderId { get; set; }
 

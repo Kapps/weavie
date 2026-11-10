@@ -72,6 +72,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		LayoutStore layout,
 		string workspaceRoot,
 		string scratchDir,
+		Func<string, string> workflowDocumentsDirectory,
 		string pastedImagesDir,
 		string authenticationTerminalLogPath,
 		IReadOnlyList<string> shellTerminals,
@@ -229,7 +230,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
-		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot);
+		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot, workflowDocumentsDirectory);
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,

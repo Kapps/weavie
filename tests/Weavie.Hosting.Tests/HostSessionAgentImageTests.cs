@@ -110,6 +110,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
 			_dir.Path,
 			_dir.Combine("scratch"),
+			id => _dir.Combine("documents", id),
 			_dir.Combine("pasted"),
 			_dir.Combine("agent-pane.json"),
 			[ShellTerminalId.New()],

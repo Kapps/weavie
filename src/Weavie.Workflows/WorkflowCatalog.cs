@@ -57,9 +57,12 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	}
 
 	/// <summary>Resolves <paramref name="id"/> once and reads <paramref name="inputs"/> against this worktree.</summary>
-	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) {
+	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) => Prepare(id, inputs, null);
+
+	/// <summary>Prepares inputs with access to the inherited run documents directory.</summary>
+	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs, string? documentsDirectory) {
 		var (entry, definition) = Winner(id);
-		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree));
+		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory));
 	}
 
 	private WorkflowCatalogEntry Resolve(string id) {

@@ -12,9 +12,10 @@ internal sealed partial class WorkflowTransitions(
 	private const string No = "no";
 
 	/// <summary>A new run of the definition with <paramref name="inputs"/>, entering its first stage.</summary>
-	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs) {
+	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory) {
 		var run = new WorkflowRun {
 			Id = runId,
+			DocumentsDirectory = documentsDirectory,
 			WorkflowId = definition.Id,
 			SourcePath = sourcePath,
 			SourceText = definition.SourceText,
@@ -39,7 +40,7 @@ internal sealed partial class WorkflowTransitions(
 		Require(run, WorkflowPhase.Open, "complete");
 		var stage = StageOf(run.Stage);
 		var errors = new List<string>();
-		var values = ReadOutputs(stage, outputs, errors);
+		var values = ReadOutputs(stage, outputs, run.DocumentsDirectory, errors);
 		if (errors.Count > 0) {
 			int attempts = run.Attempts + 1;
 			return new WorkflowCompletion(attempts >= maxStageAttempts
@@ -224,7 +225,7 @@ internal sealed partial class WorkflowTransitions(
 			[new WorkflowEffect.Decide(new WorkflowDecisionPlan(
 				rendered, [.. choices], new Dictionary<string, string>(outputs),
 				run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
-				paths, question.Confidence ?? decisionConfidence))]);
+				paths, run.DocumentsDirectory, question.Confidence ?? decisionConfidence))]);
 	}
 
 	// Puts the run's current question to the user through the agent; a non-empty reason says why the model didn't answer it.

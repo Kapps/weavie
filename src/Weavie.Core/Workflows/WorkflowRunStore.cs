@@ -30,10 +30,20 @@ public sealed class WorkflowRunStore : JsonDocumentStore, IWorkflowRunStore {
 	/// <inheritdoc/>
 	public void Save(WorkflowRun? run) {
 		lock (Gate) {
+			var previous = _run;
 			_run = run;
-			PersistLocked();
+			try {
+				PersistLocked();
+			} catch {
+				_run = previous;
+				throw;
+			}
 		}
 	}
+
+	/// <inheritdoc/>
+	protected override void OnPersistFailed(Exception cause) =>
+		throw new WorkflowException($"Could not save workflow run in {FilePath}: {cause.Message}");
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) => _run = text is null ? null : WorkflowRunDocument.Read(text);

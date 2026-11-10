@@ -21,6 +21,7 @@ public sealed partial class HostCore {
 				LastActiveAt = slot.LastActiveAt,
 				Unseen = slot.Unseen,
 				WorktreePath = slot.WorktreePath,
+				WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
 				EditorSession = slot.EditorSession,
@@ -56,6 +57,7 @@ public sealed partial class HostCore {
 			}
 
 			if (slot is { }) {
+				slot.WorkflowDocumentsDirectory = item.WorkflowDocumentsDirectory;
 				slot.LastActiveAt = item.LastActiveAt;
 				slot.Unseen = item.Unseen;
 			}
@@ -64,6 +66,8 @@ public sealed partial class HostCore {
 				toLoad.Add(slot);
 			}
 		}
+
+		RestoreWorkflowDocuments();
 
 		// Native UI loops may not be running yet; publish serially without dispatching to them.
 		// Bounded so a workspace with many loaded sessions doesn't fork all their Claude/shell
@@ -95,6 +99,7 @@ public sealed partial class HostCore {
 		HostSession? session = null;
 		try {
 			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id, slot.ShellTerminals);
+			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);
 

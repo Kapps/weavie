@@ -17,7 +17,7 @@ public sealed partial class HostCore {
 	private void WireWorkflow(HostSession session) {
 		var runner = session.Workflow;
 		session.Commands.RegisterHandler(CoreCommands.WorkflowRun, (argsJson, _) => RunWorkflowCommand(args => {
-			var run = runner.Start(Required(args, "workflow"), args.TryGetProperty("inputs", out var inputs) ? inputs : EmptyInputs);
+			var run = runner.Start(session.WorkflowCatalog.Prepare(Required(args, "workflow"), args.TryGetProperty("inputs", out var inputs) ? inputs : EmptyInputs, session.InheritedWorkflowDocuments));
 			return $"Started run {run.Id} of workflow {run.WorkflowId} at stage {run.Stage}.";
 		}, argsJson));
 		RegisterRunCommand(session, CoreCommands.WorkflowAnswer,
@@ -34,6 +34,7 @@ public sealed partial class HostCore {
 			published = line;
 			PostSessionRun(session.Bus.BroadcastTarget, line);
 		});
+		runner.Changed += () => _workflowDocuments.Bind(session.WorkspaceRoot, session.WorkflowDocumentsDirectory);
 		runner.Changed += Publish;
 		session.Status.Changed += _ => Publish();
 	}
@@ -62,8 +63,8 @@ public sealed partial class HostCore {
 
 	// Resolved once, from where the user started the session, before any worktree exists: an unknown workflow or bad
 	// inputs must not leave a session behind, and the new session runs exactly what was checked.
-	private WorkflowLaunch PrepareWorkflow(SessionSlot? source, string workflow, JsonElement inputs) =>
-		WeavieWorkflows.Catalog(source?.WorktreePath ?? WorkspaceRoot).Prepare(workflow, inputs);
+	private WorkflowLaunch PrepareWorkflow(SessionSlot? source, string workflow, JsonElement inputs, string? documentsDirectory) =>
+		WeavieWorkflows.Catalog(source?.WorktreePath ?? WorkspaceRoot).Prepare(workflow, inputs, documentsDirectory);
 
 	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
 	private static void ForgetWorkflowRun(string worktreePath) {

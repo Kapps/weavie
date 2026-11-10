@@ -31,7 +31,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
+			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		runner.Activate();
 		return runner;
 	}
@@ -43,6 +43,19 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
 		Assert.Equal(run.Id, new WorkflowRunStore(new LocalFileSystem(), StorePath).Run?.Id);
+	}
+
+	[Fact]
+	public void FailedRunSaveDoesNotPublishOrReplaceTheCurrentRun() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		int changes = 0;
+		runner.Changed += () => changes++;
+		File.Delete(StorePath);
+		Directory.CreateDirectory(StorePath);
+		Assert.Throws<WorkflowException>(() => runner.Cancel(run.Id));
+		Assert.Equal(run, runner.Current);
+		Assert.Equal(0, changes);
 	}
 
 	[Fact]

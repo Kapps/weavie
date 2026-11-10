@@ -28,6 +28,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private readonly Func<bool> _openReviewItem;
 	private readonly Func<double> _decisionConfidence;
 	private readonly string _worktree;
+	private readonly Func<string, string> _documentsDirectory;
 	private readonly WorkflowVocabulary _words;
 	private WorkflowRun? _run;
 	private WorkflowDefinition? _definition;
@@ -37,7 +38,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
 		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowFileReader files, IWorkflowRunPort port,
-		Func<int> maxStageAttempts, Func<bool> openReviewItem, Func<double> decisionConfidence, string worktree, WorkflowVocabulary words) {
+		Func<int> maxStageAttempts, Func<bool> openReviewItem, Func<double> decisionConfidence, string worktree, WorkflowVocabulary words, Func<string, string> documentsDirectory) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
@@ -47,6 +48,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 		_openReviewItem = openReviewItem;
 		_decisionConfidence = decisionConfidence;
 		_worktree = worktree;
+		_documentsDirectory = documentsDirectory;
 		_words = words;
 		_run = store.Run;
 		Problem = store.LoadFailure;
@@ -115,7 +117,14 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 			_definition = launch.Definition;
 			Problem = null;
-			Apply(Transitions().Start($"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}", launch.SourcePath, launch.Inputs));
+			string id = $"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}";
+			string documents = _documentsDirectory(id);
+			try {
+				Directory.CreateDirectory(documents);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				throw new WorkflowException($"Could not create workflow documents directory {documents}: {ex.Message}");
+			}
+			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents));
 			return _run!;
 		}
 	}
@@ -196,15 +205,13 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private WorkflowTransitions Transitions() =>
 		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
 
-	private void Apply(WorkflowStep step) {
-		_pending?.Dispose();
-		_pending = null;
-		Commit(step.Run, step.Effects);
-	}
+	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects);
 
 	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) {
-		_run = run;
 		_store.Save(run);
+		_pending?.Dispose();
+		_pending = null;
+		_run = run;
 		foreach (var effect in effects) {
 			switch (effect) {
 				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
@@ -222,7 +229,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return;
 			}
 
-			Apply(Transitions().Resolve(_run!, result, decision.MinimumConfidence));
+			try {
+				Apply(Transitions().Resolve(_run!, result, decision.MinimumConfidence));
+			} catch (Exception ex) when (ex is WorkflowException or IOException or UnauthorizedAccessException) {
+				_pending?.Dispose();
+				_pending = null;
+				string reason = $"Could not save workflow progress: {ex.Message}. The run is paused in memory; fix storage and resume. The saved run still holds the pending decision.";
+				_run = _run! with { Phase = WorkflowPhase.Paused, PausedReason = reason, Kickoff = null };
+				_port.Notify(reason);
+				Changed?.Invoke();
+			}
 		}
 	}
 

@@ -4,7 +4,7 @@ namespace Weavie.Workflows;
 
 internal sealed partial class WorkflowTransitions {
 	/// <summary>Reads a run's inputs for <paramref name="definition"/>; throws listing every problem.</summary>
-	public static Dictionary<string, WorkflowValue> ReadInputs(WorkflowDefinition definition, JsonElement inputs, string worktree) {
+	public static Dictionary<string, WorkflowValue> ReadInputs(WorkflowDefinition definition, JsonElement inputs, string worktree, string? documentsDirectory) {
 		var errors = new List<string>();
 		if (inputs.ValueKind is not (JsonValueKind.Object or JsonValueKind.Undefined or JsonValueKind.Null)) {
 			throw new WorkflowException("Workflow inputs must be an object of name → value.");
@@ -17,7 +17,7 @@ internal sealed partial class WorkflowTransitions {
 				continue;
 			}
 
-			if (WorkflowValues.TryRead(element, spec.Type, worktree, out var value, out string error)) {
+			if (WorkflowValues.TryRead(element, spec.Type, worktree, documentsDirectory, out var value, out string error)) {
 				values[spec.Name] = value;
 			} else {
 				errors.Add($"input \"{spec.Name}\": {error}");
@@ -35,7 +35,7 @@ internal sealed partial class WorkflowTransitions {
 			: throw new WorkflowException($"Workflow {definition.Id} can't start: {string.Join("; ", errors)}");
 	}
 
-	private Dictionary<string, WorkflowValue> ReadOutputs(WorkflowStage stage, JsonElement outputs, List<string> errors) {
+	private Dictionary<string, WorkflowValue> ReadOutputs(WorkflowStage stage, JsonElement outputs, string documentsDirectory, List<string> errors) {
 		var values = new Dictionary<string, WorkflowValue>(StringComparer.Ordinal);
 		bool isObject = outputs.ValueKind == JsonValueKind.Object;
 		if (!isObject && outputs.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)) {
@@ -46,7 +46,7 @@ internal sealed partial class WorkflowTransitions {
 		foreach (var spec in stage.Run.Outputs) {
 			if (!isObject || !outputs.TryGetProperty(spec.Name, out var element)) {
 				errors.Add($"missing output \"{spec.Name}\" ({spec.Type.ToString().ToLowerInvariant()})");
-			} else if (WorkflowValues.TryRead(element, spec.Type, worktree, out var value, out string error)) {
+			} else if (WorkflowValues.TryRead(element, spec.Type, worktree, documentsDirectory, out var value, out string error)) {
 				values[spec.Name] = value;
 			} else {
 				errors.Add($"output \"{spec.Name}\": {error}");
@@ -69,7 +69,7 @@ internal sealed partial class WorkflowTransitions {
 			return true;
 		}
 
-		var absent = template.References.FirstOrDefault(r => !r.IsInput && run.Outputs.GetValueOrDefault(r.Scope)?.ContainsKey(r.Name) != true);
+		var absent = template.References.FirstOrDefault(r => !r.IsInput && !r.IsDocuments && run.Outputs.GetValueOrDefault(r.Scope)?.ContainsKey(r.Name) != true);
 		if (absent is not null) {
 			missing = $"Stage \"{run.Stage}\" uses {absent}, but stage \"{absent.Scope}\" hasn't reported it.";
 			return false;
@@ -79,7 +79,8 @@ internal sealed partial class WorkflowTransitions {
 		return true;
 	}
 
-	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) => reference.IsInput
+	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) => reference.IsDocuments
+		? new WorkflowValue { Text = run.DocumentsDirectory } : reference.IsInput
 		? run.Inputs.GetValueOrDefault(reference.Name, WorkflowValue.Empty)
 		: run.Outputs[reference.Scope][reference.Name];
 
@@ -89,11 +90,11 @@ internal sealed partial class WorkflowTransitions {
 		paths = selected;
 		foreach (var reference in template.References.Where(r => WorkflowReferences.TypeOf(definition, r) == WorkflowValueType.Files)) {
 			foreach (string path in ResolveValue(run, reference).Items ?? []) {
-				if (!WorkflowFilePaths.TryResolve(worktree, path, out string relative, out _)) {
-					error = $"\"{path}\" isn't a file path inside the worktree";
+				if (!WorkflowFilePaths.TryResolve(worktree, run.DocumentsDirectory, path, out string relative, out string full)) {
+					error = $"\"{path}\" isn't a file path inside the worktree or run documents directory";
 					return false;
 				}
-				if (seen.Add(relative)) selected.Add(relative);
+				if (seen.Add(full)) selected.Add(relative);
 			}
 		}
 		error = "";

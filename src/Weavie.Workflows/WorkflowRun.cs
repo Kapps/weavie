@@ -99,6 +99,9 @@ public sealed record WorkflowRun {
 	/// <summary>The turn the host still owes the agent for the current stage, or <see langword="null"/> once delivered.</summary>
 	public required WorkflowKickoff? Kickoff { get; init; }
 
+	/// <summary>The session's control values the run holds, or <see langword="null"/> while it holds none.</summary>
+	public required WorkflowHold? Hold { get; init; }
+
 	/// <summary>Whether the run has ended.</summary>
 	[JsonIgnore]
 	public bool IsFinished => Phase is WorkflowPhase.Done or WorkflowPhase.Cancelled;
@@ -112,6 +115,27 @@ public sealed record WorkflowKickoff {
 	/// <summary>The provider command (skill) name, or empty for an ordinary prompt.</summary>
 	public required string Command { get; init; }
 
-	/// <summary>An ordinary prompt.</summary>
-	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "" };
+	/// <summary>The stage this turn opens, or empty for a question or a turn within the open stage.</summary>
+	public required string Opens { get; init; }
+
+	/// <summary>An ordinary prompt within the run's current stage.</summary>
+	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "", Opens = "" };
+}
+
+/// <summary>
+/// Control values a run keeps in effect on the session's conversation: the session's own values, to restore when the
+/// run no longer holds any, and the values the current stage holds over them. Keys are the provider's axis ids.
+/// </summary>
+public sealed record WorkflowHold {
+	/// <summary>The name of the agent the values were held for.</summary>
+	public required string Agent { get; init; }
+
+	/// <summary>The stage the values were held for; once the run moves on, they are that stage's until the next opens.</summary>
+	public required string Stage { get; init; }
+
+	/// <summary>The session's own value of every axis the run may change.</summary>
+	public required Dictionary<string, string> Own { get; init; }
+
+	/// <summary>The values the current stage holds: its agent's model and options, then any stage-only picks.</summary>
+	public required Dictionary<string, string> Held { get; init; }
 }

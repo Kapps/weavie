@@ -84,6 +84,9 @@ public sealed class WorkflowReaderTests {
 	[InlineData("id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { y: done, n: a }, limit: 0 } }]", "at least 1", "stages[0].then.limit", 3)]
 	[InlineData("id: x\ndescription: d\nstages: [{ id: a, if: { ask: q, by: user, choices: { y: a } }, run: { prompt: p } }]", "unknown key \"choices\"", "stages[0].if.choices", 3)]
 	[InlineData("id: x\ndescription: d\ninputs: { task: number }\nstages: [{ id: a, run: { prompt: p } }]", "expected one of text", "inputs.task", 3)]
+	[InlineData("id: x\ndescription: d\nagents: { b: { provider: p, role: x } }\nstages: [{ id: a, run: { prompt: p } }]", "unknown key \"role\"", "agents.b.role", 3)]
+	[InlineData("id: x\ndescription: d\nagents: { b: { model: m } }\nstages: [{ id: a, run: { prompt: p } }]", "missing required key \"provider\"", "agents.b", 3)]
+	[InlineData("id: x\ndescription: d\nagents: { b: { provider: p } }\nstages: [{ id: a, run: { prompt: p, agent: c } }]", "\"c\" names no agent; defined: b", "stages[0].run.agent", 4)]
 	public void ShapeErrorsNameThePathAndLine(string text, string message, string path, int line) {
 		var diagnostic = Assert.Single(WorkflowReader.Read(text, "x").Diagnostics);
 		Assert.Contains(message, diagnostic.Message, StringComparison.Ordinal);
@@ -129,6 +132,27 @@ public sealed class WorkflowReaderTests {
 			"id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p, outputs: { left: list } }, then: { ask: \"done?\", choices: { yes: done, no: a } } }]", "x");
 		Assert.NotNull(result.Definition);
 		Assert.Empty(result.Diagnostics);
+	}
+
+	[Fact]
+	public void ReadsAgentsAndTheStepsNamingThem() {
+		var definition = WorkflowReader.Read("""
+			id: x
+			description: d
+			agents:
+			  builder: { provider: fake-acp, model: beta, options: { fast: true, effort: high } }
+			  plain: { provider: fake-acp }
+			stages:
+			  - id: a
+			    run: { prompt: p, agent: builder }
+			  - id: b
+			    run: { prompt: p }
+			""", "x").Definition!;
+		var builder = definition.Agents[0];
+		Assert.Equal(("builder", "fake-acp", "beta"), (builder.Name, builder.Provider, builder.Model));
+		Assert.Equal([new("fast", "true"), new KeyValuePair<string, string>("effort", "high")], builder.Options);
+		Assert.Equal(("plain", null, 0), (definition.Agents[1].Name, definition.Agents[1].Model, definition.Agents[1].Options.Count));
+		Assert.Equal(["builder", null], definition.Stages.Select(s => s.Run.Agent));
 	}
 
 	[Fact]

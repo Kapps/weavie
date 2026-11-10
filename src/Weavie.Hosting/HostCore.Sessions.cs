@@ -692,7 +692,13 @@ public sealed partial class HostCore {
 			}
 			if (request.Workflow is { } workflow) {
 				try {
-					input = InitialSessionInput.ForWorkflow(PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs));
+					var launch = PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs);
+					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
+					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");
+					if (WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
+						return CommandResult.Failure(refusal);
+					}
+					input = InitialSessionInput.ForWorkflow(launch);
 				} catch (WorkflowException ex) {
 					return CommandResult.Failure(ex.Message);
 				}

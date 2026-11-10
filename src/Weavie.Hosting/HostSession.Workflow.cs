@@ -11,7 +11,7 @@ namespace Weavie.Hosting;
 // The session's workflow run: Weavie owns its stages and delivers each stage's turn; the agent does the work and
 // reports back through the session's registry. See docs/specs/workflows.md.
 public sealed partial class HostSession {
-	private readonly IdleTurnDelivery _workflowTurns;
+	private readonly IdleTurnDelivery<WorkflowKickoff> _workflowTurns;
 	private int _runtimeActivated;
 
 	/// <summary>The session's workflow run.</summary>
@@ -20,7 +20,7 @@ public sealed partial class HostSession {
 	/// <summary>The workflows visible to this session.</summary>
 	internal WorkflowCatalog WorkflowCatalog { get; }
 
-	private IdleTurnDelivery CreateWorkflowTurns() => new(
+	private IdleTurnDelivery<WorkflowKickoff> CreateWorkflowTurns() => new(
 		Status,
 		new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
 		SendWorkflowTurn,
@@ -43,21 +43,21 @@ public sealed partial class HostSession {
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(WorkflowKickoff kickoff) {
-		var turn = kickoff.Submission();
 		lock (_initialInputGate) {
 			if (Agent.TerminalSession is not null && Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
-				QueueInitialInput(turn);
+				QueueInitialInput(kickoff.Submission());
 				_ = Task.Run(() => Workflow.TryClaimKickoff(kickoff));
 				return;
 			}
 		}
 
-		_workflowTurns.Queue(turn);
+		_workflowTurns.Queue(kickoff);
 	}
 
-	private void SendWorkflowTurn(AgentTurnSubmission turn) {
-		if (Workflow.TryClaimKickoff(turn.Kickoff())) {
-			SendAgentInput(turn);
+	private async Task SendWorkflowTurn(WorkflowKickoff kickoff) {
+		if (kickoff.Opens.Length > 0 && !await OpenStageAsync(kickoff).ConfigureAwait(false)) return;
+		if (Workflow.TryClaimKickoff(kickoff)) {
+			SendAgentInput(kickoff.Submission());
 		}
 	}
 
@@ -72,16 +72,20 @@ public sealed partial class HostSession {
 
 	private void MarkRuntimeActivated() => Volatile.Write(ref _runtimeActivated, 1);
 
-	// The runner closes first, so nothing queues a turn after the delivery is gone.
+	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
 		Workflow.Dispose();
 		_workflowTurns.Dispose();
+		_workflowRelease.Dispose();
 	}
 
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {
 		public void Kickoff(WorkflowKickoff turn) => session.DeliverWorkflowTurn(turn);
 
 		public void Notify(string message) => session.Notify("warn", message);
+
+		public string? Refusal(WorkflowDefinition definition) => WorkflowAgentControls.Refusal(
+			definition, session.Agent.Provider, session.Agent.Controls?.ControlState is { Ready: true } state ? state.Axes : null);
 	}
 
 	private sealed class WorkflowTurnContext(HostSession session) : IAgentTurnContext {

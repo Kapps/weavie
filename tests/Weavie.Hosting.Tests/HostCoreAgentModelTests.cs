@@ -19,6 +19,6 @@ public sealed class HostCoreAgentModelTests {
 
 		var entry = host.AgentModels.Find("structured")!;
 		Assert.Equal(AgentModelSource.Session, entry.Source);
-		Assert.Equal(["GPT Test"], entry.Models.Select(model => model.Id));
+		Assert.Equal(["GPT Test", "GPT Next", FakeStructuredAgentProvider.RefusedModel], entry.Models.Select(model => model.Id));
 	}
 }

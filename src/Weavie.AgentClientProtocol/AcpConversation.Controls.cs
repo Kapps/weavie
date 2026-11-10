@@ -6,105 +6,28 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	internal void SetControl(string axis, string value) {
-		ArgumentException.ThrowIfNullOrEmpty(axis);
-		ArgumentException.ThrowIfNullOrEmpty(value);
-		string? unadvertised;
-		lock (_gate) {
-			unadvertised = !_controls.TryGetValue(axis, out var control)
-				? $"ACP did not advertise the '{axis}' control."
-				: control.Options.All(option => !string.Equals(option.Id, value, StringComparison.Ordinal))
-					? $"ACP did not advertise '{value}' for the '{axis}' control."
-					: null;
-			if (unadvertised is null) {
-				if (!_ready || _sessionId is null) throw new InvalidOperationException("The ACP session is not ready.");
-				_controlMutations.Enqueue(new AcpControlMutation(axis, value));
-			}
-		}
-		if (unadvertised is not null) EmitFailure(new AcpProtocolException(unadvertised));
-		else DispatchControlMutation();
-	}
-
-	private void DispatchControlMutation() {
-		AcpControlMutation mutation;
-		lock (_gate) {
-			if (_controlMutationActive || _controlMutations.Count == 0 || !_ready || !Live) {
-				return;
-			}
-			_controlMutationActive = true;
-			mutation = _controlMutations.Dequeue();
-		}
-		_ = Task.Run(async () => {
-			try {
-				await DeliverControlMutationAsync(mutation, persist: true).ConfigureAwait(false);
-			} catch (Exception ex) when (ex is not OperationCanceledException) {
-				lock (_turnTransitionGate) {
-					if (Live) {
-						if (ex is IOException or AcpProtocolException) FailRuntimeSerialized(ex);
-						else EmitFailure(ex);
-					}
-				}
-			} finally {
-				lock (_gate) {
-					if (Live) _controlMutationActive = false;
-				}
-				DispatchControlMutation();
-			}
-		});
-	}
-
-	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, bool persist) {
-		AgentControlAxis control;
-		bool mode;
-		lock (_gate) {
-			if (_sessionId is null) return;
-			if (!_controls.TryGetValue(mutation.Axis, out control!)
-				|| control.Options.All(option => option.Id != mutation.Value)) {
-				throw new AcpProtocolException(
-					$"ACP no longer advertises '{mutation.Value}' for the '{mutation.Axis}' control.");
-			}
-			mode = mutation.Axis == "mode" && !_configOwnsMode;
-		}
-
-		JsonElement result;
-		if (mode) {
-			result = await _endpoint.Value.RequestAsync(
-				"session/set_mode",
-				new JsonObject { ["modeId"] = mutation.Value },
-				CancellationToken.None).ConfigureAwait(false);
-		} else {
-			result = await _endpoint.Value.RequestAsync(
-				"session/set_config_option",
-				AcpConfigurationOptions.SetParameters(control, mutation.Value),
-				CancellationToken.None).ConfigureAwait(false);
-		}
-		lock (_turnTransitionGate) {
-			string? remembered;
-			if (!Live) return;
-			lock (_gate) {
-				if (mode) _controls[mutation.Axis] = WithValue(control, mutation.Value);
-				else ReadControlResultLocked(result);
-				remembered = persist ? _controls[mutation.Axis].Value : null;
-			}
-			if (remembered is not null) _port.RememberControl(mutation.Axis, remembered);
-			RaiseControls();
-		}
-	}
-
 	private async Task RestoreControlDefaultsAsync() {
+		var held = _port.HeldControls();
 		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
+		foreach (var (axis, value) in held) pending[axis] = value;
 		while (pending.Count > 0) {
 			AcpControlMutation? mutation = null;
 			AcpControlMutation? stale = null;
 			bool consumed = false;
 			lock (_gate) {
-				foreach (var control in _controls.Values) {
+				// The model goes first, because the options an agent advertises depend on it.
+				foreach (var control in _controls.Values.OrderBy(control => control.Category != "model")) {
 					if (!pending.Remove(control.Id, out string? value)) continue;
 					consumed = true;
 					if (control.Options.All(option => option.Id != value)) stale = new AcpControlMutation(control.Id, value);
 					else if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
 					break;
 				}
+			}
+			if (stale is not null && held.ContainsKey(stale.Axis)) {
+				EmitFailure(new AcpProtocolException(
+					$"{Definition.Name} no longer advertises '{stale.Value}' for the '{stale.Axis}' control the workflow stage holds."));
+				continue;
 			}
 			if (stale is not null) {
 				_port.ForgetControl(stale.Axis, stale.Value);

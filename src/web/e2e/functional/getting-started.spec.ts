@@ -152,6 +152,13 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   expect((await segment("Agent").boundingBox())?.height).toBeGreaterThan(24);
   await expect(segment("Model")).toContainText("Alpha");
   await expect(segment("Fast")).toContainText("Off");
+  expect(
+    await setup.locator(".gs-profile").evaluate((profile) => {
+      const body = profile.closest(".gs-body")!.getBoundingClientRect();
+      const card = profile.getBoundingClientRect();
+      return card.top >= body.top && card.bottom <= body.bottom;
+    }),
+  ).toBe(true);
   await automatic.uncheck();
   await segment("Model").focus();
   await page.keyboard.press("ArrowDown");

@@ -84,7 +84,7 @@
   color: var(--dim);
 }
 
-/* Body: a fixed height so the dialog never jumps between steps; long content scrolls inside it. */
+/* Catalog steps scroll; settings keep their controls visible in full. */
 
 .gs-body {
   display: flex;
@@ -92,6 +92,11 @@
   gap: 12px;
   height: 17rem;
   overflow-y: auto;
+}
+
+.gs-body:has(.gs-row) {
+  height: auto;
+  min-height: 17rem;
 }
 
 .gs-text {

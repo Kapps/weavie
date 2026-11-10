@@ -82,6 +82,8 @@ test("fullscreen centers the pane in a draggable column", async ({ page }) => {
   expect(await focusedPane()).toBe(pane);
 
   await page.reload();
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.locator(".pane-fullscreen").first().click();
   await expect.poll(width).toBeCloseTo(resized, 0);
 

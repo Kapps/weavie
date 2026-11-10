@@ -44,6 +44,7 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
   await page.reload();
   await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
+  await page.keyboard.press("Escape");
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();

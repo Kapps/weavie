@@ -169,7 +169,14 @@ export function SessionInbox(props: {
     setSubmitting("existing");
     if (
       await props.onCreate(
-        async () => ({ branch, base: "main", existing: true, prompt: "", attachments: [] }),
+        async () => ({
+          branch,
+          base: "main",
+          existing: true,
+          prompt: "",
+          attachments: [],
+          workflow: null,
+        }),
         backendId(),
         providerId(),
       )

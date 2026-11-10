@@ -541,21 +541,75 @@ export function requestBranchPreview(
   userInitiated: boolean,
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
+  return requestSessionCreation(
+    backendId,
+    "previewBranch",
+    {
+      sourceId: selectedForBackend(backendId)?.address.slot ?? null,
+      prompt,
+      attachments,
+      userInitiated,
+    },
+    signal,
+  );
+}
+
+export interface WorkflowStartOption {
+  id: string;
+  description: string;
+  /** Why the workflow can't run; null when it can. */
+  error: string | null;
+}
+
+export interface WorkflowStartCatalog {
+  workflows: WorkflowStartOption[];
+  default: string | null;
+  /** Why the configured default workflow isn't preselected; null when it is, or none is configured. */
+  defaultProblem: string | null;
+}
+
+export interface WorkflowSuggestion {
+  /** Whether `workflow` (null for no workflow) should replace the composer's value. */
+  applies: boolean;
+  workflow: string | null;
+  error: string | null;
+}
+
+/** The session a new one branches from: the selected session for a "source" base, otherwise none. */
+export function launchSource(
+  backendId: string,
+  base: "source" | "main",
+): ClientSession | undefined {
+  return base === "source" ? selectedForBackend(backendId) : undefined;
+}
+
+function requestSessionCreation<T>(
+  backendId: string,
+  name: string,
+  payload: object,
+  signal: AbortSignal,
+): Promise<T> {
   const connection = hostConnection(backendId);
-  const active = selected();
   return connection === undefined
     ? Promise.reject(new Error("The host is not connected."))
-    : connection.host.feature("sessionCreation").request(
-        "previewBranch",
-        {
-          sourceId: active?.connection.id === backendId ? active.address.slot : null,
-          prompt,
-          attachments,
-          userInitiated,
-        },
-        signal,
-      );
+    : connection.host.feature("sessionCreation").request(name, payload, signal);
 }
+
+/** The workflows a session started from `sourceId` (null for the workspace) can run from a prompt alone. */
+export const requestWorkflowCatalog = (
+  backendId: string,
+  sourceId: string | null,
+  signal: AbortSignal,
+): Promise<WorkflowStartCatalog> =>
+  requestSessionCreation(backendId, "workflows", { sourceId }, signal);
+
+export const requestWorkflowSuggestion = (
+  backendId: string,
+  sourceId: string | null,
+  prompt: string,
+  signal: AbortSignal,
+): Promise<WorkflowSuggestion> =>
+  requestSessionCreation(backendId, "suggestWorkflow", { sourceId, prompt }, signal);
 
 export function requestDiffRefs(
   session: ClientSession,

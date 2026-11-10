@@ -9,6 +9,7 @@ import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
+import { type NewSessionWorkflowActions, NewSessionWorkflowField } from "./NewSessionWorkflowField";
 import {
   createNewSessionAttachments,
   type NewSessionSeedAttachment,
@@ -20,6 +21,8 @@ export interface NewSessionSeed {
   existing: boolean;
   prompt: string;
   attachments: NewSessionSeedAttachment[];
+  /** The workflow the session starts in, which takes the prompt and attachments; null for none. */
+  workflow: string | null;
 }
 
 /** The prompt-first form that starts a session on a new branch. */
@@ -47,6 +50,7 @@ export function NewSessionComposer(props: {
     status: "idle",
   });
   let branchActions: NewSessionBranchActions | undefined;
+  let workflowActions: NewSessionWorkflowActions | undefined;
   let promptInput!: HTMLTextAreaElement;
 
   const submitNew = async (): Promise<void> => {
@@ -55,6 +59,8 @@ export function NewSessionComposer(props: {
     if (props.busy || images.some((attachment) => attachment.status !== "ready")) {
       return;
     }
+    // The workflow is the one on screen at the press: a suggestion landing during the branch wait is not it.
+    const workflow = workflowActions?.capture() ?? null;
     if (
       await props.onStart(async () => {
         // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
@@ -67,12 +73,14 @@ export function NewSessionComposer(props: {
               existing: false,
               prompt: text,
               attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
+              workflow,
             };
       })
     ) {
       setPrompt("");
       attachmentStore.clear();
       branchActions?.reset();
+      workflowActions?.reset();
     }
   };
 
@@ -165,11 +173,11 @@ export function NewSessionComposer(props: {
       // branch field means the user is naming it themselves.
       onFocusOut={(event) => {
         const next = event.relatedTarget;
-        if (
-          next instanceof Element &&
-          event.currentTarget.contains(next) &&
-          next.closest(".session-composer-branch") === null
-        ) {
+        if (!(next instanceof Element) || !event.currentTarget.contains(next)) {
+          return;
+        }
+        workflowActions?.flush();
+        if (next.closest(".session-composer-branch") === null) {
           branchActions?.flush();
         }
       }}
@@ -222,6 +230,15 @@ export function NewSessionComposer(props: {
         onChange={setBranchPreview}
         register={(actions) => {
           branchActions = actions;
+        }}
+      />
+      <NewSessionWorkflowField
+        active={props.active}
+        backendId={props.backendId}
+        base={props.base}
+        prompt={prompt()}
+        register={(actions) => {
+          workflowActions = actions;
         }}
       />
       <div class="session-composer-options">

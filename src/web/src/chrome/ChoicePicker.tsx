@@ -17,13 +17,8 @@ export function ChoicePicker(props: {
       </div>
       <ControlMenu
         axis={{
-          id: "choice",
           label: props.picker.title,
-          description: null,
-          category: null,
-          kind: "select",
           value: props.picker.value,
-          valueLabel: "",
           options: props.picker.options,
         }}
         class="choice-picker-menu"

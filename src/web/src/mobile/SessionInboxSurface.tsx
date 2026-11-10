@@ -1,5 +1,6 @@
 import { X } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup } from "solid-js";
+import { controlMenuOpen } from "../chrome/ControlMenu";
 import { modalActive, requestModal } from "../chrome/modal-state";
 
 const FOCUSABLE =
@@ -27,7 +28,8 @@ export function SessionInboxSurface(props: {
     );
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (!desktopOpen()) {
+    // An open menu owns Escape and Tab: they close it or pick from it, never the whole surface.
+    if (!desktopOpen() || controlMenuOpen()) {
       return;
     }
     if (event.key === "Escape") {

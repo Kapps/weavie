@@ -207,7 +207,8 @@
   font-size: var(--font-hint-size);
 }
 
-.session-composer-branch {
+.session-composer-branch,
+.session-composer-workflow {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -285,10 +286,57 @@
   min-height: 44px;
 }
 
-.session-composer-branch small {
+.session-composer-branch small,
+.session-composer-workflow > small {
   grid-column: 1 / -1;
   color: var(--bad);
   font-size: var(--font-hint-size);
+}
+
+.session-composer-workflow-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  grid-column: 2 / -1;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
+  text-align: left;
+}
+
+.session-composer-workflow-toggle:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+}
+
+.session-composer-workflow-toggle:disabled {
+  opacity: 0.5;
+}
+
+.session-composer-workflow-toggle > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-composer-workflow-toggle > small {
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+
+.app.compact .session-composer-workflow-toggle {
+  min-height: 44px;
+}
+
+.control-menu.session-composer-workflow-menu {
+  z-index: 80;
 }
 
 .session-open-branch .session-composer-branch {

@@ -530,8 +530,10 @@ export class MockHost {
       return;
     }
     const index = this.received.push(message) - 1;
+    let handled = false;
     for (const subscription of [...this.handlers]) {
       if (matches(message, subscription.selector)) {
+        handled = true;
         subscription.handler(message);
       }
     }
@@ -554,6 +556,17 @@ export class MockHost {
       } else {
         this.respond(message, this.hello());
       }
+      return;
+    }
+    // The composer reads its workflows whenever Sessions opens; a spec that doesn't stage any offers none.
+    if (
+      !handled &&
+      message.kind === "request" &&
+      message.scope === "host" &&
+      message.feature === "sessionCreation" &&
+      message.name === "workflows"
+    ) {
+      this.respond(message, { workflows: [], default: null, defaultProblem: null });
       return;
     }
     if (

@@ -45,6 +45,33 @@
   color: var(--fg);
 }
 
+.control-menu-option[aria-disabled="true"] {
+  cursor: default;
+}
+
+.control-menu-option[aria-disabled="true"] .control-menu-option-label {
+  color: var(--dim);
+}
+
+.control-menu-option-label svg {
+  margin-right: 5px;
+  color: var(--bad);
+  vertical-align: -0.1em;
+}
+
+/* A pointer shows the reason as the row's tooltip; touch has no hover, so it reads it in the row. */
+.control-menu-option-reason {
+  display: none;
+  color: var(--bad);
+  font-size: var(--font-hint-size);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .control-menu-option-reason {
+    display: block;
+  }
+}
+
 .control-menu-option-group {
   padding-top: 2px;
   color: var(--dim);

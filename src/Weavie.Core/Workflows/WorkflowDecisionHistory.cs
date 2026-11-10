@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
+using Weavie.Core.Inference.Decisions;
 
 namespace Weavie.Core.Workflows;
 
@@ -38,6 +40,12 @@ public sealed partial class WorkflowDecisionHistory : JsonDocumentStore {
 		int middle = sorted.Length / 2;
 		double median = sorted.Length % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2.0;
 		return new DecisionHistorySummary(sorted.Length, TimeSpan.FromMilliseconds(median));
+	}
+
+	/// <summary>Records the decision behind <paramref name="receipt"/> when the agent answered it; a decision model's is not kept.</summary>
+	public void Record(InferenceReceipt receipt) {
+		ArgumentNullException.ThrowIfNull(receipt);
+		if (receipt.ProviderId == DecisionProviderIds.Agent) Append(receipt.Duration);
 	}
 
 	/// <summary>Records one agent-answered decision, dropping the oldest beyond the last 20.</summary>

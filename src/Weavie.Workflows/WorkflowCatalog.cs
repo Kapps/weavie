@@ -31,6 +31,15 @@ public sealed record WorkflowCatalogEntry {
 
 	/// <summary>The scope whose same-id file overrides this one, or <see langword="null"/> when this one wins.</summary>
 	public required WorkflowScope? ShadowedBy { get; init; }
+
+	/// <summary>Why the file can't run, as one line; empty when valid.</summary>
+	public string Error => string.Join("; ", Diagnostics.Where(d => !d.IsWarning));
+
+	/// <summary>
+	/// Whether a start from a prompt alone offers this workflow: it wins its id and declares no inputs. A broken
+	/// winner is offered so its <see cref="Error"/> can be shown.
+	/// </summary>
+	public bool OfferedForPrompt => ShadowedBy is null && Definition is not { Inputs.Count: > 0 };
 }
 
 /// <summary>
@@ -79,7 +88,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
 		var entry = Resolve(id);
 		return (entry, entry.Definition ?? throw new WorkflowException(
-			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
+			$"Workflow \"{id}\" ({entry.Path}) is invalid: {entry.Error}"));
 	}
 
 	/// <summary>The problems in the saved workflow that wins for <paramref name="id"/>; empty when valid.</summary>

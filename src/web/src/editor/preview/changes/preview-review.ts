@@ -153,7 +153,7 @@ export class PreviewReview {
     if (this.changes.length === 0) return [];
     const toggle = document.createElement("button");
     toggle.type = "button";
-    toggle.className = "weavie-inline-nav weavie-inline-changes-only";
+    toggle.className = "weavie-inline-nav weavie-inline-changes-only ui-button";
     toggle.textContent = "Changes only";
     toggle.title = `Show only the changed blocks${keyHint(CommandIds.previewChangesOnly)}`;
     toggle.setAttribute("aria-pressed", String(this.options.changesOnly()));

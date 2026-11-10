@@ -35,7 +35,7 @@ export function EditLocationActions(props: {
           {(target) => (
             <button
               type="button"
-              class="ui-button ui-button-content"
+              class="ui-button"
               title={`Review ${target.path}`}
               onClick={() => review(target)}
             >
@@ -66,7 +66,7 @@ export function PlanActions(props: {
       <div class="agent-approval-actions">
         <button
           type="button"
-          class="ui-button ui-button-content"
+          class="ui-button"
           title={key() === "" ? "Open plan in editor" : `Open plan in editor (${key()})`}
           onClick={open}
         >

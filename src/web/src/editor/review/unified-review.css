@@ -449,7 +449,6 @@
 
 /* Folder names read as path segments here, not as the file tree's section labels. */
 :is(.unified-review-tree, .unified-review-switcher) .file-tree-row.dir .file-tree-name {
-  color: inherit;
   font: inherit;
   letter-spacing: 0;
   text-transform: none;

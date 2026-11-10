@@ -69,7 +69,6 @@
 .weavie-hint-pill b {
   margin-right: 4px;
   color: var(--sev);
-  font-weight: var(--font-weight-emphasis);
 }
 
 .weavie-hint-pill code,

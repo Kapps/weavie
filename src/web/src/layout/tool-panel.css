@@ -42,14 +42,7 @@
 }
 
 .tool-head button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
   color: var(--dim);
-  border: none;
-  padding: 3px;
-  cursor: pointer;
 }
 
 .tool-head button:hover,
@@ -62,12 +55,6 @@
   outline-offset: 2px;
 }
 
-.tool-head svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
-}
-
 .app.compact .tool-head button {
-  min-width: 44px;
-  min-height: 44px;
+  --icon-button-size: var(--touch-target);
 }

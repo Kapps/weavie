@@ -263,7 +263,6 @@
 
 .weavie-pr-summary-text b {
   color: var(--fg);
-  font-weight: var(--font-weight-emphasis);
 }
 
 .weavie-pr-summary-count {

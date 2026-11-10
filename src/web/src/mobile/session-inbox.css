@@ -347,7 +347,7 @@
   }
 
   .app.compact .session-inbox .ui-field {
-    height: var(--touch-target);
+    --control-h: var(--touch-target);
   }
 
   .app.compact .session-composer-resuggest {

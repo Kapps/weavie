@@ -59,13 +59,9 @@
 }
 
 .pane-tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
+  flex: none;
+  margin-right: 4px;
   border-radius: 3px;
-  background: transparent;
-  cursor: pointer;
   opacity: 0;
 }
 

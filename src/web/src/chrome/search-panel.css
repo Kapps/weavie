@@ -21,11 +21,7 @@
   color: var(--dim);
 }
 
-.search-input-icon svg {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-}
-
+.search-input-icon svg,
 .search-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -133,11 +129,6 @@
   flex: 0 0 16px;
   color: var(--dim);
   user-select: none;
-}
-
-.search-twisty svg {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
 }
 
 .search-group-name {

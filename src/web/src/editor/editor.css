@@ -177,12 +177,6 @@
   color: var(--fg);
 }
 
-.editor-tab-close {
-  margin-right: 5px;
-  padding: 0;
-  color: inherit;
-}
-
 .editor-tab:hover .editor-tab-close,
 .editor-tab.active .editor-tab-close,
 .editor-tab.pinned .editor-tab-close {

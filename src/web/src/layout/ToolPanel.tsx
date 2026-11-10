@@ -58,7 +58,7 @@ export function ToolPanel(props: {
         </span>
         <button
           type="button"
-          class="tool-pin"
+          class="tool-pin ui-icon-button"
           aria-pressed={props.panels.docked(props.kind)}
           title={`${props.panels.docked(props.kind) ? "Float" : "Stay Open"}${liveKeyHint(dockCommand())}`}
           onClick={() => void runCommandWithFeedback(dockCommand())}
@@ -69,7 +69,7 @@ export function ToolPanel(props: {
         </button>
         <button
           type="button"
-          class="tool-close"
+          class="tool-close ui-icon-button"
           title={`Close${liveKeyHint(closeCommand())}`}
           onClick={close}
         >

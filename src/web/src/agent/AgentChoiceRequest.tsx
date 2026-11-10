@@ -105,7 +105,7 @@ export function ChoiceRequestActions(
           }}
         >
           <input
-            class="agent-choice-other"
+            class="agent-choice-other ui-field"
             type="text"
             placeholder="Other…"
             title="Type another answer (Enter)"

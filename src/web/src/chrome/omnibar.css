@@ -122,11 +122,14 @@
 }
 
 .tb-tree-twisty,
-.tb-tree-icon {
-  /* Reserve the column even when empty: file rows have no chevron, so without a fixed width the
-     twisty collapses and pushes their icons ~14px left of the folder icons at the same depth. */
-  min-width: 14px;
+.tb-tree-icon,
+.tb-symbol-kind {
   color: var(--dim);
+}
+
+/* Reserves the column on file rows, which have no chevron, so their icons line up with the folders'. */
+.tb-tree-twisty {
+  min-width: var(--icon-size);
 }
 
 /* Air between the icon and the name so rows don't read cramped — the row's own gap (4px) stays tight
@@ -135,13 +138,7 @@
   margin-right: 5px;
 }
 
-/* Symbol modes (@ / #): a kind glyph precedes the name; the container/file context is dimmed and flush right. */
-.tb-symbol-kind {
-  min-width: 14px;
-  color: var(--dim);
-}
-
-/* Push the container/file to the right edge and let it ellipsis rather than shove the name off-screen. */
+/* Symbol modes (@ / #): the container/file sits flush right and ellipsizes before the name does. */
 .tb-symbol-row .tb-row-dir {
   margin-left: auto;
   min-width: 0;

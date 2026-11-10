@@ -279,10 +279,6 @@ fieldset.gs-choices {
   min-height: 0;
 }
 
-.gs-registry .acp-registry-filter {
-  margin-top: 0;
-}
-
 .gs-registry .acp-registry-list {
   flex: 1 1 0;
   max-height: none;

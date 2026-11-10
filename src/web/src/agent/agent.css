@@ -688,21 +688,17 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-choice-other {
-  font: var(--font-content);
-  box-sizing: border-box;
-  width: 100%;
   margin-top: 4px;
-  padding: 6px 10px;
-  border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 0 10px;
+  border-width: 1px 0 0;
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 0;
   background: transparent;
-  color: var(--fg);
 }
 
 .agent-choice-other:focus {
-  border-top-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
   background: color-mix(in srgb, var(--fg) 7%, transparent);
-  outline: 0;
 }
 
 .agent-choice-dismiss {
@@ -963,17 +959,10 @@ label.agent-input-choice:hover {
   content: "\25cf";
 }
 
-.agent-input-question input:not([type="radio"], [type="checkbox"]),
 .agent-input-question textarea {
-  font: var(--font-content);
-}
-
-.agent-input-question input:not([type="radio"], [type="checkbox"]) {
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 4px 5px;
+  font: var(--font-chrome-body-wrap);
+  height: auto;
+  padding: 4px 8px;
 }
 
 .agent-compose {

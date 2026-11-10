@@ -77,7 +77,7 @@ export function ApprovalActions(props: {
     return (
       <button
         type="button"
-        class="ui-button ui-button-content"
+        class="ui-button"
         classList={{ default: bound().get(value) === CommandIds.agentApprove }}
         title={key() === "" ? label : `${label} (${key()})`}
         onClick={() => choose(value)}
@@ -124,7 +124,7 @@ export function AuthenticationActions(props: {
         {(action) => (
           <button
             type="button"
-            class="ui-button ui-button-content"
+            class="ui-button"
             title={
               props.answersToKeys &&
               action.id === firstId() &&

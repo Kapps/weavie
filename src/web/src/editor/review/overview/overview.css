@@ -297,7 +297,6 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 
 .session-overview-comment-head strong {
   color: var(--fg);
-  font-weight: var(--font-weight-emphasis);
 }
 
 .session-overview-comment-where {

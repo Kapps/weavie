@@ -104,10 +104,6 @@
   --icon-size: 14px;
   --icon-button-size: 20px;
 
-  --ui-font: var(--font-chrome-family);
-  --font-metadata-size: var(--font-content-secondary-size);
-  --font-hint-size: var(--font-chrome-secondary-size);
-
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own

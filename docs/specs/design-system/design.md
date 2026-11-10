@@ -501,31 +501,31 @@ files.
 
 **Foundation**
 
-- [ ] F1 `styles.css`: new tokens, layer declaration, base rules. Keep the three legacy tokens until close.
-- [ ] F2 `primitives.css` and its imports; confirm in the built CSS that `@layer base, ui;` comes first.
-- [ ] F3 `ModalShell.tsx` and `confirm-dialog.css`.
-- [ ] F4 Move the four prose blocks into `*.prose.css` with no rule edits.
+- [x] F1 `styles.css`: new tokens, layer declaration, base rules. Keep the three legacy tokens until close.
+- [x] F2 `primitives.css` and its imports; confirm in the built CSS that `@layer base, ui;` comes first.
+- [x] F3 `ModalShell.tsx` and `confirm-dialog.css`.
+- [x] F4 Move the four prose blocks into `*.prose.css` with no rule edits.
 
 **Parallel packages**
 
-- [ ] A Dialogs: the 15 `ModalShell` users, `BranchTypeahead.tsx`, `AcpRegistryList.tsx`, `session-prompt.css`, `theme/*`.
-- [ ] B Menus and lists: context menu, control menu, omnibar, title bar, `files/*`, search panel, `tool-panel.css`.
-- [ ] C Shell chrome: `layout.css`, tabs, terminal, session rail and panel, remote panel, `notify/*`.
-- [ ] D Agent pane: `agent.css`, `agent-markdown.prose.css`, `agent/*.tsx` (except `BackgroundStopPrompt.tsx`).
-- [ ] E Editor chrome: `editor.css`, plan prose, blame, revise, comment prose, `preview/*`, `source-styles.ts`, empty state, tab strip.
-- [ ] F Review: `diff.css`, `editor/review/**`, review hints, PR comments, the review height constants.
-- [ ] G Onboarding: `getting-started/*`, `welcome/*`.
-- [ ] H Mobile: `mobile/*`, plus the touch block in `context-menu.css` handed over by B.
-- [ ] I Lint and docs: plugin, `biome.json`, AGENTS.md, reviewer agent, concept doc, `settings.md`.
+- [x] A Dialogs: the 15 `ModalShell` users, `BranchTypeahead.tsx`, `AcpRegistryList.tsx`, `session-prompt.css`, `theme/*`.
+- [x] B Menus and lists: context menu, control menu, omnibar, title bar, `files/*`, search panel, `tool-panel.css`.
+- [x] C Shell chrome: `layout.css`, tabs, terminal, session rail and panel, remote panel, `notify/*`.
+- [x] D Agent pane: `agent.css`, `agent-markdown.prose.css`, `agent/*.tsx` (except `BackgroundStopPrompt.tsx`).
+- [x] E Editor chrome: `editor.css`, plan prose, blame, revise, comment prose, `preview/*`, `source-styles.ts`, empty state, tab strip.
+- [x] F Review: `diff.css`, `editor/review/**`, review hints, PR comments, the review height constants.
+- [x] G Onboarding: `getting-started/*`, `welcome/*`.
+- [x] H Mobile: `mobile/*`, plus the touch block in `context-menu.css` handed over by B.
+- [x] I Lint and docs: plugin, `biome.json`, AGENTS.md, reviewer agent, concept doc, `settings.md`.
 
 Shared selectors to coordinate: `.tb-omnibar-row` and `.file-tree-*` (B, F); `.acp-registry-*` (A, G);
 `.session-panel-text` (C); `.agent-markdown` (D, F); `.weavie-pr-avatar` (F); `.session-prompt-error` (A).
 
 **Close**
 
-- [ ] Delete `--font-metadata-size`, `--font-hint-size`, `--ui-font`; grep returns zero.
-- [ ] Enable the plugin; `biome check --write`; zero diagnostics, zero suppressions.
-- [ ] Dedup pass over the whole diff (duplicate rules, leftover dead selectors such as `mobile.css:242-243`).
+- [x] Delete `--font-metadata-size`, `--font-hint-size`, `--ui-font`; grep returns zero.
+- [x] Enable the plugin; `biome check --write`; zero diagnostics, zero suppressions.
+- [x] Dedup pass over the whole diff (duplicate rules, leftover dead selectors such as `mobile.css:242-243`).
 - [ ] Update e2e; `vite build` + `dotnet build src/Weavie.Headless`; run headless, mobile and remote delta.
 - [ ] Census re-run with the extended surfaces; acceptance table met; before/after screenshots inspected.
 - [ ] `pnpm e2e:perf`.

@@ -277,7 +277,7 @@ export function TabStrip(props: {
                 </button>
                 <button
                   type="button"
-                  class="editor-tab-close pane-tab-close"
+                  class="editor-tab-close pane-tab-close ui-icon-button"
                   title={view.pinned ? "Unpin" : "Close"}
                   onClick={() => {
                     if (view.pinned) {
@@ -287,7 +287,7 @@ export function TabStrip(props: {
                     }
                   }}
                 >
-                  {view.pinned ? <Pin size={13} /> : <X size={13} />}
+                  {view.pinned ? <Pin /> : <X />}
                 </button>
               </div>
             )}

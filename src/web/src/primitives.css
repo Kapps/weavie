@@ -1,4 +1,4 @@
-/* Shared chrome primitives: geometry and type only; state colours stay in feature CSS, which always wins. */
+/* Shared chrome primitives: geometry, type, and button/field states; row colours stay in feature CSS, which always wins. */
 @layer ui {
   .ui-row {
     --row-line: var(--font-chrome-line);
@@ -62,11 +62,7 @@
     height: var(--row-line, var(--font-chrome-line));
   }
 
-  .ui-icon > svg {
-    width: var(--icon-size);
-    height: var(--icon-size);
-  }
-
+  .ui-icon > svg,
   .ui-button {
     --control-h: var(--control-height);
     --control-line: var(--font-chrome-line);
@@ -155,11 +151,6 @@
     cursor: pointer;
   }
 
-  .ui-icon-button > svg {
-    width: var(--icon-size);
-    height: var(--icon-size);
-  }
-
   .ui-section-label {
     color: var(--dim);
     font: var(--font-chrome-secondary);
@@ -189,9 +180,10 @@
   }
 
   .ui-field {
+    --control-h: var(--control-height-lg);
     box-sizing: border-box;
     width: 100%;
-    height: var(--control-height-lg);
+    height: var(--control-h);
     padding: 0 8px;
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -214,7 +206,7 @@
   }
 
   .ui-field-content {
-    height: calc(var(--font-content-row-line) + 10px);
+    --control-h: calc(var(--font-content-row-line) + 10px);
     font: var(--font-content);
   }
 }

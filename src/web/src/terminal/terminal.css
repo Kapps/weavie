@@ -26,8 +26,6 @@
 }
 
 .shell-tab-close {
-  flex: 0 0 auto;
-  margin-right: 4px;
   color: var(--dim);
 }
 

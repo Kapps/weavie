@@ -4,13 +4,10 @@ import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import { CommandIds, type CommandInfo } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
-import { oversizedPng } from "./harness/pasted-image";
+import { oversizedPng, PNG_B64 } from "./harness/pasted-image";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-const PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
-
 function command(
   info: Pick<CommandInfo, "id" | "title" | "runsIn" | "owner" | "executionLane" | "scope" | "keys">,
 ): CommandInfo {

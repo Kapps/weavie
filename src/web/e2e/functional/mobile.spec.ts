@@ -4,9 +4,8 @@ import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
 import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
+import { PNG_B64 } from "../harness/pasted-image";
 
-const PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
 
 // Records whether `target` turns disabled from the moment this resolves, so a disable-then-re-enable cycle

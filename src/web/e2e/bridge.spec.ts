@@ -1133,7 +1133,7 @@ test.describe("session-addressed WebSocket transport", () => {
     ).toHaveCount(0);
 
     const composerTargets = inbox.locator(
-      ".session-composer-source select, .session-composer-branch input",
+      ".session-composer-source select, .session-composer-branch input, .session-composer-workflow-toggle",
     );
     await expect(composerTargets).not.toHaveCount(0);
     expect(

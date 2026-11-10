@@ -1,7 +1,7 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
-import { pastePng } from "../harness/pasted-image";
+import { PNG_B64, pastePng } from "../harness/pasted-image";
 import { workflowReceipt } from "../harness/workflows";
 
 // The new-session composer picks a workflow: suggested once from the prompt by the decision provider, the user's
@@ -9,9 +9,6 @@ import { workflowReceipt } from "../harness/workflows";
 
 const DRAFT =
   "the WebM video in the review pane fails to load whenever the diff is reopened twice in a row";
-const PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
-
 test.use({ inference: "workflow", automaticInference: true });
 
 test("the composer suggests a workflow from the prompt and starts the session in it with the prompt's image", async ({

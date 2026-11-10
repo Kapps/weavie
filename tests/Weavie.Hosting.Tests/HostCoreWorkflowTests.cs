@@ -41,6 +41,20 @@ public sealed class HostCoreWorkflowTests {
 		TempGitRepo.Run(repo, "commit", "-m", "flow");
 	}
 
+	private static void CommitPromptFlow(string repo) {
+		Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
+		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "ask.yaml"), """
+			id: ask
+			description: two stages that both read the prompt
+			stages:
+			  - id: build
+			    run: { prompt: "build: {{run.prompt}}" }
+			  - id: prove
+			    run: { prompt: "prove: {{run.prompt}}" }
+			""");
+		CommitFlow(repo);
+	}
+
 	internal static WorkflowDecisionHistory DecisionHistory(string repo) =>
 		new(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
 
@@ -136,19 +150,7 @@ public sealed class HostCoreWorkflowTests {
 	[Fact]
 	public async Task NewSessionHandsItsPromptAndImagesToTheRunWhichKeepsThemInItsDocuments() {
 		byte[] png = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
-		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
-			Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
-			File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "ask.yaml"), """
-				id: ask
-				description: two stages that both read the prompt
-				stages:
-				  - id: build
-				    run: { prompt: "build: {{run.prompt}}" }
-				  - id: prove
-				    run: { prompt: "prove: {{run.prompt}}" }
-				""");
-			CommitFlow(repo);
-		});
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
 
 		var unprompted = await host.CreateSessionAsync(new NewSessionRequest { Branch = "none", Base = "main", AgentProviderId = "structured", Workflow = "ask" });
 		Assert.Contains("{{run.prompt}}", unprompted.Error, StringComparison.Ordinal);
@@ -187,11 +189,7 @@ public sealed class HostCoreWorkflowTests {
 
 	[Fact]
 	public async Task RunWorkflowTakesAPrompt() {
-		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
-			Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
-			File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "ask.yaml"), "id: ask\ndescription: d\nstages:\n  - id: build\n    run: { prompt: \"build: {{run.prompt}}\" }\n");
-			CommitFlow(repo);
-		});
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 
 		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRun, new { workflow = "ask" }, CancellationToken.None)).Ok);

@@ -230,15 +230,17 @@ own geometry and type; hover/selected colours stay in feature CSS.
 
   .ui-button {
     --control-h: var(--control-height);
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    box-sizing: border-box; height: var(--control-h); padding: 0 10px;
+    --control-line: var(--font-chrome-line);
+    display: inline-flex; align-items: baseline; justify-content: center; gap: 6px;
+    box-sizing: border-box; height: var(--control-h);
+    padding: calc((var(--control-h) - var(--control-line)) / 2 - 1px) 10px;
     border: 1px solid var(--border); border-radius: 4px;
     background: transparent; color: var(--fg);
     font: var(--font-chrome-body); white-space: nowrap; cursor: pointer;
   }
   .ui-button-lg { --control-h: var(--control-height-lg); }
-  .ui-button-xl { --control-h: var(--control-height-xl); padding: 0 16px; font: var(--font-chrome-lead); }
-  .ui-button-content { --control-h: calc(var(--font-content-row-line) + 6px); font: var(--font-content); line-height: var(--font-content-row-line); }
+  .ui-button-xl { --control-h: var(--control-height-xl); --control-line: var(--font-chrome-display-line); padding-inline: 16px; font: var(--font-chrome-lead); }
+  .ui-button-content { --control-line: var(--font-content-row-line); --control-h: calc(var(--control-line) + 6px); font: var(--font-content); line-height: var(--control-line); }
   .ui-button-primary { border-color: var(--button-bg); background: var(--button-bg); color: var(--button-fg); font-weight: var(--font-weight-emphasis); }
   .ui-button-danger { border-color: transparent; background: var(--danger); color: #fff; }
   .ui-icon-button { display: inline-grid; place-items: center; width: var(--icon-button-size); height: var(--icon-button-size); padding: 0; border: 0; background: none; }

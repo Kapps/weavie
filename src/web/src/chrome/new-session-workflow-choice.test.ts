@@ -198,7 +198,7 @@ describe("NewSessionWorkflowChoice", () => {
     expect(state()).toMatchObject({ workflow: null, status: "ready" });
   });
 
-  it("re-reads a moved target, re-asking for an unpicked draft and keeping only a pick it still offers", async () => {
+  it("re-reads a moved target without asking again, keeping only a value it still offers", async () => {
     const { choice, state, suggestions, answer, catalogs } = harness();
     choice.retarget(LOCAL);
     await vi.advanceTimersByTimeAsync(0);
@@ -209,24 +209,17 @@ describe("NewSessionWorkflowChoice", () => {
     choice.retarget(REMOTE);
     await vi.advanceTimersByTimeAsync(0);
     expect(state().workflow).toBeNull();
-    expect(suggestions).toHaveLength(2);
-    await answer(applies("remote-only"));
-    expect(state().workflow).toBe("remote-only");
 
-    // A pick the new catalog drops falls back to its default, and the user is not second-guessed again.
     choice.pick("remote-only");
+    catalogs.set(
+      "local",
+      catalog({ workflows: [{ id: "remote-only", description: "", error: null }] }),
+    );
     choice.retarget(LOCAL);
     await vi.advanceTimersByTimeAsync(0);
-    expect(state().workflow).toBeNull();
+    expect(state().workflow).toBe("remote-only");
     choice.flush();
-    expect(suggestions).toHaveLength(2);
-
-    choice.pick("quick-fix");
-    catalogs.set("remote", catalog({}));
-    choice.retarget(REMOTE);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(state().workflow).toBe("quick-fix");
-    expect(suggestions).toHaveLength(2);
+    expect(suggestions).toHaveLength(1);
   });
 
   it("waits out an unreachable host without asking again or losing the applied suggestion", async () => {
@@ -245,22 +238,18 @@ describe("NewSessionWorkflowChoice", () => {
     expect(state()).toMatchObject({ workflow: "quick-fix", status: "ready" });
   });
 
-  it("never asks about a draft cut short after it settled", async () => {
+  it("never asks about a draft cut short before its catalog arrived", async () => {
     const { choice, suggestions } = harness();
     choice.retarget(LOCAL);
-    await vi.advanceTimersByTimeAsync(0);
     choice.draft(DRAFT);
     choice.flush();
     choice.draft(SHORT);
-
-    choice.retarget(REMOTE);
     await vi.advanceTimersByTimeAsync(0);
-    expect(suggestions).toHaveLength(1);
+    expect(suggestions).toEqual([]);
 
     choice.draft(DRAFT);
-    choice.retarget(LOCAL);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(suggestions).toHaveLength(2);
+    choice.flush();
+    expect(suggestions).toHaveLength(1);
   });
 
   it("owes the next draft its own suggestion once this one is submitted", async () => {

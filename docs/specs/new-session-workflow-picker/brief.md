@@ -63,8 +63,8 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
 
 - `workflow.default` naming a workflow that is missing, invalid, or declares inputs: the field shows *No workflow*
   with the reason by the field.
-- Switching host or starting point drops a selection that the new catalog does not offer, back to that catalog's
-  initial value; a suggestion is asked again for the new catalog only if the user had not chosen.
+- Switching host or starting point keeps the selected workflow when the new catalog offers it, and otherwise
+  falls back to that catalog's initial value. The one suggestion belongs to the draft, so no switch asks again.
 - A prompt that never reaches 16 words, or is images only, gets no suggestion; the field stays at its initial value.
 - A workflow that never references `{{run.prompt}}` still starts; the prompt is simply unused, like an unused input.
 - A workflow that references `{{run.prompt}}` started by a command with no prompt fails to start with a message naming

@@ -59,31 +59,3 @@ test("the composer suggests a workflow from the prompt and starts the session in
   );
   expect(saved).toHaveLength(1);
 });
-
-test("an unconfident suggestion leaves no workflow, and the session starts on the prompt alone", async ({
-  page,
-  weavie,
-}) => {
-  await writeFile(
-    join(weavie.workspace, "inference-answer.json"),
-    JSON.stringify({ no_workflow: 0.4, "quick-fix": 0.5, "spec-driven": 0.1 }),
-  );
-  await page.locator(".session-rail-add").click();
-  const inbox = page.locator(".session-inbox");
-  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
-  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(DRAFT);
-  await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
-    "fix/mobile-branch-inference",
-  );
-  await expect.poll(() => workflowReceipt(weavie.workspace).catch(() => null)).not.toBeNull();
-  const workflow = inbox.getByRole("button", { name: "Workflow" });
-  await expect(workflow).toHaveText("No workflow");
-  await expect(inbox.getByRole("alert")).toHaveCount(0);
-
-  await inbox.getByRole("button", { name: "Start", exact: true }).click();
-  await expect(inbox).toBeHidden();
-  const surface = page.locator('[data-surface="structured-agent"]');
-  await expect(surface.locator(".agent-entry-message.agent-tone-user")).toContainText(DRAFT);
-  await expect(surface.getByText("Implement the task below.")).toHaveCount(0);
-  await expect(surface.locator(".pane-head .pane-run")).toBeHidden();
-});

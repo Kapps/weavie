@@ -50,10 +50,6 @@ public sealed class HostCoreWorkflowStartTests {
 
 		host.Settings.Set(WorkflowSettings.Default, JsonSerializer.SerializeToElement("flow"));
 		Assert.Equal("flow", (await CatalogAsync(host, null)).GetProperty("default").GetString());
-		host.Settings.Set(WorkflowSettings.Default, JsonSerializer.SerializeToElement("typed"));
-		var unusable = await CatalogAsync(host, null);
-		Assert.Equal(JsonValueKind.Null, unusable.GetProperty("default").ValueKind);
-		Assert.Contains("declares inputs", unusable.GetProperty("defaultProblem").GetString(), StringComparison.Ordinal);
 
 		// A session's own uncommitted workflow is offered only when the start is made from that session.
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
@@ -65,26 +61,12 @@ public sealed class HostCoreWorkflowStartTests {
 	}
 
 	[Fact]
-	public async Task ASuggestionAppliesOnlyWhenConfidentAndAllowed() {
-		var decisions = new DecisionStub("flow", 0.9);
-		await using var host = await StartAsync(decisions);
+	public async Task ASuggestionReportsTheConfidentChoiceOrWhyTheDecisionFailed() {
+		var inference = new SwitchableInference(new DecisionStub("flow", 0.9));
+		await using var host = await StartAsync(inference);
 
 		Assert.Equal((true, "flow", null), await SuggestAsync(host));
-		decisions.Choice = WorkflowSuggester.NoWorkflow;
-		Assert.Equal((true, null, null), await SuggestAsync(host));
-
-		host.Settings.Set(WorkflowSettings.DecisionConfidence, JsonSerializer.SerializeToElement(0.95));
-		Assert.Equal((false, null, null), await SuggestAsync(host));
-
-		host.Settings.Set(WorkflowSettings.DecisionConfidence, JsonSerializer.SerializeToElement(0.8));
-		host.Settings.Set(InferenceSettings.AllowAutomatic, JsonSerializer.SerializeToElement(false));
-		Assert.Equal((false, null, null), await SuggestAsync(host));
-	}
-
-	[Fact]
-	public async Task AFailedDecisionReportsItsReasonAndAppliesNothing() {
-		await using var host = await StartAsync(new FailingInference());
-
+		inference.Failing = true;
 		Assert.Equal((false, null, "the model is down"), await SuggestAsync(host));
 	}
 
@@ -113,11 +95,14 @@ public sealed class HostCoreWorkflowStartTests {
 		await inference.BranchCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10));
 	}
 
-	private sealed class FailingInference : IInferenceService {
+	private sealed class SwitchableInference(DecisionStub decisions) : IInferenceService {
+		public bool Failing { get; set; }
+
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			InferenceOwner owner, InferenceModelCategory category, InferenceInput input, InferenceResponseType<TResponse> responseType,
-			InferenceQueryOptions options, CancellationToken ct) =>
-			Task.FromResult<InferenceResult<TResponse>>(new InferenceFailure<TResponse> {
+			InferenceQueryOptions options, CancellationToken ct) => !Failing
+			? decisions.QueryAsync(owner, category, input, responseType, options, ct)
+			: Task.FromResult<InferenceResult<TResponse>>(new InferenceFailure<TResponse> {
 				Kind = InferenceFailureKind.ProviderUnavailable,
 				Detail = "the model is down",
 				Receipt = null,

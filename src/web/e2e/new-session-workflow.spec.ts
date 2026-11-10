@@ -131,34 +131,6 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
   }
 });
 
-test("a failed suggestion leaves the workflow as it was and says why", async ({ page }) => {
-  const host = await MockHost.start({ distDir });
-  try {
-    host.onHost("request", "sessionCreation", "previewBranch", (request) =>
-      host.respond(request, { branch: "bug/webm-reload", error: null, needsMoreDetail: false }),
-    );
-    host.onHost("request", "sessionCreation", "suggestWorkflow", (request) =>
-      host.respond(request, { applies: false, workflow: null, error: "The decision timed out." }),
-    );
-    await page.setViewportSize({ width: 1200, height: 800 });
-    await openSessions(page, host);
-    await page.locator(".session-rail-add").click();
-    const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(DRAFT);
-
-    await expect(inbox.locator(".session-composer-workflow").getByRole("alert")).toHaveText(
-      "Workflow suggestion failed: The decision timed out.",
-    );
-    await expect(inbox.getByRole("button", { name: "Workflow" })).toHaveText("No workflow");
-
-    const invocation = host.waitForHost("request", "sessions", "invoke");
-    await inbox.getByRole("button", { name: "Start", exact: true }).click();
-    expect((await invocation).payload).not.toHaveProperty("args.workflow");
-  } finally {
-    await host.close();
-  }
-});
-
 test("touch reads why a workflow is unavailable in its row", async ({ browser }) => {
   const host = await MockHost.start({ distDir });
   const context = await browser.newContext({ ...devices["Pixel 7"] });

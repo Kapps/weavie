@@ -38,15 +38,15 @@ const message = (error: unknown): string =>
 
 /**
  * Owns the workflow a new session starts with: the configured default, until one suggestion for the composed
- * prompt or the user's own pick replaces it. The suggestion is asked once per target, never for a draft too
- * short to judge, never once the user has picked, and never lands over a value a start has already taken.
+ * prompt or the user's own pick replaces it. The suggestion is asked once per draft, never for one too short
+ * to judge, never once the user has picked, and never lands over a value a start has already taken.
  */
 export class NewSessionWorkflowChoice {
   private target: WorkflowTarget | null = null;
   private prompt = "";
   /** The user chose a workflow for this draft, so no suggestion is wanted for it. */
   private picked = false;
-  /** The value is a pick or an applied suggestion, kept across a re-read while the catalog still offers it. */
+  /** The value is a pick or an applied suggestion, kept while the catalog being read still offers it. */
   private held = false;
   private online = false;
   private asked = false;
@@ -71,10 +71,7 @@ export class NewSessionWorkflowChoice {
     private readonly changed: (state: WorkflowChoiceState) => void,
   ) {}
 
-  /**
-   * Reads the catalog `target` offers; null while its host is unreachable, which changes nothing but waits.
-   * A different target owes the draft a suggestion of its own.
-   */
+  /** Reads the catalog `target` offers; null while its host is unreachable, which changes nothing but waits. */
   retarget(target: WorkflowTarget | null): void {
     this.catalogLoad?.abort();
     this.catalogLoad = null;
@@ -83,14 +80,9 @@ export class NewSessionWorkflowChoice {
       return;
     }
     if (!sameTarget(this.target, target)) {
-      // A draft that had earned its suggestion is owed one from the new catalog too.
-      const owed = this.asked || this.due;
       this.target = target;
       this.dropSuggestion();
-      this.asked = false;
-      this.due = owed;
       this.loaded = false;
-      this.held = this.picked;
       this.catalogProblem = null;
       this.publish({ options: [], status: "loading" });
     }
@@ -152,6 +144,7 @@ export class NewSessionWorkflowChoice {
     this.picked = false;
     this.held = false;
     this.asked = false;
+    this.due = false;
     this.settle.clear();
     this.dropSuggestion();
     this.publish({ workflow: this.fallback, status: this.loaded ? "ready" : "loading" });
@@ -242,7 +235,6 @@ export class NewSessionWorkflowChoice {
   }
 
   private dropSuggestion(): void {
-    this.due = false;
     this.suggestion?.abort();
     this.suggestion = null;
     this.suggestionError = null;

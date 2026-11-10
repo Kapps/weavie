@@ -175,6 +175,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void PrefillPrompt(string prompt) { }
 
+		public void Notice(string text) { }
+
 		public void Interrupt() => Interruptions++;
 
 		public void Restart() => Restarts++;

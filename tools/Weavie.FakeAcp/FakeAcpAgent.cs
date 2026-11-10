@@ -18,6 +18,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private string _mode = "default";
 	private string _permissionMode = "read-only";
 	private string _model = "alpha";
+	private string _effort = "low";
 	private bool _fast;
 	private bool _cancelFails;
 	private bool _authenticated;
@@ -529,7 +530,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			foreach (string severity in new[] { "info", "warning", "error" }) {
 				Update(new JsonObject { ["sessionUpdate"] = "notice", ["severity"] = severity, ["title"] = severity + " title", ["description"] = severity + " detail" });
 			}
-		} else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
+		} else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}" + (_fakeMode == "model-effort" ? $"/{_effort}" : ""));
 		else if (text == "remove-commands") Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = new JsonArray(),
@@ -1200,7 +1201,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			await HoldOnceAsync("control", ct).ConfigureAwait(false);
 			_model = model;
 		} else if (id == "fast") _fast = value.GetBoolean();
-		else if (id == "mode" && _fakeMode == "mirrored-mode") {
+		else if (id == "effort" && _fakeMode == "model-effort" && _model == "beta") {
+			_effort = value.GetString() ?? throw AcpAdapterException.InvalidParams("effort must be a string");
+		} else if (id == "mode" && _fakeMode == "mirrored-mode") {
 			_mode = value.GetString() ?? throw AcpAdapterException.InvalidParams("mode must be a string");
 		} else if (_fakeMode == "collaboration-mode" && id == "collaboration_mode") {
 			_mode = value.GetString() ?? throw AcpAdapterException.InvalidParams("collaboration_mode must be a string");
@@ -1310,6 +1313,20 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				["options"] = new JsonArray(
 					new JsonObject { ["value"] = "default", ["name"] = "Default" },
 					new JsonObject { ["value"] = "plan", ["name"] = "Plan" }),
+			});
+			return setup;
+		}
+		// Agents advertise options per model: effort exists only while beta is selected.
+		if (_fakeMode == "model-effort" && _model == "beta") {
+			((JsonArray)setup["configOptions"]!).Add(new JsonObject {
+				["id"] = "effort",
+				["name"] = "Effort",
+				["category"] = "thought_level",
+				["type"] = "select",
+				["currentValue"] = _effort,
+				["options"] = new JsonArray(
+					new JsonObject { ["value"] = "low", ["name"] = "Low" },
+					new JsonObject { ["value"] = "high", ["name"] = "High" }),
 			});
 			return setup;
 		}

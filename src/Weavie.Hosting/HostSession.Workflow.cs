@@ -90,4 +90,10 @@ public sealed partial class HostSession {
 	private sealed class WorkflowTurnContext(HostSession session) : IAgentTurnContext {
 		public string Compose() => session.Workflow.StageBlock();
 	}
+
+	// A finished run's hold is inert: whatever reopens the conversation then is already on the user's own values.
+	private sealed class WorkflowControlHold(HostSession session) : IAgentControlHold {
+		public IReadOnlyDictionary<string, string> Values() =>
+			session.Workflow.Current is { IsFinished: false, Hold: { } hold } ? hold.Held : [];
+	}
 }

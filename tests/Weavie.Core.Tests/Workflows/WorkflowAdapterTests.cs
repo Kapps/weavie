@@ -77,6 +77,11 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		Assert.Equal("ship it? (the decision confidence 0.7 is below the required 0.8)", WorkflowRunSummary.From(asking, SessionStatus.Idle)!.Reason);
 		var paused = run with { Phase = WorkflowPhase.Paused, PausedReason = "stuck" };
 		Assert.Equal("stuck", WorkflowRunSummary.From(paused, SessionStatus.Idle)!.Reason);
+		Assert.Equal("", WorkflowRunSummary.From(run, SessionStatus.Idle)!.Agent);
+		var hold = new WorkflowHold { Agent = "builder", Own = new() { ["model"] = "alpha" }, Held = [] };
+		Assert.Equal("", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
+		hold.Held["model"] = "beta";
+		Assert.Equal("builder", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
 	}
 
 	[Theory]

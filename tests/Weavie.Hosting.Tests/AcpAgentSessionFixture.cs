@@ -45,8 +45,10 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		IAgentAuthenticationTerminal authenticationTerminal,
 		ReviewHintStore reviewHints,
 		WorkflowRunner workflow,
-		RecordingWorkflowPort workflowPort) {
+		RecordingWorkflowPort workflowPort,
+		TestControlHold controlHold) {
 		_directory = directory;
+		ControlHold = controlHold;
 		Workflow = workflow;
 		WorkflowKickoffs = workflowPort.Kickoffs;
 		ReviewHints = reviewHints;
@@ -73,6 +75,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public ReviewHintStore ReviewHints { get; }
 	public WorkflowRunner Workflow { get; }
 	public ConcurrentQueue<WorkflowKickoff> WorkflowKickoffs { get; }
+	public TestControlHold ControlHold { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace => _directory.Combine("workspace");
@@ -178,6 +181,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
 		new Dictionary<string, string>(StringComparer.Ordinal) {
 			["WEAVIE_FAKE_ACP_MODE"] = "mirrored-mode",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
+	public static AcpAgentSessionFixture CreateModelEffortAdapter() => Create(
+		"fake",
+		"Model effort ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "model-effort",
 		},
 		allowAllPermissions: true,
 		persistedSessionId: null,
@@ -435,6 +449,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		var controls = new AcpControlStore(sessionFileSystem, directory.Combine("acp-controls.json"));
 		if (persistedSessionId is not null) SeedSession(store, providerId, workspace, persistedSessionId, 0);
 		var events = new RecordingAgentEventSink();
+		var controlHold = new TestControlHold();
 		var definition = new AcpAgentDefinition {
 			Id = providerId,
 			Name = providerName,
@@ -455,6 +470,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
 				TurnContext = new WorkflowStageContext(workflow),
+				ControlHold = controlHold,
 			},
 			launches(definition),
 			store,
@@ -472,7 +488,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			authenticationTerminal,
 			reviewHints,
 			workflow,
-			workflowPort);
+			workflowPort,
+			controlHold);
 	}
 
 	internal static void SeedSession(AcpSessionStore store, string provider, string workspace, string sessionId, long turnNumber) =>
@@ -703,6 +720,12 @@ internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 internal sealed class UnusedWorkflowDecider : IWorkflowDecider {
 	public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) =>
 		throw new InvalidOperationException("No decision is expected.");
+}
+
+internal sealed class TestControlHold : IAgentControlHold {
+	public ConcurrentDictionary<string, string> Held { get; } = new(StringComparer.Ordinal);
+
+	public IReadOnlyDictionary<string, string> Values() => new Dictionary<string, string>(Held, StringComparer.Ordinal);
 }
 
 internal sealed class WorkflowStageContext(WorkflowRunner runner) : IAgentTurnContext {

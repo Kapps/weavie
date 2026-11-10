@@ -19,7 +19,7 @@ internal sealed partial class AcpConversation {
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
-	private readonly Queue<AcpControlMutation> _controlMutations = [];
+	private readonly Queue<AcpControlRequest> _controlMutations = [];
 	private readonly ConcurrentDictionary<string, AcpClientRequestState> _clientRequests = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpPendingRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, string> _urlElicitations = new(StringComparer.Ordinal);
@@ -179,15 +179,16 @@ internal sealed partial class AcpConversation {
 
 	internal void Observe(AgentEvent value) {
 		var feedback = _port.Observe(value);
-		foreach (string message in feedback.Messages) {
-			Emit(new AgentPaneMessage {
-				Type = "notice",
-				ProviderId = Definition.Id,
-				ThreadId = SessionId(),
-				Text = message,
-			});
-		}
+		foreach (string message in feedback.Messages) Notice(message);
 	}
+
+	/// <summary>Adds a host line to this conversation's transcript.</summary>
+	internal void Notice(string text) => Emit(new AgentPaneMessage {
+		Type = "notice",
+		ProviderId = Definition.Id,
+		ThreadId = SessionId(),
+		Text = text,
+	});
 
 	private string? SessionId() {
 		lock (_gate) {

@@ -261,6 +261,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
 				TurnContext = new WorkflowTurnContext(this),
+				ControlHold = new WorkflowControlHold(this),
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),

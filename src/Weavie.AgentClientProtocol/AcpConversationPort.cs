@@ -128,7 +128,11 @@ public sealed partial class AcpAgentSession {
 
 		protected override void OnRestartProcess() => owner.Restart(clearSubmissions: false);
 
-		protected override IReadOnlyDictionary<string, string> OnControlDefaults() => owner._controlDefaults.Resolve(owner._definition.Id);
+		protected override IReadOnlyDictionary<string, string> OnControlDefaults() {
+			var defaults = new Dictionary<string, string>(owner._controlDefaults.Resolve(owner._definition.Id), StringComparer.Ordinal);
+			foreach (var (axis, value) in owner._context.ControlHold.Values()) defaults[axis] = value;
+			return defaults;
+		}
 
 		protected override void OnRememberControl(string axis, string value) => owner._controlDefaults.Set(owner._definition.Id, axis, value);
 

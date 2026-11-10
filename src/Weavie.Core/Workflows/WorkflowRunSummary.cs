@@ -44,6 +44,9 @@ public sealed record WorkflowRunSummary {
 	/// <summary>What the run is doing.</summary>
 	public required WorkflowRunState State { get; init; }
 
+	/// <summary>The agent the stage runs on when it holds values over the session's own; otherwise empty.</summary>
+	public required string Agent { get; init; }
+
 	/// <summary>Why the run paused, or the question awaiting the user (with why the model didn't answer it); otherwise empty.</summary>
 	public required string Reason { get; init; }
 
@@ -69,6 +72,7 @@ public sealed record WorkflowRunSummary {
 			Workflow = run.WorkflowId,
 			Stage = run.Stage,
 			State = state,
+			Agent = run.Hold is { Held.Count: > 0 } hold ? hold.Agent : "",
 			Reason = state switch {
 				WorkflowRunState.Paused => run.PausedReason ?? "",
 				WorkflowRunState.NeedsAnswer => run.Asked!.Reason.Length == 0 ? run.Asked.Question : $"{run.Asked.Question} ({run.Asked.Reason})",

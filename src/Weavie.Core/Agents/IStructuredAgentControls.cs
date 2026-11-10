@@ -14,4 +14,17 @@ public interface IStructuredAgentControls {
 
 	/// <summary>Applies <paramref name="value"/> to the axis identified by <paramref name="axis"/>, live for this session.</summary>
 	void SetControl(string axis, string value);
+
+	/// <summary>
+	/// Applies <paramref name="values"/> in order, after every change already queued, without remembering any of them as
+	/// the user's default. Completes once the agent confirms each one; faults with <see cref="AgentControlException"/>
+	/// when one isn't advertised at that moment, or when the conversation is replaced first.
+	/// </summary>
+	Task ApplyControlsAsync(IReadOnlyList<AgentControlValue> values);
 }
+
+/// <summary>One value for one provider-advertised control axis.</summary>
+public sealed record AgentControlValue(string Axis, string Value);
+
+/// <summary>A control change the agent couldn't take, with a message naming what it advertises.</summary>
+public sealed class AgentControlException(string message) : Exception(message);

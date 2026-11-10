@@ -31,7 +31,8 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	// draft the query carries grows past a handful of words.
 	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
 	string query = await Console.In.ReadToEndAsync().ConfigureAwait(false);
-	if (mode == "workflow") {
+	// A decision asks for one probability per choice; a workflow run's other queries (branch naming) fall through.
+	if (mode == "workflow" && query.Contains("\"choices\":", StringComparison.Ordinal)) {
 		await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
 		if (File.Exists("inference-reject")) return 7;
 		string answer = File.Exists("inference-answer.json")
@@ -43,7 +44,7 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	bool vague = mode == "needsDetail"
 		&& Draft(query)
 			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 20;
-	if (mode is "success" or "needsDetail") {
+	if (mode is "success" or "needsDetail" or "workflow") {
 		const string boundary = "Input JSON:\n";
 		int inputStart = query.IndexOf(boundary, StringComparison.Ordinal);
 		if (inputStart >= 0) {

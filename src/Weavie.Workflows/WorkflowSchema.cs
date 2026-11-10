@@ -31,7 +31,7 @@ public static partial class WorkflowSchema {
 			"Typed values the step must report when it completes, by name. Files must be worktree-relative or absolute within {{run.documents}}.",
 			NamePattern(), nameHint, new EnumShape("The value's type.", ValueTypes));
 		var work = new ObjectShape("The work step: a prompt, or a skill run as its real slash command.", [
-			new("prompt", new TextShape("Instruction text sent as the stage's turn; references: {{inputs.name}}, {{stage.output}}, {{run.documents}} (shared documents directory)."), false),
+			new("prompt", new TextShape("Instruction text sent as the stage's turn; references: {{run.prompt}} (what the run was started with), {{inputs.name}}, {{stage.output}}, {{run.documents}} (shared documents directory)."), false),
 			new("skill", new TextShape(
 				"A skill or slash command the agent already has, without the leading slash.",
 				NativeIdPattern(), "a skill name without the leading slash"), false),
@@ -87,9 +87,9 @@ public static partial class WorkflowSchema {
 		return new ObjectShape("A workflow: ordered stages the host runs and the agent fills. Evidence warnings are flags for judgment; "
 			+ "authors may ignore intentional warnings. Warnings never block saving or running; structural errors remain invalid.", [
 			new("id", new TextShape("The workflow id; must match the file name.", IdPattern(), idHint), true),
-			new("description", new TextShape("One line, shown when choosing a workflow."), true),
+			new("description", new TextShape("One line, shown when choosing a workflow and read as its criteria when one is suggested for a prompt."), true),
 			new("inputs", new MapShape(
-				"Values the run starts with, by name; a ? suffix on the type marks one optional.",
+				"Values an agent starts the run with, by name; a ? suffix on the type marks one optional. Declare none in a workflow the user starts from a prompt.",
 				NamePattern(), nameHint, new EnumShape("The value's type.", inputTypes)), false),
 			new("agents", new MapShape("Agents steps refer to by name.", IdPattern(), idHint, agent), false),
 			new("stages", new ListShape("The stages, run in order unless a stage's then says otherwise.", stage), true),

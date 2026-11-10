@@ -33,11 +33,20 @@ documents, #1173, and workflow agent selection, #1168, are in).
 - Your `feature-build.yaml` is edited as shown in [Workflow migration](#workflow-migration).
 - The prompt's images are sent once per run, not on every stage that uses `{{run.prompt}}`.
 
-**Open until the build**
+**Checked against real agents during the build**
 
-- **Images on skill stages with real agents.** Whether claude-agent-acp, codex-acp, and terminal Claude keep an
-  image that follows a slash command can only be seen by running them. I check right after the delivery step and
-  bring you the result only if one drops them.
+An image that follows a slash command on a skill stage, sent to a skill that reports the image's colour:
+
+| Agent | Result |
+| --- | --- |
+| claude-agent-acp 0.102.0 | the skill sees the image |
+| codex-acp 2.6.0 | the skill sees the image |
+| terminal Claude 2.1.322, a turn typed at the running agent | the skill sees the image |
+| terminal Claude 2.1.322, the opening turn of a new session | **not attached**: Claude reads a launch prompt that starts with a slash command as command text, so the image arrives as its file path in the skill's arguments |
+
+The last row is the one gap: a new terminal-Claude session whose workflow's *first* stage is a skill, started
+with images. The agent still receives each image's path and can open it; it is not shown inline. Typing the
+turn after launch instead would race the agent's startup, which is why opening turns are launch arguments.
 
 **Where the code corrects the brief**
 
@@ -402,28 +411,26 @@ turns into a paused run with that reason.
 
 ### Web
 
-**Draft-settle trigger** (`chrome/new-session-draft-settle.ts`) owns the idle timer, the 16-word gate, and
-focus-leave; the two constants move here from `new-session-branch-preview.ts:4,10`.
+**Draft-settle timer** (`chrome/new-session-draft-settle.ts`) is the one definition of "a draft worth querying
+has sat unchanged": the idle delay, the 16-word gate, and the timer, moved out of
+`new-session-branch-preview.ts`.
 
 ```ts
-export interface DraftSettled { enoughWords: boolean; focus: Element | null } // focus null = idle pause
-export class NewSessionDraftSettle {
-  draft(prompt: string): void;   // record the text, restart
-  restart(): void;               // arm the idle timer only when the draft has enough words
-  flush(focus: Element): void;   // emit now, whatever the word count
-  cancel(): void;
-  onSettled(listener: (settled: DraftSettled) => void): () => void;
+export const DRAFT_SETTLE_IDLE_MS = 1200;
+export const DRAFT_SETTLE_MIN_WORDS = 16;
+export const draftWorthQuerying = (prompt: string): boolean => …;
+export class DraftSettleTimer {
+  constructor(settled: () => void);
+  arm(prompt: string): void;   // restarts; a draft with too few words never arms it
+  clear(): void;
 }
 ```
 
-The composer creates one and feeds it from the prompt signal and from `onFocusOut`
-(`SessionInbox.tsx:394-403`).
-
-**Branch preview** loses its timer, `worthQuerying`, and the constants. Its `flush()` is already the "settle now if
-this draft still needs a name" check; `schedule()` keeps its guards and calls an injected `rearm` (the trigger's
-`restart`). The branch field subscribes and ignores a settle whose focus landed in the branch field. Behavior is
-unchanged: an idle pause fires only at 16 words, a focus flush ignores the gate, and the existing test assertions
-stay as they are.
+The branch preview and the workflow owner each hold one, armed by the same prompt edits, so they fire together,
+and each still decides for itself whether it is waiting for anything. One shared instance with subscribers was the
+first plan; it moved the branch preview's eligibility check from arm time to fire time, a behavior change this
+shape avoids. Focus leaving the prompt reaches both through the composer's `onFocusOut`: the branch preview names
+a draft of any length, the workflow owner asks only for one worth judging.
 
 **Workflow owner** (`chrome/new-session-workflow-choice.ts`), a plain class like the branch preview:
 
@@ -521,10 +528,10 @@ multi-paragraph prompt:
 | `tests/Weavie.Workflows.Tests` | `{{run.prompt}}` parse and validation in prompt, args, `if`, `ask`; render; the image flag only on the first `Open` of a referencing stage, again after an unsent turn is retired, and never after one was claimed; `Start` writes the images under `prompt/<run-id>/` and refuses to start when it can't; the port receives absolute image paths; an owed turn re-delivers with images after a JSON round trip; a child run in an inherited folder keeps its images apart; a literal pre-change run document loads through the source-generated context; `Prepare` refuses a missing prompt; `OfferedForPrompt` for built-in, input-declaring, invalid, and shadowed entries |
 | `tests/Weavie.Core.Tests` | `Submission(images)`; `TerminalParts`; `WorkflowSuggesterTests` (choices, evidence, origin, threshold boundary, none label, Disabled/PolicyDenied, failure, zero startable, history); `WorkflowStartOptionsTests` (the three default problems); built-in inputs now empty |
 | `tests/Weavie.Hosting.Tests` | workflow + prompt + image creates a session whose stage turn carries both; files survive unload/load and cancel, and are gone once the session is deleted; a missing prompt leaves no session; `weavie.workflow.run` takes `prompt`; an ACP skill stage sends command, image, stage block; terminal launch-argument and typed-turn order; new `HostCoreWorkflowStartTests` for the catalog, the default, each suggestion outcome, and `suggestWorkflow` answering while a `previewBranch` is held |
-| Web unit | `new-session-draft-settle.test.ts`; `new-session-branch-preview.test.ts` re-driven through the trigger with unchanged assertions; `new-session-workflow-choice.test.ts` (once only, a short flush does not spend it, a pick blocks landing, a result after `capture()` is dropped, retarget rules, unknown id ignored) |
-| E2E mock-host | `mock-host.ts` answers `sessionCreation/workflows` by default; `bridge.spec.ts` covers tab order, menu keys, Escape closing only the menu, the unavailable row, and `workflow` in the submit payload |
+| Web unit | `new-session-branch-preview.test.ts` unchanged but for the constant's name; `new-session-workflow-choice.test.ts` (once only, a short flush does not spend it, a pick blocks landing, a result after `capture()` is dropped, retarget rules, unknown id ignored) |
+| E2E mock-host | `mock-host.ts` answers `sessionCreation/workflows` by default; `new-session-workflow.spec.ts` covers the one suggestion, Tab reach, menu keys, Escape closing only the menu, the unavailable row on pointer and touch, a failed suggestion, and `workflow` in the submit payload |
 | E2E functional (headless) | new `functional/new-session-workflow.spec.ts` with the fake decision provider: list, suggestion applied, below threshold, failure, user pick wins, then Start with a pasted image and the stage turn showing prompt and image in a fake-ACP session. The fakes' `workflow` inference mode falls through to the branch reply for non-decision queries so one spec shows both fields |
-| Real agents | After the delivery step, with claude-agent-acp, codex-acp, and terminal Claude: an image after a slash command reaches a skill stage. The fakes cannot show this |
+| Real agents | Done once by hand with claude-agent-acp, codex-acp, and terminal Claude (results in the summary). The fakes cannot show this |
 
 ## Files
 
@@ -545,20 +552,21 @@ multi-paragraph prompt:
 | `src/Weavie.Hosting/HostSession.Workflow.cs`, `HostSession.cs`, `Agents/Claude/ClaudeTerminalLifecycle.cs` | owed pair with images, terminal order |
 | `src/Weavie.Hosting/HostCore.WorkflowStart.cs` (new) | `LaunchCatalog`, both handlers, wire records |
 | `src/Weavie.Hosting/HostCore.Workflows.cs`, `HostCore.Sessions.cs`, `HostCore.Messages.cs`, `HostCore.cs`, `Messaging/MessageFeatureChannel.cs`, `Messaging/WireJson.cs` | start path, registrations, concurrent handler, contracts |
-| `src/web/src/chrome/new-session-draft-settle.ts`, `new-session-workflow-choice.ts` (new, with tests) | trigger; suggestion owner |
+| `src/web/src/chrome/new-session-draft-settle.ts`, `new-session-workflow-choice.ts` (new) | settle timer; suggestion owner with tests |
 | `src/web/src/chrome/new-session-branch-preview.ts` (and test) | timer and word gate removed |
 | `src/web/src/chrome/ControlMenu.tsx`, `control-menu.css`, `getting-started/SuggestionProfile.tsx` | unavailable rows; shared placement |
 | `src/web/src/mobile/NewSessionComposer.tsx`, `NewSessionWorkflowField.tsx` (new), `NewSessionBranchField.tsx`, `SessionInbox.tsx`, `SessionInboxSurface.tsx`, `session-inbox.css` | composer extraction, field, modal key guard, styles |
 | `src/web/src/bridge.ts`, `App.tsx` | requests, `launchSource`, `workflow` in the create call |
-| `src/web/e2e/mock-host.ts`, specs; `tools/Weavie.FakeClaude`, `tools/Weavie.FakeAcp` | tests and fakes |
+| `src/web/e2e/mock-host.ts`, `new-session-workflow.spec.ts` (mock host and functional); `tools/Weavie.FakeClaude`, `tools/Weavie.FakeAcp` | tests and fakes |
 | `docs/specs/workflows.md`, `inference-providers.md`, `AGENTS.md` | docs |
 
 `HostCore.Sessions.cs` is already 1,495 lines, so all new host code lives in the new partial.
 
 ## Risks
 
-1. **Skill-stage images on real agents** (open until the build). An adapter may drop a non-text block that follows a
-   slash command, and nothing in Weavie would see it.
+1. **Skill-stage images on a terminal-Claude opening turn** arrive as file paths, not inline (see the table in
+   the summary). Other agents and later turns were checked with real agents at one version each; an adapter update
+   could change them, and nothing in Weavie would see it.
 2. **Images are sent once per run.** After `/clear` or a rewind past that turn the conversation no longer holds
    them; they are still on disk under the documents folder, which every stage block names.
 3. **A forked built-in that still declares `inputs`** wins its id and disappears from the composer with no hint.
@@ -578,25 +586,25 @@ multi-paragraph prompt:
 Each step leaves the tree green.
 
 1. ✅ Extract `NewSessionComposer.tsx` from `SessionInbox.tsx` (pure move).
-2. Engine prompt: types, `{{run.prompt}}` render/validate, `UsesPrompt`, the kickoff flag, the `Prepare` /
+2. ✅ Engine prompt: types, `{{run.prompt}}` render/validate, `UsesPrompt`, the kickoff flag, the `Prepare` /
    `Start` / port signatures. Callers pass `WorkflowStartPrompt.None`. Engine tests, including the old-document
    test.
-3. Images: `Start` writes them into the documents folder; `Submission(images)` and the owed pair in
+3. ✅ Images: `Start` writes them into the documents folder; `Submission(images)` and the owed pair in
    `HostSession.Workflow.cs`. Engine and Hosting tests.
-4. Delivery: `TerminalParts()` at both sites, ACP command-turn images, guard removed. Tests, then the real-agent
+4. ✅ Delivery: `TerminalParts()` at both sites, ACP command-turn images, guard removed. Tests, then the real-agent
    check.
-5. Host start: `LaunchCatalog`, `NewSessionAsync` without the either/or, `weavie.workflow.run` `prompt`, command
+5. ✅ Host start: `LaunchCatalog`, `NewSessionAsync` without the either/or, `weavie.workflow.run` `prompt`, command
    descriptions. Hosting tests.
-6. Migrate the built-ins and their tests.
-7. Core composer rules: entry `Error` / `OfferedForPrompt`, `WorkflowStartOptions`, `WorkflowSuggester`,
+6. ✅ Migrate the built-ins and their tests.
+7. ✅ Core composer rules: entry `Error` / `OfferedForPrompt`, `WorkflowStartOptions`, `WorkflowSuggester`,
    `history.Record`, `workflow.default`. Tests.
-8. Host requests: `HandleConcurrentWithCallerProgress`, `HostCore.WorkflowStart.cs`, `WireJson`,
+8. ✅ Host requests: `HandleConcurrentWithCallerProgress`, `HostCore.WorkflowStart.cs`, `WireJson`,
    `HostCoreWorkflowStartTests`.
-9. Web trigger: `NewSessionDraftSettle`; branch preview moved onto it with its assertions unchanged.
-10. Web menu: `ControlMenu` unavailable option, shared placement, the `SessionInboxSurface` key guard.
-11. Web field: bridge requests, `NewSessionWorkflowChoice` with tests, `NewSessionWorkflowField`, composer and
+9. ✅ Web trigger: `DraftSettleTimer`; branch preview moved onto it with its assertions unchanged.
+10. ✅ Web menu: `ControlMenu` unavailable option, shared placement, the `SessionInboxSurface` key guard.
+11. ✅ Web field: bridge requests, `NewSessionWorkflowChoice` with tests, `NewSessionWorkflowField`, composer and
     `App.tsx` wiring, CSS, the mock-host default.
-12. E2E: the fake-inference fall-through, the functional spec, mock-host spec additions (`vite build` and
+12. ✅ E2E: the fake-inference fall-through, the functional spec, mock-host spec additions (`vite build` and
     `dotnet build` first; headless serves the copied wwwroot).
 13. Docs, guidance, and setting descriptions. `biome check --write` and `dotnet format`. `weavie-reviewer`, then
     `weavie-tester` with a video. Edit the personal `feature-build.yaml`.

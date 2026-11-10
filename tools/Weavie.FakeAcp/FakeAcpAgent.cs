@@ -455,6 +455,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			_cancelFails = text == "hold-cancel-error";
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
+		if (text is "input-with-parallel-tool" or "permission-with-parallel-tool") return await InteractionAlongsideToolAsync(text == "input-with-parallel-tool", ct).ConfigureAwait(false);
+		if (text == "completed-tool-then-hold") return await CompletedToolThenHoldAsync(ct).ConfigureAwait(false);
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
 		if (text.StartsWith("task", StringComparison.Ordinal) || text == "workflow-held") return TaskPrompt(text, ct);

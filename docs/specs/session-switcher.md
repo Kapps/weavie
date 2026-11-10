@@ -8,8 +8,8 @@ carries the full names and what each agent is doing; the cloud button only adds 
 
 ## Surfaces
 
-- **Rail** (`SessionRail.tsx`): dot + short name per session (working pulses, needs-input amber, idle green,
-  parked hollow and dimmed; remote sessions carry a small cloud in their agent's hue). The current session has an
+- **Rail** (`SessionRail.tsx`): dot + short name per session (working pulses blue, needs-input amber, idle neutral,
+  finished green, parked hollow and dimmed; remote clouds use the same status colours). The current session has an
   accent bar. Clicking a session switches to it.
 - **Session panel** (`SessionPanel.tsx`): each session's stable rail number, readable branch name (its leaf; the
   full branch is in the tooltip), and one line of activity. Unpinned, it is the rail expanded in place: resting the

@@ -55,6 +55,25 @@ public sealed class SessionActivityTrackerTests {
 		Assert.Null(_tracker.Line);
 	}
 
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void SideActivityCannotDismissThePrimaryApproval(bool permission) {
+		Observe(new AgentPromptSubmitted(null, "go"));
+		Observe(new AgentActivityObserved(Test, AwaitingApproval: true));
+		Observe(new AgentPermissionResolved(RequiresUserInput: true));
+		Observe(new AgentConversationEvent("side", new AgentActivityObserved(Edit, AwaitingApproval: false)));
+		Observe(new AgentConversationEvent("side", permission
+			? new AgentPermissionResolved(RequiresUserInput: false)
+			: new AgentToolCompleted(new AgentMutation.None())));
+
+		Assert.Equal(SessionStatus.NeedsInput, _status.Status);
+		Assert.Equal("wants to run pnpm test", _tracker.Line);
+
+		Observe(new AgentPermissionResolved(RequiresUserInput: false));
+		Assert.Equal("editing App.tsx", _tracker.Line);
+	}
+
 	[Fact]
 	public void RepeatedActivityRaisesOneChange() {
 		Observe(new AgentActivityObserved(Test, AwaitingApproval: false));

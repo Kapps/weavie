@@ -1,19 +1,20 @@
 import { type JSX, Show } from "solid-js";
-import { type SessionStatusName, selectedSession } from "../bridge";
+import { selectedSession } from "../bridge";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { gitStatus } from "./git-status-store";
 import { currentPullRequestStatus } from "./pull-request-store";
 import { reviewBranchTitle, reviewPullRequestTitle } from "./review-branch-title";
-import { claudeStatus, STATUS_LABEL, STATUS_SHORT } from "./session-store";
+import { sessionInfo } from "./session-store";
+import { sessionStatusLabel, sessionTooltip, statusDot } from "./session-summary";
 import { UpdateIndicator } from "./UpdateIndicator";
 
 /**
  * The shell pane's status footer, serving both terminal panes: the workspace git branch, which reviews the branch (or
- * its PR) on click, plus the Claude session's live status promoted from the header dot.
+ * its PR) on click, plus the session's effective status shared with the rail and agent header.
  */
 export function PaneFooter(): JSX.Element {
-  const status = (): SessionStatusName | undefined => claudeStatus();
+  const session = () => sessionInfo(selectedSession());
   const title = (branch: string): string => {
     const pr = currentPullRequestStatus(selectedSession())?.pullRequest ?? null;
     return pr === null ? reviewBranchTitle(branch) : reviewPullRequestTitle(pr);
@@ -40,11 +41,13 @@ export function PaneFooter(): JSX.Element {
       </Show>
       <span class="footer-spacer" />
       <UpdateIndicator />
-      <Show when={status() !== undefined}>
-        <span class="footer-seg" title={STATUS_LABEL[status() as SessionStatusName]}>
-          <span class={`session-status status-${status()}`} />
-          {STATUS_SHORT[status() as SessionStatusName]}
-        </span>
+      <Show when={session()}>
+        {(current) => (
+          <span class="footer-seg" title={sessionTooltip(current())}>
+            <span class={`session-status status-${statusDot(current())}`} />
+            {sessionStatusLabel(current())}
+          </span>
+        )}
       </Show>
     </div>
   );

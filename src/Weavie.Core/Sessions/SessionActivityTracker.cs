@@ -38,6 +38,7 @@ public sealed class SessionActivityTracker {
 	/// <summary>Feeds one agent event; subagent and side-conversation tool calls count, but only the main turn ends activity.</summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
+		bool needsInput = _status.Status == SessionStatus.NeedsInput;
 		bool changed;
 		lock (_gate) {
 			var (current, pending) = (_current, _pending);
@@ -46,9 +47,10 @@ public sealed class SessionActivityTracker {
 					_pending = observed.Activity;
 					break;
 				case AgentActivityObserved observed:
-					(_current, _pending) = (observed.Activity, null);
+					_current = observed.Activity;
+					if (!needsInput) _pending = null;
 					break;
-				case AgentPermissionResolved { RequiresUserInput: false } or AgentToolCompleted:
+				case AgentPermissionResolved or AgentToolCompleted when !needsInput:
 					_pending = null;
 					break;
 				case AgentTurnStopped or AgentPromptSubmitted or AgentSessionStarted when value is not AgentConversationEvent:

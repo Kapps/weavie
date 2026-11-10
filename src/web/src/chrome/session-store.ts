@@ -204,11 +204,6 @@ const chipOf = (session: ClientSession | null): BackendSession | undefined =>
         .get(session.connection.id)
         ?.find((chip) => chip.owner === session);
 
-/** The live workflow run `session` owns, or null when it has none. */
-export function sessionRun(session: ClientSession | null): SessionRun | null {
-  return chipOf(session)?.run ?? null;
-}
-
 // The session the user is looking at is seen: its owner clears the host's flag for every client.
 createRoot(() => {
   const watchedUnseen = createMemo(() => {
@@ -329,25 +324,7 @@ export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
   return [...online, ...offline];
 });
 
-/** The selected session's agent status for the pane footer, or undefined until the first push. */
-export const claudeStatus = createMemo(() => sessions().find((session) => session.active)?.status);
-
-/** Full tooltip for each Claude status (the footer segment's `title`). */
-export const STATUS_LABEL: Record<SessionStatusName, string> = {
-  starting: "Claude is starting",
-  working: "Claude is working",
-  needsInput: "Claude needs your input",
-  idle: "Claude is idle",
-  waiting: "Claude is waiting on a scheduled task",
-  error: "Claude crashed",
-};
-
-/** Compact label for each Claude status (the footer segment's visible text). */
-export const STATUS_SHORT: Record<SessionStatusName, string> = {
-  starting: "Starting",
-  working: "Working",
-  needsInput: "Needs input",
-  idle: "Idle",
-  waiting: "Waiting",
-  error: "Crashed",
-};
+/** The catalog state owned by this exact live session. */
+export function sessionInfo(owner: ClientSession | null): RailSession | undefined {
+  return owner === null ? undefined : sessions().find((session) => session.owner === owner);
+}

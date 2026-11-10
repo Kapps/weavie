@@ -58,9 +58,7 @@ public sealed class SessionStatusMachine {
 			: value switch {
 				AgentRuntimeFailed => SessionStatus.Error,
 				AgentPromptSubmitted => SessionStatus.Working,
-				AgentToolStarting => SessionStatus.Working,
-				// The tool ran — in particular, the user approved its permission prompt — so the turn is live again.
-				AgentToolCompleted => SessionStatus.Working,
+				AgentToolEvent tool => tool.RequiresUserInput ? SessionStatus.NeedsInput : SessionStatus.Working,
 				AgentNotification notification => ClassifyNotification(notification, current),
 				// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will
 				// resume itself, so it settles to Waiting (which holds the update drain) rather than Idle.

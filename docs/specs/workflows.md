@@ -25,7 +25,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
-  answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
+  reply or decision, or a paused run, sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 - **Starting from the composer** — the new-session composer's workflow field, suggested once from the prompt by the
   decision provider and started with the prompt and its images. See

@@ -126,24 +126,10 @@ internal sealed partial class AcpConversation {
 				}
 			}
 		} finally {
-			bool dispatch = false;
 			lock (_turnTransitionGate) {
-				if (Live) {
-					bool settled;
-					lock (_gate) {
-						_promptActive = false;
-						if (_cancelRequested) _cancelRequested = false;
-						settled = ClaimBackgroundSettleLocked();
-					}
-					if (settled) {
-						Observe(new AgentTurnStopped(WillResume: false));
-						CompleteContentStreams();
-						SignalSettled();
-					}
-					dispatch = true;
-				}
+				lock (_gate) _promptDeliveryActive = false;
+				if (Live) DispatchPendingSubmission();
 			}
-			if (dispatch) DispatchPendingSubmission();
 		}
 	}
 }

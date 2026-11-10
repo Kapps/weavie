@@ -244,7 +244,7 @@ describe("session run", () => {
     expect(store.sessions().find((s) => s.id === "main")?.run).toBeNull();
   });
 
-  it("answers sessionRun only for the session that owns the run", () => {
+  it("answers sessionInfo only for the session that owns it", () => {
     const run: SessionRun = {
       id: "r-1",
       workflow: "quick-fix",
@@ -253,11 +253,12 @@ describe("session run", () => {
       reason: "",
       agent: "",
     };
+    session("local", "other");
     deliverCatalog("local", ["main", "other"]);
     session("local", "main").run?.({ run, problem: "" });
-    expect(store.sessionRun(session("local", "main").client)).toEqual(run);
-    expect(store.sessionRun(session("local", "other").client)).toBeNull();
-    expect(store.sessionRun(null)).toBeNull();
+    expect(store.sessionInfo(session("local", "main").client)?.run).toEqual(run);
+    expect(store.sessionInfo(session("local", "other").client)?.run).toBeNull();
+    expect(store.sessionInfo(null)).toBeUndefined();
     session("local", "main").run?.({ run: null, problem: "" });
   });
 });
@@ -287,7 +288,7 @@ describe("unseen finished turns", () => {
 describe("selected session status", () => {
   it("adopts the selected session's status", () => {
     deliverStatus("local", "main", "working");
-    expect(store.claudeStatus()).toBe("working");
+    expect(store.sessionInfo(session("local", "main").client)?.status).toBe("working");
   });
 
   it("retains background status without leaking it into the selected session", () => {
@@ -295,12 +296,12 @@ describe("selected session status", () => {
     session("remote:r", "feature");
     deliverCatalog("remote:r", ["feature"]);
     deliverStatus("remote:r", "feature", "idle");
-    expect(store.claudeStatus()).toBe("working");
+    expect(store.sessionInfo(session("local", "main").client)?.status).toBe("working");
   });
 
   it("adopts the waiting status (idle but resuming on a scheduled task)", () => {
     deliverStatus("local", "main", "waiting");
-    expect(store.claudeStatus()).toBe("waiting");
+    expect(store.sessionInfo(session("local", "main").client)?.status).toBe("waiting");
   });
 });
 

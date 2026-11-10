@@ -1,4 +1,4 @@
-import type { SessionRun, SessionRunState, SessionStatusName } from "../bridge";
+import type { SessionRunState, SessionStatusName } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { findCommand } from "../commands/registry";
@@ -22,10 +22,7 @@ export function sessionGroup(session: RailSession): SessionGroup {
   if (!session.loaded) {
     return "parked";
   }
-  if (
-    session.reloadRequired !== null ||
-    (session.run !== null && RUN_NEEDS_USER.has(session.run.state))
-  ) {
+  if (session.reloadRequired !== null) {
     return "needs";
   }
   switch (loadedState(session)) {
@@ -48,9 +45,6 @@ export function panelOrder(sessions: RailSession[]): RailSession[] {
   return [...sessions].sort((a, b) => rank(a) - rank(b));
 }
 
-// A run waiting on the user's answer or paused for them needs them; an idle agent asking a question doesn't move.
-const RUN_NEEDS_USER: ReadonlySet<SessionRunState> = new Set(["needsAnswer", "paused"]);
-
 const RUN_PHRASE: Record<SessionRunState, string> = {
   working: "working",
   waitingOnYou: "waiting on you",
@@ -61,42 +55,72 @@ const RUN_PHRASE: Record<SessionRunState, string> = {
   stalled: "stalled",
 };
 
-const RUN_DOT_COLOR: Record<SessionRunState, string> = {
-  working: "var(--busy)",
-  waitingOnYou: "var(--ok)",
-  needsAnswer: "var(--warn)",
-  watching: "var(--busy)",
-  deciding: "var(--busy)",
-  paused: "var(--warn)",
-  stalled: "var(--bad)",
+const RUN_STATUS: Record<SessionRunState, SessionStatusName> = {
+  working: "working",
+  waitingOnYou: "needsInput",
+  needsAnswer: "needsInput",
+  watching: "waiting",
+  deciding: "working",
+  paused: "needsInput",
+  stalled: "error",
 };
 
-/** The CSS color of a run's header dot. */
-export function runDotColor(state: SessionRunState): string {
-  return RUN_DOT_COLOR[state];
+/** A workflow's status, shared by the session indicators and its pane header. */
+export function runStatus(state: SessionRunState): SessionStatusName {
+  return RUN_STATUS[state];
 }
 
-/** A run's header tooltip: workflow, stage and state, then its reason on a second line when it has one. */
-export function runTooltip(run: SessionRun): string {
-  const agent = run.agent === "" ? "" : ` on ${run.agent}`;
-  const summary = `${run.workflow} · ${run.stage}${agent} · ${RUN_PHRASE[run.state]}`;
-  return run.reason === "" ? summary : `${summary}\n${run.reason}`;
-}
-
-/** A loaded session's state: its status, with an unseen finished turn told apart from plain idle. */
+/** A loaded session's state, including workflow attention and unseen completed turns. */
 function loadedState(session: RailSession): SessionStatusName | "finished" {
+  if (session.status === "error" || session.status === "needsInput") {
+    return session.status;
+  }
+  if (session.run !== null) {
+    return runStatus(session.run.state);
+  }
   return session.status === "idle" && session.unseen ? "finished" : session.status;
 }
 
-const STATUS_PHRASE: Record<SessionStatusName | "finished", string> = {
-  starting: "starting",
-  working: "working",
-  needsInput: "needs input",
-  idle: "idle",
-  finished: "finished",
-  waiting: "waiting on a scheduled task",
-  error: "crashed",
+export type SessionDisplayStatus = SessionStatusName | "finished" | "offline" | "unloaded";
+
+const STATUS_LABEL: Record<SessionDisplayStatus, string> = {
+  starting: "Starting",
+  working: "Working",
+  needsInput: "Needs input",
+  idle: "Idle",
+  finished: "Finished",
+  waiting: "Background work",
+  error: "Error",
+  offline: "Connection lost",
+  unloaded: "Not loaded",
 };
+
+/** A short, provider-neutral label for the session's effective status. */
+export function sessionStatusLabel(session: RailSession): string {
+  return session.reloadRequired !== null && !session.offline
+    ? "Needs reload"
+    : STATUS_LABEL[statusDot(session)];
+}
+
+function sessionStateText(session: RailSession): string {
+  return session.loaded &&
+    !session.offline &&
+    session.reloadRequired === null &&
+    session.run !== null &&
+    loadedState(session) === runStatus(session.run.state)
+    ? RUN_PHRASE[session.run.state]
+    : sessionStatusLabel(session).toLowerCase();
+}
+
+/** The session's state, with workflow context and the full attention reason when present. */
+export function sessionTooltip(session: RailSession): string {
+  const run = session.loaded ? session.run : null;
+  const agent = run === null || run.agent === "" ? "" : ` on ${run.agent}`;
+  const context = run === null ? "" : `${run.workflow} · ${run.stage}${agent} · `;
+  const summary = `${context}${sessionStateText(session)}`;
+  const reason = sessionDetail(session);
+  return reason === "" ? summary : `${summary}\n${reason}`;
+}
 
 /** Why a session's workflow needs the user, in full (the subtitle stays short), or empty. */
 export function sessionDetail(session: RailSession): string {
@@ -117,8 +141,7 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   // Status arrives before the coalesced activity, so a line is shown only while it can still be current.
   const busy = session.status === "working" || session.status === "needsInput";
   if (session.loaded && session.run !== null) {
-    const doing =
-      busy && session.activity !== null ? session.activity : RUN_PHRASE[session.run.state];
+    const doing = busy && session.activity !== null ? session.activity : sessionStateText(session);
     return `${session.run.stage} · ${doing}`;
   }
   if (session.loaded && session.workflowProblem !== "") {
@@ -127,7 +150,7 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;
   }
-  const loaded = session.loaded ? STATUS_PHRASE[loadedState(session)] : "not loaded";
+  const loaded = sessionStateText(session);
   const state = session.external ? `outside Weavie · ${loaded}` : loaded;
   const quiet = !session.loaded || session.status === "idle";
   return quiet && session.lastActiveAt !== null
@@ -136,7 +159,7 @@ export function sessionSubtitle(session: RailSession, now: number): string {
 }
 
 /** The status-dot modifier: `offline` while its backend is unreachable, `unloaded` when dormant, else its status. */
-export function statusDot(session: RailSession): string {
+export function statusDot(session: RailSession): SessionDisplayStatus {
   if (session.offline) {
     return "offline";
   }

@@ -72,13 +72,14 @@ export function runStatus(state: SessionRunState): SessionStatusName {
 
 /** A loaded session's state, including workflow attention and unseen completed turns. */
 function loadedState(session: RailSession): SessionStatusName | "finished" {
-  if (session.status === "error" || session.status === "needsInput") {
+  // A pending workflow question or pause needs attention once the agent rests, not during a follow-up.
+  if (session.status !== "idle") {
     return session.status;
   }
   if (session.run !== null) {
     return runStatus(session.run.state);
   }
-  return session.status === "idle" && session.unseen ? "finished" : session.status;
+  return session.unseen ? "finished" : "idle";
 }
 
 export type SessionDisplayStatus = SessionStatusName | "finished" | "offline" | "unloaded";

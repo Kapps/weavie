@@ -154,7 +154,7 @@
   margin-bottom: auto;
 }
 
-/* Taller than its rows only mid-update; they stay on its bottom edge. */
+/* Never shorter than the whole transcript, whatever its rows measure; they stay on its bottom edge. */
 .agent-transcript-extent {
   display: flex;
   flex-direction: column;

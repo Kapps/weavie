@@ -37,6 +37,8 @@ export interface AgentPaneModel {
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
   /** Whether the transcript is receiving live output rather than only history. */
   readonly live: Accessor<boolean>;
+  /** The latest reply's id when a live message delivered it rather than the loaded history. */
+  readonly liveReplyId: Accessor<string | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
   readonly session: ClientSession;
@@ -49,7 +51,9 @@ export interface AgentPaneModel {
 }
 
 export interface MutableAgentPaneModel extends AgentPaneModel {
+  /** Applies live output; `changes` are the messages it changed. */
   publish(updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void;
+  /** Applies the loaded history. */
   replace(updates: AgentPaneUpdate[]): void;
   setHistoryComplete(complete: boolean): void;
   /** Marks the transcript as receiving live output, which history loading never clears. */
@@ -78,11 +82,13 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [historyComplete, setHistoryComplete] = createSignal(false);
   const [live, setLive] = createSignal(false);
+  const [liveReplyId, setLiveReplyId] = createSignal<string | null>(null);
+  let latestReplyId: string | null = null;
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
   const activities = new Map<string, ProjectedActivity>();
   const expandedActivities = new Set<string>();
 
-  const project = (updates: AgentPaneUpdate[]): void => {
+  const project = (updates: AgentPaneUpdate[], live: boolean): void => {
     const projection = projectAgentTranscript(updates);
     for (const id of expandedActivities) {
       if (!projection.activities.has(id)) {
@@ -105,6 +111,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const visible = ordered.entries;
     const turnStartIndex =
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
+    const resultIndex = latestResultIndex(visible);
+    const replyId = resultIndex === null ? null : visible[resultIndex]!.id;
     activities.clear();
     visitEntries(visible, (entry, path) => {
       const activity = projection.activities.get(entry.id);
@@ -117,12 +125,16 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
           agentTurnStartId: turnStartId,
           agentTurnStartIndex: turnStartIndex,
           entries: visible,
-          latestResultIndex: latestResultIndex(visible),
+          latestResultIndex: resultIndex,
           pendingRowIndexes: ordered.pendingRowIndexes,
           sectionLabels: computeSectionLabels(visible, active),
           turnActive: active,
         }),
       );
+      if (replyId !== latestReplyId) {
+        latestReplyId = replyId;
+        setLiveReplyId(live ? replyId : null);
+      }
       setTurnActive(active);
       setInterruptible(canInterrupt);
       setTurnStartedAt(activeTurnStartedAt(updates));
@@ -204,6 +216,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     latestOutput,
     latestPlan,
     live,
+    liveReplyId,
     pendingLegacyImageCount,
     pendingRequestKind,
     session,
@@ -216,11 +229,11 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
         hasInterruptibleActivity(updates) !== interruptible() ||
         activeTurnStartedAt(updates) !== turnStartedAt();
       if (activityChanged || !projectActivityChanges(changes)) {
-        project(updates);
+        project(updates, true);
       }
     },
     replace(updates) {
-      project(updates);
+      project(updates, false);
     },
     setHistoryComplete(complete) {
       batch(() => {
@@ -231,7 +244,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     noteLive: () => setLive(true),
     reset() {
       expandedActivities.clear();
-      project([]);
+      project([], false);
       clearAgentInputDrafts(session);
       setGeneration((value) => value + 1);
     },

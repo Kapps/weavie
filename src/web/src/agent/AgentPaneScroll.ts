@@ -146,8 +146,8 @@ export function createAgentPaneScroll(
     if (reply === null || row === undefined || !anchor.measuredThrough(row.index)) return;
     if (watchedId !== reply.id) {
       watchedId = reply.id;
-      // One loaded with the history was never followed from its start, so it never pins.
-      topSeen = model.live();
+      // One the history delivered was never followed from its start, so its top starts unseen.
+      topSeen = reply.id === model.liveReplyId();
     }
     if (!model.live()) return;
     const start = startOf(row);

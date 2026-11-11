@@ -27,14 +27,13 @@ export function AgentTranscript(props: {
   const rows = createMemo(() => {
     const items = props.virtualizer.getVirtualItems();
     const placed = new Map<VirtualItem["key"], { gap: number; index: number }>();
-    const total = props.virtualizer.getTotalSize();
-    let above = total;
+    let above = props.virtualizer.getTotalSize();
     for (let position = items.length - 1; position >= 0; position--) {
       const item = items[position]!;
       placed.set(item.key, { gap: above - item.end, index: item.index });
       above = item.start;
     }
-    return { below: above, placed, total };
+    return { below: above, placed };
   });
   // After the whole update, once every row has rendered where the virtualizer placed it.
   createEffect(on(rows, () => queueMicrotask(props.onLayout), { defer: true }));
@@ -44,7 +43,10 @@ export function AgentTranscript(props: {
       fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
     >
       {/* Holds the full height while rows and spacers change one by one, so no layout in between clamps the reader. */}
-      <div class="agent-transcript-extent" style={`min-height:${rows().total}px`}>
+      <div
+        class="agent-transcript-extent"
+        style={`min-height:${props.virtualizer.getTotalSize()}px`}
+      >
         <div
           class="agent-transcript"
           data-agent-transcript

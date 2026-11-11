@@ -13,12 +13,25 @@ import {
 } from "./harness/agent-pane";
 import { frames } from "./harness/render-budget";
 import { fromReplyStart } from "./harness/reply-start";
+import { mockSession } from "./mock-host";
 
 // The pane is bottom-origin: the reader stays still while a turn streams below them, a touch gesture holds the
 // transcript it is reading until the finger and its momentum are done, and following tracks the latest output.
 // Every turn streams as many small deltas, the way real agents deliver a reply.
 
 const history = agentTurns(30);
+// A loaded transcript whose last reply is several panes long.
+const endingInLongReply = history.map((message) =>
+  message.itemId === "a-29"
+    ? {
+        ...message,
+        text: Array.from({ length: 40 }, (_, line) => `Paragraph ${line} of the reply.`).join(
+          "\n\n",
+        ),
+      }
+    : message,
+);
+const liveNotice = { providerId: "acp", type: "session-info", summary: "Loaded reply" };
 
 async function openPane(openPanes: OpenPanes, name: string): Promise<AgentPane> {
   const pane = await openPanes({ [name]: history });
@@ -258,60 +271,78 @@ test("jumping to the latest output reaches the end of a reply that arrived while
   await expect(jumpToLatest(page)).toHaveCount(0);
 });
 
-test("the transcript is never shorter while its rows update than once they have", async ({
+test("a row leaving the mounted range never moves a reader scrolling to the top", async ({
   page,
   openPanes,
 }) => {
   // WebKitGTK lays out between a row's removal and the spacer that replaces it, and clamps a reader near the
-  // top to the shorter transcript. This lays out at every removal and again once the update is done.
+  // top to the shorter transcript. This lays out on both sides of every removal, as that engine does.
   await page.addInitScript(() => {
-    const shortfalls: number[] = [];
-    Object.assign(window, { shortfalls });
+    const moves: number[] = [];
+    Object.assign(window, { moves });
     const { remove } = Element.prototype;
     Element.prototype.remove = function (this: Element): void {
+      const body = this.classList.contains("agent-virtual-row")
+        ? document.querySelector(".agent-body")
+        : null;
+      const before = body?.scrollTop ?? 0;
       remove.call(this);
-      if (!this.classList.contains("agent-virtual-row")) return;
-      const body = document.querySelector(".agent-body")!;
-      const during = body.scrollHeight;
-      queueMicrotask(() => shortfalls.push(body.scrollHeight - during));
+      if (body !== null) moves.push(Math.abs(body.scrollTop - before));
     };
   });
-  const pane = await openPanes({ "row-updates": history });
+  const pane = await openPanes({ "to-the-top": history });
   const { body } = pane;
   await expect(page.getByText("Answer 29", { exact: true })).toBeVisible();
-  await wheelUp(pane, 1500, 1000);
-  await wheelUp(pane, 1500, 2000);
-  const shortfalls = await page.evaluate(
-    () => (window as unknown as { shortfalls: number[] }).shortfalls,
-  );
-  expect(shortfalls.length).toBeGreaterThan(0);
-  expect(Math.max(...shortfalls)).toBeLessThanOrEqual(1);
-  expect(await fromBottom(body)).toBeGreaterThan(2000);
+  await body.hover();
+  for (let previous = -1, position = 0; position !== previous; ) {
+    previous = position;
+    await page.mouse.wheel(0, -240);
+    await body.evaluate(untilStill);
+    position = await fromBottom(body);
+  }
+  await expect(page.getByText("Prompt 0", { exact: true })).toBeInViewport();
+  const moves = await page.evaluate(() => (window as unknown as { moves: number[] }).moves);
+  expect(moves.length).toBeGreaterThan(0);
+  expect(Math.max(...moves)).toBeLessThanOrEqual(1);
+  // What keeps it so: the transcript's full height is held apart from the rows that fill it.
+  const held = await body
+    .locator(".agent-transcript-extent")
+    .evaluate(
+      (extent) =>
+        Number.parseFloat(extent.style.minHeight) -
+        extent.firstElementChild!.getBoundingClientRect().height,
+    );
+  expect(Math.abs(held)).toBeLessThanOrEqual(1);
 });
 
 test("a long reply loaded with the history is not pinned once the session goes live", async ({
   page,
   openPanes,
 }) => {
-  const long = Array.from({ length: 40 }, (_, line) => `Paragraph ${line} of the reply.`);
-  const pane = await openPanes({
-    "loaded-reply": history.map((message) =>
-      message.itemId === "a-29" ? { ...message, text: long.join("\n\n") } : message,
-    ),
-  });
+  const pane = await openPanes({ "loaded-reply": endingInLongReply });
   const { body } = pane;
   await expect(page.getByText("Paragraph 39 of the reply.", { exact: true })).toBeVisible();
   expect(await scrollTop(body)).toBe(0);
   // The first live message after loading, then a taller pane as a sent prompt's composer collapses.
-  pane.host.publishAgentPane(pane.session.address, {
-    providerId: "acp",
-    type: "session-info",
-    summary: "Loaded reply",
-  });
+  pane.host.publishAgentPane(pane.session.address, liveNotice);
   await frames(page, 2);
   await page.setViewportSize({ width: 1280, height: 760 });
   await frames(page, 3);
   expect(await scrollTop(body)).toBe(0);
+  await expect(jumpToLatest(page)).toHaveCount(0);
+});
+
+test("a session that went live in the background opens at its loaded reply's end", async ({
+  page,
+  openPanes,
+}) => {
+  const pane = await openPanes({ shown: history.slice(0, 3), background: endingInLongReply });
+  await expect(page.getByText("Answer 0", { exact: true })).toBeVisible();
+  pane.host.publishAgentPane(mockSession("background", "background", "acp").address, liveNotice);
+  await page.locator('.session-chip[title^="background —"]').click();
+  await expect(page.getByText("Paragraph 39 of the reply.", { exact: true })).toBeVisible();
+  await frames(page, 3);
+  expect(await scrollTop(pane.body)).toBe(0);
   await expect(jumpToLatest(page)).toHaveCount(0);
 });
 

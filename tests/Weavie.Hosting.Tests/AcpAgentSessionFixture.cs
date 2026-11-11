@@ -435,6 +435,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			[workspace],
 			"weavie-test",
 			settings,
+			workspace,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 			editor,
 			exposeIdeTools: true,

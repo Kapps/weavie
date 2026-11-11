@@ -41,7 +41,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		_registry = registry;
 		_runtime = runtime;
 		Server = new McpServer(
-			registry.Credential.Token, presenter, workspaceFolders, ideName, settings: null, registryMode: false,
+			registry.Credential.Token, presenter, workspaceFolders, ideName, settings: null, settingsWorkspaceRoot: "", registryMode: false,
 			exposeIdeTools: true, layout: null, editor, commands: null, keybindings: null,
 			themeOverrides: null, NoSessionPeers.Instance, AgentConsultation.None, ReviewHintSink.None,
 			WorkflowRegistry.None);

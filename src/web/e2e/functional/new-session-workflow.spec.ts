@@ -1,8 +1,9 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createAcpSession } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 import { PNG_B64, pastePng } from "../harness/pasted-image";
-import { workflowReceipt } from "../harness/workflows";
+import { workflowReceipt, workflowTool } from "../harness/workflows";
 
 // The new-session composer picks a workflow: suggested once from the prompt by the decision provider, the user's
 // to change, and started with the prompt and its images. See docs/specs/new-session-workflow-picker/design.md.
@@ -58,4 +59,15 @@ test("the composer suggests a workflow from the prompt and starts the session in
     ),
   );
   expect(saved).toHaveLength(1);
+});
+
+test("a default an agent sets from its own session is the one the composer preselects", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "sets-default");
+  await workflowTool(surface, "setSetting", { key: "workflow.default", value: "quick-fix" });
+
+  await page.locator(".session-rail-add").click();
+  const workflow = page.locator(".session-inbox").getByRole("button", { name: "Workflow" });
+  await expect(workflow).toHaveText("quick-fix");
 });

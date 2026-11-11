@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { devices, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { CommandIds } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession, NEW_SESSION_COMMAND } from "./mock-host";
@@ -71,8 +71,8 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await page.keyboard.press("ArrowDown");
     const menu = page.getByRole("listbox", { name: "Workflow" });
     await expect(menu.getByRole("option")).toHaveText([
-      "No workflow",
-      /^broken/,
+      /^No workflow.*ask it to create a workflow around it\.$/,
+      /^broken.*run needs exactly one of prompt or skill$/,
       /^quick-fix.*A small, well-understood change\.$/,
       /^spec-driven/,
     ]);
@@ -82,16 +82,13 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     );
     const broken = menu.getByRole("option", { name: /broken/ });
     await expect(broken).toHaveAttribute("aria-disabled", "true");
-    await expect(broken).toHaveAttribute("title", "run needs exactly one of prompt or skill");
-    await expect(broken.locator(".control-menu-option-reason")).toBeHidden();
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(modal).toBeVisible();
 
-    // An unavailable workflow says why once highlighted and can't be picked; the next one can.
+    // An unavailable workflow can't be picked; the next one can.
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowUp");
-    await expect(broken.locator(".control-menu-option-reason")).toBeVisible();
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
     await page.keyboard.press("ArrowDown");
@@ -116,24 +113,6 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
       },
     });
   } finally {
-    await host.close();
-  }
-});
-
-test("touch reads why a workflow is unavailable in its row", async ({ browser }) => {
-  const host = await MockHost.start({ distDir });
-  const context = await browser.newContext({ ...devices["Pixel 7"] });
-  try {
-    const page = await context.newPage();
-    await openSessions(page, host);
-    const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("button", { name: "Workflow" }).tap();
-
-    await expect(
-      page.getByRole("option", { name: /broken/ }).locator(".control-menu-option-reason"),
-    ).toHaveText("run needs exactly one of prompt or skill");
-  } finally {
-    await context.close();
     await host.close();
   }
 });

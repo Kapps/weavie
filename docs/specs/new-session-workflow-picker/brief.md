@@ -32,8 +32,9 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
   starting from it and from the workspace checkout otherwise, re-read when either choice changes. The list, the
   suggestion, and Start share that one resolver.
 - A workflow that **declares inputs** is not a starting workflow and is not listed.
-- An **invalid** workflow is listed greyed out with a red unavailable icon. Its error shows on hover, and as a
-  second line under the entry while it is highlighted and always on touch. It cannot be selected.
+- Every entry is a name and one line under it: a workflow's description, and for *No workflow* a pointer to asking
+  the agent to create one. An **invalid** workflow is listed greyed out with an unavailable mark and its error as
+  that line. It cannot be selected.
 - Reached by Tab between the branch field and Start. No new command, shortcut, or "suggest again" control.
 
 ### Suggestion
@@ -62,6 +63,8 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
 
 ## Edge cases
 
+- An agent sets `workflow.default`, like every workspace-scoped setting, in the workspace's own settings whichever
+  session it runs in; a session's worktree has none of its own.
 - `workflow.default` naming a workflow that is missing, invalid, or declares inputs: the field shows *No workflow*
   with the reason by the field.
 - Switching host or starting point keeps the selected workflow when the new catalog offers it, and otherwise

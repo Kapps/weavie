@@ -45,23 +45,8 @@
 }
 
 .control-menu-option-unavailable {
+  margin-left: 6px;
   color: var(--bad);
-}
-
-/* The reason reads in the row once it is highlighted, by key or pointer; touch has neither, so it always shows. */
-.control-menu-option-reason {
-  display: none;
-  color: var(--bad);
-}
-
-.control-menu-option.active .control-menu-option-reason {
-  display: block;
-}
-
-@media (hover: none), (pointer: coarse) {
-  .control-menu-option-reason {
-    display: block;
-  }
 }
 
 .control-menu-option-group {

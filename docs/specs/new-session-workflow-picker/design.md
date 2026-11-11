@@ -13,7 +13,8 @@ documents, #1173, and workflow agent selection, #1168, are in).
 - Once the prompt has 16 words and pauses or loses focus, a decision model suggests a workflow once. It fills the
   field only when confident, and never after the user has picked.
 - Starting with a workflow hands it the prompt and pasted images as written. Workflows read them as `{{run.prompt}}`.
-- A broken workflow is greyed with a red icon and its error; a workflow that declares inputs is not listed.
+- Every entry reads as a name and one line under it. A broken workflow is greyed with an unavailable mark and its
+  error as that line; a workflow that declares inputs is not listed.
 
 **Main pieces**
 
@@ -404,6 +405,11 @@ turns into a paused run with that reason.
 
   The threshold is `workflow.decisionConfidence`, read before the query. The receipt is recorded through
   `WorkflowDecisionHistory.Record`, which `ModelWorkflowDecider` switches to as well.
+- **Where an agent's workspace-scoped settings go.** A session's registry was writing `test.profile`, `worktree.*`
+  and now `workflow.default` to an overlay keyed by its own worktree, which nothing reads. `McpServer` takes the
+  workspace those settings belong to (`settingsWorkspaceRoot`, the host's `WorkspaceRoot`) and routes `setSetting`,
+  `getSetting`, `listSettings`, and `clearSetting` there, so a default set from any session is the one the composer
+  reads.
 - **`workflow.default`.** String, `ApplyMode.Live`, default `""`, `SettingScope.Workspace`. It
   is checked when read; the catalog response carries the value and, when it can't be used, `defaultProblem`:
   `The default workflow "x" isn't a workflow here.`, `… is invalid: <error>.`, or `… declares inputs, so a prompt
@@ -449,9 +455,9 @@ a draft of any length, the workflow owner asks only for one worth judging.
 while asking) that opens a `ControlMenu`, positioned as `SuggestionProfile.tsx:45-108` does (its `placement` helper
 moves into `ControlMenu.tsx` instead of being copied).
 
-- `ControlMenu` options gain `unavailable?: string`: the row is `aria-disabled`, greyed, with a red lucide `Ban`
-  icon and the reason as `title`; the reason also reads as a second line while the row is highlighted, by key or
-  pointer, and always on touch. Accepting it does nothing.
+- `ControlMenu` options gain `unavailable?: boolean`: the row is `aria-disabled` and greyed, with a lucide `Ban`
+  mark after its name; its description says why. Accepting it does nothing. *No workflow* carries a description
+  too, so every row has the same two lines.
 - Keys: Enter, Space, or ArrowDown opens; arrows move; Enter or Tab picks; Escape closes the menu only.
 - `SessionInboxSurface.onKeyDown` (`SessionInboxSurface.tsx:29-55`) must return early while `controlMenuOpen()`,
   or Escape closes the whole Sessions modal and Tab is trapped. `GettingStarted.tsx` already does this.
@@ -514,7 +520,7 @@ multi-paragraph prompt:
 | --- | --- |
 | Catalog request fails (host offline, source session gone) | By the field: "Couldn't list workflows: …". The field keeps what it had; Start still works |
 | `workflow.default` missing, invalid, or input-declaring | By the field, from `defaultProblem` |
-| Invalid workflow file | Greyed row, red icon, reason on hover or as a second line on touch |
+| Invalid workflow file | Greyed row with an unavailable mark and its error as the row's description |
 | Suggestion provider error, timeout, or refusal | By the field: "Workflow suggestion failed: …". Value unchanged |
 | Inference off, automatic denied, nothing startable, below threshold | Nothing. Value unchanged |
 | Workflow uses `{{run.prompt}}` and none was given | The command fails naming the prompt; no session is created |
@@ -532,7 +538,7 @@ multi-paragraph prompt:
 | `tests/Weavie.Core.Tests` | `Submission(images)`; `TerminalParts`; `WorkflowSuggesterTests` (choices, evidence, origin, threshold boundary, none label, Disabled/PolicyDenied, failure, zero startable, history); `WorkflowStartOptionsTests` (the three default problems); built-in inputs now empty |
 | `tests/Weavie.Hosting.Tests` | workflow + prompt + image creates a session whose stage turn carries both; files survive unload/load and cancel, and are gone once the session is deleted; a missing prompt leaves no session; `weavie.workflow.run` takes `prompt`; an ACP skill stage sends command, image, stage block; terminal launch-argument and typed-turn order; new `HostCoreWorkflowStartTests` for the catalog's wire shape and source root, a suggestion's choice or failure on the wire, and `suggestWorkflow` answering while a `previewBranch` is held |
 | Web unit | `new-session-branch-preview.test.ts` unchanged but for the constant's name; `new-session-workflow-choice.test.ts` owns the field's rules: once only, a short flush does not spend it, a failed or unoffered suggestion, a pick blocks landing, a result after `capture()` is dropped, retarget and reconnect |
-| E2E mock-host | `mock-host.ts` answers `sessionCreation/workflows` by default; `new-session-workflow.spec.ts` covers the one suggestion, Tab reach, menu keys, Escape closing only the menu, the unavailable row on pointer and touch, and `workflow` in the submit payload |
+| E2E mock-host | `mock-host.ts` answers `sessionCreation/workflows` by default; `new-session-workflow.spec.ts` covers the one suggestion, Tab reach, menu keys, Escape closing only the menu, the unavailable row, and `workflow` in the submit payload |
 | E2E functional (headless) | new `functional/new-session-workflow.spec.ts` with the fake decision provider: the suggestion applied, then Start with a pasted image and the stage turn showing prompt and image in a fake-ACP session. The fakes' `workflow` inference mode falls through to the branch reply for non-decision queries so one spec shows both fields |
 | Real agents | Done once by hand with claude-agent-acp, codex-acp, and terminal Claude (results in the summary). The fakes cannot show this |
 

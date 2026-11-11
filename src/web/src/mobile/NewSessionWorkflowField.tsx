@@ -21,6 +21,7 @@ export interface NewSessionWorkflowActions {
 }
 
 const NONE = "";
+const NONE_HINT = "Tell your agent how you like to work and ask it to create a workflow around it.";
 
 /** The workflow a new session starts in: suggested once from the prompt, and the user's to change. */
 export function NewSessionWorkflowField(props: {
@@ -111,13 +112,13 @@ export function NewSessionWorkflowField(props: {
                 label: "Workflow",
                 value: state().workflow ?? NONE,
                 options: [
-                  { id: NONE, label: "No workflow", description: null, group: null },
+                  { id: NONE, label: "No workflow", description: NONE_HINT, group: null },
                   ...state().options.map((option) => ({
                     id: option.id,
                     label: option.id,
-                    description: option.error === null ? option.description : null,
+                    description: option.error ?? option.description,
                     group: null,
-                    ...(option.error === null ? {} : { unavailable: option.error }),
+                    unavailable: option.error !== null,
                   })),
                 ],
               }}

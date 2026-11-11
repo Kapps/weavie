@@ -10,9 +10,9 @@ const [openMenus, setOpenMenus] = createSignal(0);
 /** Whether a control menu is open, so an enclosing dialog leaves Enter and Escape to it. */
 export const controlMenuOpen = (): boolean => openMenus() > 0;
 
-/** An option the menu lists but won't pick, with the reason it shows instead. */
+/** An option the menu may list without letting it be picked; its description says why. */
 export interface ControlMenuOption extends AgentControlOption {
-  unavailable?: string;
+  unavailable?: boolean;
 }
 
 /** Fixed below the anchor, or above it when the viewport has no room underneath. */
@@ -55,7 +55,7 @@ export function ControlMenu(props: {
     onAccept: (index) => {
       const option = props.axis.options[index];
       if (option === undefined) props.onClose();
-      else if (option.unavailable === undefined) props.onPick(option.id);
+      else if (option.unavailable !== true) props.onPick(option.id);
     },
     onDismiss: props.onClose,
   });
@@ -102,28 +102,24 @@ export function ControlMenu(props: {
               role="option"
               tabindex={-1}
               aria-selected={option.id === props.axis.value}
-              aria-disabled={option.unavailable !== undefined}
-              title={option.unavailable}
+              aria-disabled={option.unavailable === true}
               classList={{ active: index() === nav.index() }}
               onPointerDown={(event) => {
                 event.preventDefault();
-                if (option.unavailable === undefined) props.onPick(option.id);
+                if (option.unavailable !== true) props.onPick(option.id);
               }}
             >
-              <Show when={option.unavailable !== undefined}>
-                <span class="control-menu-option-unavailable ui-icon">
-                  <Ban aria-label="Unavailable" />
-                </span>
-              </Show>
               <span class="ui-row-text">
-                <span class="control-menu-option-label">{option.label}</span>
+                <span class="control-menu-option-label">
+                  {option.label}
+                  <Show when={option.unavailable === true}>
+                    <span class="control-menu-option-unavailable ui-icon">
+                      <Ban aria-label="Unavailable" />
+                    </span>
+                  </Show>
+                </span>
                 <Show when={option.description !== null}>
                   <span class="control-menu-option-desc ui-row-desc">{option.description}</span>
-                </Show>
-                <Show when={option.unavailable}>
-                  {(reason) => (
-                    <span class="control-menu-option-reason ui-row-desc">{reason()}</span>
-                  )}
                 </Show>
               </span>
             </div>

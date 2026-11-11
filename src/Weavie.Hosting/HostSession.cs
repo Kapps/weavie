@@ -63,6 +63,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
 	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
+	/// Workspace-scoped settings its agent changes live in <paramref name="settingsWorkspaceRoot"/>'s overlay.
 	/// <paramref name="endpoint"/> is this session's exact message-bus incarnation;
 	/// <paramref name="corrections"/> is the workspace's shared correction ring this session records into.
 	/// </summary>
@@ -71,6 +72,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		SettingsStore settings,
 		LayoutStore layout,
 		string workspaceRoot,
+		string settingsWorkspaceRoot,
 		string scratchDir,
 		Func<string, string> workflowDocumentsDirectory,
 		string pastedImagesDir,
@@ -238,6 +240,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			[workspaceRoot],
 			"weavie",
 			settings,
+			settingsWorkspaceRoot,
 			layout,
 			Editor,
 			exposeRegistryIdeTools,

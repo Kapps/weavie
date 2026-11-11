@@ -20,6 +20,13 @@ only the design and the branch diff, and a duplication pass over the whole diff.
 | 11 | nit | A repository workflow's description could be written to win the suggestion | rejected: the field shows the workflow before Start, and repository trust is already a deferred item in `workflows.md` |
 | 12 | nit | Wording: a design heading and a test comment described the path rather than the state | fixed, except the design's ticked build checklist, which the build workflow asks for |
 
+## Found while proving it in the real app
+
+| # | Severity | Finding | Status |
+| --- | --- | --- | --- |
+| 13 | bug | `workflow.default` set by an agent in a worktree session was ignored: the session's registry kept workspace-scoped settings in an overlay keyed by its own worktree, which nothing reads (`test.profile` and `worktree.*` went the same way) | fixed: the registry routes them to the workspace's overlay; Core test and a full-stack test |
+| 14 | bug | One workflow file that makes YamlDotNet's scanner throw the wrong exception failed the whole catalog, emptying the picker | fixed: the file is listed as invalid; reader test |
+
 ## Outside the diff
 
 `native build (macos)` fails in CI with launch error `-10825` on `Weavie.Mac.Tests.app`. It fails the same way on

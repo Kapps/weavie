@@ -533,6 +533,7 @@ public sealed partial class HostCore {
 				_settings,
 				_layout,
 				cwd,
+				WorkspaceRoot,
 				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
 				_workflowDocuments.ForRun,
 				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading

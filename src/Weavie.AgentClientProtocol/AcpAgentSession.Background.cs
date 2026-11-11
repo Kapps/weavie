@@ -4,8 +4,6 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	private bool _backgroundRunning;
-	private int _backgroundQueued;
-	private readonly Lock _backgroundGate = new();
 
 	/// <inheritdoc/>
 	public event Action<IReadOnlyList<AgentBackgroundItem>>? BackgroundWorkChanged;
@@ -29,16 +27,10 @@ public sealed partial class AcpAgentSession {
 	private AcpConversation? NestedConversation(string conversationId) =>
 		_runtime.Conversations.FirstOrDefault(conversation => conversation.ConversationId == conversationId);
 
-	private void QueueBackground() {
-		if (Interlocked.Exchange(ref _backgroundQueued, 1) != 0) return;
-		ThreadPool.QueueUserWorkItem(_ => {
-			Interlocked.Exchange(ref _backgroundQueued, 0);
-			PublishBackground();
-		});
-	}
-
+	// Published inside the transition that changed the work, so the running flag reaches the status machine
+	// before that transition's turn stop or completion does.
 	private void PublishBackground() {
-		lock (_backgroundGate) {
+		lock (_turnTransitionGate) {
 			var items = BackgroundWork;
 			BackgroundWorkChanged?.Invoke(items);
 			bool running = items.Any(item => item.Running);

@@ -97,7 +97,7 @@ public sealed partial class AcpAgentSession {
 
 	private void DisposeSide(AcpConversationHandle runtime) {
 		_context.Events.Observe(new AgentConversationRemoved(runtime.Id));
-		QueueBackground();
+		PublishBackground();
 		_ = runtime.DisposeAsync();
 	}
 

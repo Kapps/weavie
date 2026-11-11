@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
@@ -13,6 +12,13 @@ internal sealed partial class AcpConversation {
 	private readonly Action<string> _log;
 	private readonly AcpConversationPort _port;
 	private readonly AcpConversationSpec _spec;
+	private readonly AgentConversationBinding _binding;
+	private readonly bool _ownsBinding;
+	private readonly Action<AcpConversation> _retired;
+	private readonly TaskCompletionSource<Exception?> _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly TaskCompletionSource<AgentConversationOutcome> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private Task? _closing;
+	private Task? _revocation;
 	private readonly AcpOnce<AcpSessionEndpoint> _endpoint = new();
 	private readonly CancellationTokenSource _lifetime = new();
 	private readonly AcpTerminalManager _terminals;
@@ -26,7 +32,6 @@ internal sealed partial class AcpConversation {
 	private readonly HashSet<string> _resolvedRequests = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, AcpToolState> _tools = new(StringComparer.Ordinal);
 	private readonly HashSet<string> _activeTools = new(StringComparer.Ordinal);
-	private readonly Dictionary<string, AcpContentState> _content = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _planTurns = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, HashSet<string>> _turnItemIds = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, AgentControlAxis> _controls = new(StringComparer.Ordinal);
@@ -43,6 +48,7 @@ internal sealed partial class AcpConversation {
 	// Completion publication still owns the slot after the prompt response, including reentrant submissions.
 	private bool _promptDeliveryActive;
 	private bool _steering;
+	private bool _steeringRefused;
 	private bool _loadingTranscript;
 	private bool _sessionOpening;
 	private bool _waitingForBackground;
@@ -61,13 +67,16 @@ internal sealed partial class AcpConversation {
 	private AgentContextWindowUsage? _contextUsage;
 	private readonly Dictionary<string, AgentUsageLimit> _usageLimits = [];
 
-	internal AcpConversation(AcpConversationHost host, AcpConversationSpec spec, AcpConversationPort port) {
+	internal AcpConversation(AcpConversationHost host, AcpConversationSpec spec, AcpConversationPort port, AgentConversationBinding binding) {
 		_context = host.Context with { Events = port };
 		_definition = host.Definition;
 		_log = host.Log;
 		_turnTransitionGate = host.TransitionGate;
 		_port = port;
 		_spec = spec;
+		_binding = binding;
+		_ownsBinding = spec.Role != AcpConversationRole.Subagent;
+		_retired = host.Retired;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);
 		Background = spec.Opening is AdoptedOpening adopted ? adopted.Work : new AcpBackgroundWork(this);
 		RestoreContinuation(spec.Seed.Continuation);
@@ -81,6 +90,13 @@ internal sealed partial class AcpConversation {
 	internal bool Live => !_lifetime.IsCancellationRequested;
 
 	internal bool Attached => _endpoint.IsSet;
+	internal bool Retired => _port.Detached;
+
+	internal async Task WaitUntilReadyAsync(CancellationToken ct) {
+		if (await _opened.Task.WaitAsync(ct).ConfigureAwait(false) is { } error) throw error;
+	}
+
+	internal Task<AgentConversationOutcome> Completion => _completion.Task;
 
 	internal bool Ready {
 		get { lock (_gate) return _ready; }
@@ -122,7 +138,7 @@ internal sealed partial class AcpConversation {
 				TurnNumber = _turnNumber,
 				GuidanceSent = _guidanceSent,
 				PlanTurns = new Dictionary<string, string>(_planTurns),
-				Failed = _spec.Side && _runtimeFailed,
+				Failed = _runtimeFailed,
 			};
 		}
 	}
@@ -131,8 +147,12 @@ internal sealed partial class AcpConversation {
 	internal bool HasWork {
 		get {
 			lock (_gate) return _sessionOpening || _pendingSubmissions.Count > 0 || _promptActive
-				|| HasBackgroundWorkLocked() || HasPendingInteractionLocked();
+				|| _promptDeliveryActive || _steering || HasBackgroundWorkLocked() || HasPendingInteractionLocked();
 		}
+	}
+
+	internal bool Settled {
+		get { lock (_gate) return _ready && !_controlMutationActive && _controlMutations.Count == 0 && !HasWork; }
 	}
 
 	/// <summary>Whether a request opening the provider session is still in flight.</summary>
@@ -237,7 +257,7 @@ internal sealed partial class AcpConversation {
 	private void SignalSettled() {
 		bool terminal;
 		lock (_gate) terminal = _runtimeFailed;
-		_port.Settled(terminal);
+		_port.Settled(Continuation, terminal);
 	}
 
 	private void EmitFailure(Exception error) {
@@ -273,14 +293,4 @@ internal sealed partial class AcpConversation {
 		AcpToolState Tool,
 		IReadOnlyList<AgentMutation> CompletionMutations);
 
-	private sealed class AcpContentState {
-		public required string Id { get; init; }
-		public required string ItemType { get; init; }
-		public required string TurnId { get; init; }
-		public required string? MessageId { get; init; }
-		public StringBuilder Text { get; } = new();
-		public string? MediaType { get; set; }
-		public string? MediaData { get; set; }
-		public string? ResourceUri { get; set; }
-	}
 }

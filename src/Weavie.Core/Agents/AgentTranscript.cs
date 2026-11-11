@@ -15,16 +15,16 @@ public enum AgentTranscriptRole {
 	Error,
 }
 
-/// <summary>One provider-neutral entry of a session's primary conversation.</summary>
+/// <summary>One provider-neutral entry of a conversation.</summary>
 /// <param name="Role">Who produced the entry.</param>
 /// <param name="Text">Its text, or a tool's summary.</param>
 /// <param name="Status">The provider's status for the entry, when reported.</param>
 /// <param name="From">The id of the session that sent a user entry, when an agent sent it with messageSession.</param>
 public sealed record AgentTranscriptEntry(AgentTranscriptRole Role, string Text, string? Status, string? From);
 
-/// <summary>Projects a saved pane journal onto the primary conversation's prompts, replies, tools, and errors.</summary>
+/// <summary>Projects conversation rows onto prompts, replies, tools, and errors.</summary>
 public static class AgentTranscript {
-	/// <summary>Folds <paramref name="journal"/> and keeps primary-thread entries; thoughts and nested conversations are dropped.</summary>
+	/// <summary>Folds the already-scoped <paramref name="journal"/> and omits thoughts and UI metadata.</summary>
 	public static IReadOnlyList<AgentTranscriptEntry> FromPaneJournal(IReadOnlyList<AgentPaneMessage> journal) {
 		var ledger = AgentPaneLedger.Of(journal);
 		var entries = new List<AgentTranscriptEntry>();
@@ -35,7 +35,6 @@ public static class AgentTranscript {
 	}
 
 	private static AgentTranscriptEntry? Project(AgentPaneMessage message) {
-		if (message.ConversationId is not null) return null;
 		return message switch {
 			{ Type: "user-message" or "user-command" or "user-steer", Text: { Length: > 0 } text } =>
 				new(AgentTranscriptRole.User, text, null, message.Sender?.Id),

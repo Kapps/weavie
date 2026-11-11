@@ -2,6 +2,12 @@ namespace Weavie.Workflows;
 
 /// <summary>Something a transition asks the run's owner to do.</summary>
 internal abstract record WorkflowEffect {
+	/// <summary>Enter a distinct stage visit, even when the stage name repeats.</summary>
+	public sealed record EnterStage : WorkflowEffect;
+
+	/// <summary>Keep the stage visit and admit a new completion round.</summary>
+	public sealed record ReviseStage : WorkflowEffect;
+
 	/// <summary>Send <paramref name="Turn"/> to the agent as its next turn.</summary>
 	public sealed record Kickoff(WorkflowKickoff Turn) : WorkflowEffect;
 

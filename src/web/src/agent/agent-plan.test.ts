@@ -20,6 +20,8 @@ const plan = (itemId: string): AgentPaneUpdate => ({
 describe("agent plan identity", () => {
   it("selects the newest completed plan and retains its exact opaque identity", () => {
     expect(latestCompletedPlan([plan("first"), plan("latest")])).toEqual({
+      providerId: "acp",
+      conversationId: null,
       threadId: "thread-1",
       turnId: "turn-1",
       itemId: "latest",
@@ -41,6 +43,8 @@ describe("agent plan identity", () => {
     expect(latestCompletedPlan([{ ...plan("plan-1"), turnId: null }])).toBeNull();
     expect(latestCompletedPlan([{ ...plan("plan-2"), text: "  " }])).toBeNull();
     expect(latestCompletedPlan([plan("usable"), { ...plan("blank"), text: " " }])).toEqual({
+      providerId: "acp",
+      conversationId: null,
       threadId: "thread-1",
       turnId: "turn-1",
       itemId: "usable",
@@ -59,6 +63,8 @@ describe("agent plan identity", () => {
       planPath: "/plans/claude.md",
     };
     expect(latestCompletedPlan([plan("first"), review])).toEqual({
+      providerId: "fake",
+      conversationId: null,
       itemId: "request:7",
       threadId: "thread",
       turnId: "turn",

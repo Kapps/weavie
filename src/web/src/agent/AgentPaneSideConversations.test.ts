@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toAgentTranscript } from "./AgentPaneMessages";
+import { toAgentTranscript } from "./AgentPaneTestModel";
 
 const primary = {
   providerId: "acp",
@@ -158,4 +158,77 @@ describe("subagent cards", () => {
     expect(entry!.tone).toBe("error");
     expect(entry!.streaming).toBe(false);
   });
+});
+
+describe("subagents owned by a BTW", () => {
+  it("keeps the BTW turn active when its child finishes", () => {
+    const messages: AgentPaneUpdate[] = [
+      aside("btw"),
+      { ...primary, type: "turn-started", conversationId: "btw" },
+      subagent("child", "btw")[0]!,
+      { type: "turn-completed", providerId: "acp", conversationId: "child", status: "completed" },
+    ];
+    expect(toAgentTranscript(messages)[0]!.asideActive).toBe(true);
+    messages.push({
+      ...primary,
+      type: "turn-completed",
+      conversationId: "btw",
+      status: "end_turn",
+    });
+    expect(toAgentTranscript(messages)[0]!.asideActive).toBe(false);
+  });
+
+  it("keeps child and descendant cards inside their own BTW in receive order", () => {
+    const messages: AgentPaneUpdate[] = [
+      answer("main", "Main answer"),
+      aside("first"),
+      { ...primary, type: "turn-started", conversationId: "first" },
+      ...subagent("child", "first"),
+      aside("second"),
+      ...subagent("other", "second"),
+      ...subagent("descendant", "child"),
+      { ...answer("result", "Child result"), conversationId: "child", threadId: "child" },
+      { type: "turn-completed", providerId: "acp", conversationId: "child", status: "completed" },
+      ...subagent("main-child", null),
+      answer("later", "Main continues"),
+    ];
+    const entries = toAgentTranscript(messages);
+    expect(entries.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "Main answer",
+      "first",
+      "second",
+      "main-child",
+      "Main continues",
+    ]);
+    const first = entries[1]!;
+    expect(first.kind).toBe("aside");
+    expect(first.asideActive).toBe(true);
+    expect(first.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "first",
+      "child",
+      "descendant",
+    ]);
+    const child = first.asideEntries![1]!;
+    expect(child.subagent?.state).toBe("completed");
+    expect(child.asideEntries?.some((entry) => entry.text === "Child result")).toBe(true);
+    expect(first.asideEntries![2]!.subagent?.via).toBe("name child");
+    expect(entries[2]!.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "second",
+      "other",
+    ]);
+  });
+});
+
+it("keeps a completed workflow thread named and read-only on replay", () => {
+  const marker = { ...aside("stage"), summary: "Review" };
+  const entry = toAgentTranscript([
+    marker,
+    { ...marker, type: "turn-started", turnId: "1" },
+    { ...marker, type: "turn-completed", turnId: "1", status: "completed" },
+    { ...marker, type: "side-conversation-closed", status: "closed" },
+  ]).find((item) => item.kind === "aside")!;
+  expect(entry.label).toBe("Review");
+  expect(entry.asideActive).toBe(false);
+  expect(entry.asideReplyable).toBe(false);
+  expect(entry.tone).toBe("assistant");
 });

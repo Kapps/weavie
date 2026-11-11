@@ -28,9 +28,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 	// The WebSocket subprotocol Claude Code offers on both its ws-ide and ws MCP transports.
 	private const string McpSubProtocol = "mcp";
 
-	private readonly string _authToken;
 	private readonly IDiffPresenter _presenter;
 	private readonly IReadOnlyList<string> _workspaceFolders;
+	private readonly string _settingsWorkspaceRoot;
 	private readonly SettingsStore? _settings;
 	private readonly LayoutStore? _layout;
 	private readonly EditorStore? _editor;
@@ -56,7 +56,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter handling inbound
 	/// tool calls, and the advertised workspace folders. A <paramref name="settings"/> store adds the settings
-	/// tools. Call <see cref="Start"/> to begin listening.
+	/// tools, which keep workspace-scoped keys in <paramref name="settingsWorkspaceRoot"/>'s overlay (empty for
+	/// none): the workspace every reader resolves them against, not the session's own worktree.
+	/// Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
@@ -64,6 +66,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
 		SettingsStore? settings,
+		string settingsWorkspaceRoot,
 		bool registryMode,
 		bool exposeIdeTools,
 		LayoutStore? layout,
@@ -89,10 +92,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
 		}
 
-		_authToken = authToken;
+		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
+		_settingsWorkspaceRoot = settingsWorkspaceRoot;
 		_layout = layout;
 		_editor = editor;
 		_commands = commands;
@@ -202,7 +206,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				if (!IsAuthorized(headers)) {
+				if (ResolveGrant(headers) is not { } grant) {
 					Emit("rejected connection: missing/invalid auth token");
 					await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;
@@ -218,7 +222,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				ClientConnected?.Invoke();
 				using var connection = CancellationTokenSource.CreateLinkedTokenSource(ct);
 				try {
-					await MessageLoopAsync(ws, new WebSocketResponder(this, ws), connection.Token).ConfigureAwait(false);
+					await MessageLoopAsync(ws, new WebSocketResponder(this, ws), grant, connection.Token).ConfigureAwait(false);
 				} finally {
 					// The caller is gone: its in-flight tool calls stop with it.
 					await connection.CancelAsync().ConfigureAwait(false);
@@ -232,7 +236,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private bool IsAuthorized(IReadOnlyDictionary<string, string> headers) {
+	private CapabilityRegistryGrant? ResolveGrant(IReadOnlyDictionary<string, string> headers) {
 		headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
 		string? bearer = null;
 		if (headers.TryGetValue("authorization", out string? authHeader)
@@ -240,14 +244,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 			bearer = authHeader["Bearer ".Length..].Trim();
 		}
 
-		return TokenEquals(ideToken, _authToken) || TokenEquals(bearer, _authToken);
+		lock (_grantsGate) return _grants.FirstOrDefault(grant => grant.Live
+			&& (TokenEquals(ideToken, grant.Credential.Token) || TokenEquals(bearer, grant.Credential.Token)));
 	}
 
 	private static bool TokenEquals(string? presented, string expected) =>
 		presented is not null && CryptographicOperations.FixedTimeEquals(
 			Encoding.ASCII.GetBytes(presented), Encoding.ASCII.GetBytes(expected));
 
-	private async Task MessageLoopAsync(WebSocket ws, IMcpResponder responder, CancellationToken ct) {
+	private async Task MessageLoopAsync(WebSocket ws, IMcpResponder responder, CapabilityRegistryGrant grant, CancellationToken ct) {
 		byte[] buffer = new byte[16 * 1024];
 		var message = new MemoryStream();
 		while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested) {
@@ -272,14 +277,14 @@ public sealed partial class McpServer : IAsyncDisposable {
 			message.SetLength(0);
 
 			// Dispatch off the receive loop so a blocking openDiff doesn't stall other messages.
-			_ = DispatchAsync(responder, json, ct);
+			_ = DispatchAsync(responder, json, grant, ct);
 		}
 	}
 
-	private async Task DispatchAsync(IMcpResponder responder, string json, CancellationToken ct) {
+	private async Task DispatchAsync(IMcpResponder responder, string json, CapabilityRegistryGrant grant, CancellationToken ct) {
 		try {
 			using var doc = JsonDocument.Parse(json);
-			await DispatchAsync(responder, doc.RootElement, ct).ConfigureAwait(false);
+			await DispatchAsync(responder, doc.RootElement, grant, ct).ConfigureAwait(false);
 		} catch (JsonException ex) {
 			await SendParseErrorAsync(responder, ex, ct).ConfigureAwait(false);
 		}
@@ -290,8 +295,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		return responder.SendErrorAsync(null, -32700, "Parse error", ct);
 	}
 
-	private async Task DispatchAsync(IMcpResponder responder, JsonElement root, CancellationToken ct) {
+	private async Task DispatchAsync(IMcpResponder responder, JsonElement root, CapabilityRegistryGrant grant, CancellationToken ct) {
 		string? idForError = null;
+		InflightCall? call = null;
 		try {
 			bool hasId = root.TryGetProperty("id", out var idElement);
 			string? idRaw = hasId ? idElement.GetRawText() : null;
@@ -311,7 +317,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				case "notifications/initialized":
 					break;
 				case "notifications/cancelled":
-					CancelCall(responder.Client, root);
+					CancelCall(grant, responder.Client, root);
 					break;
 				case "ping":
 					await responder.SendResultAsync(idRaw, "{}", ct).ConfigureAwait(false);
@@ -320,9 +326,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await responder.SendResultAsync(idRaw, _toolsListJson, ct).ConfigureAwait(false);
 					break;
 				case "tools/call":
-					using (var call = BeginCall(responder.Client, idRaw, ct)) {
+					call = BeginCall(grant, responder.Client, idRaw, ct); {
 						try {
-							await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+							call.Token.ThrowIfCancellationRequested();
+							await HandleToolCallAsync(responder, root, idRaw, call, ct).ConfigureAwait(false);
 						} catch (OperationCanceledException) when (!call.Token.IsCancellationRequested) {
 							// A client doesn't notice a closed stream, so a tool that stopped itself still owes an answer.
 							Emit("tool call stopped itself");
@@ -346,6 +353,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			Emit($"dispatch error: {ex.Message}");
 			await responder.SendErrorAsync(idForError, -32603, ex.Message, ct).ConfigureAwait(false);
+		} finally {
+			call?.Dispose();
 		}
 	}
 
@@ -373,16 +382,17 @@ public sealed partial class McpServer : IAsyncDisposable {
 		await responder.SendResultAsync(idRaw, result, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleToolCallAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task HandleToolCallAsync(IMcpResponder responder, JsonElement root, string? idRaw, InflightCall call, CancellationToken ct) {
 		try {
-			await DispatchToolAsync(responder, root, idRaw, ct).ConfigureAwait(false);
+			await DispatchToolAsync(responder, root, idRaw, call, ct).ConfigureAwait(false);
 		} catch (ToolUnavailableException ex) {
 			// A handler asked for a registry the IDE-mode server wasn't wired with; report it as a tool error.
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
-	private async Task DispatchToolAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task DispatchToolAsync(IMcpResponder responder, JsonElement root, string? idRaw, InflightCall call, CancellationToken responseToken) {
+		var ct = call.Token;
 		if (!root.TryGetProperty("params", out var p) || !p.TryGetProperty("name", out var nameEl)) {
 			await responder.SendErrorAsync(idRaw, -32602, "Invalid params", ct).ConfigureAwait(false);
 			return;
@@ -497,10 +507,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await HandleForkWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case CompleteStageTool:
-				await HandleCompleteStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				call.BeginCompletionResponse();
+				await HandleCompleteStageAsync(responder, args, idRaw, call.Stage, responseToken).ConfigureAwait(false);
 				break;
 			case FailStageTool:
-				await HandleFailStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				await HandleFailStageAsync(responder, args, idRaw, call.Stage, responseToken).ConfigureAwait(false);
 				break;
 			case "runPrompt":
 				await HandleRunPromptAsync(responder, args, idRaw, ct).ConfigureAwait(false);
@@ -528,8 +539,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
-		// Resolve workspace-scoped keys against this session's workspace, matching setSetting's routing.
-		string root = PrimaryWorkspaceRoot;
+		string root = _settingsWorkspaceRoot;
 		string json = root.Length > 0 ? settings.BuildCatalogJson(root) : settings.BuildCatalogJson();
 		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
@@ -543,8 +553,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			// Resolve a workspace-scoped key against this session's workspace, matching setSetting's routing.
-			string root = PrimaryWorkspaceRoot;
+			string root = _settingsWorkspaceRoot;
 			string json = root.Length > 0 ? settings.BuildGetJson(key, root) : settings.BuildGetJson(key);
 			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
@@ -552,7 +561,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	// The primary workspace root (empty when none) — where a workspace-scoped write/clear is routed.
+	// The session's own root (empty when none).
 	private string PrimaryWorkspaceRoot => _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty;
 
 	private async Task HandleSetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -569,9 +578,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			// Route a workspace-scoped key (test.profile, worktree.*) to its out-of-repo overlay via the primary
-			// workspace root; SettingsStore ignores the root for user-scoped keys.
-			string root = PrimaryWorkspaceRoot;
+			// A workspace-scoped key (test.profile, worktree.*) goes to its workspace's out-of-repo overlay;
+			// SettingsStore ignores the root for user-scoped keys.
+			string root = _settingsWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Set(key, valueElement, root) : settings.Set(key, valueElement);
 			await SendToolTextAsync(responder, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
@@ -603,7 +612,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		try {
 			// Match setSetting's routing so a workspace override is cleared from its overlay, not the user file.
-			string root = PrimaryWorkspaceRoot;
+			string root = _settingsWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Clear(key, root) : settings.Clear(key);
 			await SendToolTextAsync(responder, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
 			Emit($"clearSetting {key} (removed={result.Removed})");
@@ -949,6 +958,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			_cts.Dispose();
 		}
 
+		CapabilityRegistryGrant[] grants;
+		lock (_grantsGate) grants = [.. _grants];
+		foreach (var grant in grants) await grant.DisposeAsync().ConfigureAwait(false);
 		_listener?.Stop();
 		_sendLock.Dispose();
 	}

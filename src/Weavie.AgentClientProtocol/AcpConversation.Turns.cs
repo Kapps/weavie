@@ -53,7 +53,7 @@ internal sealed partial class AcpConversation {
 			}
 			threadId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
 			if (_promptActive) {
-				if (!_features.Steering || _steering) return;
+				if (!_features.Steering || _steering || _steeringRefused) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
 				submission = _pendingSubmissions.TakeFirst(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
 				if (submission is null) return;
@@ -62,6 +62,7 @@ internal sealed partial class AcpConversation {
 			} else {
 				submission = _pendingSubmissions.Dequeue();
 				_promptActive = true;
+				_steeringRefused = false;
 				_promptDeliveryActive = true;
 				_waitingForBackground = false;
 				_turnNumber++;
@@ -118,14 +119,21 @@ internal sealed partial class AcpConversation {
 						lock (_gate) _pendingSubmissions.Requeue(submission);
 						retryAsPrompt = true;
 						break;
+					case "failed":
+						RefuseSteering(submission);
+						break;
 					case "startedNewTurn":
 						throw new AcpProtocolException(
 							$"{Definition.Name} started an untracked turn instead of returning promptRequired.");
-					case "failed":
-						throw new AcpProtocolException($"{Definition.Name} could not apply the steering prompt.");
 					default:
 						throw new AcpProtocolException("The ACP steering response has an unknown outcome.");
 				}
+			}
+		} catch (AcpRequestException ex) {
+			lock (_turnTransitionGate) {
+				if (!Live) return;
+				_log($"[acp:{Definition.Id}] {ex.Message}");
+				RefuseSteering(submission);
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -144,7 +152,18 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
+	// A turn that takes no steer, such as Codex's /compact: the submission leads the queue for its own
+	// turn and nothing else steers into this one.
+	private void RefuseSteering(AgentTurnSubmission submission) {
+		lock (_gate) {
+			_pendingSubmissions.Requeue(submission);
+			_steeringRefused = true;
+		}
+	}
+
 	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {
+		// Refused here, before the turn is accepted, whenever the agent's features are already known.
+		if (_ready) RequireImageSupport(submission);
 		if (submission.Kind == AgentTurnSubmissionKind.Prompt) {
 			if (submission.CommandName.Length != 0) {
 				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
@@ -157,9 +176,6 @@ internal sealed partial class AcpConversation {
 		}
 		if (submission.Kind != AgentTurnSubmissionKind.ProviderCommand) {
 			throw new InvalidOperationException($"Unknown agent submission kind '{submission.Kind}'.");
-		}
-		if (submission.Attachments.Count != 0) {
-			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
 		if (submission.CommandName.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
 		if (_ready) ResolveProviderCommandLocked(submission.CommandName);

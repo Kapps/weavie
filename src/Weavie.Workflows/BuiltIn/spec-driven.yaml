@@ -1,14 +1,14 @@
 id: spec-driven
 description: Requirements, design, and a task list, each approved by you, then the tasks implemented on this branch.
-inputs:
-  feature: text
 stages:
   - id: requirements
     run:
       prompt: >
-        Interview me as needed, then choose a short kebab-case slug for "{{inputs.feature}}" and write
-        EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md. Report the
-        directory you wrote to as the dir output.
+        Interview me as needed about the feature described below, then choose a short kebab-case slug for
+        it and write EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md.
+        Report the directory you wrote to as the dir output.
+
+        {{run.prompt}}
       outputs:
         dir: text
     then:

@@ -1,5 +1,5 @@
 import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
-import { isAgentPaneDelta } from "./AgentPaneDelta";
+import { isAgentPaneDelta, retainPaneContent } from "./AgentPaneDelta";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
 export interface HistoryItemBuffer {
@@ -68,7 +68,7 @@ function mergeCumulativeDelta(
   buffer.baseText = baseText;
   buffer.chunks = tail;
   buffer.text = text;
-  return { ...template, text, textOffset: 0, textLength: text.length };
+  return { ...retainPaneContent(history, template), text, textOffset: 0, textLength: text.length };
 }
 
 export function deferredToolOutput(

@@ -127,7 +127,7 @@ internal sealed partial class AcpConversation {
 					});
 				}
 				if (method.Type == "terminal") {
-					_port.RestartProcess();
+					_port.RestartProcess(this);
 				} else if (opensSession) {
 					await OpenSessionAsync().ConfigureAwait(false);
 				} else {

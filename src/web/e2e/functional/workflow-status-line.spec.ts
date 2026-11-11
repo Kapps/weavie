@@ -205,6 +205,61 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--dim"));
 });
 
+for (const state of ["needs your answer", "paused"] as const) {
+  test(`active follow-up takes precedence over a workflow that is ${state}`, async ({
+    page,
+    weavie,
+  }) => {
+    const { surface, worktree } = await startTwoStep(
+      page,
+      weavie.workspace,
+      "workflow-follow-up",
+      "two-step",
+    );
+    const run = surface.locator(".pane-head .pane-run");
+    const footer = page.locator('.terminal-surface[data-kind="terminal:shell"] .session-status');
+    await writeFile(join(worktree, "release-after-tool"), "");
+    await expect(run).toHaveAttribute("title", "two-step · implement · waiting on you");
+    await submitAcpDraft(
+      surface,
+      state === "paused"
+        ? tool("failStage", { reason: "The design needs clarification" })
+        : tool("completeStage", { outputs: { videos: ["preview.mp4"] }, summary: "held" }),
+    );
+    await expect(run).toHaveAttribute("title", new RegExp(`implement · ${state}\\n`));
+    await expect(surface.locator(".agent-working")).toHaveCount(0);
+    const restingTitle = (await run.getAttribute("title"))!;
+    const reason = restingTitle.slice(restingTitle.indexOf("\n"));
+    await runCommand(page, "Pin Session Panel");
+    await expect(page.locator(".session-panel-group").first()).toHaveText("Needs you");
+
+    await submitAcpDraft(surface, "hold");
+    await expect.poll(() => existsSync(join(worktree, "hold-started"))).toBe(true);
+    const assertWorking = async () => {
+      await expect(surface.locator(".agent-working-label")).toHaveText("Working");
+      await expect(page.locator(".session-panel-group").first()).toHaveText("Working");
+      await expect(run).toHaveAttribute("title", `two-step · implement · working${reason}`);
+      await expect(run.locator(".session-status")).toHaveCSS(
+        "background-color",
+        await tokenColor(page, "--busy"),
+      );
+      await expect(page.locator(".session-panel-row.active .session-status")).toHaveClass(
+        /status-working/,
+      );
+      await expect(footer.locator("..")).toHaveText("Working");
+    };
+    await assertWorking();
+    await page.reload();
+    await assertWorking();
+
+    await writeFile(join(worktree, "release-hold"), "");
+    await expect(surface.locator(".agent-working")).toHaveCount(0);
+    await expect(page.locator(".session-panel-group").first()).toHaveText("Needs you");
+    await expect(run).toHaveAttribute("title", restingTitle);
+    await expect(footer.locator("..")).toHaveText("Needs input");
+  });
+}
+
 // Whether `locator`'s text is cut off, which its ellipsis then marks.
 const truncated = (locator: Locator): Promise<boolean> =>
   locator.evaluate((element) => element.scrollWidth > element.clientWidth);

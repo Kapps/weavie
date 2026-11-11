@@ -110,6 +110,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			settings,
 			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
 			_dir.Path,
+			_dir.Path,
 			_dir.Combine("scratch"),
 			id => _dir.Combine("documents", id),
 			_dir.Combine("pasted"),
@@ -146,12 +147,14 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
 
-		public IAgentSession CreateSession(AgentSessionContext context) => session;
+		public IAgentSession CreateSession(AgentSessionContext context) {
+			session.Output = context.Output;
+			return session;
+		}
 	}
 
 	private sealed class RecordingStructuredSession : IStructuredAgentSession {
-		public event Action<AgentPaneMessage>? PaneMessage;
-		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot { add { } remove { } }
+		public ConversationOutput Output { get; set; } = null!;
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
 
@@ -163,9 +166,9 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public int Restarts { get; private set; }
 
-		public IReadOnlyList<AgentPaneMessage> Restore() => [];
+		public void Restore() { }
 
-		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
+		public void Start() => Output.Write(new AgentPaneMessage { Type = "started", ProviderId = "structured" }, static () => { });
 
 		public TaskCompletionSource Submitted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

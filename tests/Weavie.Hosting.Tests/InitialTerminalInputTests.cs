@@ -51,6 +51,20 @@ public sealed class InitialTerminalInputTests : IDisposable {
 	}
 
 	[Fact]
+	public void FirstTurn_ThatIsACommand_LeadsWithItsSlash_SoClaudeStillReadsItAsOne() {
+		using var lifecycle = new ClaudeLifecycleHarness();
+		lifecycle.Agent.SeedFirstTurn(Input("/spec the picker", new AgentInputAttachment {
+			Id = "image-1",
+			Mime = "image/png",
+			Path = "/shots/one.png",
+		}) with { Kind = AgentTurnSubmissionKind.ProviderCommand, CommandName = "spec" });
+
+		var arguments = lifecycle.Agent.ResolveLaunch().Arguments;
+
+		Assert.Equal("/spec the picker\n/shots/one.png", arguments[^1]);
+	}
+
+	[Fact]
 	public void FirstTurn_IsConsumedByOneLaunch_SoARestartNeverResubmitsIt() {
 		using var lifecycle = new ClaudeLifecycleHarness();
 		lifecycle.Agent.SeedFirstTurn(Input("build the thing"));
@@ -137,6 +151,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			endpoint,
 			settings,
 			new LayoutStore(new LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
+			_dir.Path,
 			_dir.Path,
 			_dir.Combine("scratch"),
 			id => _dir.Combine("documents", id),

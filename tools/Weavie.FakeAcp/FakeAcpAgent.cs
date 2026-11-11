@@ -21,6 +21,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private string _effort = "low";
 	private bool _fast;
 	private bool _cancelFails;
+	private string _heldMode = "";
 	private bool _authenticated;
 	private bool _expiredAuthentication;
 	private bool _prompted;
@@ -45,6 +46,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		_fakeMode is "terminal-authentication" or "side-terminal-authentication" or "crashing-terminal-authentication";
 
 	public Task TerminalFailure => _never.Task;
+
+	internal void BindFork(string sessionId) => _sessionId = sessionId;
 
 	internal void CopyConnectionState(FakeAcpAgent source) {
 		_authenticated = source._authenticated;
@@ -138,7 +141,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
 			["promptCapabilities"] = new JsonObject {
-				["image"] = true,
+				["image"] = _fakeMode != "no-images",
 				["embeddedContext"] = _fakeMode != "no-embedded-context",
 			},
 			["sessionCapabilities"] = new JsonObject {
@@ -188,7 +191,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
-		else RequireMcp(parameters);
+		else _weavieMcp = RequireMcp(parameters);
 		_sessionId = sessionId;
 		if (replay) {
 			File.AppendAllText(
@@ -443,14 +446,16 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (text.StartsWith("/review", StringComparison.Ordinal)) {
 			RequireIsolatedCommand(prompt, text);
-			Message("review command: " + text["/review".Length..].Trim());
+			int images = prompt.EnumerateArray().Count(block => AcpJson.OptionalString(block, "type") == "image");
+			Message("review command: " + text["/review".Length..].Trim() + (images == 0 ? "" : $" [{images} image(s)]"));
 			return new JsonObject { ["stopReason"] = "end_turn" };
 		}
 		if (text == "/hold-command") {
 			RequireIsolatedCommand(prompt, text);
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel"
+			or "hold-steering-failed" or "hold-steering-rejected") {
 			_cancelFails = text == "hold-cancel-error";
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
@@ -617,7 +622,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			|| AcpJson.OptionalString(block, "text") != text) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
 		}
-		if (prompt.EnumerateArray().Skip(1).Any(next => !IsAssistantAudience(next))) {
+		if (prompt.EnumerateArray().Skip(1).Any(next => AcpJson.OptionalString(next, "type") != "image" && !IsAssistantAudience(next))) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
 		}
 	}
@@ -626,7 +631,10 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private async Task<JsonNode> HoldAsync(string mode, CancellationToken ct) {
 		string toolCallId = $"hold-{Guid.NewGuid():N}";
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-		lock (_gate) _heldPrompt = completion;
+		lock (_gate) {
+			_heldPrompt = completion;
+			_heldMode = mode;
+		}
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
 		_ = Task.Run(async () => {
 			string release = Path.Combine(Environment.CurrentDirectory, "release-hold");
@@ -703,8 +711,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			return new JsonObject { ["outcome"] = "injected" };
 		}
 		TaskCompletionSource<string>? held;
-		lock (_gate) held = _heldPrompt;
+		string heldMode;
+		lock (_gate) (held, heldMode) = (_heldPrompt, _heldMode);
 		if (held is null || held.Task.IsCompleted) return new JsonObject { ["outcome"] = "promptRequired" };
+		// As codex-acp answers a steer into a turn Codex cannot steer, such as /compact.
+		if (heldMode == "hold-steering-failed") return new JsonObject { ["outcome"] = "failed" };
+		if (heldMode == "hold-steering-rejected") throw new AcpAdapterException(-32600, "The running turn cannot be steered.", null);
 		held.TrySetResult(text);
 		return new JsonObject { ["outcome"] = "injected" };
 	}
@@ -1383,7 +1395,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
-	private void RequireMcp(JsonElement parameters) {
+	private static (string Url, string Authorization) RequireMcp(JsonElement parameters) {
 		var servers = AcpJson.RequiredArray(parameters, "mcpServers", "session open");
 		foreach (var server in servers.EnumerateArray()) {
 			if (AcpJson.OptionalString(server, "name") != "weavie" || AcpJson.OptionalString(server, "type") != "http"
@@ -1392,8 +1404,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				if (AcpJson.OptionalString(header, "name") == "Authorization"
 					&& AcpJson.OptionalString(header, "value") is { } authorization
 					&& authorization.StartsWith("Bearer ", StringComparison.Ordinal)) {
-					_weavieMcp = (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
-					return;
+					return (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
 				}
 			}
 		}

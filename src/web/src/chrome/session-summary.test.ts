@@ -166,6 +166,46 @@ describe("sessionSubtitle", () => {
 });
 
 describe("run header", () => {
+  it.each([
+    "needsAnswer",
+    "paused",
+    "waitingOnYou",
+  ] as const)("shows active work over %s and restores workflow attention when it rests", (state) => {
+    const run: SessionRun = {
+      id: "r",
+      workflow: "flow",
+      stage: "design",
+      state,
+      reason: "Approve the design?",
+      agent: "",
+    };
+    for (const [status, label] of [
+      ["working", "Working"],
+      ["starting", "Starting"],
+      ["waiting", "Background work"],
+      ["needsInput", "Needs input"],
+      ["error", "Error"],
+    ] as const) {
+      const current = session({ status, run });
+      expect(statusDot(current)).toBe(status);
+      expect(sessionStatusLabel(current)).toBe(label);
+      expect(sessionGroup(current)).toBe(
+        status === "needsInput" || status === "error" ? "needs" : "working",
+      );
+      expect(sessionDetail(current)).toBe(run.reason);
+      if (status === "working" || status === "starting" || status === "waiting") {
+        expect(sessionSubtitle(current, NOW)).toBe(`design · ${label.toLowerCase()}`);
+        expect(sessionTooltip(current)).toBe(
+          `flow · design · ${label.toLowerCase()}\n${run.reason}`,
+        );
+      }
+    }
+    const resting = session({ status: "idle", run, unseen: true });
+    expect(sessionGroup(resting)).toBe("needs");
+    expect(statusDot(resting)).toBe("needsInput");
+    expect(sessionStatusLabel(resting)).toBe("Needs input");
+  });
+
   it("maps workflow progress and user attention to shared session statuses", () => {
     expect(runStatus("working")).toBe("working");
     expect(runStatus("deciding")).toBe("working");

@@ -8,13 +8,13 @@ public sealed partial class HostSession {
 	private readonly HashSet<string> _openedPlanReviews = new(StringComparer.Ordinal);
 
 	/// <summary>Reveals the exact agent plan, or the plan file it reviews, and keeps a plan document current.</summary>
-	public bool OpenAgentPlan(string threadId, string turnId, string itemId) =>
-		Agent.WithCompletedPlan(threadId, turnId, itemId, plan => {
+	public bool OpenAgentPlan(string providerId, string? conversationId, string threadId, string turnId, string itemId) =>
+		Agent.WithCompletedPlan(providerId, conversationId, threadId, turnId, itemId, plan => {
 			string path = AgentPlanProtocol.Path(plan);
 			State.Set("editor", path, "agentPlan", WireJson.Default.AgentPlanShown, AgentPlanProtocol.Show(plan, path));
 			OpenEditorOverlay(path, "plan");
 		})
-		|| Agent.WithPlanFile(threadId, turnId, itemId, path => PublishEditorFileOpen(path, null, preview: false, rendered: false, scratch: false, EditorOpenIntent.Navigation));
+		|| Agent.WithPlanFile(providerId, conversationId, threadId, turnId, itemId, path => PublishEditorFileOpen(path, null, preview: false, rendered: false, scratch: false, EditorOpenIntent.Navigation));
 
 	private void UpdateAgentPlans(AgentPlansSnapshot plans, bool autoOpen) {
 		var documents = plans.Documents.ToDictionary(AgentPlanProtocol.Path, StringComparer.Ordinal);

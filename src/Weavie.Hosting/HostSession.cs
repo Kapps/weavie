@@ -35,6 +35,8 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
 public sealed partial class HostSession : IAsyncDisposable {
+	private readonly CapabilityRegistryHost _registry;
+
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
@@ -63,6 +65,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
 	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
+	/// Workspace-scoped settings its agent changes live in <paramref name="settingsWorkspaceRoot"/>'s overlay.
 	/// <paramref name="endpoint"/> is this session's exact message-bus incarnation;
 	/// <paramref name="corrections"/> is the workspace's shared correction ring this session records into.
 	/// </summary>
@@ -71,6 +74,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		SettingsStore settings,
 		LayoutStore layout,
 		string workspaceRoot,
+		string settingsWorkspaceRoot,
 		string scratchDir,
 		Func<string, string> workflowDocumentsDirectory,
 		string pastedImagesDir,
@@ -232,12 +236,13 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_workflowTurns = CreateWorkflowTurns();
 		_workflowRelease = CreateWorkflowRelease();
 		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot, workflowDocumentsDirectory);
-		var registry = new CapabilityRegistryHost(
+		var registry = _registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
 			[workspaceRoot],
 			"weavie",
 			settings,
+			settingsWorkspaceRoot,
 			layout,
 			Editor,
 			exposeRegistryIdeTools,
@@ -251,7 +256,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 		Agent = new AgentSessionHost(
 			agentProvider,
-			new AgentSessionContext {
+			output => new AgentSessionContext {
+				Output = output,
 				Settings = settings,
 				Workspace = workspaceRoot,
 				FileSystem = fileSystem,
@@ -262,8 +268,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
-				TurnContext = new WorkflowTurnContext(this),
-				ControlHold = new WorkflowControlHold(this),
+				Bindings = new AgentConversationBindings(registry, new WorkflowTurnContext(this), new WorkflowControlHold(this), Workflow.CaptureStageCall),
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
@@ -633,7 +638,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>
 	private void SendAgentInput(AgentTurnSubmission input) {
 		if (Claude is not null) {
-			Claude.WriteAgentTurn([.. input.Attachments.Select(attachment => attachment.Path), input.Text]);
+			Claude.WriteAgentTurn(input.TerminalParts());
 			return;
 		}
 

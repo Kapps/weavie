@@ -10,7 +10,7 @@ public sealed class HostCoreEditorSessionRevisionTests {
 		var session = host.Session("stale-open");
 		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
 		long before = host.Bridge.EditorRevision(session.Address);
-		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		Assert.True(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "plan-1"));
 		string path = session.EditorSession.Active!;
 
 		host.SessionEvent(session, "editor", "sessionChanged", new { session = Empty(), basis = before });
@@ -26,7 +26,7 @@ public sealed class HostCoreEditorSessionRevisionTests {
 		await using var host = await StartAsync("stale-close");
 		var session = host.Session("stale-close");
 		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
-		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		Assert.True(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "plan-1"));
 		string path = session.EditorSession.Active!;
 		long opened = host.Bridge.EditorRevision(session.Address);
 

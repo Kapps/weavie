@@ -42,7 +42,7 @@ public static class InferenceSettings {
 			Key = AllowAutomatic,
 			Kind = SettingKind.Bool,
 			Description = "Allow Weavie to spend inference tokens without a directly-triggering user action, such as "
-				+ "branch-name preview or continuous review after an edit. Explicit actions such as reviewing a plan or "
+				+ "branch-name preview, the new-session workflow suggestion, or continuous review after an edit. Explicit actions such as reviewing a plan or "
 				+ "diagnosing a test failure do not require this. Off by default. Takes effect on the next query.",
 			Aliases = ["automatic inference", "background ai suggestions", "continuous ai review"],
 			Apply = ApplyMode.Live,
@@ -93,10 +93,10 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = DecisionProvider,
 			Kind = SettingKind.String,
-			Description = "Who answers workflow decisions: 'agent' runs a typed query through the inference provider; "
+			Description = "Who answers workflow decisions and suggests a workflow for a new session's prompt: 'agent' runs a typed query through the inference provider; "
 				+ "'openai' calls OpenAI Decisions (gpt-6-luna, data terms https://openai.com/policies/); 'typesafe' "
 				+ "calls TypeSafe Jev (data terms https://docs.typesafe.ai/legal.md). Choosing a vendor sends it the "
-				+ "decision evidence, including full referenced file contents, and needs its key connected with Connect "
+				+ "decision evidence, including full referenced file contents and a new session's drafted prompt, and needs its key connected with Connect "
 				+ "Service…. Set it when the user asks for faster workflow decisions. Takes effect on the next decision.",
 			Aliases = ["decision model", "faster workflow decisions", "gpt-6-luna", "Jev"],
 			AllowedValues = DecisionProviderIds.All,

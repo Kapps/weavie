@@ -1,19 +1,6 @@
 import type { AgentPaneUpdate } from "../bridge";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
-export function collectSideConversations(
-  messages: readonly AgentPaneUpdate[],
-): ReadonlyMap<string, AgentPaneUpdate[]> {
-  const conversations = new Map<string, AgentPaneUpdate[]>();
-  for (const message of messages) {
-    if (!message.conversationId) continue;
-    const existing = conversations.get(message.conversationId);
-    if (existing === undefined) conversations.set(message.conversationId, [message]);
-    else existing.push(message);
-  }
-  return conversations;
-}
-
 export interface SideConversationState {
   active: boolean;
   failed: boolean;
@@ -26,13 +13,18 @@ export function sideConversationState(messages: readonly AgentPaneUpdate[]): Sid
   let latestTurnFailed = false;
   let sawTurn = false;
   let terminal = false;
+  let terminalFailed = false;
   const activeItems = new Set<string>();
   const pendingRequests = new Set<string>();
   for (const message of messages) {
     if (message.type === "side-conversation-started") {
       markerActive = message.status === "forking";
-    } else if (message.type === "side-conversation-failed") {
+    } else if (
+      message.type === "side-conversation-failed" ||
+      message.type === "side-conversation-closed"
+    ) {
       terminal = true;
+      terminalFailed = message.type === "side-conversation-failed";
     } else if (message.type === "turn-started") {
       foregroundActive = true;
       latestTurnFailed = false;
@@ -66,16 +58,17 @@ export function sideConversationState(messages: readonly AgentPaneUpdate[]): Sid
       pendingRequests.size > 0);
   return {
     active,
-    failed: terminal || (!active && latestTurnFailed),
+    failed: terminalFailed || (!active && latestTurnFailed),
     replyable: !terminal && !active,
   };
 }
 
 export function sideConversationEntry(
+  origin: AgentPaneUpdate,
   messages: readonly AgentPaneUpdate[],
   project: (messages: readonly AgentPaneUpdate[]) => AgentTranscriptEntry[],
 ): AgentTranscriptEntry {
-  const first = messages[0]!;
+  const first = origin;
   const marker = [...messages]
     .reverse()
     .find((message) => message.type === "side-conversation-started");
@@ -86,17 +79,14 @@ export function sideConversationEntry(
     .reverse()
     .find((message) => message.type === "side-conversation-collapsed");
   const state = sideConversationState(messages);
-  const childMessages: AgentPaneUpdate[] = messages
-    .filter((message) => !message.type.startsWith("side-conversation-"))
-    .map((message) => ({
-      ...message,
-      conversationId: null,
-      anchorTurnId: null,
-    }));
+  const childMessages = messages.filter(
+    (message) => !message.type.startsWith("side-conversation-"),
+  );
   if (!childMessages.some((message) => message.type === "user-message") && marker?.text) {
     childMessages.unshift({
       type: "user-message",
       providerId: marker.providerId,
+      conversationId: first.conversationId ?? null,
       threadId: first.conversationId ?? null,
       turnId: "1",
       itemId: `btw-question:${first.conversationId}`,
@@ -108,8 +98,6 @@ export function sideConversationEntry(
     childMessages.push({
       ...sideFailure,
       type: "error",
-      conversationId: null,
-      anchorTurnId: null,
       text: sideFailure.summary ?? null,
     });
   }
@@ -124,7 +112,7 @@ export function sideConversationEntry(
     details: [],
     id: `aside-${first.conversationId}`,
     kind: "aside",
-    label: "BTW",
+    label: marker?.summary ?? "BTW",
     status: state.active ? "thinking" : state.failed ? "failed" : null,
     streaming: state.active,
     summary: null,
@@ -133,26 +121,9 @@ export function sideConversationEntry(
   };
 }
 
-/** Whether a nested conversation is a subagent rather than a BTW. */
-export function isSubagentConversation(messages: readonly AgentPaneUpdate[]): boolean {
-  return messages.some((message) => message.type === "subagent-started");
-}
-
-/** The subagent name each nested conversation announced, for naming a nested spawn's parent. */
-export function subagentNames(
-  conversations: ReadonlyMap<string, readonly AgentPaneUpdate[]>,
-): ReadonlyMap<string, string> {
-  const names = new Map<string, string>();
-  for (const [id, messages] of conversations) {
-    const marker = messages.find((message) => message.type === "subagent-started");
-    if (marker?.summary) names.set(id, marker.summary);
-  }
-  return names;
-}
-
 export function subagentEntry(
   messages: readonly AgentPaneUpdate[],
-  names: ReadonlyMap<string, string>,
+  parentName: string | null,
   project: (messages: readonly AgentPaneUpdate[]) => AgentTranscriptEntry[],
 ): AgentTranscriptEntry {
   const marker = messages.find((message) => message.type === "subagent-started")!;
@@ -163,11 +134,7 @@ export function subagentEntry(
   return {
     actionMessage: null,
     asideActive: running,
-    asideEntries: project(
-      messages
-        .filter((message) => message !== marker)
-        .map((message) => ({ ...message, conversationId: null, anchorTurnId: null })),
-    ),
+    asideEntries: project(messages.filter((message) => message !== marker)),
     conversationId: marker.conversationId!,
     detailCount: 0,
     details: [],
@@ -182,7 +149,7 @@ export function subagentEntry(
       startedAtMs: marker.startedAtMs ?? null,
       state,
       task: marker.text || null,
-      via: marker.parentItemId ? (names.get(marker.parentItemId) ?? null) : null,
+      via: parentName,
     },
     summary: name,
     text: marker.text || null,
@@ -192,11 +159,13 @@ export function subagentEntry(
 
 const subagentCardTail = 4;
 
-/** A subagent card shows its latest entries and every request; Open shows the whole transcript. */
+/** Expanded cards show their latest entries; requests remain visible when collapsed. */
 export function subagentCardEntries(
   entries: readonly AgentTranscriptEntry[],
+  expanded: boolean,
 ): AgentTranscriptEntry[] {
   return entries.filter(
-    (entry, index) => index >= entries.length - subagentCardTail || entry.kind === "request",
+    (entry, index) =>
+      (expanded && index >= entries.length - subagentCardTail) || entry.kind === "request",
   );
 }

@@ -86,22 +86,12 @@ internal sealed partial class AcpConversation {
 		string id = $"{itemType}:{messageId ?? turnId}";
 		string? type = OptionalString(content, "type");
 		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
-		AcpContentState state;
-		lock (_gate) {
-			if (!_content.TryGetValue(id, out state!)) {
-				state = new AcpContentState { Id = id, ItemType = itemType, TurnId = turnId, MessageId = messageId };
-				_content.Add(id, state);
-			}
-			state.Text.Append(text);
-			state.MediaType ??= type is "image" or "audio" ? OptionalString(content, "mimeType") : null;
-			state.MediaData ??= type is "image" or "audio" ? OptionalString(content, "data") : null;
-			state.ResourceUri ??= OptionalString(content, "uri") ?? EmbeddedUri(content);
-		}
 		var message = new AgentPaneMessage {
 			Type = deltaType,
 			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
-			TurnId = state.TurnId,
+			TurnId = turnId,
+			MessageId = messageId,
 			ItemId = id,
 			ItemType = itemType,
 			Text = text,
@@ -116,33 +106,7 @@ internal sealed partial class AcpConversation {
 		foreach (var message in DrainContentStreams()) Emit(message);
 	}
 
-	private IReadOnlyList<AgentPaneMessage> DrainContentStreams() {
-		AcpContentState[] content;
-		lock (_gate) {
-			content = [.. _content.Values];
-			_content.Clear();
-		}
-		return [.. content.Select(state => new AgentPaneMessage {
-				Type = "item-completed",
-				ProviderId = Definition.Id,
-				ThreadId = SessionId(),
-				TurnId = state.TurnId,
-				ItemId = state.Id,
-				MessageId = state.MessageId,
-				ItemType = state.ItemType,
-				Category = state.ItemType is "thought" or "plan" ? state.ItemType : null,
-				Summary = state.ItemType switch {
-					"thought" => "Reasoning",
-					"plan" => "Plan",
-					_ => null,
-				},
-				Text = state.Text.Length == 0 ? null : state.Text.ToString(),
-				Status = "completed",
-				MediaType = state.MediaType,
-				MediaData = state.MediaData,
-				ResourceUri = state.ResourceUri,
-			})];
-	}
+	private IReadOnlyList<AgentPaneMessage> DrainContentStreams() => _port.CompleteContent();
 
 	private static string? ResourceText(JsonElement content) {
 		if (!content.TryGetProperty("resource", out var resource)) {

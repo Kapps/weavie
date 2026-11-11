@@ -12,22 +12,29 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 	public async Task RewindBeforeAsync(string turnId) {
 		ArgumentException.ThrowIfNullOrEmpty(turnId);
 		AcpConversation primary;
-		RewindPort rewind;
+		RewindPort? rewind = null;
 		lock (_turnTransitionGate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
 			primary = _primary;
 			if (!primary.Ready || !Forkable) throw new InvalidOperationException($"{_definition.Name} cannot rewind this conversation now.");
-			if (primary.Rewinding || primary.HasWork || Sides().Any(side => side.Conversation.HasWork)) {
+			if (primary.Rewinding || Roots().Any(conversation => conversation.Independent ? !conversation.Settled : conversation.HasWork)) {
 				throw new InvalidOperationException("Wait for the agent to finish before rewinding.");
 			}
 			var plan = AcpRewindPlan.Create(_sessions.ReadMessages(_definition.Id, _context.Workspace), turnId);
-			if (plan.ForkMessageId is not { } messageId) {
-				CommitRewind(primary, plan, rewind: null);
-				return;
-			}
 			primary.Rewinding = true;
-			rewind = new RewindPort(this, primary, plan, messageId);
-			Open(rewind.Fork, _process!);
+			try {
+				foreach (var child in _runtime.Conversations.Where(conversation => conversation.Independent)) _ = _runtime.CloseAsync(child);
+				if (plan.ForkMessageId is not { } messageId) {
+					CommitRewind(primary, plan, rewind: null);
+					primary.Rewinding = false;
+					return;
+				}
+				rewind = new RewindPort(this, primary, plan, messageId);
+				_runtime.Open(rewind.Fork, _runtime.Process!);
+			} catch {
+				primary.Rewinding = false;
+				throw;
+			}
 		}
 		try {
 			await rewind.Adopted.ConfigureAwait(false);
@@ -45,7 +52,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 	// close the predecessor's session restarts onto the fork instead. A first-prompt rewind starts a fresh session.
 	private void CommitRewind(AcpConversation predecessor, AcpRewindPlan plan, RewindPort? rewind) {
 		if (!predecessor.Live) throw new InvalidOperationException("The conversation was replaced during the rewind.");
-		var sides = Sides();
 		// Decided before settling: settling ends the background work only a restart actually stops.
 		var process = ReplaceableProcess(predecessor);
 		var continuation = rewind?.Fork.Continuation ?? RewindContinuation(predecessor, plan);
@@ -60,12 +66,12 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			dropped = [.. _sideConversations.Values.Where(side => !plan.Keeps(side.AnchorTurnNumber)).Select(side => side.ConversationId)];
 			_sessions.Replace(_definition.Id, _context.Workspace, [continuation, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], kept);
 		} catch (AcpSessionStoreException error) {
-			StopForStorageFailure(error, sides);
+			StopForStorageFailure(error);
 			throw;
 		}
 		foreach (string conversationId in dropped) _sideConversations.Remove(conversationId);
 		var adopted = process is null ? null : rewind;
-		var successor = Succeed(predecessor, process, handoff => {
+		var successor = Succeed(predecessor, handoff => {
 			if (adopted is null) {
 				rewind?.Fork.Retire();
 				return CreatePrimary(handoff with { Continuation = continuation });
@@ -73,7 +79,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			adopted.Fork.Inherit(handoff);
 			return adopted.Fork;
 		});
-		PaneSnapshot?.Invoke(kept);
+		Output.Replace(kept);
 		if (adopted is null) Launch(successor, process);
 		else adopted.Promote();
 		if (plan.Prompt.Length > 0) successor.Prefill(plan.Prompt);
@@ -100,16 +106,24 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		public RewindPort(AcpAgentSession owner, AcpConversation predecessor, AcpRewindPlan plan, string messageId) : base(owner) {
 			_predecessor = predecessor;
 			_plan = plan;
-			Fork = new AcpConversation(owner._host, new AcpConversationSpec(
+			Fork = owner._runtime.Create(new AcpConversationSpec(
 				AcpConversationHandoff.Fresh(RewindContinuation(predecessor, plan)),
 				new ForkFromOpening(predecessor, messageId),
-				AcpConversationRole.Primary), this);
+				AcpConversationRole.Primary), this, owner._context.Bindings.Main());
 		}
 
 		public AcpConversation Fork { get; }
 
 		/// <summary>Completes once the fork is committed; faults when it failed or could not be committed.</summary>
-		public Task Adopted => _adopted.Task;
+		public Task Adopted => WaitForAdoptionAsync();
+
+		private async Task WaitForAdoptionAsync() {
+			await Task.WhenAny(_adopted.Task, Fork.Completion).ConfigureAwait(false);
+			lock (Owner._turnTransitionGate) {
+				if (!_adopted.Task.IsCompleted) throw new ObjectDisposedException(nameof(AcpConversation));
+			}
+			await _adopted.Task.ConfigureAwait(false);
+		}
 
 		protected override bool Staged => _staged;
 
@@ -123,8 +137,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		public void Discard() {
 			lock (Owner._turnTransitionGate) {
 				if (!_staged) return;
-				if (Owner.Features.Close) Fork.RetireClosing();
-				else Fork.Retire();
+				Fork.Retire();
 			}
 		}
 

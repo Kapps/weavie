@@ -20,8 +20,9 @@ export function AgentTranscript(props: {
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
   // The rewind shortcut acts on the latest prompt, so only that row advertises it.
+  const entries = createMemo(() => props.transcript.entries);
   const latestPromptTurn = createMemo(
-    () => props.transcript.entries.findLast((entry) => entry.promptTurnId)?.promptTurnId ?? null,
+    () => entries().findLast((entry) => entry.promptTurnId)?.promptTurnId ?? null,
   );
   // Rows flow oldest first; each row's top margin stands in for the unmounted rows above it.
   const rows = createMemo(() => {

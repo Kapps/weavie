@@ -17,11 +17,11 @@ internal sealed class AcpConsultClient {
 	private readonly Lock _gate = new();
 	private readonly StringBuilder _reply = new();
 	private readonly List<string> _denied = [];
-	private volatile string _sessionId = string.Empty;
 
 	private AcpConsultClient(AcpTransientConnection connection) {
 		_connection = connection;
-		connection.Listen(OnRequest, OnNotification);
+		connection.ListenReply(OnRequest, text => { lock (_gate) _reply.Append(text); },
+			() => { lock (_gate) _reply.Clear(); });
 	}
 
 	private string Name => _connection.Definition.Name;
@@ -41,7 +41,7 @@ internal sealed class AcpConsultClient {
 			if (model.Length > 0) {
 				var profile = new InferenceProviderProfile { Model = model, Effort = "", FastMode = InferenceFastMode.Inherit };
 				try {
-					selected = await AcpProfile.ApplyAsync(client._connection, client._sessionId, setup, profile, ct).ConfigureAwait(false);
+					selected = await client._connection.ApplyProfileAsync(profile, ct).ConfigureAwait(false);
 				} catch (AcpInferenceProfileException) {
 					// The refused model stays configured and selected; the pickers flag it as not offered.
 				}
@@ -83,13 +83,8 @@ internal sealed class AcpConsultClient {
 	}
 
 	private async Task<JsonElement> OpenSessionAsync(string workspace, CancellationToken ct) {
-		await _connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters(), ct).ConfigureAwait(false);
-		var setup = await _connection.RequestAsync(
-			"session/new",
-			AcpContent.Session(Path.GetFullPath(workspace), []),
-			ct).ConfigureAwait(false);
-		_sessionId = AcpInferenceClient.RequiredString(setup, "sessionId");
-		return setup;
+		await _connection.InitializeAsync(ct).ConfigureAwait(false);
+		return await _connection.OpenSessionAsync(workspace, ct).ConfigureAwait(false);
 	}
 
 	private async Task<AgentConsultOutcome> RunAsync(AgentConsultRequest request, CancellationToken ct) {
@@ -99,7 +94,7 @@ internal sealed class AcpConsultClient {
 			controls = AcpConfigurationOptions.ReadIfPresent(setup);
 			if (request.Model.Length > 0) {
 				try {
-					controls = await AcpProfile.ApplyAsync(_connection, _sessionId, setup, new InferenceProviderProfile {
+					controls = await _connection.ApplyProfileAsync(new InferenceProviderProfile {
 						Model = request.Model,
 						Effort = string.Empty,
 						FastMode = InferenceFastMode.Inherit,
@@ -109,14 +104,9 @@ internal sealed class AcpConsultClient {
 				}
 			}
 
-			var turn = await _connection.RequestAsync(
-				"session/prompt",
-				new JsonObject {
-					["sessionId"] = _sessionId,
-					["prompt"] = new JsonArray(AcpContent.Text(EmbeddedAgentGuidance.ConsultInstructions + "\n\n" + request.Prompt)),
-				},
-				ct).ConfigureAwait(false);
-			return Complete(AcpInferenceClient.RequiredString(turn, "stopReason"), Model(controls, request.Model), controls);
+			var (stopReason, _) = await _connection.PromptAsync(
+				new JsonArray(AcpContent.Text(EmbeddedAgentGuidance.ConsultInstructions + "\n\n" + request.Prompt)), ct).ConfigureAwait(false);
+			return Complete(stopReason, Model(controls, request.Model), controls);
 		} catch (OperationCanceledException) {
 			throw;
 		} catch (AcpAuthenticationRequiredException) {
@@ -151,22 +141,6 @@ internal sealed class AcpConsultClient {
 				.GetStringOrNull("optionId")
 			: null;
 		_ = _connection.RespondAsync(id, reject is null ? AcpContent.Cancelled() : AcpContent.Selected(reject));
-	}
-
-	private void OnNotification(string method, JsonElement parameters) {
-		if (method != "session/update" || parameters.ValueKind != JsonValueKind.Object
-			|| !parameters.TryGetProperty("update", out var update)) {
-			return;
-		}
-		switch (update.GetStringOrNull("sessionUpdate")) {
-			case "agent_message_chunk" when update.TryGetProperty("content", out var content):
-				lock (_gate) _reply.Append(content.GetStringOrEmpty("text"));
-				break;
-			case "tool_call":
-				// The reply is the agent's final message, so narration before a tool call is dropped.
-				lock (_gate) _reply.Clear();
-				break;
-		}
 	}
 
 	private static string Model(IReadOnlyList<AgentControlAxis> controls, string requested) =>

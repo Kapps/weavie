@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Weavie.Workflows;
 
 /// <summary>A validated workflow: ordered stages the host runs and the agent fills.</summary>
@@ -19,6 +21,11 @@ public sealed record WorkflowDefinition {
 
 	/// <summary>The exact file text this definition was read from.</summary>
 	public required string SourceText { get; init; }
+
+	/// <summary>Whether any stage's work or question reads <c>{{run.prompt}}</c>.</summary>
+	public bool UsesPrompt => Stages
+		.SelectMany(stage => new[] { stage.Run.Prompt, stage.Run.Args, stage.If?.Ask, (stage.Then as WorkflowThen.Decide)?.Question.Ask })
+		.Any(template => template?.References.Any(reference => reference.IsPrompt) == true);
 
 	/// <summary>The agent that runs <paramref name="stage"/>, or <see langword="null"/> for the session's own.</summary>
 	public WorkflowAgent? AgentOf(WorkflowStage stage) {
@@ -98,6 +105,9 @@ public sealed record WorkflowStage {
 
 /// <summary>A stage's work: a prompt, or a skill run as its slash command.</summary>
 public sealed record WorkflowWork {
+	/// <summary>The conversation that runs this step.</summary>
+	public required WorkflowContext Context { get; init; }
+
 	/// <summary>The instruction text, or <see langword="null"/> for a skill.</summary>
 	public required WorkflowTemplate? Prompt { get; init; }
 
@@ -112,6 +122,17 @@ public sealed record WorkflowWork {
 
 	/// <summary>The name of the agent that runs the step, or <see langword="null"/> for the session's own.</summary>
 	public required string? Agent { get; init; }
+}
+
+/// <summary>How a stage obtains its conversation.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<WorkflowContext>))]
+public enum WorkflowContext {
+	/// <summary>Borrow the session's main input.</summary>
+	Continue,
+	/// <summary>Own a fork of the current main conversation.</summary>
+	Fork,
+	/// <summary>Own a fresh conversation.</summary>
+	Fresh,
 }
 
 /// <summary>Who answers a decision.</summary>

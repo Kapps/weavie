@@ -2,7 +2,7 @@ import { AlertTriangle, ChevronDown } from "lucide-solid";
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { AgentControlAxis, InferenceChoices } from "../bridge";
-import { ControlMenu } from "../chrome/ControlMenu";
+import { ControlMenu, controlMenuPlacement } from "../chrome/ControlMenu";
 import { localFeature, writeSetting } from "./state";
 import type { SetupRun } from "./steps";
 
@@ -99,7 +99,7 @@ export function SuggestionProfile(props: {
             <ControlMenu
               axis={menu.axis}
               class="gs-menu"
-              style={placement(menu.anchor)}
+              style={controlMenuPlacement(menu.anchor)}
               inside=".gs-menu, .gs-pick"
               onPick={(value) => pick(menu.axis.id, value)}
               onClose={() => setOpen(null)}
@@ -115,19 +115,4 @@ export function SuggestionProfile(props: {
       current?.axis.id === axis.id ? null : { axis, anchor: segment.getBoundingClientRect() },
     );
   }
-}
-
-// Below the segment, or above it when the viewport has no room underneath.
-function placement(anchor: DOMRect): JSX.CSSProperties {
-  const below = window.innerHeight - anchor.bottom;
-  const above = below < 180 && anchor.top > below;
-  return {
-    position: "fixed",
-    left: `${anchor.left}px`,
-    "min-width": `${Math.max(anchor.width, 200)}px`,
-    "max-height": `${Math.min((above ? anchor.top : below) - 12, window.innerHeight * 0.45)}px`,
-    ...(above
-      ? { bottom: `${window.innerHeight - anchor.top + 4}px` }
-      : { top: `${anchor.bottom + 4}px` }),
-  };
 }

@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Weavie.Core.Hooks;
 
 // Fake `claude` for integration tests. Weavie spawns it in place of the real CLI (via the claude.path
@@ -31,19 +32,27 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	// draft the query carries grows past a handful of words.
 	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
 	string query = await Console.In.ReadToEndAsync().ConfigureAwait(false);
-	if (mode == "workflow") {
-		await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
-		if (File.Exists("inference-reject")) return 7;
-		string answer = File.Exists("inference-answer.json")
-			? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)
-			: "{\"accept\":1,\"revise\":0}";
+	// A decision asks for one probability per choice. A "workflow" run answers from its staged file; the other
+	// answering modes are unsure of every choice, so nothing built on the answer acts on it.
+	if (mode is "workflow" or "success" or "needsDetail" && query.Contains("\"choices\":", StringComparison.Ordinal)) {
+		string answer;
+		if (mode == "workflow") {
+			await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
+			if (File.Exists("inference-reject")) return 7;
+			answer = File.Exists("inference-answer.json")
+				? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)
+				: "{\"accept\":1,\"revise\":0}";
+		} else {
+			var labels = Regex.Matches(query, "\"label\":\"([^\"]+)\"").Select(match => match.Groups[1].Value).Distinct();
+			answer = JsonSerializer.Serialize(labels.Select((label, i) => (label, i)).ToDictionary(choice => choice.label, choice => 0.3 / (choice.i + 1)));
+		}
 		Console.Out.WriteLine("{\"is_error\":false,\"structured_output\":" + answer + "}");
 		return 0;
 	}
 	bool vague = mode == "needsDetail"
 		&& Draft(query)
 			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 20;
-	if (mode is "success" or "needsDetail") {
+	if (mode is "success" or "needsDetail" or "workflow") {
 		const string boundary = "Input JSON:\n";
 		int inputStart = query.IndexOf(boundary, StringComparison.Ordinal);
 		if (inputStart >= 0) {

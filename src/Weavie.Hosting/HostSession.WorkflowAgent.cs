@@ -53,6 +53,20 @@ public sealed partial class HostSession {
 		}
 	}
 
+	private async Task ReturnMainForChildAsync(WorkflowStageExecution execution, CancellationToken ct) {
+		await _controlGate.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			if (Workflow.Execution != execution || Workflow.Current is not { Hold: { } hold } run) return;
+			if (Agent.Controls?.ControlState.Ready != true) {
+				Workflow.SetHold(run.Id, null);
+			} else if (await ReturnAsync(run.Id, hold, execution.Stage.Id, $"{execution.Stage.Id} runs separately, main back").ConfigureAwait(false) is { } reason) {
+				throw new AgentControlException(reason);
+			}
+		} finally {
+			_controlGate.Release();
+		}
+	}
+
 	private async Task TakeAgentAsync(WorkflowRun run, string stage, WorkflowAgent agent) {
 		var axes = StageControls.ControlState.Axes;
 		var held = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -150,6 +164,7 @@ public sealed partial class HostSession {
 
 	private sealed class WorkflowControlHold(HostSession session) : IAgentControlHold {
 		public IReadOnlyDictionary<string, string> Values() =>
-			session.Workflow.Current is { IsFinished: false, Hold: { } hold } ? hold.Held : [];
+			session.Workflow.Execution is { Stage.Run.Context: WorkflowContext.Continue }
+			&& session.Workflow.Current is { IsFinished: false, Hold: { } hold } ? hold.Held : [];
 	}
 }

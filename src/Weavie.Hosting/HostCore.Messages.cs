@@ -160,6 +160,13 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("sessionCreation").HandleWithCallerProgress(
 			"previewBranch", MessageActivity.Droppable("Suggesting a branch name"), WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
+		// Concurrent: neither may wait behind a branch query, nor hold one up.
+		_messages.Host.Feature("sessionCreation").HandleConcurrent(
+			"workflows", MessageActivity.Droppable("Listing workflows"), WireJson.Default.WorkflowStartTarget, WireJson.Default.WorkflowStartCatalog,
+			WorkflowStartCatalogAsync);
+		_messages.Host.Feature("sessionCreation").HandleConcurrentWithCallerProgress(
+			"suggestWorkflow", MessageActivity.Droppable("Suggesting a workflow"), WireJson.Default.WorkflowSuggestionRequest, WireJson.Default.WorkflowSuggestionResult,
+			SuggestWorkflowAsync);
 		_messages.Host.Feature("commands").HandleKeyed(
 			"invoke", CommandActivity, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			CommandExecutionLane,
@@ -300,19 +307,15 @@ public sealed partial class HostCore {
 		&& element.TryGetProperty(name, out var value)
 		&& value.ValueKind == JsonValueKind.True;
 
-	private SessionSlot? SourceSlot(string? sourceId) =>
-		string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
-
 	private Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
 		HostBranchPreviewRequest message,
 		CancellationToken ct) {
-		var source = SourceSlot(message.SourceId);
-		if (!string.IsNullOrWhiteSpace(message.SourceId) && source is null) {
-			return Task.FromResult(BranchPreviewResult.Failed("The source session no longer exists."));
+		if (!TryLaunchRoot(message.SourceId, out string root)) {
+			return Task.FromResult(BranchPreviewResult.Failed(SourceGoneMessage));
 		}
 
 		return PreviewBranchNameAsync(
-			source?.WorktreePath ?? WorkspaceRoot,
+			root,
 			message.Prompt,
 			message.Attachments,
 			message.UserInitiated

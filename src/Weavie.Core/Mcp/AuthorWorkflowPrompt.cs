@@ -27,6 +27,11 @@ public static class AuthorWorkflowPrompt {
 			   repository; never edit a built-in in place. A fork keeps its id; a variant under a new id is a new
 			   workflow, not a fork.
 			4. Prefer the user's existing skills as stage steps (`skill` + `args`) over restating them as prompts.
+			   Choose `run.context` deliberately: `continue` (default) works in the main conversation, `fork`
+			   gives a separate stage the main conversation's history, and `fresh` receives only its stage
+			   instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
+			   judgment; both keep main available and return outputs and a summary to it. They use the session's
+			   provider; a fresh stage is not a way to switch providers.
 			5. Route with `then`: a stage id or `done` to go there, or a decision (`ask` + `choices`, each answer
 			   naming the stage it leads to). Stages without `then` move to the following stage. Use `if` to run
 			   a stage only when a yes/no question says so; a skipped stage falls through to the following one.
@@ -52,7 +57,9 @@ public static class AuthorWorkflowPrompt {
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or
 			   an output exists; stage order and fixed `then` targets handle those.
 			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`;
-			   reference run inputs as `{{inputs.<name>}}`. A stage visited more than once overwrites its outputs,
+			   reference what the run was started with as `{{run.prompt}}` and declared inputs as `{{inputs.<name>}}`.
+			   The new-session composer offers only workflows that declare no `inputs`, so a workflow the user starts
+			   from a prompt reads `{{run.prompt}}` and declares none; `inputs` are for runs an agent starts. A stage visited more than once overwrites its outputs,
 			   so anything a later stage needs from every visit (such as each group's videos) must be written to a
 			   file that persists, and the later stage reads it from there. Use `{{run.documents}}` for documents
 			   shared across sessions: Weavie creates this folder outside worktrees; new and forked sessions inherit it,

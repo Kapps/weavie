@@ -2,7 +2,10 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { paneItemIdentity } from "./AgentPaneIdentity";
-import { createAgentPaneModel, type MutableAgentPaneModel } from "./AgentPaneModel";
+import { createTestAgentPaneModel as createAgentPaneModel } from "./AgentPaneTestModel";
+
+type MutableAgentPaneModel = ReturnType<typeof createAgentPaneModel>;
+
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { emptyTranscript, share, withLivePending } from "./AgentTranscriptSnapshot";
 
@@ -167,7 +170,16 @@ function entry(id: string, fields: Partial<AgentTranscriptEntry>): AgentTranscri
 }
 
 function snapshot(entries: AgentTranscriptEntry[]): AgentTranscriptSnapshot {
-  return { ...emptyTranscript, entries };
+  return {
+    ...emptyTranscript,
+    entries,
+    entryIndexes: new Map(entries.map((entry, index) => [entry.id, index])),
+    pendingRowIndexes: entries.flatMap((entry, index) =>
+      entry.status === "pending" || entry.asideEntries?.some((child) => child.status === "pending")
+        ? [index]
+        : [],
+    ),
+  };
 }
 
 function user(text: string): AgentPaneUpdate {

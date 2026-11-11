@@ -29,6 +29,7 @@ internal static class TestMcp {
 		IReadOnlyList<string> workspaceFolders,
 		string ideName = "weavie",
 		SettingsStore? settings = null,
+		string? settingsWorkspaceRoot = null,
 		bool registryMode = false,
 		bool exposeIdeTools = false,
 		LayoutStore? layout = null,
@@ -40,7 +41,7 @@ internal static class TestMcp {
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
+		new(authToken, presenter, workspaceFolders, ideName, settings, settingsWorkspaceRoot ?? workspaceFolders.FirstOrDefault() ?? "", registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -56,6 +57,7 @@ internal static class TestMcp {
 			workspaceFolders,
 			"weavie",
 			settings,
+			workspaceFolders[0],
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			new EditorStore(),
 			exposeIdeTools: false,

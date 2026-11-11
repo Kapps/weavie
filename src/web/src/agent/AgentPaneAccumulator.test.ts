@@ -1,15 +1,72 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
+import type { AgentPaneConversationRows } from "./AgentPaneConversationRows";
 
 describe("AgentPaneAccumulator", () => {
+  it("preserves initial text and first media through live deltas and history reconciliation", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    let rows: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneConversationRows) => {
+      rows = value.messages;
+    };
+    const start = {
+      ...wireUpdate(1, 1, 1, "Initial"),
+      type: "item-started",
+      mediaType: "image/png",
+      mediaData: "original",
+      resourceUri: "resource:first",
+    };
+    const delta = { ...wireUpdate(1, 1, 2, " caption"), type: "agent-message-delta" };
+    accumulator.ingest("pane", start, publish);
+    accumulator.ingest("pane", delta, publish);
+    expect(rows[0]).toMatchObject({
+      text: "Initial caption",
+      mediaData: "original",
+      resourceUri: "resource:first",
+    });
+    const later: AgentPaneWireUpdate = { ...delta, revision: 3, text: " tail", mediaData: "later" };
+    accumulator.ingest("pane", later, publish);
+    accumulator.mergeHistory(
+      "pane",
+      1,
+      [
+        {
+          ...delta,
+          text: "Initial caption",
+          mediaType: "image/png",
+          mediaData: "original",
+          resourceUri: "resource:first",
+        },
+      ],
+      true,
+      publish,
+    );
+    expect(rows[0]).toMatchObject({
+      text: "Initial caption tail",
+      mediaData: "original",
+      resourceUri: "resource:first",
+    });
+    const completed: AgentPaneWireUpdate = {
+      ...delta,
+      type: "item-completed",
+      revision: 4,
+      text: "Done",
+    };
+    accumulator.ingest("pane", completed, publish);
+    const segment: AgentPaneWireUpdate = { ...delta, revision: 5, text: "New segment" };
+    accumulator.ingest("pane", segment, publish);
+    expect(rows[0]?.text).toBe("New segment");
+    expect(rows[0]?.mediaData).toBeUndefined();
+  });
+
   it("buffers chunks and publishes one cumulative item per render cadence", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
     for (let index = 0; index < 1_000; index += 1) {
       accumulator.ingest("slot-1", update("agent-message-delta", "x"), (value) => {
-        messages = value;
+        messages = value.messages;
       });
     }
 
@@ -23,8 +80,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     for (const [type, itemId] of [
       ["thought-message-delta", "thought"],
@@ -45,8 +102,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest("slot-1", update("item-started", ""), publish);
     accumulator.ingest("slot-1", update("command-output-delta", "part"), publish);
@@ -61,8 +118,8 @@ describe("AgentPaneAccumulator", () => {
   it("reconciles a completed item when a later terminal outcome corrects it", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest(
       "slot-1",
@@ -81,8 +138,8 @@ describe("AgentPaneAccumulator", () => {
   it("tombstones a completed item when the provider retracts it", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest("slot-1", update("item-completed", "refused"), publish);
     accumulator.ingest("slot-1", { ...update("item-retracted", ""), status: "retracted" }, publish);
@@ -94,8 +151,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest(
       "slot-1",
@@ -119,8 +176,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     const collisions: AgentPaneUpdate[] = [
       { ...update("agent-message-delta", "missing-thread"), threadId: null, turnId: "session" },
@@ -142,9 +199,9 @@ describe("AgentPaneAccumulator", () => {
     let publishes = 0;
     let messages: AgentPaneUpdate[] = [];
     let changes: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[], changed: AgentPaneUpdate[]): void => {
+    const publish = (value: AgentPaneConversationRows, changed: AgentPaneUpdate[]): void => {
       publishes += 1;
-      messages = value;
+      messages = value.messages;
       changes = changed;
     };
     // Distinct items so nothing coalesces at the item level: without per-frame batching this would publish 500×.
@@ -176,7 +233,7 @@ describe("AgentPaneAccumulator", () => {
         itemId: `item-${index}`,
       })),
       (value, changed) => {
-        messages = value;
+        messages = value.messages;
         changes = changed;
       },
     );
@@ -192,7 +249,7 @@ describe("AgentPaneAccumulator", () => {
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
     accumulator.ingest("slot-1", update("approval-requested", ""), (value) => {
-      messages = value;
+      messages = value.messages;
     });
 
     expect(messages).toHaveLength(0);
@@ -204,8 +261,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [update("item-completed", "stale")];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest("slot-1", update("item-started", ""), publish);
     accumulator.reset("slot-1", publish);
@@ -218,8 +275,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.ingest("slot-1", wireUpdate(2, 4, 4, "live"), publish);
     scheduled[0]?.();
@@ -239,8 +296,8 @@ describe("AgentPaneAccumulator", () => {
   it("publishes only the newest and completed snapshots across many history pages", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     const snapshots: AgentPaneUpdate[][] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      snapshots.push(value);
+    const publish = (value: AgentPaneConversationRows): void => {
+      snapshots.push(value.messages);
     };
 
     for (let ordinal = 100; ordinal > 0; ordinal -= 1) {
@@ -263,8 +320,8 @@ describe("AgentPaneAccumulator", () => {
   it("does not republish an unchanged completed history baseline", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     const snapshots: AgentPaneUpdate[][] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      snapshots.push(value);
+    const publish = (value: AgentPaneConversationRows): void => {
+      snapshots.push(value.messages);
     };
 
     accumulator.mergeHistory("slot-1", 1, history(wireUpdate(1, 1, 1, "first")), true, publish);
@@ -297,8 +354,8 @@ describe("AgentPaneAccumulator", () => {
   it("ignores a stale history page after a new transcript generation arrives", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.ingest("slot-1", wireUpdate(3, 1, 1, "replacement"), publish);
@@ -311,8 +368,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.ingest("slot-1", wireDelta(1, 1, 1, "a"), publish);
@@ -326,8 +383,8 @@ describe("AgentPaneAccumulator", () => {
   it("prepends cumulative history to a newer live delta that arrived first", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.ingest("slot-1", wireDelta(1, 1, 3, "c"), publish);
@@ -341,8 +398,8 @@ describe("AgentPaneAccumulator", () => {
   it("reconciles cumulative thought history with a newer live chunk", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.ingest("slot-1", wireKindDelta("thought-message-delta", 1, 1, 3, "c"), publish);
@@ -360,8 +417,8 @@ describe("AgentPaneAccumulator", () => {
   it("rejects a delayed live delta at the history revision", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
@@ -373,8 +430,8 @@ describe("AgentPaneAccumulator", () => {
   it("appends a newer live delta after cumulative history", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
 
     accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
@@ -389,8 +446,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     accumulator.mergeHistory("slot-1", 1, [], true, publish);
     const replay = Array.from({ length: 25 }, (_, index) =>
@@ -408,8 +465,8 @@ describe("AgentPaneAccumulator", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
+    const publish = (value: AgentPaneConversationRows): void => {
+      messages = value.messages;
     };
     const replay = Array.from({ length: 25 }, (_, index) =>
       wireUpdate(1, index + 1, 1, `turn ${index + 1}`),

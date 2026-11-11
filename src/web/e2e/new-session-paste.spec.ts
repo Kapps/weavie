@@ -2,21 +2,12 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
-import { CommandIds, type CommandInfo } from "../src/commands/types";
+import { CommandIds } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
-import { oversizedPng } from "./harness/pasted-image";
-import { MockHost, mockSession } from "./mock-host";
+import { oversizedPng, PNG_B64 } from "./harness/pasted-image";
+import { MockHost, mockCommand, mockSession, NEW_SESSION_COMMAND } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-const PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
-
-function command(
-  info: Pick<CommandInfo, "id" | "title" | "runsIn" | "owner" | "executionLane" | "scope" | "keys">,
-): CommandInfo {
-  return { ...info, description: "", aliases: [], showInPalette: false };
-}
-
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
@@ -53,7 +44,7 @@ test("desktop image paste participates in preview and submit while text remains 
     await page.setViewportSize({ width: 1200, height: 800 });
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    const paste = command({
+    const paste = mockCommand({
       id: CommandIds.pasteNewSession,
       title: "Paste Into New Session Prompt",
       runsIn: "web",
@@ -62,7 +53,7 @@ test("desktop image paste participates in preview and submit while text remains 
       scope: "session",
       keys: ["$mod+v"],
     });
-    const submit = command({
+    const submit = mockCommand({
       id: CommandIds.submitNewSession,
       title: "Start New Session",
       runsIn: "web",
@@ -71,17 +62,8 @@ test("desktop image paste participates in preview and submit while text remains 
       scope: "session",
       keys: ["Shift+Enter"],
     });
-    const create = command({
-      id: CommandIds.newSession,
-      title: "New Session",
-      runsIn: "core",
-      owner: "backend",
-      executionLane: "weavie.session.lifecycle",
-      scope: "host",
-      keys: [],
-    });
     host.publishHost("commands", "catalog", {
-      commands: [paste, submit, create],
+      commands: [paste, submit, NEW_SESSION_COMMAND],
       // The mock uses WebSocket, so this native-path test intentionally omits !browserShell.
       keybindings: [
         {
@@ -168,7 +150,7 @@ test("desktop encoded clipboard images are resized before branch preview", async
     host.onHost("request", "clipboard", "readImage", (request) =>
       host.respond(request, { mime: "image/png", dataB64 }),
     );
-    const paste = command({
+    const paste = mockCommand({
       id: CommandIds.pasteNewSession,
       title: "Paste Into New Session Prompt",
       runsIn: "web",

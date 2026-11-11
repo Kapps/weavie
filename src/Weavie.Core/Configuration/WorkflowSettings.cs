@@ -11,13 +11,27 @@ public static class WorkflowSettings {
 	/// <summary>The minimum confidence required for a model decision to route automatically.</summary>
 	public const string DecisionConfidence = "workflow.decisionConfidence";
 
+	/// <summary>The workflow the new-session composer preselects.</summary>
+	public const string Default = "workflow.default";
+
 	/// <summary>Registers workflow settings into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 		registry.Register(new SettingDefinition {
+			Key = Default,
+			Kind = SettingKind.String,
+			Scope = SettingScope.Workspace,
+			Description = "The workflow id the new-session composer preselects, from listWorkflows; empty for no workflow. It must be "
+				+ "valid and declare no inputs. Set it for one repository, or user-wide for every repository without its own.",
+			Aliases = ["default workflow", "preselect workflow", "new session workflow"],
+			Apply = ApplyMode.Live,
+			Default = "",
+		});
+		registry.Register(new SettingDefinition {
 			Key = DecisionConfidence,
 			Kind = SettingKind.Number,
-			Description = "Minimum model confidence for automatic workflow decisions; lower confidence asks you instead.",
+			Description = "Minimum model confidence for automatic workflow decisions, and for the new-session composer to apply its "
+				+ "workflow suggestion; lower confidence asks you instead, or leaves the composer's workflow as it was.",
 			Aliases = ["workflow confidence", "decision confidence"],
 			Apply = ApplyMode.Live,
 			Default = 0.8,

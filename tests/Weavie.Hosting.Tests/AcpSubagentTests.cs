@@ -62,9 +62,23 @@ public sealed class AcpSubagentTests {
 	}
 
 	[Fact]
+	public async Task SideSubagentsKeepTheirParentLinksInTheJournal() {
+		await using var fixture = await StartedAsync(allowAllPermissions: true);
+		fixture.AskAside("subagent-nested");
+		var side = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
+		await fixture.WaitForMessageAsync(message => message.Text == "subagent turn done" && message.Type == "item-completed");
+
+		var markers = fixture.Sessions.ReadMessages("fake", fixture.Workspace).Where(message => message.Type == "subagent-started").ToArray();
+		Assert.Equal(2, markers.Length);
+		Assert.Equal(side.ConversationId, markers[0].ParentItemId);
+		Assert.Equal(markers[0].ConversationId, markers[1].ParentItemId);
+	}
+
+	[Fact]
 	public async Task RunningSubagentKeepsTheSessionWaitingAfterItsTurnEnds() {
 		await using var fixture = await StartedAsync(allowAllPermissions: true);
 		var marker = await StartHeldSubagentAsync(fixture, "1");
+		await fixture.Events.WaitForAsync(value => value is AgentBackgroundChanged { Running: true });
 
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
 		Assert.True(Assert.Single(fixture.Session.BackgroundWork).Running);

@@ -213,7 +213,7 @@ public sealed partial class HostSession {
 		messages.Handle(
 			"openPlan", MessageActivity.ActionFailed("Opening the plan"), WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
-				OpenAgentPlan(message.ThreadId, message.TurnId, message.ItemId)));
+				OpenAgentPlan(message.ProviderId, message.ConversationId, message.ThreadId, message.TurnId, message.ItemId)));
 	}
 
 	private void HandleTerminalImagePaste(ImagePasteMessage message, Func<bool> inputFrozen) {
@@ -334,7 +334,7 @@ public sealed partial class HostSession {
 
 	internal sealed record DiffResolutionMessage(string Id, bool Kept, string? FinalContents);
 
-	internal sealed record OpenPlanMessage(string ThreadId, string TurnId, string ItemId);
+	internal sealed record OpenPlanMessage(string ProviderId, string? ConversationId, string ThreadId, string TurnId, string ItemId);
 
 	internal sealed record AgentControlMessage(string Axis, string Value);
 

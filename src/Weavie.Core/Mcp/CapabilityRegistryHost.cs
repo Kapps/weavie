@@ -13,13 +13,17 @@ namespace Weavie.Core.Mcp;
 
 /// <summary>The provider-neutral, model-facing Weavie capability registry for one loaded session.</summary>
 public sealed class CapabilityRegistryHost : IAsyncDisposable {
-	/// <summary>Starts the standard MCP capability server with <paramref name="credential"/>.</summary>
+	/// <summary>
+	/// Starts the standard MCP capability server with <paramref name="credential"/>; workspace-scoped settings live
+	/// in <paramref name="settingsWorkspaceRoot"/>'s overlay.
+	/// </summary>
 	public CapabilityRegistryHost(
 		AgentSessionCredential credential,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
 		SettingsStore settings,
+		string settingsWorkspaceRoot,
 		LayoutStore layout,
 		EditorStore editor,
 		bool exposeIdeTools,
@@ -35,6 +39,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		ArgumentException.ThrowIfNullOrEmpty(ideName);
 		ArgumentNullException.ThrowIfNull(settings);
+		ArgumentException.ThrowIfNullOrEmpty(settingsWorkspaceRoot);
 		ArgumentNullException.ThrowIfNull(layout);
 		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(commands);
@@ -43,7 +48,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(sessions);
 		Credential = credential;
 		Server = new McpServer(
-			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, exposeIdeTools,
+			credential.Token, presenter, workspaceFolders, ideName, settings, settingsWorkspaceRoot, registryMode: true, exposeIdeTools,
 			layout, editor, commands, keybindings, themeOverrides, sessions, agents, reviewHints, workflows);
 		Port = Server.Start();
 	}
@@ -59,6 +64,9 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 
 	/// <summary>The Streamable HTTP MCP endpoint URL for native agents.</summary>
 	public string StreamableHttpUrl => $"http://127.0.0.1:{Port}/mcp";
+
+	/// <summary>Registers a conversation-specific credential and stage admission.</summary>
+	public CapabilityRegistryGrant CreateGrant(Func<WorkflowStageCall?> stageCall) => Server.CreateGrant(stageCall);
 
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => Server.DisposeAsync();

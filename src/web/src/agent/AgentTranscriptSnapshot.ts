@@ -1,11 +1,11 @@
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
-import { isPendingRequest } from "./AgentPendingRequests";
 import { isResult } from "./AgentTranscriptLabels";
 
 export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartId: null,
   agentTurnStartIndex: null,
   entries: [],
+  entryIndexes: new Map(),
   latestResultIndex: null,
   pendingRowIndexes: [],
   sectionLabels: new Map(),
@@ -15,6 +15,7 @@ export const emptyTranscript: AgentTranscriptSnapshot = {
 /** `next`, reusing every part of `previous` it deep-equals; array items with an `id` match by id. */
 export function share<T>(previous: unknown, next: T): T {
   if (Object.is(previous, next)) return previous as T;
+  if (isObject(next) && "conversation" in next) return next;
   if (!isObject(previous) || !isObject(next) || Array.isArray(previous) !== Array.isArray(next)) {
     return next;
   }
@@ -63,25 +64,78 @@ export function withLivePending(
   held: AgentTranscriptSnapshot,
   live: AgentTranscriptSnapshot,
 ): AgentTranscriptSnapshot {
-  const liveById = new Map(live.entries.map((entry) => [entry.id, entry]));
-  const placed = new Set<string>();
-  const entries = held.entries.flatMap((entry) => {
-    const current = liveById.get(entry.id);
-    if (!holdsRequest(entry) && (current === undefined || !holdsRequest(current))) return [entry];
-    placed.add(entry.id);
-    return current === undefined ? [] : [current];
-  });
-  for (const entry of live.entries) {
-    if (holdsRequest(entry) && !placed.has(entry.id)) entries.push(entry);
+  const candidates = new Set([
+    ...held.pendingRowIndexes.map((index) => held.entries[index]!.id),
+    ...live.pendingRowIndexes.map((index) => live.entries[index]!.id),
+  ]);
+  const replacements = new Map<string, AgentTranscriptEntry | undefined>();
+  const appended: AgentTranscriptEntry[] = [];
+  const retained = new Set<number>();
+  for (const id of candidates) {
+    const oldIndex = held.entryIndexes.get(id);
+    const liveIndex = live.entryIndexes.get(id);
+    const current = liveIndex === undefined ? undefined : live.entries[liveIndex];
+    const old = oldIndex === undefined ? undefined : held.entries[oldIndex];
+    if (oldIndex === undefined) {
+      if (current !== undefined) appended.push(current);
+    } else {
+      if (old?.conversation === undefined && old !== current) replacements.set(id, current);
+      if (liveIndex !== undefined && live.pendingRowIndexes.includes(liveIndex))
+        retained.add(oldIndex);
+    }
   }
-  if (sameItems(entries, held.entries)) return held;
-  const turnStart = entries.findIndex((entry) => entry.id === held.agentTurnStartId);
+  let entries = held.entries;
+  let entryIndexes = held.entryIndexes;
+  if (replacements.size > 0 || appended.length > 0) {
+    entries = [
+      ...held.entries.flatMap((entry) =>
+        replacements.has(entry.id)
+          ? replacements.get(entry.id) === undefined
+            ? []
+            : [replacements.get(entry.id)!]
+          : [entry],
+      ),
+      ...appended,
+    ];
+    entryIndexes = new Map(entries.map((entry, index) => [entry.id, index]));
+    retained.clear();
+    for (const index of live.pendingRowIndexes) {
+      const placed = entryIndexes.get(live.entries[index]!.id);
+      if (placed !== undefined) retained.add(placed);
+    }
+  }
+  const pendingRowIndexes = [...retained].sort((a, b) => a - b);
+  if (entries === held.entries && sameItems(pendingRowIndexes, held.pendingRowIndexes)) return held;
   return {
     ...held,
-    agentTurnStartIndex: turnStart < 0 ? null : turnStart,
     entries,
+    entryIndexes,
+    pendingRowIndexes,
+    agentTurnStartIndex:
+      held.agentTurnStartId === null ? null : (entryIndexes.get(held.agentTurnStartId) ?? null),
     latestResultIndex: latestResultIndex(entries),
-    pendingRowIndexes: entries.flatMap((entry, index) => (holdsRequest(entry) ? [index] : [])),
+  };
+}
+
+/** Capture conversation snapshots once when reading is held. Only pending forms remain live. */
+export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscriptSnapshot {
+  return {
+    ...snapshot,
+    entries: snapshot.entries.map((entry) => {
+      const view = entry.conversation;
+      if (view === undefined) return entry;
+      const held = holdTranscript(view.transcript());
+      return {
+        ...entry,
+        get asideEntries() {
+          return withLivePending(held, view.transcript()).entries as AgentTranscriptEntry[];
+        },
+        get pendingEntries() {
+          const current = withLivePending(held, view.transcript());
+          return current.pendingRowIndexes.map((index) => current.entries[index]!);
+        },
+      };
+    }),
   };
 }
 
@@ -89,11 +143,6 @@ export function withLivePending(
 export function latestResultIndex(entries: readonly AgentTranscriptEntry[]): number | null {
   const last = entries.at(-1);
   return last !== undefined && isResult(last) ? entries.length - 1 : null;
-}
-
-// A pending request, or a card nesting one.
-function holdsRequest(entry: AgentTranscriptEntry): boolean {
-  return isPendingRequest(entry) || entry.asideEntries?.some(holdsRequest) === true;
 }
 
 function sameItems<T>(left: readonly T[], right: readonly T[]): boolean {

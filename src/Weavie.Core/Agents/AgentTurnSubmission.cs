@@ -62,4 +62,13 @@ public sealed record AgentTurnSubmission {
 	/// <summary>Whether a provider command also carries the session's per-turn context, as a workflow stage's opening
 	/// turn does; ordinary prompts always carry it.</summary>
 	public bool CarriesTurnContext { get; init; }
+
+	/// <summary>
+	/// The turn as a terminal agent takes it: the text and each image's path, which the agent attaches. A command's
+	/// text leads so its slash opens the input; otherwise the images lead the text.
+	/// </summary>
+	public IReadOnlyList<string> TerminalParts() {
+		var paths = Attachments.Select(attachment => attachment.Path);
+		return Kind == AgentTurnSubmissionKind.ProviderCommand ? [Text, .. paths] : [.. paths, Text];
+	}
 }

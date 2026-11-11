@@ -31,6 +31,15 @@ public sealed record WorkflowCatalogEntry {
 
 	/// <summary>The scope whose same-id file overrides this one, or <see langword="null"/> when this one wins.</summary>
 	public required WorkflowScope? ShadowedBy { get; init; }
+
+	/// <summary>Why the file can't run, as one line; empty when valid.</summary>
+	public string Error => string.Join("; ", Diagnostics.Where(d => !d.IsWarning));
+
+	/// <summary>
+	/// Whether a start from a prompt alone offers this workflow: it wins its id and declares no inputs. A broken
+	/// winner is offered so its <see cref="Error"/> can be shown.
+	/// </summary>
+	public bool OfferedForPrompt => ShadowedBy is null && Definition is not { Inputs.Count: > 0 };
 }
 
 /// <summary>
@@ -57,12 +66,17 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	}
 
 	/// <summary>Resolves <paramref name="id"/> once and reads <paramref name="inputs"/> against this worktree.</summary>
-	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) => Prepare(id, inputs, null);
+	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) => Prepare(id, inputs, null, WorkflowStartPrompt.None);
 
-	/// <summary>Prepares inputs with access to the inherited run documents directory.</summary>
-	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs, string? documentsDirectory) {
+	/// <summary>Prepares a start with <paramref name="prompt"/>, reading inputs with access to the inherited run documents directory.</summary>
+	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs, string? documentsDirectory, WorkflowStartPrompt prompt) {
+		ArgumentNullException.ThrowIfNull(prompt);
 		var (entry, definition) = Winner(id);
-		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory));
+		if (definition.UsesPrompt && prompt.IsEmpty) {
+			throw new WorkflowException($"Workflow {id} can't start: it uses {{{{run.prompt}}}}, and no prompt was given.");
+		}
+
+		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory), prompt);
 	}
 
 	private WorkflowCatalogEntry Resolve(string id) {
@@ -74,7 +88,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
 		var entry = Resolve(id);
 		return (entry, entry.Definition ?? throw new WorkflowException(
-			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
+			$"Workflow \"{id}\" ({entry.Path}) is invalid: {entry.Error}"));
 	}
 
 	/// <summary>The problems in the saved workflow that wins for <paramref name="id"/>; empty when valid.</summary>
@@ -149,8 +163,9 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	}
 }
 
-/// <summary>A resolved workflow ready to start: its definition, where it came from, and its read inputs.</summary>
-public sealed record WorkflowLaunch(WorkflowDefinition Definition, string SourcePath, Dictionary<string, WorkflowValue> Inputs);
+/// <summary>A resolved workflow ready to start: its definition, where it came from, its read inputs, and its prompt.</summary>
+public sealed record WorkflowLaunch(
+	WorkflowDefinition Definition, string SourcePath, Dictionary<string, WorkflowValue> Inputs, WorkflowStartPrompt Prompt);
 
 /// <summary>A workflow request the engine refuses, with a message meant for the agent or user.</summary>
 public sealed class WorkflowException(string message) : Exception(message);

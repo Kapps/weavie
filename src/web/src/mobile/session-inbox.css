@@ -91,6 +91,7 @@
 .session-inbox-divider,
 .session-composer-error,
 .session-composer-branch,
+.session-composer-workflow,
 .session-composer-source label,
 .session-inbox-status,
 .session-inbox-where {
@@ -189,7 +190,8 @@
   color: var(--bad);
 }
 
-.session-composer-branch {
+.session-composer-branch,
+.session-composer-workflow {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -234,9 +236,39 @@
   opacity: 0.5;
 }
 
-.session-composer-branch small {
+.session-composer-branch small,
+.session-composer-workflow > small {
   grid-column: 1 / -1;
   color: var(--bad);
+}
+
+/* A field that opens a menu: its value, suggestion status, and chevron on one baseline. */
+.session-composer-workflow-toggle {
+  display: flex;
+  grid-column: 2 / -1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-block: calc((var(--control-h) - var(--font-chrome-line)) / 2 - 1px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-composer-workflow-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.session-composer-workflow-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-menu.session-composer-workflow-menu {
+  z-index: 80;
 }
 
 .session-open-branch .session-composer-branch {

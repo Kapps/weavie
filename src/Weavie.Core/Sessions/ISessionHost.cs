@@ -22,10 +22,10 @@ public sealed record NewSessionRequest {
 	/// <summary>The base to branch from: <c>"main"</c> (the repository's default branch) or <c>"source"</c> (the invoking session's HEAD); <c>null</c> means main. Ignored when <see cref="Existing"/> is set.</summary>
 	public string? Base { get; init; }
 
-	/// <summary>Optional text in the new session's first agent input.</summary>
+	/// <summary>Optional text in the new session's first agent input, or the prompt of the <see cref="Workflow"/> run.</summary>
 	public string? Prompt { get; init; }
 
-	/// <summary>Images submitted atomically with <see cref="Prompt"/> as the new session's first input.</summary>
+	/// <summary>Images submitted atomically with <see cref="Prompt"/>.</summary>
 	public IReadOnlyList<NewSessionAttachment> Attachments { get; set; } = [];
 
 	/// <summary>A workflow id the new session starts running; its first stage is the session's first input.</summary>

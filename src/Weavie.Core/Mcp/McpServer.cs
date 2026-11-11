@@ -30,6 +30,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private readonly IDiffPresenter _presenter;
 	private readonly IReadOnlyList<string> _workspaceFolders;
+	private readonly string _settingsWorkspaceRoot;
 	private readonly SettingsStore? _settings;
 	private readonly LayoutStore? _layout;
 	private readonly EditorStore? _editor;
@@ -55,7 +56,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter handling inbound
 	/// tool calls, and the advertised workspace folders. A <paramref name="settings"/> store adds the settings
-	/// tools. Call <see cref="Start"/> to begin listening.
+	/// tools, which keep workspace-scoped keys in <paramref name="settingsWorkspaceRoot"/>'s overlay (empty for
+	/// none): the workspace every reader resolves them against, not the session's own worktree.
+	/// Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
@@ -63,6 +66,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
 		SettingsStore? settings,
+		string settingsWorkspaceRoot,
 		bool registryMode,
 		bool exposeIdeTools,
 		LayoutStore? layout,
@@ -92,6 +96,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
+		_settingsWorkspaceRoot = settingsWorkspaceRoot;
 		_layout = layout;
 		_editor = editor;
 		_commands = commands;
@@ -534,8 +539,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
-		// Resolve workspace-scoped keys against this session's workspace, matching setSetting's routing.
-		string root = PrimaryWorkspaceRoot;
+		string root = _settingsWorkspaceRoot;
 		string json = root.Length > 0 ? settings.BuildCatalogJson(root) : settings.BuildCatalogJson();
 		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
@@ -549,8 +553,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			// Resolve a workspace-scoped key against this session's workspace, matching setSetting's routing.
-			string root = PrimaryWorkspaceRoot;
+			string root = _settingsWorkspaceRoot;
 			string json = root.Length > 0 ? settings.BuildGetJson(key, root) : settings.BuildGetJson(key);
 			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
@@ -558,7 +561,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	// The primary workspace root (empty when none) — where a workspace-scoped write/clear is routed.
+	// The session's own root (empty when none).
 	private string PrimaryWorkspaceRoot => _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty;
 
 	private async Task HandleSetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -575,9 +578,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			// Route a workspace-scoped key (test.profile, worktree.*) to its out-of-repo overlay via the primary
-			// workspace root; SettingsStore ignores the root for user-scoped keys.
-			string root = PrimaryWorkspaceRoot;
+			// A workspace-scoped key (test.profile, worktree.*) goes to its workspace's out-of-repo overlay;
+			// SettingsStore ignores the root for user-scoped keys.
+			string root = _settingsWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Set(key, valueElement, root) : settings.Set(key, valueElement);
 			await SendToolTextAsync(responder, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
@@ -609,7 +612,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		try {
 			// Match setSetting's routing so a workspace override is cleared from its overlay, not the user file.
-			string root = PrimaryWorkspaceRoot;
+			string root = _settingsWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Clear(key, root) : settings.Clear(key);
 			await SendToolTextAsync(responder, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
 			Emit($"clearSetting {key} (removed={result.Removed})");

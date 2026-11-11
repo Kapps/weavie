@@ -1,15 +1,13 @@
 id: quick-fix
 description: A small, well-understood change. Implement it, verify it, and open a draft PR.
-inputs:
-  task: text
 stages:
   - id: implement
     run:
       prompt: >
-        Implement this task: {{inputs.task}}
+        Implement the task below. Run the relevant tests and the linter, fix what fails, and commit. Call
+        completeStage only once both are green and the work is committed.
 
-        Run the relevant tests and the linter, fix what fails, and commit. Call completeStage only once
-        both are green and the work is committed.
+        {{run.prompt}}
 
   - id: pr
     run:

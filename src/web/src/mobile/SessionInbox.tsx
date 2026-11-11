@@ -1,6 +1,5 @@
 import { ArrowUp } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import {
   agentProviders,
@@ -8,33 +7,19 @@ import {
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
-import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { sessionMenuAt } from "../chrome/session-menu";
 import type { RailSession } from "../chrome/session-store";
-import { readClipboardContent } from "../clipboard-read";
-import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { captureCommandRunner, registerCommand } from "../commands/registry";
+import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
 import { MobileActionLabel } from "./MobileActionLabel";
-import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
-import {
-  createNewSessionAttachments,
-  type NewSessionSeedAttachment,
-} from "./new-session-attachments";
+import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
 import { SessionInboxRow } from "./SessionInboxRow";
 
+export type { NewSessionSeed } from "./NewSessionComposer";
 export type { NewSessionSeedAttachment } from "./new-session-attachments";
-
-export interface NewSessionSeed {
-  branch: string;
-  base: "source" | "main";
-  existing: boolean;
-  prompt: string;
-  attachments: NewSessionSeedAttachment[];
-}
 
 /** The shared Sessions surface for starting, opening, and resuming sessions. */
 export function SessionInbox(props: {
@@ -50,7 +35,6 @@ export function SessionInbox(props: {
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
 }): JSX.Element {
-  const [prompt, setPrompt] = createSignal("");
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
@@ -60,17 +44,7 @@ export function SessionInbox(props: {
   const [branchListError, setBranchListError] = createSignal("");
   const [loadingBranches, setLoadingBranches] = createSignal(false);
   const [submitting, setSubmitting] = createSignal<"new" | "existing" | null>(null);
-  const attachmentStore = createNewSessionAttachments();
-  const attachments = attachmentStore.attachments;
   const [sessionMenu, setSessionMenu] = createSignal<ContextMenuState | null>(null);
-  const [branchPreview, setBranchPreview] = createSignal<BranchPreviewState>({
-    branch: "",
-    error: null,
-    manual: false,
-    status: "idle",
-  });
-  let branchActions: NewSessionBranchActions | undefined;
-  let promptInput!: HTMLTextAreaElement;
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let providerChosen = false;
@@ -184,37 +158,11 @@ export function SessionInbox(props: {
     );
   });
 
-  const submitNew = async (): Promise<void> => {
-    const text = prompt().trim();
-    const images = attachments();
-    if (submitting() !== null || images.some((attachment) => attachment.status !== "ready")) {
-      return;
-    }
+  const startNew = async (seed: () => Promise<NewSessionSeed | null>): Promise<boolean> => {
     setSubmitting("new");
-    if (
-      await props.onCreate(
-        async () => {
-          // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
-          const branch = (await branchActions?.resolve()) ?? "";
-          return branch.length === 0
-            ? null
-            : {
-                branch,
-                base: base(),
-                existing: false,
-                prompt: text,
-                attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
-              };
-        },
-        backendId(),
-        providerId(),
-      )
-    ) {
-      setPrompt("");
-      attachmentStore.clear();
-      branchActions?.reset();
-    }
+    const created = await props.onCreate(seed, backendId(), providerId());
     setSubmitting(null);
+    return created;
   };
 
   const openExisting = async (): Promise<void> => {
@@ -223,7 +171,14 @@ export function SessionInbox(props: {
     setSubmitting("existing");
     if (
       await props.onCreate(
-        async () => ({ branch, base: "main", existing: true, prompt: "", attachments: [] }),
+        async () => ({
+          branch,
+          base: "main",
+          existing: true,
+          prompt: "",
+          attachments: [],
+          workflow: null,
+        }),
         backendId(),
         providerId(),
       )
@@ -232,89 +187,6 @@ export function SessionInbox(props: {
     }
     setSubmitting(null);
   };
-
-  const paste = async (selectionStart: number, selectionEnd: number): Promise<void> => {
-    try {
-      const content = await readClipboardContent();
-      if (content.kind === "image") {
-        attachmentStore.addEncodedImage(content.mime, content.dataB64);
-        return;
-      }
-      if (content.kind !== "text") {
-        return;
-      }
-      const current = prompt();
-      const next = current.slice(0, selectionStart) + content.text + current.slice(selectionEnd);
-      setPrompt(next);
-      queueMicrotask(() => {
-        if (document.activeElement === promptInput && promptInput.value === next) {
-          const caret = selectionStart + content.text.length;
-          promptInput.setSelectionRange(caret, caret);
-        }
-      });
-    } catch (error) {
-      notify(
-        "warn",
-        `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
-
-  // A name in the field is enough on its own — a session needs no prompt; without one there has to be
-  // something left to name the branch from.
-  const named = (): boolean => {
-    const preview = branchPreview();
-    return (
-      preview.branch.trim().length > 0 ||
-      ((prompt().trim().length > 0 || attachments().length > 0) && preview.status !== "error")
-    );
-  };
-
-  const canStart = (): boolean => {
-    const images = attachments();
-    return (
-      submitting() === null &&
-      named() &&
-      agentProviders(backendId()).some(
-        (provider) => provider.id === providerId() && provider.available,
-      ) &&
-      images.every((attachment) => attachment.status === "ready")
-    );
-  };
-
-  createEffect(() => {
-    if (!props.active) {
-      setContext("newSessionPromptFocused", false);
-    }
-  });
-
-  onMount(() => {
-    const cleanups = [
-      registerCommand(CommandIds.pasteNewSession, () => {
-        if (!props.active || document.activeElement !== promptInput) {
-          return false;
-        }
-        return paste(promptInput.selectionStart, promptInput.selectionEnd);
-      }),
-      registerCommand(CommandIds.submitNewSession, () => {
-        if (!props.active || document.activeElement !== promptInput || !canStart()) {
-          return false;
-        }
-        void submitNew();
-        return true;
-      }),
-    ];
-    onCleanup(() => {
-      for (const cleanup of cleanups) {
-        cleanup();
-      }
-    });
-  });
-
-  onCleanup(() => {
-    attachmentStore.clear();
-    setContext("newSessionPromptFocused", false);
-  });
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
@@ -386,95 +258,19 @@ export function SessionInbox(props: {
       <div class="session-inbox-actions">
         <section class="session-inbox-action" aria-labelledby="session-start-title">
           <h2 id="session-start-title">Start a new session</h2>
-          <form
-            class="session-composer"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitNew();
-            }}
-            // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
-            // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on the
-            // branch field means the user is naming it themselves.
-            onFocusOut={(event) => {
-              const next = event.relatedTarget;
-              if (
-                next instanceof Element &&
-                event.currentTarget.contains(next) &&
-                next.closest(".session-composer-branch") === null
-              ) {
-                branchActions?.flush();
-              }
-            }}
-          >
-            <textarea
-              ref={promptInput}
-              aria-label="Prompt for a new session"
-              placeholder="What do you want to work on?"
-              rows={3}
-              value={prompt()}
-              onFocus={() => setContext("newSessionPromptFocused", props.active)}
-              onBlur={() => setContext("newSessionPromptFocused", false)}
-              onInput={(event) => setPrompt(event.currentTarget.value)}
-              onPaste={attachmentStore.capturePaste}
-            />
-            <Show when={attachments().length > 0}>
-              <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
-            </Show>
-            <Show when={attachments().find((attachment) => attachment.error !== null)}>
-              {(attachment) => (
-                <div class="session-composer-error" role="alert">
-                  {attachment().error}
-                </div>
-              )}
-            </Show>
-            <div class="session-composer-source">
-              <label>
-                <span>From</span>
-                <select
-                  class="ui-field"
-                  aria-label="Branch starting point"
-                  value={base()}
-                  onChange={(event) => setBase(event.currentTarget.value as "source" | "main")}
-                >
-                  <option value="main">Main branch</option>
-                  <option
-                    value="source"
-                    disabled={selectedSession()?.connection.id !== backendId()}
-                  >
-                    Current session
-                  </option>
-                </select>
-              </label>
-            </div>
-            <NewSessionBranchField
-              active={props.active}
-              backendId={backendId()}
-              attachments={attachments().map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 }))}
-              inputReady={
-                (prompt().trim().length > 0 || attachments().length > 0) &&
-                attachments().every((attachment) => attachment.status === "ready")
-              }
-              prompt={prompt()}
-              onChange={setBranchPreview}
-              register={(actions) => {
-                branchActions = actions;
-              }}
-            />
-            <div class="session-composer-options">
-              {destinationFields("Session location", "Agent provider")}
-              <button
-                type="submit"
-                class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
-                aria-label={submitting() === "new" ? "Starting session" : "Start"}
-                title={`Start${keyHint(CommandIds.submitNewSession)}`}
-                disabled={!canStart()}
-              >
-                <MobileActionLabel icon={<ArrowUp />}>
-                  {submitting() === "new" ? "Starting…" : "Start"}
-                </MobileActionLabel>
-              </button>
-            </div>
-          </form>
+          <NewSessionComposer
+            active={props.active}
+            backendId={backendId()}
+            base={base()}
+            providerAvailable={agentProviders(backendId()).some(
+              (provider) => provider.id === providerId() && provider.available,
+            )}
+            busy={submitting() !== null}
+            starting={submitting() === "new"}
+            destination={destinationFields("Session location", "Agent provider")}
+            onBase={setBase}
+            onStart={startNew}
+          />
         </section>
 
         <div class="session-inbox-divider">

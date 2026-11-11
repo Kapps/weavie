@@ -57,7 +57,9 @@ public static class AuthorWorkflowPrompt {
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or
 			   an output exists; stage order and fixed `then` targets handle those.
 			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`;
-			   reference run inputs as `{{inputs.<name>}}`. A stage visited more than once overwrites its outputs,
+			   reference what the run was started with as `{{run.prompt}}` and declared inputs as `{{inputs.<name>}}`.
+			   The new-session composer offers only workflows that declare no `inputs`, so a workflow the user starts
+			   from a prompt reads `{{run.prompt}}` and declares none; `inputs` are for runs an agent starts. A stage visited more than once overwrites its outputs,
 			   so anything a later stage needs from every visit (such as each group's videos) must be written to a
 			   file that persists, and the later stage reads it from there. Use `{{run.documents}}` for documents
 			   shared across sessions: Weavie creates this folder outside worktrees; new and forked sessions inherit it,

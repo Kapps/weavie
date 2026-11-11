@@ -14,6 +14,12 @@ public sealed record WorkflowReference(string Scope, string Name) {
 	/// <summary>Whether this names the shared documents directory.</summary>
 	public bool IsDocuments => Scope == "run" && Name == "documents";
 
+	/// <summary>Whether this names the prompt the run was started with.</summary>
+	public bool IsPrompt => Scope == "run" && Name == "prompt";
+
+	/// <summary>Whether this names a value the run itself holds rather than one a stage reports.</summary>
+	public bool IsRunValue => IsInput || IsDocuments || IsPrompt;
+
 	/// <inheritdoc/>
 	public override string ToString() => $"{{{{{Scope}.{Name}}}}}";
 }
@@ -58,7 +64,7 @@ public sealed partial class WorkflowTemplate {
 			var match = ReferencePattern().Match(text[(open + 2)..close]);
 			if (!match.Success) {
 				return Fail(
-					$"\"{text[open..(close + 2)]}\" must be {{{{run.documents}}}}, {{{{inputs.<name>}}}} or {{{{<stage>.<output>}}}}",
+					$"\"{text[open..(close + 2)]}\" must be {{{{run.prompt}}}}, {{{{run.documents}}}}, {{{{inputs.<name>}}}} or {{{{<stage>.<output>}}}}",
 					out template, out error);
 			}
 

@@ -14,13 +14,8 @@ export function ChoicePicker(props: {
     <ModalShell title={props.picker.title} onDismiss={props.onClose} class="choice-picker">
       <ControlMenu
         axis={{
-          id: "choice",
           label: props.picker.title,
-          description: null,
-          category: null,
-          kind: "select",
           value: props.picker.value,
-          valueLabel: "",
           options: props.picker.options,
         }}
         class="choice-picker-menu"

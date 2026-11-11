@@ -12,10 +12,11 @@ internal sealed partial class WorkflowTransitions(
 	private const string No = "no";
 
 	/// <summary>
-	/// A new run of the definition with <paramref name="inputs"/>, entering its first stage; it keeps the
-	/// predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
+	/// A new run of the definition with <paramref name="inputs"/> and <paramref name="prompt"/>, entering its first
+	/// stage; it keeps the predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
 	/// </summary>
-	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold) {
+	public WorkflowStep Start(
+		string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold, WorkflowPrompt prompt) {
 		var run = new WorkflowRun {
 			Id = runId,
 			DocumentsDirectory = documentsDirectory,
@@ -23,6 +24,7 @@ internal sealed partial class WorkflowTransitions(
 			SourcePath = sourcePath,
 			SourceText = definition.SourceText,
 			Inputs = inputs,
+			Prompt = prompt,
 			Stage = definition.Stages[0].Id,
 			Phase = WorkflowPhase.Open,
 			Decision = null,
@@ -178,8 +180,8 @@ internal sealed partial class WorkflowTransitions(
 		var kickoff = WorkflowKickoff.Prompt(
 			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
 			+ (run.Note.Length == 0 ? "" : $" Feedback: {run.Note}")
-			+ $" Revise the work accordingly, then call {words.CompleteStage} again.") with { Context = stage.Run.Context };
-		var revised = Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" }, kickoff);
+			+ $" Revise the work accordingly, then call {words.CompleteStage} again.");
+		var revised = Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" }, StageTurn(run, stage, kickoff));
 		return revised with { Effects = [new WorkflowEffect.ReviseStage(), .. revised.Effects] };
 	}
 
@@ -223,8 +225,14 @@ internal sealed partial class WorkflowTransitions(
 			? new WorkflowKickoff { Context = stage.Run.Context, Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
 			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
 		return Send(run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" },
-			kickoff with { Context = stage.Run.Context });
+			StageTurn(run, stage, kickoff));
 	}
+
+	private static WorkflowKickoff StageTurn(WorkflowRun run, WorkflowStage stage, WorkflowKickoff turn) => turn with {
+		Context = stage.Run.Context,
+		CarriesPromptImages = (stage.Run.Context != WorkflowContext.Continue || !run.PromptImagesSent)
+			&& run.Prompt.Images.Count > 0 && (stage.Run.Prompt ?? stage.Run.Args)?.References.Any(reference => reference.IsPrompt) == true,
+	};
 
 	private WorkflowStep Ask(
 		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<WorkflowDecisionOption> choices,

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { createAcpSession } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
-import { oversizedPng, pastePng } from "../harness/pasted-image";
+import { oversizedPng, PNG_B64, pastePng } from "../harness/pasted-image";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const pasteMessages = new WeakMap<Page, unknown[]>();
@@ -36,10 +36,6 @@ test.use({
 // test covers. The PTY path-injection line is downstream of the write with no branch between and is asserted
 // by HostCorePasteImageTests at the NoopTerminal seam; the real [Image #N] chip needs the real claude.
 //
-// A 150-byte valid 64x64 PNG — the pasted image's exact bytes.
-const PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
-
 // Recursively collect every file path under `dir` (the host's isolated HOME is tiny, so a full walk is cheap).
 function walk(dir: string): string[] {
   const out: string[] = [];

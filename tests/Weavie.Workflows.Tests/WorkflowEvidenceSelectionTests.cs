@@ -38,7 +38,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 		_dir.WriteFile("draft.md", "draft");
 		_dir.WriteFile("review.md", "review");
 		var machine = Machine(Flow);
-		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["./input.md", "draft.md"] } }, Path.GetTempPath(), null).Run;
+		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["./input.md", "draft.md"] } }, Path.GetTempPath(), null, WorkflowPrompt.None).Run;
 		var condition = machine.Complete(run, Json("""{"documents":["./draft.md"]}"""), "Drafted.").Step;
 		Assert.Equal(["input.md", "draft.md"], Plan(condition).FilePaths);
 		Assert.Equal("Ready - ./input.md\n- draft.md - ./draft.md?", Plan(condition).Question);
@@ -60,7 +60,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 	public void LiteralAndComposedPathsAndUnreferencedOutputsSelectNothing(string question) {
 		_dir.WriteFile("draft.md", "draft");
 		var machine = Machine(Flow.Replace("Ready {{inputs.docs}} {{draft.documents}}?", question, StringComparison.Ordinal));
-		var run = machine.Start("r", "flow.yaml", new() { ["directory"] = new() { Text = "docs" } }, Path.GetTempPath(), null).Run;
+		var run = machine.Start("r", "flow.yaml", new() { ["directory"] = new() { Text = "docs" } }, Path.GetTempPath(), null, WorkflowPrompt.None).Run;
 		var plan = Plan(machine.Complete(run, Json("""{"documents":["draft.md"]}"""), "Drafted.").Step);
 		Assert.Empty(plan.FilePaths);
 	}
@@ -68,7 +68,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 	[Fact]
 	public void OptionalAndEmptyFilesContributeNoPathsButMissingStageValuesStillPause() {
 		var machine = Machine(Flow);
-		var run = machine.Start("r", "flow.yaml", [], Path.GetTempPath(), null).Run;
+		var run = machine.Start("r", "flow.yaml", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run;
 		Assert.Empty(Plan(machine.Complete(run, Json("""{"documents":[]}"""), "Empty.").Step).FilePaths);
 		var paused = machine.Resume(run with { Stage = "review", Phase = WorkflowPhase.Paused, Decision = WorkflowDecisionKind.If });
 		Assert.Equal(WorkflowPhase.Paused, paused.Run.Phase);
@@ -79,7 +79,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 	[Fact]
 	public void InvalidPersistedPathsEscalateWithQuestionAndChoicesInsteadOfThrowing() {
 		var machine = Machine(Flow);
-		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["../outside.md"] } }, Path.GetTempPath(), null).Run;
+		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["../outside.md"] } }, Path.GetTempPath(), null, WorkflowPrompt.None).Run;
 		var step = machine.Complete(run, Json("""{"documents":[]}"""), "Empty.").Step;
 		Assert.Equal(WorkflowPhase.Asking, step.Run.Phase);
 		Assert.Contains("../outside.md", step.Run.Asked!.Reason);
@@ -91,7 +91,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 	[Fact]
 	public void UserQuestionsDoNotPrepareEvidence() {
 		var machine = Machine(Flow.Replace("if: \"Ready {{inputs.docs}} {{draft.documents}}?\"", "if: { ask: \"Ready {{inputs.docs}} {{draft.documents}}?\", by: user }", StringComparison.Ordinal));
-		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["../outside.md"] } }, Path.GetTempPath(), null).Run;
+		var run = machine.Start("r", "flow.yaml", new() { ["docs"] = new() { Items = ["../outside.md"] } }, Path.GetTempPath(), null, WorkflowPrompt.None).Run;
 		var step = machine.Complete(run, Json("""{"documents":[]}"""), "Empty.").Step;
 		Assert.Equal(WorkflowPhase.Asking, step.Run.Phase);
 		Assert.Empty(step.Run.Asked!.Reason);

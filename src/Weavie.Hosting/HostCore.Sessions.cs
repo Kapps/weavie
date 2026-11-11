@@ -533,6 +533,7 @@ public sealed partial class HostCore {
 				_settings,
 				_layout,
 				cwd,
+				WorkspaceRoot,
 				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
 				_workflowDocuments.ForRun,
 				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
@@ -687,9 +688,6 @@ public sealed partial class HostCore {
 		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
-		if (request.Workflow is not null && input is not null) {
-			return Task.FromResult(CommandResult.Failure("A new session starts either a workflow or a prompt, not both."));
-		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
 		_global.RememberDefaultProvider(provider);
 		return GatedAsync(_sessionCatalog, async () => {
@@ -700,7 +698,8 @@ public sealed partial class HostCore {
 			using var documents = _workflowDocuments.Acquire(source?.WorktreePath);
 			if (request.Workflow is { } workflow) {
 				try {
-					var launch = PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs, documents.Directory);
+					var launch = WeavieWorkflows.Catalog(LaunchRoot(source)).Prepare(
+						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input));
 					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
 					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");
 					if (WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
@@ -1392,7 +1391,8 @@ public sealed partial class HostCore {
 		string Extension,
 		byte[] Bytes);
 
-	// A new session's first input: a prompt with images, or a workflow whose first stage is the opening turn.
+	// A new session's first input: a prompt with images, or a workflow that takes them as its run's prompt and whose
+	// first stage is the opening turn.
 	private sealed record InitialSessionInput(
 		string Text, IReadOnlyList<InitialSessionAttachment> Attachments, WorkflowLaunch? Workflow) {
 		public static InitialSessionInput? Create(
@@ -1403,6 +1403,10 @@ public sealed partial class HostCore {
 				: new InitialSessionInput(text?.Trim() ?? string.Empty, attachments, null);
 
 		public static InitialSessionInput ForWorkflow(WorkflowLaunch workflow) => new(string.Empty, [], workflow);
+
+		public static WorkflowStartPrompt WorkflowPrompt(InitialSessionInput? input) => input is null
+			? WorkflowStartPrompt.None
+			: new(input.Text, [.. input.Attachments.Select(image => new WorkflowStartImage(image.Extension, image.Mime, image.Bytes))]);
 
 		public static InitialSessionInput? FromText(string? text) => Create(text, []);
 	}

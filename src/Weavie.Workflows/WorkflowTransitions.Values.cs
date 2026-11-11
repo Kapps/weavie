@@ -69,7 +69,7 @@ internal sealed partial class WorkflowTransitions {
 			return true;
 		}
 
-		var absent = template.References.FirstOrDefault(r => !r.IsInput && !r.IsDocuments && run.Outputs.GetValueOrDefault(r.Scope)?.ContainsKey(r.Name) != true);
+		var absent = template.References.FirstOrDefault(r => !r.IsRunValue && run.Outputs.GetValueOrDefault(r.Scope)?.ContainsKey(r.Name) != true);
 		if (absent is not null) {
 			missing = $"Stage \"{run.Stage}\" uses {absent}, but stage \"{absent.Scope}\" hasn't reported it.";
 			return false;
@@ -79,9 +79,10 @@ internal sealed partial class WorkflowTransitions {
 		return true;
 	}
 
-	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) => reference.IsDocuments
-		? new WorkflowValue { Text = run.DocumentsDirectory } : reference.IsInput
-		? run.Inputs.GetValueOrDefault(reference.Name, WorkflowValue.Empty)
+	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) =>
+		reference.IsDocuments ? new WorkflowValue { Text = run.DocumentsDirectory }
+		: reference.IsPrompt ? new WorkflowValue { Text = run.Prompt.Text }
+		: reference.IsInput ? run.Inputs.GetValueOrDefault(reference.Name, WorkflowValue.Empty)
 		: run.Outputs[reference.Scope][reference.Name];
 
 	private bool TrySelectFiles(WorkflowRun run, WorkflowTemplate template, out IReadOnlyList<string> paths, out string error) {

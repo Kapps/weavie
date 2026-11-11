@@ -122,6 +122,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithoutImagesAdapter() => Create(
+		"fake",
+		"Text-only ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "no-images",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateImmediatelyMalformedAdapter() => Create(
 		"fake",
 		"Malformed ACP",
@@ -415,6 +426,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			[workspace],
 			"weavie-test",
 			settings,
+			workspace,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 			editor,
 			exposeIdeTools: true,
@@ -543,7 +555,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
-	public void Deliver(WorkflowKickoff kickoff) => Session.Submit(kickoff.Submission());
+	public void Deliver(WorkflowKickoff kickoff, IReadOnlyList<WorkflowTurnImage> images) => Session.Submit(kickoff.Submission(images));
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
@@ -703,7 +715,7 @@ internal sealed class RecordingAgentEventBlock(Func<AgentEvent, bool> matches) {
 internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 	public ConcurrentQueue<WorkflowKickoff> Kickoffs { get; } = new();
 
-	public void Kickoff(WorkflowKickoff turn) => Kickoffs.Enqueue(turn);
+	public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => Kickoffs.Enqueue(turn);
 
 	public void Notify(string message) {
 	}

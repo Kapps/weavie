@@ -5,8 +5,8 @@ namespace Weavie.Workflows;
 
 /// <summary>What a session's runner needs from its owner: deliver turns and tell the user.</summary>
 public interface IWorkflowRunPort {
-	/// <summary>Sends <paramref name="turn"/> to the session's agent as its next turn, once it can take one.</summary>
-	void Kickoff(WorkflowKickoff turn);
+	/// <summary>Sends <paramref name="turn"/> with <paramref name="images"/> to the session's agent as its next turn, once it can take one.</summary>
+	void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images);
 
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
@@ -79,7 +79,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return;
 			}
 			if (run.IsFinished) {
-				if (run.Kickoff is { } report) _port.Kickoff(report);
+				if (run.Kickoff is { } report) Deliver(run, report);
 				return;
 			}
 
@@ -101,7 +101,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to open a new conversation.");
 				return;
 			}
-			if (run.Kickoff is { } kickoff) _port.Kickoff(kickoff);
+			if (run.Kickoff is { } kickoff) Deliver(run, kickoff);
 			if (run.Phase == WorkflowPhase.Deciding) {
 				Apply(Transitions().Resume(run with { Phase = WorkflowPhase.Paused }));
 			}
@@ -142,10 +142,32 @@ public sealed partial class WorkflowRunner : IDisposable {
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				throw new WorkflowException($"Could not create workflow documents directory {documents}: {ex.Message}");
 			}
-			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold));
+			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold, SavePrompt(launch.Prompt, documents, id)));
 			return _run!;
 		}
 	}
+
+	// A run's images sit under its own id, so a run sharing an inherited folder never meets another's.
+	private static WorkflowPrompt SavePrompt(WorkflowStartPrompt prompt, string documents, string runId) {
+		string folder = Path.Combine("prompt", runId);
+		try {
+			if (prompt.Images.Count > 0) Directory.CreateDirectory(Path.Combine(documents, folder));
+			return new WorkflowPrompt {
+				Text = prompt.Text,
+				Images = [.. prompt.Images.Select((image, i) => {
+					string file = Path.Combine(folder, $"image-{i + 1}{image.Extension}");
+					File.WriteAllBytes(Path.Combine(documents, file), image.Bytes);
+					return new WorkflowPromptImage { File = file, Mime = image.Mime };
+				})],
+			};
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			throw new WorkflowException($"Could not save the prompt's images under {Path.Combine(documents, folder)}: {ex.Message}");
+		}
+	}
+
+	private void Deliver(WorkflowRun run, WorkflowKickoff turn) => _port.Kickoff(turn, turn.CarriesPromptImages
+		? [.. run.Prompt.Images.Select(image => new WorkflowTurnImage(Path.Combine(run.DocumentsDirectory, image.File), image.Mime))]
+		: []);
 
 	/// <summary>The agent completes the current stage with its outputs and a summary; returns the reply for the agent.</summary>
 	public string CompleteStage(JsonElement outputs, string summary) {
@@ -175,6 +197,15 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	/// <summary>The agent can't finish the current stage.</summary>
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
+
+	/// <summary>
+	/// The claimed <paramref name="turn"/> never reached the agent, so the stage fails with <paramref name="reason"/>
+	/// and the prompt images it carried are still owed to the agent.
+	/// </summary>
+	public void FailTurn(WorkflowKickoff turn, string reason) {
+		ArgumentNullException.ThrowIfNull(turn);
+		Mutate(null, run => Transitions().Fail(turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages ? run with { PromptImagesSent = false } : run, reason));
+	}
 
 	/// <summary>
 	/// The stage <paramref name="turn"/> opens couldn't open, so the turn is never sent and the run pauses with
@@ -238,7 +269,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return false;
 			}
 
-			Commit(_run! with { Kickoff = null, Unreported = turn.Context == WorkflowContext.Continue ? "" : _run.Unreported }, []);
+			Commit(_run! with { Kickoff = null, PromptImagesSent = _run.PromptImagesSent || turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages, Unreported = turn.Context == WorkflowContext.Continue ? "" : _run.Unreported }, []);
 			return true;
 		}
 	}
@@ -289,7 +320,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 		UpdateExecution(effects, completed);
 		foreach (var effect in effects) {
 			switch (effect) {
-				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
+				case WorkflowEffect.Kickoff kickoff: Deliver(run, kickoff.Turn); break;
 				case WorkflowEffect.Notify notify: _port.Notify(notify.Message); break;
 				case WorkflowEffect.Decide decide: _pending = new PendingDecision(decide.Plan, _files, _decider, Resolve); break;
 			}

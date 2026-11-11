@@ -28,7 +28,7 @@ internal static class YamlNodeReader {
 	public static YamlDocument Read(string text) {
 		var positions = new Dictionary<string, WorkflowPosition>(StringComparer.Ordinal);
 		try {
-			var parser = new Parser(new StringReader(text));
+			var parser = new StrictParser(new Parser(new StringReader(text)));
 			parser.Consume<StreamStart>();
 			if (parser.Accept<StreamEnd>(out _)) {
 				throw new WorkflowFormatException("The file is empty.", new WorkflowPosition(1, 1));
@@ -99,4 +99,18 @@ internal static class YamlNodeReader {
 	}
 
 	private static WorkflowPosition At(Mark mark) => new((int)mark.Line, (int)mark.Column);
+
+	// YamlDotNet's scanner throws InvalidOperationException for some malformed input instead of a YamlException.
+	private sealed class StrictParser(IParser inner) : IParser {
+		public ParsingEvent? Current => inner.Current;
+
+		public bool MoveNext() {
+			try {
+				return inner.MoveNext();
+			} catch (InvalidOperationException) {
+				throw new WorkflowFormatException(
+					"The YAML is malformed at or just after this point.", Current is { } last ? At(last.End) : new WorkflowPosition(1, 1));
+			}
+		}
+	}
 }

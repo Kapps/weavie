@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BranchPreviewResult } from "../bridge";
 import {
-  BRANCH_PREVIEW_IDLE_MS,
   type BranchPreviewContext,
   type BranchPreviewState,
   NewSessionBranchPreview,
 } from "./new-session-branch-preview";
+import { DRAFT_SETTLE_IDLE_MS } from "./new-session-draft-settle";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -67,11 +67,11 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(SHORT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 2);
     expect(requests).toEqual([]);
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS - 1);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS - 1);
     expect(requests).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -99,13 +99,13 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(requests).toHaveLength(1);
 
     preview.update(context(GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 4);
     preview.flush();
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
 
     expect(requests).toHaveLength(1);
     expect(state?.branch).toBe("bug/webm-fails-to-load");
@@ -127,9 +127,9 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     preview.update(context(GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 2);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.signal.aborted).toBe(false);
@@ -153,15 +153,15 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(VAGUE));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(state?.status).toBe("needsDetail");
 
     // The same prompt is the same question; only new words are worth asking about again.
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 4);
     expect(requests).toHaveLength(1);
 
     preview.update(context(VAGUE_GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(requests).toHaveLength(2);
     expect(state).toEqual({
       branch: "bug/review-pane",
@@ -186,7 +186,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(SHORT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 2);
     expect(requests).toEqual([]);
 
     preview.flush();
@@ -210,7 +210,7 @@ describe("NewSessionBranchPreview", () => {
     expect(await preview.resolve()).toBe("bug/webm-fails-to-load");
     expect(requests).toHaveLength(1);
 
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 2);
     expect(requests).toHaveLength(1);
   });
 
@@ -231,7 +231,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(VAGUE));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(calls).toHaveLength(1);
 
     preview.update(context(VAGUE_GROWN));
@@ -261,11 +261,11 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(state?.branch).toBe("local/webm-fails-to-load");
 
     preview.update({ ...context(DRAFT), backendId: "remote-1" });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
 
     expect(requests).toHaveLength(2);
     expect(state?.branch).toBe("remote-1/webm-fails-to-load");
@@ -282,7 +282,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(VAGUE));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
 
     expect(await preview.resolve()).toBe("");
     expect(state).toEqual({
@@ -305,7 +305,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(origins).toEqual([false]);
 
     preview.refresh();
@@ -325,11 +325,11 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(state?.branch).toBe("bug/first-guess");
 
     preview.update(context(GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(state?.branch).toBe("bug/first-guess");
 
     preview.refresh();
@@ -358,7 +358,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update({ ...imageContext("shot"), prompt: DRAFT });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     preview.edit("mine/typed-name");
     expect(state?.manual).toBe(true);
 
@@ -394,12 +394,12 @@ describe("NewSessionBranchPreview", () => {
 
     preview.update(context(DRAFT));
     preview.claim();
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 3);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 3);
     expect(requests).toEqual([]);
     expect(state?.branch).toBe("");
 
     preview.release();
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(requests).toHaveLength(1);
     expect(state?.branch).toBe("bug/automatic-name");
   });
@@ -421,7 +421,7 @@ describe("NewSessionBranchPreview", () => {
     preview.update(context(DRAFT));
     preview.edit("mine/fix-webm");
     preview.update(context(GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(calls).toEqual([]);
     expect(state).toEqual({
       branch: "mine/fix-webm",
@@ -431,7 +431,7 @@ describe("NewSessionBranchPreview", () => {
     });
 
     preview.edit("");
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       backendId: "local",
@@ -454,7 +454,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
     expect(state).toEqual({
       branch: "",
       error: "The host is offline.",
@@ -490,7 +490,7 @@ describe("NewSessionBranchPreview", () => {
     );
 
     preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
 
     expect(state).toEqual({
       branch: "",
@@ -500,7 +500,7 @@ describe("NewSessionBranchPreview", () => {
     });
 
     preview.update(context(GROWN));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS * 2);
     expect(requests).toHaveLength(1);
   });
 });

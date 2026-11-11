@@ -514,6 +514,7 @@ public sealed partial class AgentSessionHostTests {
 			[dir.Path],
 			"weavie",
 			settings,
+			dir.Path,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			new EditorStore(),
 			exposeIdeTools: true,

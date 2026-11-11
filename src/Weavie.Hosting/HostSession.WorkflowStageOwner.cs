@@ -14,6 +14,7 @@ public sealed partial class HostSession {
 		private readonly CancellationTokenSource _lifetime = new();
 		private readonly CancellationToken _stopping;
 		private IAgentConversation? _conversation;
+		private bool _promptImagesSent;
 
 		public WorkflowStageExecution Execution { get; }
 
@@ -47,7 +48,8 @@ public sealed partial class HostSession {
 			}
 		}
 
-		public async Task SendAsync(WorkflowKickoff kickoff, CancellationToken ct) {
+		public async Task SendAsync(OwedWorkflowTurn owed, CancellationToken ct) {
+			var kickoff = owed.Kickoff;
 			// Runner callbacks only enqueue. Opening and closure must never run under its state lock.
 			await Task.Yield();
 			using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopping);
@@ -58,11 +60,17 @@ public sealed partial class HostSession {
 					if (_conversation is null || _conversation.Completion.IsCompleted) {
 						if (_conversation is not null) await _conversation.DisposeAsync().ConfigureAwait(false);
 						_conversation = await OpenAsync(stopping.Token).ConfigureAwait(false);
+						_promptImagesSent = false;
 						var opened = _conversation;
 						_ = _session.Background.Run(token => ObserveAsync(opened, token));
 					}
+					if (!_promptImagesSent && owed.Refusal is { } refusal) throw new WorkflowException(refusal);
 					if (_session.Workflow.TryClaimKickoff(kickoff)) {
-						try { _conversation.Submit(kickoff.Submission()); } catch (Exception ex) { Execution.ConversationEnded(ex.Message); }
+						try {
+							var submission = kickoff.Submission(_promptImagesSent ? [] : owed.Images);
+							_conversation.Submit(submission);
+							_promptImagesSent |= submission.Attachments.Count > 0;
+						} catch (Exception ex) { Execution.ConversationEnded(ex.Message); }
 					}
 				} finally {
 					_delivery.Release();

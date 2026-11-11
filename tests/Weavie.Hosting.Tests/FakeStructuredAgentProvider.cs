@@ -56,6 +56,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	/// <summary>A model value whose apply the fake refuses, as an agent does a value it no longer advertises.</summary>
 	public const string RefusedModel = "GPT Gone";
 
+	/// <summary>Text that makes the fake refuse the turn carrying it, as an agent does a turn it cannot take.</summary>
+	public const string RefusedTurn = "refuse this turn";
+
 	// Probes report nothing, so any model in the catalog was harvested from a live session.
 	public Task<IReadOnlyList<AgentControlAxis>> ProbeControlsAsync(CancellationToken ct) =>
 		Task.FromResult<IReadOnlyList<AgentControlAxis>>([]);
@@ -137,6 +140,10 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			ArgumentNullException.ThrowIfNull(submission);
 			if (!_started) {
 				return;
+			}
+
+			if (submission.Text.Contains(RefusedTurn, StringComparison.Ordinal)) {
+				throw new InvalidOperationException("The fake agent refuses this turn.");
 			}
 
 			if (submission.Text is BackgroundPrompt or AutonomousTurnPrompt) {
@@ -233,7 +240,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				TurnId = $"turn-{_turns}",
 				ItemId = item,
 				ItemType = "agentMessage",
-				Text = $"echo: {submission.Text}",
+				Text = $"echo: {submission.Text}" + (submission.Attachments.Count == 0 ? "" : $" [{submission.Attachments.Count} image(s)]"),
 				Status = "completed",
 			});
 		}

@@ -172,6 +172,9 @@ kickoff mechanism. Revisions reuse the child. Losing its incarnation pauses the 
 one. Reloaded child rows are display-only, never guessed resumable sessions. The authoring prompt explains
 when to use `continue`, `fork`, and `fresh`.
 
+Main's prompt-image delivery is persisted with the run. Each child handle owns its own receipt: revisions
+retain it, reopening resets it, and only an accepted submission consumes the images owed to that child.
+
 Native subagents may inherit the parent's credential. ACP adoption does not let Weavie install an independent
 one, so calls through it act within that parent's binding. The design claims no finer attribution without
 provider support and no isolation from an agent's own process tools.

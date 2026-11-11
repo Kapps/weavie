@@ -91,6 +91,11 @@ public sealed partial class HostCoreWorkflowConversationTests {
 			return await WaitForReviewAsync();
 		}
 
+		public async Task<string> StartReviewAsync(Weavie.Workflows.WorkflowStartPrompt prompt) {
+			Session.Workflow.Start(Session.WorkflowCatalog.Prepare("conversation", Json("{}"), null, prompt));
+			return await WaitForReviewAsync();
+		}
+
 		public async Task<string> WaitForReviewAsync() {
 			var started = await MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "review");
 			string id = Conversation(started)!;

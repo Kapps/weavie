@@ -58,9 +58,8 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 			args.Add(conversation.SessionId);
 		}
 		if (firstTurn is { } turn) {
-			// Claude's opening-prompt argument. Image paths lead the text: Claude attaches an image named by a
-			// bare path in the prompt.
-			args.Add(string.Join('\n', turn.Attachments.Select(attachment => attachment.Path).Append(turn.Text)));
+			// Claude's opening-prompt argument: Claude attaches an image named by a bare path in the prompt.
+			args.Add(string.Join('\n', turn.TerminalParts()));
 		}
 
 		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");

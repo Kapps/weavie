@@ -24,10 +24,12 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-registry-tests");
 	private readonly List<WorkflowRunner> _runners = [];
+	private SettingsStore? _workflowSettings;
 	private readonly WorkflowRoleStore _roles = new(new InMemoryFileSystem(), "/config/workflow-roles.json");
 
 	public void Dispose() {
 		foreach (var runner in _runners) runner.Dispose();
+		_workflowSettings?.Dispose();
 		_dir.Dispose();
 	}
 
@@ -40,7 +42,8 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
 			catalog, NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), port, () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
+			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem()), port,
+			WeavieWorkflows.Environment(_workflowSettings ??= NewStore(), _dir.Path, id => _dir.Combine("documents", id)));
 		_runners.Add(runner);
 		return new SessionWorkflowRegistry(catalog, runner, _roles);
 	}

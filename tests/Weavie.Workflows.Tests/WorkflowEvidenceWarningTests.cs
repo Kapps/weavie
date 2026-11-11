@@ -38,8 +38,8 @@ public sealed class WorkflowEvidenceWarningTests {
 		Assert.Contains(diagnostics, d => d.Message.Contains("{{draft.document}}", StringComparison.Ordinal));
 		Assert.Contains(diagnostics, d => d.Message.Contains("{{draft.video}}", StringComparison.Ordinal));
 		var launch = catalog.Prepare("evidence", JsonDocument.Parse("{}").RootElement);
-		var machine = new WorkflowTransitions(launch.Definition, 3, true, 0.8, dir.Path, TestWorkflows.Words);
-		Assert.Equal(WorkflowPhase.Open, machine.Start("r", launch.SourcePath, launch.Inputs, Path.GetTempPath(), null, WorkflowPrompt.None, []).Run.Phase);
+		var machine = TestWorkflows.Machine(launch.Definition, dir.Path);
+		Assert.Equal(WorkflowPhase.Open, machine.Start(TestWorkflows.Start with { Inputs = launch.Inputs }).Run.Phase);
 	}
 
 	[Theory]

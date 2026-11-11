@@ -38,7 +38,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_roles, _store, _decider, new UnusedFileReader(), _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words, id => _dir.Combine("documents", id));
+			_roles, _store, _decider, new UnusedFileReader(), _port,
+			TestWorkflows.Environment(_dir.Combine("worktree"), _dir.Combine("documents")) with { OpenReviewItem = () => _openReviewItem, DecisionConfidence = () => _confidence });
 		runner.Activate();
 		return runner;
 	}

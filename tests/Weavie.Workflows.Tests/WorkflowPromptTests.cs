@@ -36,11 +36,12 @@ public sealed class WorkflowPromptTests : IDisposable {
 
 	private WorkflowCatalog Catalog => TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal"));
 
-	private WorkflowRunner Runner() => Runner(id => _dir.Combine("documents", id));
+	private WorkflowEnvironment Environment => TestWorkflows.Environment(_dir.Combine("worktree"), _dir.Combine("documents"));
 
-	private WorkflowRunner Runner(Func<string, string> documents) {
-		var runner = new WorkflowRunner(
-			Catalog, TestWorkflows.NoRoles, _store, new HeldDecider(), new UnusedFileReader(), _port, () => 3, () => true, () => 0.8, _dir.Combine("worktree"), TestWorkflows.Words, documents);
+	private WorkflowRunner Runner() => Runner(Environment);
+
+	private WorkflowRunner Runner(WorkflowEnvironment environment) {
+		var runner = new WorkflowRunner(Catalog, TestWorkflows.NoRoles, _store, new HeldDecider(), new UnusedFileReader(), _port, environment);
 		runner.Activate();
 		return runner;
 	}
@@ -141,7 +142,7 @@ public sealed class WorkflowPromptTests : IDisposable {
 	[Fact]
 	public void ARunSharingAnInheritedFolderKeepsItsImagesApart() {
 		string shared = _dir.Combine("shared");
-		using var first = Runner(_ => shared);
+		using var first = Runner(Environment with { DocumentsDirectory = _ => shared });
 		var parent = first.Start(Launch());
 		first.Cancel(parent.Id);
 		var child = first.Start(Launch());
@@ -153,7 +154,7 @@ public sealed class WorkflowPromptTests : IDisposable {
 	public void AStartThatCannotSaveItsImagesDoesNotStart() {
 		string documents = _dir.Combine("blocked");
 		_dir.WriteFile("blocked/prompt", "a file where the folder must go");
-		using var runner = Runner(_ => documents);
+		using var runner = Runner(Environment with { DocumentsDirectory = _ => documents });
 		Assert.Contains("Could not save the prompt's images", Assert.Throws<WorkflowException>(() => runner.Start(Launch())).Message);
 		Assert.Null(runner.Current);
 	}

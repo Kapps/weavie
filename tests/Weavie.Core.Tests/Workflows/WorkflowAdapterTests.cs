@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
@@ -19,11 +20,17 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private readonly TempDirectory _dir = new("weavie-workflow-adapters");
 
+	private readonly SettingsStore _settings;
+
 	public WorkflowAdapterTests() {
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow);
+		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 	}
 
-	public void Dispose() => _dir.Dispose();
+	public void Dispose() {
+		_settings.Dispose();
+		_dir.Dispose();
+	}
 
 	private string StorePath => _dir.Combine("run.json");
 
@@ -31,7 +38,8 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
+			Catalog(), NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem()), new NoPort(),
+			WeavieWorkflows.Environment(_settings, _dir.Combine("worktree"), id => _dir.Combine("documents", id)));
 		runner.Activate();
 		return runner;
 	}

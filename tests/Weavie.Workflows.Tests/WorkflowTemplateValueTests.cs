@@ -36,7 +36,7 @@ public sealed class WorkflowTemplateValueTests {
 	[InlineData("list", "\"a\"", false)]
 	public void ValuesAreTypeChecked(string type, string json, bool valid) {
 		using var document = JsonDocument.Parse(json);
-		bool ok = WorkflowValues.TryRead(document.RootElement, WorkflowValues.ParseType(type), "/", out _, out string error);
+		bool ok = WorkflowValues.TryRead(document.RootElement, WorkflowValues.ParseType(type), TestWorkflows.Files("/"), out _, out string error);
 		Assert.Equal(valid, ok);
 		Assert.Equal(valid, error.Length == 0);
 	}
@@ -48,7 +48,7 @@ public sealed class WorkflowTemplateValueTests {
 		dir.WriteFile("empty.txt", "");
 		bool Read(string json) {
 			using var document = JsonDocument.Parse(json);
-			return WorkflowValues.TryRead(document.RootElement, WorkflowValueType.Files, dir.Path, out _, out _);
+			return WorkflowValues.TryRead(document.RootElement, WorkflowValueType.Files, TestWorkflows.Files(dir.Path), out _, out _);
 		}
 
 		Assert.True(Read("[\"videos/a.mp4\"]"));

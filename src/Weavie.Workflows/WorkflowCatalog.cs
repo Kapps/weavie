@@ -78,7 +78,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 			throw new WorkflowException($"Workflow {id} can't start: it uses {{{{run.prompt}}}}, and no prompt was given.");
 		}
 
-		var read = WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory);
+		var read = WorkflowTransitions.ReadInputs(definition, inputs, new WorkflowFileScope(worktree, documentsDirectory));
 		var resolved = roles.Resolve(definition);
 		IReadOnlyList<WorkflowAgent> filled = [.. definition.Roles.Select(role => resolved.FirstOrDefault(agent => agent.Name == role)
 			?? throw new InvalidOperationException($"The role resolver left role \"{role}\" unfilled."))];

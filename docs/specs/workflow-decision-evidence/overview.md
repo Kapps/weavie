@@ -51,7 +51,7 @@ public sealed record WorkflowDecisionRequest(
     WorkflowDecisionEvidence Evidence);
 
 public interface IWorkflowFileReader {
-    WorkflowFileRead Read(string relativePath);
+    WorkflowFileRead Read(WorkflowFileScope files, string path);
 }
 public abstract record WorkflowFileRead {
     public sealed record Text(string Contents) : WorkflowFileRead;
@@ -187,7 +187,7 @@ Paths grouped below share the stated directory prefix. New files are marked **ne
 | `src/Weavie.Workflows/WorkflowSemantics.cs`, `WorkflowTemplate.cs`; **new** `WorkflowReferences.cs` | Shared declared-reference lookup and advisory evidence warnings. |
 | `src/Weavie.Workflows/WorkflowDecision.cs`, `WorkflowEffects.cs`; **new** `WorkflowDecisionEvidence.cs` | Plan/prepared request distinction, result variants, file-reader contract. |
 | `src/Weavie.Workflows/WorkflowTransitions.cs`, `WorkflowTransitions.Values.cs`, `WorkflowRunner.cs`, `WorkflowRun.cs`; **new** `WorkflowRunner.PendingDecision.cs` | Planning, captured thresholds, preparation lifecycle, routing and updated decision terminology. |
-| `src/Weavie.Workflows/WorkflowValues.cs`; **new** `WorkflowFilePaths.cs` | One shared path rule for validation, normalization, and evidence access. |
+| `src/Weavie.Workflows/WorkflowValues.cs`; **new** `WorkflowFileScope.cs` | One shared path rule for validation, normalization, and evidence access. |
 | `src/Weavie.Core/Workflows/ModelWorkflowDecider.cs`; **new** `WorkflowFileReader.cs` | Prepared evidence as a decision question ([inference-providers.md](../inference-providers.md)); shared filesystem adapter. |
 | `src/Weavie.Core/Configuration/SettingDefinition.cs`, `SettingsStore.cs`, `SettingsFileLayer.cs`, `WorkflowSettings.cs` | Numeric setting support, persistence and registry exposure. |
 | `src/Weavie.Hosting/HostSession.Workflow.cs` | Inject the reader and live confidence accessor. |

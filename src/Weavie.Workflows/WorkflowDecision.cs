@@ -10,7 +10,7 @@ public interface IWorkflowDecider {
 internal sealed record WorkflowDecisionPlan(
 	string Question, IReadOnlyList<WorkflowDecisionOption> Choices,
 	IReadOnlyDictionary<string, string> Outputs, string Summary,
-	IReadOnlyList<string> FilePaths, string DocumentsDirectory, double MinimumConfidence);
+	IReadOnlyList<string> FilePaths, WorkflowFileScope Files, double MinimumConfidence);
 
 /// <summary>An answer's label and optional criteria, without its routing destination.</summary>
 public sealed record WorkflowDecisionOption(string Name, string? Description);

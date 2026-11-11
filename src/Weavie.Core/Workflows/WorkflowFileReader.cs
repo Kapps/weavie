@@ -4,10 +4,11 @@ using Weavie.Workflows;
 namespace Weavie.Core.Workflows;
 
 /// <summary>Reads workflow evidence with the shared text decoder and workflow file path rule.</summary>
-public sealed class WorkflowFileReader(IFileSystem fileSystem, string worktree) : IWorkflowFileReader {
+public sealed class WorkflowFileReader(IFileSystem fileSystem) : IWorkflowFileReader {
 	/// <inheritdoc/>
-	public WorkflowFileRead Read(string path, string documentsDirectory) {
-		if (!WorkflowFilePaths.TryResolve(worktree, documentsDirectory, path, out _, out string full)) {
+	public WorkflowFileRead Read(WorkflowFileScope files, string path) {
+		ArgumentNullException.ThrowIfNull(files);
+		if (!files.TryResolve(path, out _, out string full)) {
 			return new WorkflowFileRead.Unreadable("not a file path inside the worktree or run documents directory");
 		}
 		try {

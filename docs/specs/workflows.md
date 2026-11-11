@@ -62,19 +62,25 @@ iteration, typed outputs, decisions, checks — is held by Weavie. The agent onl
 The engine is its own project, `src/Weavie.Workflows`, with no reference to Weavie.Core: the YAML reader, schema and
 diagnostics, definitions, catalog (built-ins embedded; personal and repository directories passed in), transitions,
 runner, stage block, and the run's persisted form. It meets its owner only through seams it defines:
-`IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), `IWorkflowRunPort` (deliver a turn,
-notify the user), and `WorkflowVocabulary` (the host's name and the tool and command names it writes into agent-facing
-text). The runner also reads, per use, whether the agent opens what a question is about. Only the types those seams and the catalog expose are public. Weavie.Core holds the adapters in
-`src/Weavie.Core/Workflows` — `WeavieWorkflows` supplies the vocabulary from the MCP tool and command constants and
-builds the catalog over `~/.weavie/workflows` and the repository's `.weavie/workflows`; Hosting wires one runner per
-session.
+`IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), `IWorkflowFileReader` (evidence text),
+`IWorkflowRunPort` (deliver a turn, notify the user), and one `WorkflowEnvironment`: the session worktree, the
+`WorkflowVocabulary` (the host's name and the tool and command names written into agent-facing text), each run's
+documents directory, and the settings the engine reads per use. A value the engine needs from its host is a member of
+that environment, never another parameter. A `WorkflowFileScope` names the folders a run's file values may live in (the
+worktree and the run's documents directory) and is the only path rule. Only the types those seams and the catalog expose
+are public. Weavie.Core holds the adapters in `src/Weavie.Core/Workflows` — `WeavieWorkflows` builds the environment from
+the settings store and the MCP tool and command constants, and the catalog over `~/.weavie/workflows` and the
+repository's `.weavie/workflows`; Hosting wires one runner per session.
+
+Engine tests build their environment, state machine, and start request through `TestWorkflows`, and Core and Hosting
+tests through `WeavieWorkflows.Environment`, so a new member is added in one place per assembly.
 
 ```mermaid
 flowchart LR
   subgraph Engine["Weavie.Workflows"]
     Catalog[WorkflowCatalog] --> Runner[WorkflowRunner]
     Runner --> Transitions[WorkflowTransitions]
-    Runner -. seams .-> Seams["IWorkflowRunStore · IWorkflowDecider · IWorkflowRunPort"]
+    Runner -. seams .-> Seams["IWorkflowRunStore · IWorkflowDecider · IWorkflowFileReader · IWorkflowRunPort · WorkflowEnvironment"]
   end
   subgraph Core["Weavie.Core adapters"]
     Store[WorkflowRunStore<br/>JsonDocumentStore] --> Seams
@@ -82,7 +88,7 @@ flowchart LR
     Registry[SessionWorkflowRegistry + MCP tools]
     Summary[WorkflowRunSummary<br/>phase × session status]
     Turns[WorkflowKickoffTurns<br/>kickoff ↔ agent turn]
-    Words[WeavieWorkflows<br/>vocabulary, catalog] --> Seams
+    Words[WeavieWorkflows<br/>environment, catalog] --> Seams
   end
   subgraph Hosting["Weavie.Hosting"]
     Session[HostSession.Workflow<br/>port: turn delivery, notices] --> Seams

@@ -17,7 +17,7 @@ const modelAxis = (value: string): AgentControlAxis => ({
   category: "model",
   kind: "select",
   value,
-  valueLabel: value === "" ? "No model" : value === "astra" ? "Astra" : "Sol",
+  valueLabel: value === "" ? "Choose a model" : value === "astra" ? "Astra" : "Sol",
   options: [option("astra", "Astra"), option("sol", "Sol")],
 });
 const effortAxis: AgentControlAxis = {
@@ -87,7 +87,7 @@ describe("NewSessionRoleChoice", () => {
     choice.show(pair());
     expect(row("planner")?.axes).toBeUndefined();
     await flush();
-    expect(labels(row("planner")?.axes)).toEqual(["Model: No model"]);
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Choose a model"]);
     choice.pick("planner", "model", "sol");
     choice.pick("builder", "model", "sol");
     // Not until the agent has said what the model offers: a start saves what is on screen.
@@ -172,7 +172,7 @@ describe("NewSessionRoleChoice", () => {
     choice.show(pair());
     expect(state().error).toBeNull();
     await flush();
-    expect(labels(row("planner")?.axes)).toEqual(["Model: No model"]);
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Choose a model"]);
     expect([...suggestions.keys()]).toEqual(["planner", "builder"]);
   });
 

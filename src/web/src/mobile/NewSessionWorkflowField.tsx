@@ -8,6 +8,7 @@ import {
   requestWorkflowCatalog,
   requestWorkflowSuggestion,
 } from "../bridge";
+import { agentProviders } from "../chrome/agent-default";
 import { ControlBar } from "../chrome/ControlBar";
 import {
   NewSessionRoleChoice,
@@ -112,6 +113,9 @@ export function NewSessionWorkflowField(props: {
     roleChoice.cancel();
   });
 
+  const providerName = (): string =>
+    agentProviders(props.backendId).find((provider) => provider.id === props.providerId)?.name ??
+    props.providerId;
   const startable = () => state().options.filter((option) => option.error === null);
   const broken = () => state().options.filter((option) => option.error !== null);
 
@@ -150,6 +154,10 @@ export function NewSessionWorkflowField(props: {
         <section class="session-composer-roles" aria-labelledby="new-session-roles-label">
           <span id="new-session-roles-label" class="ui-section-label">
             Roles for {state().workflow}
+          </span>
+          <span class="session-composer-roles-note">
+            Start saves these for all your {providerName()} sessions. Ask your agent to change them
+            later.
           </span>
           <Show when={roles().error}>{(problem) => <small role="alert">{problem()}</small>}</Show>
           <Index each={roles().error === null ? roles().rows : []}>

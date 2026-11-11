@@ -62,7 +62,7 @@ function roleControls(model: string) {
           "model",
           "Model",
           "model",
-          models.find((m) => m.id === model)?.label ?? "No model",
+          models.find((m) => m.id === model)?.label ?? "Choose a model",
           model,
         ),
         options: models,
@@ -183,7 +183,12 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
       host.respond(request, roleControls(model));
     });
     host.respond(await models, roleControls(""));
-    await expect(builder.getByRole("button")).toHaveText(["ModelNo model"]);
+    await expect(builder.getByRole("button")).toHaveText(["ModelChoose a model"]);
+    await expect(
+      inbox.getByText(
+        /Start saves these for all your .+ sessions\. Ask your agent to change them later\./,
+      ),
+    ).toBeVisible();
 
     // Only the role with nothing saved is suggested; the gone model is the user's to replace.
     const askedRole = await roleSuggestion;

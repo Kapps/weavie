@@ -84,7 +84,7 @@ public static class WorkflowRoleAxes {
 				Category = ModelCategory,
 				Kind = "select",
 				Value = model,
-				ValueLabel = models.FirstOrDefault(option => option.Id == model)?.Label ?? "No model",
+				ValueLabel = models.FirstOrDefault(option => option.Id == model)?.Label ?? "Choose a model",
 				Options = models,
 			},
 			Optional(InferenceControlAxes.Effort(selected), "Effort"),

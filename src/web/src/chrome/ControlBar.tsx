@@ -46,6 +46,10 @@ export function ControlBar(props: {
             <button
               type="button"
               class="control-bar-pick"
+              // Nothing is chosen yet when the value is none of the options: a choice still to be made.
+              classList={{
+                "control-bar-unset": !axis().options.some((option) => option.id === axis().value),
+              }}
               aria-disabled={props.busy}
               aria-haspopup="listbox"
               aria-expanded={open()?.id === axis().id}

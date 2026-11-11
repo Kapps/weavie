@@ -31,6 +31,10 @@ built-in and repository workflows stay portable and each user decides which mode
   component: the agent's own Model, Effort, and Fast mode pickers, without the Agent picker, since a role runs on
   the session's provider. The model must be chosen; Effort and Fast mode default to what the model runs with.
 - A pick is saved when Start is pressed and replaces the role whole: its model and the options picked with it.
+  The group says so: Start saves the roles for all the user's sessions on that provider, and the agent changes them
+  later.
+- A start an agent makes with an unfilled role is refused with instructions to ask the user which model and options
+  each role should use, never to choose for them.
 
 ### Suggestion
 

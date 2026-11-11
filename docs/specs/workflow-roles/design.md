@@ -354,7 +354,9 @@ NewSessionAsync, before any worktree exists:
 | after a successful Start | the field re-reads the catalog, so saved roles stop showing |
 
 The group is titled `Roles for <workflow>` (a `.ui-section-label`), so the rows read as the workflow's and not as
-session fields. Each row is the role name beside a `ControlBar`; the problem line is a `<small role="alert">`, as the
+session fields. Under the title one line says what Start does with them and how to change it: `Start saves these for
+all your <provider> sessions. Ask your agent to change them later.` A model not yet chosen reads `Choose a model` in
+the warning colour, a choice still to make and not a value. Each row is the role name beside a `ControlBar`; the problem line is a `<small role="alert">`, as the
 workflow field's is. Each bar owns its one open menu, so opening another role's picker closes it; a segment keeps
 the focus through a pick; and a menu that wouldn't fit to the right of its segment opens from the segment's right
 edge.
@@ -367,8 +369,8 @@ edge.
 | a role or pinned agent on a terminal provider | composer *Unavailable*; command failure | `Stage "requirements" runs on role "planner", but Claude Code runs in a terminal, where a stage can't choose its model; run the workflow in a native agent session.` |
 | a pinned agent, or a role saved with another provider's agent | same | `Stage "x" runs on role "planner" of provider codex-acp, so workflow w runs only in codex-acp sessions; this session runs claude-acp.` |
 | a role needs a model and the provider offers none | same | `Stage "requirements" runs on role "planner", but <Name> offers no model to choose.` |
-| a role has nothing saved (command start) | command failure; no run, no worktree | `Workflow spec-driven can't start: role "planner" has no agent for claude-acp sessions. Fill it with weavie.workflow.setRole: role, provider "claude-acp", agent.` |
-| the saved model is no longer offered (command start) | same | `…role "builder" is saved as model "opus-4", which Claude Agent no longer offers (it offers fable, opus).` |
+| a role has nothing saved (command start) | command failure; no run, no worktree | `Workflow spec-driven can't start: role "planner" has no agent for claude-acp sessions. Ask the user which model and options each of these roles should use; never choose for them. Claude Agent offers fable, opus. Then save each with weavie.workflow.setRole (role, provider "claude-acp", agent) and start the workflow again.` The agent reads this, so it tells it to ask, not to pick. |
+| the saved model is no longer offered (command start) | same | `…role "builder" is saved as model "opus-4", which Claude Agent no longer offers. Ask the user…` |
 | same, in the composer | by the role's picker | `The saved model "opus-4" is no longer offered.` |
 | a model, option, or value the live session doesn't advertise | command failure, or the run pauses at step open | unchanged |
 | a reloaded run has no agent for a role | paused run | `Run r-… has no agent saved for role "planner"; cancel it and start it again.` |

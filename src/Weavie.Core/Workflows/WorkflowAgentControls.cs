@@ -53,17 +53,22 @@ public static class WorkflowAgentControls {
 		return $"Stage \"{stage.Id}\" runs on role \"{role}\", but {provider.Name} offers no model to choose.";
 	}
 
-	/// <summary>Why <paramref name="definition"/> can't start: each of its <paramref name="gaps"/> in a session of <paramref name="provider"/>.</summary>
+	/// <summary>
+	/// Why <paramref name="definition"/> can't start: each of its <paramref name="gaps"/> in a session of
+	/// <paramref name="provider"/>, and what the agent reading it does next: ask the user, never choose for them.
+	/// </summary>
 	public static string Unfilled(
 		WorkflowDefinition definition, IReadOnlyList<WorkflowRoleGap> gaps, AgentProviderInfo provider, IReadOnlyList<AgentControlOption>? offered) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(gaps);
 		ArgumentNullException.ThrowIfNull(provider);
 		var each = gaps.Select(gap => gap.MissingModel is { } missing
-			? $"role \"{gap.Role}\" is saved as model \"{missing}\", which {provider.Name} no longer offers (it offers {Ids(offered!.Select(o => o.Id))})"
+			? $"role \"{gap.Role}\" is saved as model \"{missing}\", which {provider.Name} no longer offers"
 			: $"role \"{gap.Role}\" has no agent for {provider.Id} sessions");
-		return $"Workflow {definition.Id} can't start: {string.Join("; ", each)}. Fill a role with {CoreCommands.WorkflowSetRole}: "
-			+ $"role, provider \"{provider.Id}\", agent.";
+		string offers = offered is null ? "" : $" {provider.Name} offers {Ids(offered.Select(o => o.Id))}.";
+		return $"Workflow {definition.Id} can't start: {string.Join("; ", each)}. Ask the user which model and options each of these "
+			+ $"roles should use; never choose for them.{offers} Then save each with {CoreCommands.WorkflowSetRole} (role, provider "
+			+ $"\"{provider.Id}\", agent) and start the workflow again.";
 	}
 
 	/// <summary>The line by a role's picker when its saved model is gone.</summary>

@@ -50,8 +50,9 @@ public sealed class HostCoreWorkflowRoleTests {
 
 		var refused = await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRun, new { workflow = "roles" }, CancellationToken.None);
 		Assert.Equal(
-			"Workflow roles can't start: role \"builder\" has no agent for structured sessions. Fill a role with weavie.workflow.setRole: "
-				+ "role, provider \"structured\", agent.",
+			"Workflow roles can't start: role \"builder\" has no agent for structured sessions. Ask the user which model and options each of "
+				+ "these roles should use; never choose for them. Fake structured agent offers GPT Test, GPT Next, GPT Gone. Then save each with "
+				+ "weavie.workflow.setRole (role, provider \"structured\", agent) and start the workflow again.",
 			refused.Error);
 		Assert.Null(session.Workflow.Current);
 

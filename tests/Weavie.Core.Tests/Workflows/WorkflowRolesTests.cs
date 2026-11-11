@@ -101,8 +101,9 @@ public sealed class WorkflowRolesTests : IDisposable {
 		Assert.Equal([new WorkflowRoleGap("builder", "gone")], read.Unfilled);
 		Assert.Null(read.Refusal);
 		Assert.Equal(
-			"Workflow spec-driven can't start: role \"builder\" is saved as model \"gone\", which Fake fake-acp no longer offers (it offers alpha, beta). "
-				+ "Fill a role with weavie.workflow.setRole: role, provider \"fake-acp\", agent.",
+			"Workflow spec-driven can't start: role \"builder\" is saved as model \"gone\", which Fake fake-acp no longer offers. "
+				+ "Ask the user which model and options each of these roles should use; never choose for them. Fake fake-acp offers alpha, beta. "
+				+ "Then save each with weavie.workflow.setRole (role, provider \"fake-acp\", agent) and start the workflow again.",
 			Assert.Throws<WorkflowException>(() => _roles.Resolver().Resolve(Definition)).Message);
 	}
 
@@ -205,7 +206,7 @@ public sealed class WorkflowRolesTests : IDisposable {
 		};
 
 		var unpicked = Assert.Single(WorkflowRoleAxes.Build(models, "", []));
-		Assert.Equal((WorkflowRoleAxes.ModelCategory, "", "No model", 2), (unpicked.Category, unpicked.Value, unpicked.ValueLabel, unpicked.Options.Count));
+		Assert.Equal((WorkflowRoleAxes.ModelCategory, "", "Choose a model", 2), (unpicked.Category, unpicked.Value, unpicked.ValueLabel, unpicked.Options.Count));
 
 		var axes = WorkflowRoleAxes.Build(models, "beta", [
 			Axis("mode", "mode", "select", "ask", "ask", "auto"),

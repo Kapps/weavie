@@ -51,6 +51,10 @@
   opacity: 0.5;
 }
 
+.control-bar-unset span {
+  color: var(--warn);
+}
+
 .control-bar-placeholder {
   cursor: default;
 }

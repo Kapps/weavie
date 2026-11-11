@@ -255,6 +255,7 @@
 }
 
 .session-composer-roles > .ui-section-label,
+.session-composer-roles-note,
 .session-composer-roles > small {
   grid-column: 1 / -1;
 }

@@ -13,7 +13,13 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
   const aside = surface.locator(".agent-aside");
   const card = aside.locator("[data-agent-subagent]");
   await expect(card).toHaveAttribute("data-state", "running");
+  const toggle = card.locator(".agent-entry-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(card).not.toContainText("counting");
+  await toggle.click();
   await expect(card).toContainText("counting");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);
   const identity = await card.getAttribute("data-agent-subagent");
 
@@ -35,6 +41,7 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
 
   await writeFile(join(sessionWorktrees(weavie.workspace)[0]!, "release-subagent"), "");
   await expect(card).toHaveAttribute("data-state", "completed");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(transcript).toContainText("held subagent finished");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);
   await tab.hover();
@@ -79,6 +86,7 @@ test.describe("BTW child ownership", () => {
     const second = surface.locator(".agent-aside").nth(1);
     const child = second.locator("[data-agent-subagent]");
     const approval = child.locator(".agent-entry-request");
+    await expect(child.locator(".agent-entry-toggle")).toHaveAttribute("aria-expanded", "false");
     await expect(approval).toContainText("README.md");
     await expect(first.locator(".agent-entry-request")).toHaveCount(0);
     await expect(surface.locator("[data-agent-subagent]")).toHaveCount(3);

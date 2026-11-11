@@ -222,11 +222,13 @@ export function subagentEntry(
 
 const subagentCardTail = 4;
 
-/** A subagent card shows its latest entries and every request; Open shows the whole transcript. */
+/** Expanded cards show their latest entries; requests stay visible even when collapsed. */
 export function subagentCardEntries(
   entries: readonly AgentTranscriptEntry[],
+  expanded: boolean,
 ): AgentTranscriptEntry[] {
   return entries.filter(
-    (entry, index) => index >= entries.length - subagentCardTail || entry.kind === "request",
+    (entry, index) =>
+      (expanded && index >= entries.length - subagentCardTail) || entry.kind === "request",
   );
 }

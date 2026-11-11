@@ -16,7 +16,7 @@ only the design and the branch diff, and a duplication pass over the whole diff.
 | 7 | nit | A failed catalog re-read discarded the user's pick | fixed: a failed read changes only the reason shown; unit test added |
 | 8 | nit | The host built the launch catalog in two places; the mock-host spec re-declared the new-session command | fixed: one `LaunchRoot` rule feeds both; `NEW_SESSION_COMMAND` is shared from `mock-host.ts` |
 | 9 | nit | The typed-turn order of a command with images was untested | fixed: Core test of `TerminalParts()` for a command and a prompt |
-| 10 | nit | A keyboard user on desktop could not read why a workflow is unavailable | fixed: the reason shows in the row while it is highlighted; browser test asserts it |
+| 10 | nit | A keyboard user on desktop could not read why a workflow is unavailable | fixed: the error is the row's description, always shown; browser test asserts it |
 | 11 | nit | A repository workflow's description could be written to win the suggestion | rejected: the field shows the workflow before Start, and repository trust is already a deferred item in `workflows.md` |
 | 12 | nit | Wording: a design heading and a test comment described the path rather than the state | fixed, except the design's ticked build checklist, which the build workflow asks for |
 
@@ -27,7 +27,8 @@ only the design and the branch diff, and a duplication pass over the whole diff.
 | 13 | bug | `workflow.default` set by an agent in a worktree session was ignored: the session's registry kept workspace-scoped settings in an overlay keyed by its own worktree, which nothing reads (`test.profile` and `worktree.*` went the same way) | fixed: the registry routes them to the workspace's overlay; Core test and a full-stack test |
 | 14 | bug | One workflow file that makes YamlDotNet's scanner throw the wrong exception failed the whole catalog, emptying the picker | fixed: the file is listed as invalid; reader test |
 
-## Outside the diff
+## CI
 
-`native build (macos)` fails in CI with launch error `-10825` on `Weavie.Mac.Tests.app`. It fails the same way on
-another branch started at the same time, with the macOS SDK pack at `27.2`; nothing in this diff touches Mac code.
+| # | Severity | Finding | Status |
+| --- | --- | --- | --- |
+| 15 | bug | `native build (macos)` failed on every branch with launch error `-10825`: the Mac test app set no minimum macOS version, so the workload's move to SDK 27.2 made it require a newer macOS than the runner has | fixed: the test app declares the product's minimum version |

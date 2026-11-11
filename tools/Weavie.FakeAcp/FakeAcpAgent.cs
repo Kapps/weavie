@@ -21,6 +21,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private string _effort = "low";
 	private bool _fast;
 	private bool _cancelFails;
+	private string _heldText = "";
 	private bool _authenticated;
 	private bool _expiredAuthentication;
 	private bool _prompted;
@@ -450,8 +451,10 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			RequireIsolatedCommand(prompt, text);
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel"
+			or "hold-steering-failed" or "hold-steering-rejected") {
 			_cancelFails = text == "hold-cancel-error";
+			_heldText = text;
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text is "input-with-parallel-tool" or "permission-with-parallel-tool") return await InteractionAlongsideToolAsync(text == "input-with-parallel-tool", ct).ConfigureAwait(false);
@@ -705,6 +708,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		TaskCompletionSource<string>? held;
 		lock (_gate) held = _heldPrompt;
 		if (held is null || held.Task.IsCompleted) return new JsonObject { ["outcome"] = "promptRequired" };
+		// As codex-acp answers a steer into a turn Codex cannot steer, such as /compact.
+		if (_heldText == "hold-steering-failed") return new JsonObject { ["outcome"] = "failed" };
+		if (_heldText == "hold-steering-rejected") throw new AcpAdapterException(-32600, "The running turn cannot be steered.", null);
 		held.TrySetResult(text);
 		return new JsonObject { ["outcome"] = "injected" };
 	}

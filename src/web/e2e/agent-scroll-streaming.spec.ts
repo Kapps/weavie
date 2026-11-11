@@ -326,7 +326,7 @@ test.describe("touch on iOS", () => {
   test.use(iPhone);
 
   // Synthetic, so the test alone decides when a touch, scroll, or scrollend happens.
-  const send = (body: Locator, type: string, active: boolean) =>
+  const sendAndScroll = (body: Locator, type: string, active: boolean, distance: number) =>
     body.evaluate(
       (element, event) => {
         const finger = [new Touch({ identifier: 1, target: element })];
@@ -338,9 +338,15 @@ test.describe("touch on iOS", () => {
         element.dispatchEvent(
           event.type.startsWith("touch") ? new TouchEvent(event.type, init) : new Event(event.type),
         );
+        element.scrollTop -= event.distance;
       },
-      { type, active },
+      { type, active, distance },
     );
+  const send = (body: Locator, type: string, active: boolean) =>
+    sendAndScroll(body, type, active, 0);
+  // A finger's move and the scroll it drives are one task, so no scroll the layout caused lands between them.
+  const drag = (body: Locator, distance: number) =>
+    sendAndScroll(body, "touchmove", true, distance);
 
   test("a touch gesture holds the transcript still until it ends, then applies the output", async ({
     page,
@@ -413,10 +419,7 @@ test.describe("touch on iOS", () => {
       ),
     );
     await send(body, "touchstart", true);
-    await send(body, "touchmove", true);
-    await body.evaluate((element) => {
-      element.scrollTop -= 200;
-    });
+    await drag(body, 200);
     await frames(page, 1);
     const dragged = await scrollHeight(body);
     await stream(pane, "momentum-reply", 10);

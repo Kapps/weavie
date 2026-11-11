@@ -6,8 +6,8 @@ Status: design proposal; no implementation changes.
 
 Main chat, BTW, background agents, and workflow threads share a conversation read model. Features that
 control a thread hold an owned conversation handle. Provider runtimes own processes and protocol work.
-Consultation and inference share the output model and their common execution mechanics without loading
-interactive pane machinery. The objective is fewer execution paths and less code, not more wrappers.
+Consultation and inference share their common ACP execution mechanics and chunk decoding, retaining small
+result reducers without a transcript ledger. The objective is fewer execution paths and less code.
 
 A conversation model is data about one thread. A conversation controller is the stateful service that
 operates that thread. The external agent maintains the model's actual history and context; Weavie keeps
@@ -27,8 +27,8 @@ around an ACP lifecycle state machine.
 
 | Concept | Owner and responsibility |
 | --- | --- |
-| `ConversationView` | Read-only view of one thread's normalized output, activity, interactions, and outcomes; owns no execution lifecycle |
-| `ConversationOutput` | Core-owned message/ledger implementation with a bound writer and scoped read views; one backing ledger per visible session or transient operation |
+| `ConversationView` | Read-only view of one thread's normalized rows and terminal outcome; owns no execution lifecycle |
+| `ConversationOutput` | Session-owned instance of the Core message/ledger implementation, with bound writers and scoped read views; one backing ledger per visible session |
 | Conversation controller | One incarnation's endpoint, queue, controls, pending interactions, cancellation, and output writer; ACP implements these mechanics |
 | Owned conversation handle | Held by the consumer responsible for closing the thread; delegates to its controller and runtime owner, with no independent lifecycle state |
 | Provider runtime | Owned by a loaded session or a dedicated operation; owns the process, initialization, conversation membership, and process-failure fan-out |
@@ -47,7 +47,8 @@ flowchart LR
     Controller <-->|owned endpoint| Process[External agent process]
     Controller -->|normalized output| Model[Shared conversation read model]
     Model --> Pane[Main, nested, or background transcript]
-    Model --> Result[Consult or inference result projection]
+    Query[Consult or inference] --> Transient[Shared transient ACP execution]
+    Transient --> Reducer[Small result reducer]
 ```
 
 ## One output model
@@ -59,17 +60,18 @@ deltas, completions, and retractions into stable rows. Source anchors:
 [src/Weavie.Core/Agents/AgentPaneMessage.cs:3](../../src/Weavie.Core/Agents/AgentPaneMessage.cs#L3) and
 [src/Weavie.Core/Agents/AgentPaneLedger.cs:59](../../src/Weavie.Core/Agents/AgentPaneLedger.cs#L59).
 
-Visible conversations use scoped views over one session ledger. They do not each retain another copy
-beside the host ledger. A view is bound to its exact conversation identity, including provider/runtime
-ownership, so identical provider thread IDs on separate runtimes cannot collide. The session's merged
-view retains ordering, ordinals, and revisions for paged history and live output. IDs belong at protocol,
-persistence, and web boundaries; in-process consumers retain the view or handle itself.
+Visible conversations use scoped views over one session ledger. A bound writer supplies the persisted
+Weavie conversation scope as well as the actual provider identity; provider thread IDs alone are not
+unique across runtimes. `AgentPaneIdentity`, recovery keys, and web item keys include that scope in
+lockstep. IDs remain at protocol, persistence, and web boundaries; in-process consumers retain objects.
 
-The controller serializes writes through its output port. Durable output is journaled before publication;
-the ledger is folded before readers receive the corresponding update. Snapshot and subscription form
-one ordered observation, so attaching a reader neither misses nor double-applies an update. Existing
-transition-gate, endpoint-retirement, and port-detachment rules remain the execution authority. The view's
-activity and outcomes are projections; they never decide whether a controller can accept work.
+`ConversationOutput` owns the ledger, its gate, and the existing generation/reset bookkeeping. Hosting
+delegates history reads and resets to it. Writes enter through the controller's port under its runtime's
+transition gate, then the output gate; output never calls controllers while holding its gate. Durable
+events are journaled, folded, and ordered for the existing pane publication path before releasing that
+gate. Hosting forwards revisioned records without folding them again. Scoped views use the existing
+snapshot/revision mechanism; no additional subscription protocol is introduced. Activity and interaction
+control continue through `AgentEvent` and the controller, rather than a second state machine in the view.
 
 Nested labels, parent/anchor placement, collapse state, and wire request namespaces belong to presentation
 binding. They are not a second conversation history. The web accumulator remains the remote replica,
@@ -78,35 +80,42 @@ projection used for session reads, operating on an already-scoped view; the sess
 It does not become the common model: its intentional exclusions are
 in [src/Weavie.Core/Agents/AgentTranscript.cs:37](../../src/Weavie.Core/Agents/AgentTranscript.cs#L37).
 
-A transient operation uses an ephemeral instance of the same fold and a narrow output projection, with
-no pane, journal, editor, or saved continuation. Consult retains the answer after the last tool boundary;
-inference retains the text needed for its JSON response. Neither requires retaining discarded thoughts
-or tool output. These are explicit result-selection policies over common normalized output, not separate
-protocol parsers. Inference enforces its existing output-byte limit before accumulation and reports an
-overflow as failure; no extra cap or truncation policy is introduced.
+Interactive stream assembly lives in this ledger, upstream of journal completion and publication.
+The writer materializes `item-completed` from its scoped active rows before journaling and publishing that
+completion, including on termination and restart. Text and first non-null media/URI metadata survive
+later deltas. This replaces `AcpConversation._content` and recovery's separate text accumulation in
+[src/Weavie.Core/Agents/AgentPaneRecovery.cs:28](../../src/Weavie.Core/Agents/AgentPaneRecovery.cs#L28).
+Recovery retains its interruption policy; ACP retains protocol correlation and tool execution state.
+The journal and wire still receive materialized completions, so the web remains a replica of the fold.
 
-Content decoding and streamed-item assembly have one shared implementation. ACP controllers retain
-protocol correlation and tool/request state; the shared output fold retains displayed content. Completion
-materializes the accumulated content once for persistence and consumers. This replaces duplicated full
-text buffers rather than adding a model beside `AcpConversation._content` and the transient `_reply`
-builders. Tool execution state and rendered tool rows are different responsibilities and are not merged.
-Result selection preserves stream order across tool boundaries even when the provider supplies no message
-IDs and the pane merges several chunks into one row. Consult selects content segments after the last tool
-call; inference concatenates all agent text segments. A last-agent-row getter is not an equivalent result.
-Segment storage and assembly are shared output machinery, not new per-consumer string accumulators.
+Transient operations have no pane, ledger, journal, or saved continuation. Their shared decoder reads
+`agent_message_chunk.content.text` and tool boundaries, ignoring annotations and non-text fields as the
+existing clients do; interactive decoding retains its visibility and resource/media handling. Consult's
+small reducer discards text at each tool call; inference's reducer accumulates all agent text and enforces
+its existing byte limit before append. This preserves results even without message IDs. No segment store
+or configurable generic accumulator is needed. The shared transient runner owns open, configure, prompt,
+stop-reason decoding, and disposal; result selection and failure policy remain with the caller.
 
 ## Runtime and handle ownership
 
 The runtime constructs a controller, attaches its endpoint, and opens it through `OpenFreshAsync` or
 `OpenForkAsync(parentHandle, ...)`. The caller supplies the binding and output destination. Opening returns
-only after setup and required controls succeed; cancellation or failure cleans up any late-opened provider
-session. A fork requires a live compatible parent; unsupported operations fail with their reason.
+only after setup and required controls succeed. A fork requires a live compatible parent; unsupported
+operations fail with their reason. Cancelling opening retires the endpoint immediately and closes any
+session that arrives later; it does not cancel the wire request. Opens serialize per connection, as in
+[src/Weavie.AgentClientProtocol/AcpJsonRpcConnection.Endpoints.cs:61](../../src/Weavie.AgentClientProtocol/AcpJsonRpcConnection.Endpoints.cs#L61).
+A hung open blocks later opens on that runtime. Its owning card remains visibly opening or closing, with
+a runtime-stop command and its effective shortcut; stopping a shared runtime visibly ends siblings too.
 
 `AcpAgentSession` supplies main-chat presentation and the stable main-input address. Its process/initialize
 machinery belongs to the extracted ACP runtime, reused for another-provider workflow work. Long-lived
 runtimes use the existing supervised connection with `RestartPolicy.Never`. Transient queries retain the
 one-shot process transport. Process-wide client capabilities prohibit placing restricted consult/inference
 work on an unrestricted interactive process just because the provider matches.
+
+Authentication belongs to the opening runtime. A provider's sign-in request is shown on that conversation's
+card and answered through its endpoint; opening remains pending until sign-in and configuration succeed.
+Cancellation retires that opening. Another-provider sign-in never changes main's provider or controls.
 
 The runtime tracks membership to close, detach, and fail hosted controllers. The consumer decides when
 its owned thread is no longer needed. A handle can delegate that ending to the existing owner-side
@@ -119,6 +128,17 @@ replace that incarnation; work already bound to it never retargets its successor
 the main-input address for each new delivery and does not dispose main. A child-stage handle denotes one
 incarnation; its ending pauses the stage, and Resume obtains a new handle. User BTW continuation can reopen
 its saved thread through a new handle. A saved transcript is readable after its controller ends.
+
+The loaded session owns the display archive. A child on another provider appends to that same archive
+under its existing main-provider/workspace storage key, with the child's actual `ProviderId` in each row.
+Workflow children persist display only; they do not masquerade as resumable BTW continuations. The bound
+writer holds this archive destination, while failures and control requests target the child's runtime.
+An ordinary runtime failure affects only its hosted controllers. An archive failure refuses writes under
+the output gate and queues session-owned shutdown after the write stack releases all runtime/controller
+gates. Stopping another runtime never holds the originating runtime's gate. The visible failure-report
+path does not require a successful journal append. Main-process restart leaves a separate stage runtime
+alive; session unload or workflow cancellation closes it. Clear confirms and ends owned child work before
+replacing history; Rewind refuses while relevant children run. Neither erases a live child's anchor.
 
 ```mermaid
 stateDiagram-v2
@@ -152,8 +172,8 @@ as enforced by [src/Weavie.AgentClientProtocol/AcpJsonRpcConnection.Endpoints.cs
 | Main chat | Session owns its current interactive conversation and runtime | Primary view; new submissions use current main |
 | BTW | Session's aside feature owns a fork on its runtime | Nested view and replies through the held controller; saved continuation survives as specified by BTW |
 | Native subagent | Root background-work owner adopts the provider-announced child endpoint | Same read model; provider owns prompts and reports ending; no independent Weavie MCP provisioning |
-| Consult | MCP call owns a restricted transient runtime and one fresh thread | Common output projection returns final reply and denied-action details; completion/cancellation disposes process |
-| Inference | Query operation owns a restricted transient runtime, rooted in its explicit worktree | Common output projection feeds existing typed validation, usage, profile, deadline, and failure handling |
+| Consult | MCP call owns a restricted transient runtime and one fresh thread | Reply reducer returns text after the last tool and denied-action details; completion/cancellation disposes process |
+| Inference | Query operation owns a restricted transient runtime, rooted in its explicit worktree | Bounded text reducer feeds existing typed validation, usage, profile, deadline, and failure handling |
 | Workflow `continue` | Stage borrows main-input delivery, not ownership of main's incarnation | Main transcript; explicit stage completion controls progression |
 | Workflow `fork` / `fresh` | Exact stage execution owns an interactive child handle and binding | Nested view, user replies, revisions, and stage outputs; leaving execution closes it |
 | Other-provider stage | Same stage owner acquires a dedicated supervised runtime and fresh conversation | Same stage code and read model; required provider/model controls applied before prompting |
@@ -182,11 +202,13 @@ computes settlement from its queue and in-flight operations without a competing 
 Terminal outcome is observable even when opening or ending precedes subscription, and is settled exactly
 once. No consumer infers termination by watching the session's aggregate status.
 
-Each Weavie-created interactive conversation receives its own MCP binding on the session's registry.
+Each Weavie-created interactive conversation receives its own MCP credential and binding on the session's
+registry. The credential routes tool calls to that owned binding; it is not a new registry or sandbox.
 Ordinary session services remain shared. Stage completion/failure resolves to an owned stage-execution
 object, not the runner's current stage name. Re-entering the same named stage cannot revive an old grant.
 The runner validates the execution under its state lock even for a call admitted before revocation.
-Revocation refuses new calls and cancels outstanding work belonging to the binding.
+Revocation refuses new calls and cancels outstanding work, except delivery of an already accepted
+completion response as specified below.
 
 The binding supplies both stage instructions and stage tools. Main and ordinary BTW receive no completion
 authority for a separately owned stage. For `continue`, the main binding delegates to that exact live
@@ -198,16 +220,18 @@ role or permission framework. Relevant seams are
 
 The stage execution spans its work, decision, and same-stage revisions. Accepted completion disables
 completion mutations while the decision is pending; it does not close the thread. A revise answer keeps
-the handle and opens a new completion opportunity. Tool admission captures that opportunity as well as
-the execution, so a delayed call from an earlier round cannot complete the revision. Jumping away and
+the handle and advances one completion-round counter on the execution. Tool admission captures that round
+as well as the execution, so a delayed call from an earlier round cannot complete the revision. Jumping away and
 back creates a different execution even when the stage name matches.
 
-Routing out of the execution revokes its binding and closes its thread. The accepted MCP response is
-allowed to finish before graceful close waits for the conversation to settle; teardown never awaits
-itself from inside that tool call or the runner's lock. Stop, jump, cancel, and owner teardown interrupt
-and retire instead. A graceful wait remains visible and interruptible, with no invented timeout. Rejected
-outputs and `failStage` keep the handle while the execution remains live. Workflow reporting to main and
-output validation belong to the workflow adapter, not the conversation layer.
+The runner advances on accepted completion and its decision result, without waiting for conversation
+settlement. Routing out revokes stage tools and schedules closure under the session owner; teardown never
+awaits itself from inside the tool call or runner lock. The accepted MCP response finishes before closure
+interrupts remaining work, cancels pending interactions, rejects new ones, and retires the endpoint.
+Cleanup remains owned and visible until released; it is not an unobserved task or a condition for stage
+progression. Stop, jump, cancel, and owner teardown interrupt immediately. Rejected outputs and
+`failStage` keep the handle while the execution remains live. Reporting to main and output validation
+belong to the workflow adapter.
 
 A provider-native subagent may inherit its parent's MCP credential. If it does, Weavie cannot distinguish
 that caller from the parent; it acts within that binding. The adoption protocol does not supply independent
@@ -218,13 +242,12 @@ an agent's own tools. A shared-process close failure also remains a shared failu
 
 | Shared implementation | Superseded code |
 | --- | --- |
-| Existing message/ledger fold plus scoped views | A proposed second `ConversationItem` store; independent transient reply builders; ACP's separate full-text stream accumulation |
+| Existing message/ledger fold plus scoped views | ACP's separate full-text stream accumulation and `AgentPaneRecovery`'s text fold; no second `ConversationItem` store |
 | `ConversationOutput` owns the existing host ledger | `AgentSessionHost`'s private fold/write hookup; Hosting forwards the model's revisioned records without refolding them |
 | Transcript projection of an already-scoped view | Primary-only selection inside `AgentTranscript.Project`; the session reader owns that selection |
-| Shared ACP output decoding into that model | `AcpConsultClient.OnNotification`, `AcpInferenceClient.Collect`, and duplicate text decoding in interactive updates |
+| Shared transient chunk decoder | Repeated notification-envelope and text extraction in `AcpConsultClient.OnNotification` and `AcpInferenceClient.Collect`; their small, different reducers remain |
 | Shared transient open/configure/prompt mechanism | Repeated lifecycle portions of consult and inference clients; retain domain instructions, permission policy, reply selection, validation, and errors |
-| Runtime fresh/fork opening and owned handles | Feature-level start/reply/end-by-ID orchestration; `IStructuredAgentSideConversations` as a business API; wire IDs remain at the UI boundary |
-| Shared nested presentation binding | Feature-specific copies of namespace, anchor, persistence, and request-routing logic |
+| Runtime fresh/fork opening and owned handles | `IStructuredAgentSideConversations` as a business API; the small by-ID lookup remains at the UI boundary; existing shared `NestedPort` presentation is reused |
 | Existing supervised ACP connection and endpoint ownership | A separate process launcher or conversation lifecycle for other-provider workflow stages |
 
 The transient reuse sites are
@@ -236,7 +259,8 @@ The target is a net reduction in total implementation size. Each extraction repl
 deletes their superseded path in the same buildable change. Report production, tests, documentation, and
 total line deltas separately; renames, compressed formatting, removed coverage, or omitted behavior are
 not savings. Exact savings require implementation measurement and are not claimed by this proposal.
-A common model that leaves every old collector and state store intact has not met the design.
+The first two extractions must net-delete implementation code before proceeding with the runtime split;
+otherwise revise their boundaries. Retaining genuinely different result reducers is not duplication.
 
 ## Build sequence and verification
 
@@ -244,17 +268,18 @@ Each step updates all affected callers and leaves the build green. No compatibil
 version gates are introduced. The workflow-context documents are consumer requirements, not files this
 design modifies.
 
-1. **Share output folding.** Expose scoped views over the existing ledger and extract common ACP content
-   normalization/assembly. Replace redundant interactive buffers. Verify deltas, interleaved messages,
-   media, retractions, nested requests, cross-runtime identity, and history/live reconciliation.
-2. **Prove temporary reuse.** Move consult and inference onto the shared output model and common transient
-   open/configure/prompt code. Delete their collectors. Verify final-answer selection after tools, strict
-   JSON, output overflow, profile failures, caller cancellation, and process disposal. No pane dependencies.
+1. **Share output folding.** Move interactive completion assembly and `AgentPaneRecovery`'s text fold onto
+   the existing ledger. Expose scoped views and move its ownership out of Hosting. Verify journaled
+   completions, first-wins media, interleaved deltas, retractions, nested requests, identity collisions,
+   generation/reset, and history/live reconciliation. Measure the line delta.
+2. **Share transient execution.** Extract common consult/inference chunk decoding and open/configure/prompt
+   code, retaining their result reducers. Verify text selection without message IDs, annotation behavior,
+   strict JSON, overflow, profile failures, caller cancellation, and disposal. Measure the combined reduction.
 3. **Separate runtime from presentation.** Extract the supervised process/initialize owner and expose
    owned fresh/fork handles, with main's stable input facade. Move BTW creation/replies to these handles.
    Verify opening failure/late opening, steering returning after prompt end, retirement, repeated close,
-   restart, clear, rewind, and sibling
-   behavior on close refusal. Preserve port/endpoint locking and late-work exclusion.
+   restart, clear, rewind, and sibling behavior on close refusal. Preserve port/endpoint locking and
+   late-work exclusion.
 4. **Expose passive background views.** Use the same model for adopted children and their transcript tabs,
    removing any duplicated projection. Verify nested descendants, approvals, replayed announcements, and
    parent failure. Background tasks remain tasks, not fabricated conversations.
@@ -263,7 +288,9 @@ design modifies.
    stage names, and accepted-response delivery during close. Test HTTP and stdio proxy paths.
 6. **Connect workflow consumers.** Fork/fresh stages retain handles through revisions and pause on loss;
    another-provider fresh stage uses the same control and view contracts on its own runtime. Verify model
-   setup failure, reports to main, resume, jump, cancel, and teardown without blocking the runner's lock.
+   setup and sign-in, concurrent archive failure on two runtimes, main-only restart, reports to main,
+   resume, jump, cancel, and closure with outstanding interactions without blocking progression or the
+   runner's lock. Reloaded child-provider rows remain display-only and cannot become main/BTW continuations.
 
 Use deterministic fake-ACP tests for protocol and ownership invariants, existing Core ledger tests for
 folding, Hosting tests for lifecycle/workflow integration, and headless journeys for presentation. Web or

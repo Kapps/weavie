@@ -48,6 +48,7 @@ internal sealed partial class AcpConversation {
 	// Completion publication still owns the slot after the prompt response, including reentrant submissions.
 	private bool _promptDeliveryActive;
 	private bool _steering;
+	private bool _steeringRefused;
 	private bool _loadingTranscript;
 	private bool _sessionOpening;
 	private bool _waitingForBackground;

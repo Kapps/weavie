@@ -292,6 +292,28 @@ test("a slash command submitted mid-turn queues without blocking steering", asyn
   await expect(surface.locator(".agent-compose-queued")).toHaveCount(0);
 });
 
+test("a prompt the running turn will not steer queues for its own turn", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "acp-unsteerable-turn");
+
+  await submitAcpDraft(surface, "hold-steering-failed");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+
+  await submitAcpDraft(surface, "run after the turn");
+  await expect(surface.locator(".agent-compose-queued")).toContainText("run after the turn");
+
+  await writeFile(join(sessionWorktrees(weavie.workspace)[0]!, "release-hold"), "");
+  await expect(
+    surface.locator(".agent-entry-message.agent-tone-assistant", {
+      hasText: "echo: run after the turn",
+    }),
+  ).toBeVisible();
+  await expect(surface.locator(".agent-compose-queued")).toHaveCount(0);
+  await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
+});
+
 test("ACP steering and background completion return the session to idle @cross", async ({
   page,
 }) => {

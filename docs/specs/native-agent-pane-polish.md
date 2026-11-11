@@ -62,6 +62,10 @@ The idle pane said one dim sentence and the composer placeholder taught nothing.
 - **Follow pill**: scrolling up pauses follow (existing behavior) but gave no way back short of
   manually scrolling; a floating "↓ Jump to latest" pill now appears whenever follow is paused and
   one click re-sticks.
+- **Start line**: a long live reply stops following once its first line rises to the start line, a
+  fraction of the pane's height below its top (`agent.replyStartOffset`, 0.5 by default), so it is read
+  from its start with the end of what came before still in view above it. Jump to turn places the
+  turn's start on the same line. A row with too little transcript above it rests as low as it can.
 - **Control picker header** names the axis being picked (Model / Approvals / Sandbox).
 - **Attachment chips** say "reading… / uploading… / failed" instead of raw state names, and a ready
   thumbnail carries no badge at all.

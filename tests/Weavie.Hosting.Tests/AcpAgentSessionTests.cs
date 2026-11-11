@@ -482,6 +482,32 @@ public sealed class AcpAgentSessionTests {
 		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "command-steered")));
 	}
 
+	[Theory]
+	[InlineData("hold-steering-failed")]
+	[InlineData("hold-steering-rejected")]
+	public async Task NativeSession_QueuesAPromptTheRunningTurnWillNotSteer(string heldPrompt) {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit(heldPrompt);
+		await fixture.WaitForHeldToolAsync();
+		fixture.Submit("after the turn");
+		await fixture.WaitForQueueAsync(queued => queued.Count == 1 && queued[0].Text == "after the turn");
+		fixture.Submit("then this");
+		await fixture.WaitForQueueAsync(queued => queued.Count == 2);
+
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-hold"), string.Empty);
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "3");
+
+		Assert.Equal([$"fake-session:{heldPrompt}", "fake-session:after the turn", "fake-session:then this"],
+			File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")));
+		Assert.Single(AcpPromptAssertions.Read(fixture), request =>
+			request.GetProperty("method").GetString() == "_session/steering");
+		Assert.Empty(fixture.Session.QueuedSubmissions);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
 	[Fact]
 	public async Task NativeSession_RejectsACommandMissingFromTheLatestProviderSnapshot() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);

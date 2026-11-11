@@ -12,6 +12,7 @@ import {
   wheelUp,
 } from "./harness/agent-pane";
 import { frames } from "./harness/render-budget";
+import { fromReplyStart } from "./harness/reply-start";
 
 // The pane is bottom-origin: the reader stays still while a turn streams below them, a touch gesture holds the
 // transcript it is reading until the finger and its momentum are done, and following tracks the latest output.
@@ -105,6 +106,89 @@ test("reading while a turn streams keeps the reader still and announces the outp
   expect(await fromBottom(body)).toBeLessThanOrEqual(1);
 });
 
+for (const input of ["trackpad", "native"] as const) {
+  test(`small upward ${input} scrolling stays paused while a side conversation streams`, async ({
+    page,
+    openPanes,
+  }) => {
+    const pane = await openPane(openPanes, "nested-reading");
+    const { body, host, session } = pane;
+    const side = {
+      providerId: "acp",
+      conversationId: "side",
+      anchorTurnId: "h29",
+      threadId: "side-thread",
+      turnId: "1",
+      isPrimaryThread: false,
+    };
+    host.publishAgentPane(session.address, {
+      ...side,
+      type: "side-conversation-started",
+      status: "forking",
+      text: "Investigate this in a separate conversation",
+    });
+    host.publishAgentPane(session.address, { ...side, type: "turn-started" });
+    const publish = (text: string): void =>
+      host.publishAgentPane(session.address, {
+        ...side,
+        type: "agent-message-delta",
+        itemId: "side-reply",
+        itemType: "agentMessage",
+        text,
+      });
+    publish("The side conversation is reporting its findings.");
+    const reply = body.locator(".agent-aside .agent-tone-assistant").last();
+    await expect(reply).toContainText("reporting its findings");
+    await reply.hover();
+    const latest = jumpToLatest(page);
+    const scrollBy = async (delta: number): Promise<void> => {
+      if (input === "trackpad") await page.mouse.wheel(0, delta);
+      else
+        await body.evaluate((element, pixels) => {
+          element.scrollTop += pixels;
+        }, delta);
+      await body.evaluate(untilStill);
+    };
+    expect(await scrollTop(body)).toBe(0);
+
+    // Trackpads can leave the bottom in steps smaller than the three-line following threshold.
+    await scrollBy(-12.5);
+    await expect.poll(() => fromBottom(body)).toBeGreaterThan(10);
+    await expect(latest).toBeVisible();
+    const anchor = await body.evaluate(readAnchor);
+    publish(" More findings arrive while the reader is scrolling upward.");
+    await expect(reply).toContainText("scrolling upward");
+    await frames(page, 2);
+    expect(await drift(body, anchor)).toBeLessThanOrEqual(1);
+    await expect(latest).toContainText("New output");
+
+    await scrollBy(-12.5);
+    const farther = await fromBottom(body);
+    publish(" The reader can continue moving toward earlier messages.");
+    await expect(reply).toContainText("earlier messages");
+    await frames(page, 2);
+    expect(await fromBottom(body)).toBeGreaterThanOrEqual(farther - 1);
+
+    await latest.click();
+    await expect.poll(() => scrollTop(body)).toBe(0);
+    await expect(latest).toHaveCount(0);
+    publish(" Following resumes when requested.");
+    await expect(reply).toContainText("when requested");
+    await frames(page, 2);
+    expect(await scrollTop(body)).toBe(0);
+
+    await reply.hover();
+    await scrollBy(-12.5);
+    await expect(latest).toBeVisible();
+    await scrollBy(5.5);
+    await expect(latest).toHaveCount(0);
+    publish(" Scrolling back toward the bottom resumes following too.");
+    await expect(reply).toContainText("following too");
+    await frames(page, 2);
+    expect(await scrollTop(body)).toBe(0);
+  });
+}
+
 test("a request arriving while the reader is away keeps their position", async ({
   page,
   openPanes,
@@ -127,22 +211,51 @@ test("a request arriving while the reader is away keeps their position", async (
   await expect(body.locator(".agent-entry-request")).not.toBeInViewport();
 });
 
-test("a long live reply is pinned at its top and keeps it there as it grows", async ({
+test("a long live reply is pinned at its start line and keeps it there as it grows", async ({
   page,
   openPanes,
 }) => {
   const pane = await openPane(openPanes, "pin-reply");
   const reply = page.locator(".agent-virtual-row", { hasText: "delta 0 " });
-  const top = () =>
-    reply.evaluate(
+  await stream(pane, "long-reply", 400);
+  await expect(jumpToLatest(page)).toBeVisible();
+  expect(Math.abs(await fromReplyStart(reply))).toBeLessThanOrEqual(1);
+  await stream(pane, "long-reply", 40);
+  expect(Math.abs(await fromReplyStart(reply))).toBeLessThanOrEqual(1);
+  // What came before the reply stays in view above it.
+  await expect(page.locator(".agent-virtual-row", { hasText: "Answer 29" })).toBeInViewport();
+});
+
+test("a reply start offset of 0 pins a long live reply against the top of the pane", async ({
+  page,
+  openPanes,
+}) => {
+  const pane = await openPane(openPanes, "pin-top");
+  const defaults = await page.evaluate(() => window.__WEAVIE_AGENT__);
+  pane.host.publishHost("settings", "agent-defaults", { ...defaults, replyStartOffset: 0 });
+  await stream(pane, "long-reply", 400);
+  await expect(jumpToLatest(page)).toBeVisible();
+  const top = await page
+    .locator(".agent-virtual-row", { hasText: "delta 0 " })
+    .evaluate(
       (row) =>
         row.getBoundingClientRect().top - row.closest(".agent-body")!.getBoundingClientRect().top,
     );
-  await stream(pane, "long-reply", 400);
-  await expect(jumpToLatest(page)).toBeVisible();
-  expect(Math.abs(await top())).toBeLessThanOrEqual(1);
-  await stream(pane, "long-reply", 40);
-  expect(Math.abs(await top())).toBeLessThanOrEqual(1);
+  expect(Math.abs(top)).toBeLessThanOrEqual(1);
+});
+
+test("jumping to the latest output reaches the end of a reply that arrived while reading", async ({
+  page,
+  openPanes,
+}) => {
+  const pane = await openPane(openPanes, "jump-past-reply");
+  await readAway(pane);
+  await stream(pane, "while-away", 60);
+  await jumpToLatest(page).click();
+  await expect.poll(() => scrollTop(pane.body)).toBe(0);
+  await stream(pane, "while-away", 6);
+  expect(await scrollTop(pane.body)).toBe(0);
+  await expect(jumpToLatest(page)).toHaveCount(0);
 });
 
 test("following the latest output stays at the bottom and keyboard keys scroll the pane", async ({
@@ -151,7 +264,8 @@ test("following the latest output stays at the bottom and keyboard keys scroll t
 }) => {
   const pane = await openPane(openPanes, "keyboard");
   const { body } = pane;
-  await stream(pane, "follow", 30);
+  // Short enough to stay below its start line, where a longer reply would stop following.
+  await stream(pane, "follow", 6);
   expect(await scrollTop(body)).toBe(0);
   // Keys act wherever focus sits in the transcript, short of a field that takes them.
   await body.evaluate((element) =>
@@ -181,7 +295,7 @@ test("following the latest output stays at the bottom and keyboard keys scroll t
   await page.keyboard.press("End");
   await expect.poll(() => scrollTop(body)).toBe(0);
   await expect(latest).toHaveCount(0);
-  await stream(pane, "follow", 10);
+  await stream(pane, "follow", 6);
   expect(await scrollTop(body)).toBe(0);
 });
 
@@ -298,7 +412,7 @@ test.describe("touch on iOS", () => {
   test.use(iPhone);
 
   // Synthetic, so the test alone decides when a touch, scroll, or scrollend happens.
-  const send = (body: Locator, type: string, active: boolean) =>
+  const sendAndScroll = (body: Locator, type: string, active: boolean, distance: number) =>
     body.evaluate(
       (element, event) => {
         const finger = [new Touch({ identifier: 1, target: element })];
@@ -310,9 +424,15 @@ test.describe("touch on iOS", () => {
         element.dispatchEvent(
           event.type.startsWith("touch") ? new TouchEvent(event.type, init) : new Event(event.type),
         );
+        element.scrollTop -= event.distance;
       },
-      { type, active },
+      { type, active, distance },
     );
+  const send = (body: Locator, type: string, active: boolean) =>
+    sendAndScroll(body, type, active, 0);
+  // A finger's move and the scroll it drives are one task, so no scroll the layout caused lands between them.
+  const drag = (body: Locator, distance: number) =>
+    sendAndScroll(body, "touchmove", true, distance);
 
   test("a touch gesture holds the transcript still until it ends, then applies the output", async ({
     page,
@@ -385,10 +505,7 @@ test.describe("touch on iOS", () => {
       ),
     );
     await send(body, "touchstart", true);
-    await send(body, "touchmove", true);
-    await body.evaluate((element) => {
-      element.scrollTop -= 200;
-    });
+    await drag(body, 200);
     await frames(page, 1);
     const dragged = await scrollHeight(body);
     await stream(pane, "momentum-reply", 10);

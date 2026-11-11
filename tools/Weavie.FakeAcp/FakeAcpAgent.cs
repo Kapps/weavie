@@ -21,6 +21,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private string _effort = "low";
 	private bool _fast;
 	private bool _cancelFails;
+	private string _heldMode = "";
 	private bool _authenticated;
 	private bool _expiredAuthentication;
 	private bool _prompted;
@@ -452,7 +453,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			RequireIsolatedCommand(prompt, text);
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel"
+			or "hold-steering-failed" or "hold-steering-rejected") {
 			_cancelFails = text == "hold-cancel-error";
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
@@ -628,7 +630,10 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private async Task<JsonNode> HoldAsync(string mode, CancellationToken ct) {
 		string toolCallId = $"hold-{Guid.NewGuid():N}";
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-		lock (_gate) _heldPrompt = completion;
+		lock (_gate) {
+			_heldPrompt = completion;
+			_heldMode = mode;
+		}
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
 		_ = Task.Run(async () => {
 			string release = Path.Combine(Environment.CurrentDirectory, "release-hold");
@@ -705,8 +710,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			return new JsonObject { ["outcome"] = "injected" };
 		}
 		TaskCompletionSource<string>? held;
-		lock (_gate) held = _heldPrompt;
+		string heldMode;
+		lock (_gate) (held, heldMode) = (_heldPrompt, _heldMode);
 		if (held is null || held.Task.IsCompleted) return new JsonObject { ["outcome"] = "promptRequired" };
+		// As codex-acp answers a steer into a turn Codex cannot steer, such as /compact.
+		if (heldMode == "hold-steering-failed") return new JsonObject { ["outcome"] = "failed" };
+		if (heldMode == "hold-steering-rejected") throw new AcpAdapterException(-32600, "The running turn cannot be steered.", null);
 		held.TrySetResult(text);
 		return new JsonObject { ["outcome"] = "injected" };
 	}

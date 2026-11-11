@@ -23,7 +23,9 @@ Startup, ordinary waiting, and return-to-work transitions do not raise attention
 
 The session list, mobile inbox, workflow header, and terminal footer share one display status.
 Workflow state contributes to that status; an idle agent in an unfinished stage is waiting on the user,
-not a finished workflow. An agent error or pending input takes precedence over workflow progress.
+not a finished workflow. Non-idle agent status takes precedence over workflow state: follow-up work during a
+pending decision or paused run shows Working, and the unresolved workflow needs attention again when the
+agent rests. Its question or pause reason stays in the tooltip. Agent errors and pending input still need attention.
 
 | State | Colour | Session group |
 | --- | --- | --- |

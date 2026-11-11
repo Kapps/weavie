@@ -158,6 +158,21 @@ public static class CoreSettings {
 			Default = true,
 		});
 
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.ReplyStartOffset,
+			Kind = SettingKind.Number,
+			Description = "Where a long agent reply's first line rests once it stops scrolling, as a fraction of the "
+				+ "agent pane's height below its top edge, so the end of what came before stays in view above it. "
+				+ "0.5 by default — the middle of the pane; 0 rests it against the top edge.",
+			Aliases = ["reply scroll offset", "agent scroll offset", "reply top offset", "pin reply",
+				"agent pane scroll position"],
+			Apply = ApplyMode.Live,
+			Default = 0.5,
+			Validate = static value => value is double offset && offset is >= 0 and < 1
+				? ValidationResult.Success
+				: ValidationResult.Failure("agent.replyStartOffset must be a number from 0 up to, but not including, 1."),
+		});
+
 		InferenceSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

@@ -20,7 +20,7 @@ public interface ISessionPeers {
 
 	/// <summary>
 	/// Submits <paramref name="message"/> to <paramref name="sessionId"/>'s primary conversation, attributed to the
-	/// caller. <paramref name="conversation"/> names the calling conversation, null for its session's main one; only
+	/// caller. <paramref name="conversation"/> names the calling conversation, null for its session's primary one; only
 	/// a named one may send to the caller's own id.
 	/// </summary>
 	/// <exception cref="SessionPeerException">The session can't receive messages; the message says why.</exception>

@@ -16,8 +16,8 @@ public sealed class AgentConversationBindings(
 		Tools = registry.CreateGrant(stageCall, conversation: null),
 	};
 
-	/// <summary>Creates an ordinary independent conversation without workflow completion authority.</summary>
-	public AgentConversationBinding Independent() => new() {
+	/// <summary>Creates a <c>/btw</c> side conversation's binding, without workflow completion authority.</summary>
+	public AgentConversationBinding Side() => new() {
 		TurnContext = AgentTurnContext.None,
 		ControlHold = AgentControlHold.None,
 		Tools = registry.CreateGrant(() => null, "BTW"),

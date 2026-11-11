@@ -76,8 +76,8 @@ message with **From &lt;session&gt;** instead of **Prompt**. `readSession` repor
 entry.
 
 A send is refused, with a tool error naming the cause, when the id is unknown, the target is not loaded, the target
-runs in a terminal, a main conversation addresses its own session, or Weavie is draining for a restart. The send runs under the target slot's lifecycle gate, so it
-cannot race an unload or delete.
+runs in a terminal, a main conversation addresses its own session, or Weavie is draining for a restart. The send
+runs under the target slot's lifecycle gate, so it cannot race an unload or delete.
 
 ### A session's own id
 

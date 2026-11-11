@@ -1,7 +1,5 @@
 using System.Text.Json;
-using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.TestSupport;
 using Xunit;

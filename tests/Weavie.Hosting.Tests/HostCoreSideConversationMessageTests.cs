@@ -9,13 +9,13 @@ using static Weavie.Hosting.Tests.HostCoreWorkflowTests;
 
 namespace Weavie.Hosting.Tests;
 
-/// <summary>Only a /btw side conversation reaches its session's main conversation through messageSession.</summary>
+/// <summary>A /btw side conversation reaches its session's main conversation through messageSession; main itself is refused.</summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSideConversationMessageTests {
 	[Theory]
 	[InlineData(true, "user-steer")]
 	[InlineData(false, "user-message")]
-	public async Task OnlyASideConversationMessagesItsBusyMainConversation(bool steering, string delivered) {
+	public async Task ASideConversationMessagesItsBusyMainConversationWhichCantMessageItself(bool steering, string delivered) {
 		using var state = new TempDirectory("weavie-btw-message");
 		await using var host = await TestHost.StartAsync();
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));

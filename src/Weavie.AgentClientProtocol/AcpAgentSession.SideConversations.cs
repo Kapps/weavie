@@ -16,7 +16,7 @@ public sealed partial class AcpAgentSession {
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
 			var spec = ChildSpec(primary, fork: true, submission.Text, AcpConversationRole.Side);
-			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Independent());
+			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side());
 		}
 	}
 
@@ -39,7 +39,7 @@ public sealed partial class AcpAgentSession {
 			}
 			EnsureSideConversationSupport(_primary);
 			var seed = AcpConversationHandoff.Fresh(state) with { Pending = [submission] };
-			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Independent());
+			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Side());
 		}
 	}
 

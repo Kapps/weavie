@@ -64,7 +64,8 @@ export function AgentTranscript(props: {
               const previous = () => props.entryAt(row().index + 1);
               let element: HTMLDivElement | undefined;
               onCleanup(() => {
-                props.virtualizer.measureElement(null);
+                // Solid cleanup runs before detachment; unregister after the nodes are disconnected.
+                queueMicrotask(() => props.virtualizer.measureElement(null));
                 // A focused row scrolled out of range hands focus to the scroller, which keeps the scrolling keys.
                 if (element?.contains(document.activeElement) === true) {
                   element.closest<HTMLElement>(".agent-transcript-scroller")!.focus({

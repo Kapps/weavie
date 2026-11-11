@@ -1,8 +1,8 @@
 import { createSignal } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
+import { type AgentActivitySegment, AgentActivitySegments } from "./AgentActivitySegments";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { estimateEntrySize } from "./AgentPaneEstimate";
-import { paneActivityIdentity } from "./AgentPaneIdentity";
 import { projectAgentTranscript } from "./AgentPaneMessages";
 import {
   sideConversationEntry,
@@ -20,6 +20,7 @@ export class AgentConversationProjection {
   private readonly state = createSignal(emptyTranscript);
   private readonly caption = createSignal<AgentTranscriptEntry | null>(null);
   private readonly projected = createSignal(undefined, { equals: false });
+  private segments = new AgentActivitySegments();
   private activities = new Map<string, { index: number; projection: ProjectedAgentActivity }>();
   readonly transcript = this.state[0];
   readonly card = this.caption[0];
@@ -120,9 +121,10 @@ export class AgentConversationProjection {
     const project = (messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
       if (!changedState && this.upsert(changes)) return [];
       const projection = projectAgentTranscript(messages, cards);
+      this.segments = projection.segments;
       for (const entry of projection.entries) {
         if (this.expanded.has(entry.id)) {
-          const activity = projection.activities.get(entry.id);
+          const activity = projection.segments.groups.get(entry.id)?.projection;
           if (activity !== undefined) entry.details = activity.materialize();
         }
       }
@@ -132,7 +134,7 @@ export class AgentConversationProjection {
       this.entryIndexes = new Map();
       ordered.entries.forEach((entry, index) => {
         this.entryIndexes.set(entry.id, index);
-        const activity = projection.activities.get(entry.id);
+        const activity = projection.segments.groups.get(entry.id)?.projection;
         if (activity !== undefined) this.activities.set(entry.id, { index, projection: activity });
       });
       this.state[1]((previous) =>
@@ -226,17 +228,24 @@ export class AgentConversationProjection {
     const mutations: Array<{
       activity: { index: number; projection: ProjectedAgentActivity };
       message: AgentPaneUpdate;
+      segment: AgentActivitySegment;
     }> = [];
     for (const message of changes) {
       if (!message.turnId) return false;
-      const activity = this.activities.get(`activity-${paneActivityIdentity(message, "")}`);
-      if (activity === undefined || !activity.projection.canUpsert(message)) return false;
-      mutations.push({ activity, message });
+      const segment = this.segments.find(message, "");
+      const activity = segment === undefined ? undefined : this.activities.get(segment.entry.id);
+      if (
+        segment === undefined ||
+        activity === undefined ||
+        !activity.projection.canUpsert(message)
+      )
+        return false;
+      mutations.push({ activity, segment, message });
     }
     const changed = new Map<(typeof mutations)[number]["activity"], Set<number>>();
-    for (const { activity, message } of mutations) {
+    for (const { activity, segment, message } of mutations) {
       const indexes = changed.get(activity) ?? new Set<number>();
-      indexes.add(activity.projection.upsert(message));
+      indexes.add(this.segments.upsert(segment, message));
       changed.set(activity, indexes);
     }
     for (const [activity, indexes] of changed) {

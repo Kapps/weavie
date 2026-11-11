@@ -173,6 +173,16 @@ public static class CoreSettings {
 				: ValidationResult.Failure("agent.replyStartOffset must be a number from 0 up to, but not including, 1."),
 		});
 
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.ThoughtDisplay,
+			Kind = SettingKind.String,
+			Description = "Show agent thought text inline or in separate collapsed Thinking entries. Thought text can include replies and reasoning summaries.",
+			Aliases = ["show thinking", "collapse thinking", "thought display"],
+			Apply = ApplyMode.Live,
+			Default = "inline",
+			AllowedValues = ["inline", "collapsed"],
+		});
+
 		InferenceSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

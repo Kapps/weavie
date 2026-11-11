@@ -533,6 +533,7 @@ a:has(> .agent-path-dir) {
   color: var(--accent);
 }
 
+.agent-entry-thought,
 .agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request,

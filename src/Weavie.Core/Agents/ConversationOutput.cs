@@ -101,14 +101,13 @@ public sealed class ConversationView(ConversationOutput output, string providerI
 	/// <summary>The current materialized transcript.</summary>
 	public IReadOnlyList<AgentPaneMessage> Rows => output.ReadView(providerId, conversationId, active: false);
 
-	/// <summary>Materializes unfinished agent content for the controller to complete and persist.</summary>
-	public IReadOnlyList<AgentPaneMessage> CompleteContent() => [.. output.ReadView(providerId, conversationId, active: true)
-		.Where(row => row.ItemType is "agentMessage" or "thought")
-		.Select(row => row with {
-			Type = "item-completed", Status = "completed", Text = row.Text is { Length: > 0 } ? row.Text : null,
-			Category = row.ItemType == "thought" ? "thought" : null,
-			Summary = row.ItemType == "thought" ? "Reasoning" : null,
-		})];
+	/// <summary>Materializes the exact content run for its controller to complete and persist.</summary>
+	public AgentPaneMessage? CompleteContent(string? threadId, string turnId, string itemId) {
+		string key = AgentPaneIdentity.ItemKey(providerId, conversationId, threadId, turnId, itemId)!;
+		var row = output.FindItem(key);
+		return row is null ? null : row with { Type = "item-completed", Status = "completed" };
+	}
+
 }
 
 /// <summary>A materialized row or live update at an exact generation, ordinal, and revision.</summary>

@@ -33,6 +33,7 @@ internal sealed partial class FakeAcpAgent {
 			PermissionToolUpdate(id, "completed");
 			return;
 		}
+		if (scenario == "content") VisibilityContent("agent_thought_chunk", "Before permission.", null);
 		var request = Connection().RequestAsync("session/request_permission", new JsonObject {
 			["sessionId"] = _sessionId,
 			["toolCall"] = existing || scenario == "id-only" ? new JsonObject { ["toolCallId"] = id } : tool,
@@ -40,16 +41,18 @@ internal sealed partial class FakeAcpAgent {
 				new JsonObject { ["optionId"] = "allow", ["name"] = plan ? "Yes, implement this plan" : "Allow", ["kind"] = "allow_once" },
 				new JsonObject { ["optionId"] = "reject", ["name"] = plan ? "No, revise this plan" : "Reject", ["kind"] = "reject_once" }),
 		}, ct);
+		if (scenario == "content") VisibilityContent("agent_thought_chunk", "During permission", null);
 		if (scenario == "immediate") PermissionToolUpdate(id, "in_progress");
 		var result = await request.ConfigureAwait(false);
 		string outcome = result.GetProperty("outcome").GetProperty("outcome").GetString()!;
 		string decision = outcome == "selected" ? result.GetProperty("outcome").GetProperty("optionId").GetString()! : outcome;
-		if (scenario is "initial" or "duplicate") {
+		if (scenario is "initial" or "duplicate" or "content") {
 			var initial = (JsonObject)tool.DeepClone();
 			initial["sessionUpdate"] = "tool_call";
 			Update(initial);
 			if (scenario == "duplicate") Update((JsonObject)initial.DeepClone());
 		}
+		if (scenario == "content") VisibilityContent("agent_thought_chunk", " and after approval.", null);
 		if (edit && decision == "allow") File.WriteAllText(path, "after permission\n");
 		if (scenario == "edit-hold") {
 			Message("permission approved and held");

@@ -1090,7 +1090,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.ItemType == "agentMessage"
 			&& message.Type == "item-completed" && message.Text == "final answer");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
-		Assert.DoesNotContain(fixture.Messages, message => message.ItemId?.Contains("assistant-only-message", StringComparison.Ordinal) == true);
+		Assert.DoesNotContain(fixture.Messages, message => message.MessageId == "assistant-only-message");
 
 	}
 
@@ -1207,7 +1207,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.Type == "user-message"
 			&& !string.IsNullOrEmpty(message.ItemId));
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
-			&& message.ItemId == "thought:thought");
+			&& message.ItemId == fixture.Messages.First(item => item.Type == "thought-message-delta").ItemId);
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
 				&& message.ItemId == "progress:current");
 		Assert.Equal(fixture.Messages.Where(message => message.Type == "item-retracted"),

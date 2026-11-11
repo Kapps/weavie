@@ -177,6 +177,7 @@ function hasReviewTarget(message: AgentPaneUpdate): boolean {
 }
 
 function activityCategory(message: AgentPaneUpdate): string | null {
+  if (message.itemType === "thought") return null;
   switch (message.type) {
     case "file-patch-updated":
       return "edit";

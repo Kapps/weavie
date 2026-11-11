@@ -663,6 +663,7 @@ internal sealed class RecordingAgentEventSink : IAgentEventSink {
 	public ConcurrentQueue<AgentEvent> Values { get; } = [];
 	public ConcurrentQueue<string> Logs { get; } = [];
 	public SessionStatusMachine Status { get; } = new();
+	public event Action<AgentEvent>? Observed;
 
 	public RecordingAgentEventBlock BlockNext<T>() where T : AgentEvent {
 		lock (_blockGate) {
@@ -687,6 +688,7 @@ internal sealed class RecordingAgentEventSink : IAgentEventSink {
 		Status.Observe(value);
 		Values.Enqueue(value);
 		_events.Writer.TryWrite(value);
+		Observed?.Invoke(value);
 		return AgentEventFeedback.None;
 	}
 

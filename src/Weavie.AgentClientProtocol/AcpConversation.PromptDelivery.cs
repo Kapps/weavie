@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
@@ -9,43 +10,52 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	private async Task DeliverPromptAsync(string threadId, AgentTurnSubmission submission) {
 		bool guidanceSentBefore = false;
+		JsonElement result = default;
+		Exception? failure = null;
 		try {
-			Task<JsonElement> request;
+			Task<JsonElement>? request = null;
 			lock (_turnTransitionGate) {
-				if (!Live) return;
-				lock (_gate) guidanceSentBefore = _guidanceSent;
-				var prompt = BuildPrompt(submission);
-				try {
-					SaveContinuation();
-				} catch (AcpSessionStoreException ex) {
-					_endpoint.Value.Terminate(ex.Message);
-					throw;
+				if (Live) {
+					lock (_gate) guidanceSentBefore = _guidanceSent;
+					var prompt = BuildPrompt(submission);
+					try {
+						SaveContinuation();
+					} catch (AcpSessionStoreException ex) {
+						_endpoint.Value.Terminate(ex.Message);
+						throw;
+					}
+					Emit(new AgentPaneMessage {
+						Type = "turn-started",
+						ProviderId = Definition.Id,
+						ThreadId = threadId,
+						TurnId = TurnId(),
+						IsPrimaryThread = !_spec.Side,
+						StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+					});
+					EmitSubmitted(
+						submission,
+						submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
+						prompt.Images);
+					Observe(new AgentPromptSubmitted(threadId, submission.Text));
+					Background.ClearFinished();
+					request = _endpoint.Value.RequestAsync(
+						"session/prompt",
+						new JsonObject { ["prompt"] = prompt.Blocks },
+						CancellationToken.None);
 				}
-				Emit(new AgentPaneMessage {
-					Type = "turn-started",
-					ProviderId = Definition.Id,
-					ThreadId = threadId,
-					TurnId = TurnId(),
-					IsPrimaryThread = !_spec.Side,
-					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-				});
-				EmitSubmitted(
-					submission,
-					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
-					prompt.Images);
-				Observe(new AgentPromptSubmitted(threadId, submission.Text));
-				Background.ClearFinished();
-				request = _endpoint.Value.RequestAsync(
-					"session/prompt",
-					new JsonObject { ["prompt"] = prompt.Blocks },
-					CancellationToken.None);
 			}
-			var result = await request.ConfigureAwait(false);
-			string stopReason = RequiredString(result, "stopReason", "session/prompt response");
-			string turnId = TurnId();
-			bool background;
-			lock (_turnTransitionGate) {
+			if (request is not null) result = await request.ConfigureAwait(false);
+		} catch (Exception error) {
+			failure = error;
+		}
+		// Completion publication and release of the delivery slot are one transition.
+		lock (_turnTransitionGate) {
+			try {
 				if (!Live) return;
+				if (failure is not null) ExceptionDispatchInfo.Throw(failure);
+				string stopReason = RequiredString(result, "stopReason", "session/prompt response");
+				string turnId = TurnId();
+				bool background;
 				lock (_gate) {
 					_promptActive = false;
 					if (_cancelRequested) _cancelRequested = false;
@@ -65,9 +75,7 @@ internal sealed partial class AcpConversation {
 					Status = stopReason,
 				});
 				if (!background) SignalSettled();
-			}
-		} catch (Exception ex) when (ex is not OperationCanceledException) {
-			lock (_turnTransitionGate) {
+			} catch (Exception ex) when (ex is not OperationCanceledException) {
 				if (!Live) return;
 				bool cancellationFailed;
 				lock (_gate) cancellationFailed = _cancelRequested && ex is not AcpRequestException { Code: -32800 };
@@ -124,9 +132,7 @@ internal sealed partial class AcpConversation {
 					if (!cancelled) EmitFailure(ex);
 					if (!background) SignalSettled();
 				}
-			}
-		} finally {
-			lock (_turnTransitionGate) {
+			} finally {
 				lock (_gate) _promptDeliveryActive = false;
 				if (Live) DispatchPendingSubmission();
 			}

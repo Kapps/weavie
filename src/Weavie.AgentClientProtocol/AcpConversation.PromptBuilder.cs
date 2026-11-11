@@ -80,6 +80,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void EmitSubmitted(AgentTurnSubmission submission, string type, IReadOnlyList<SubmittedImage> images) {
+		CompleteContentStreams();
 		if (submission.Text.Length > 0) {
 			Emit(new AgentPaneMessage {
 				Type = type,

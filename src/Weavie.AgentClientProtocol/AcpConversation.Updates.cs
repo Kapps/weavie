@@ -75,47 +75,4 @@ internal sealed partial class AcpConversation {
 		CancelCompletedClientRequest(state);
 	}
 
-	private void EmitContent(JsonElement update, string deltaType, string itemType) {
-		if (!update.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Object) {
-			throw new AcpProtocolException("An ACP content update is missing its content block.");
-		}
-
-		if (!AcpContentAnnotations.IsUserVisible(content)) return;
-		string turnId = TurnId();
-		string? messageId = OptionalString(update, "messageId");
-		string id = $"{itemType}:{messageId ?? turnId}";
-		string? type = OptionalString(content, "type");
-		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
-		var message = new AgentPaneMessage {
-			Type = deltaType,
-			ProviderId = Definition.Id,
-			ThreadId = SessionId(),
-			TurnId = turnId,
-			MessageId = messageId,
-			ItemId = id,
-			ItemType = itemType,
-			Text = text,
-			MediaType = type is "image" or "audio" ? OptionalString(content, "mimeType") : null,
-			MediaData = type is "image" or "audio" ? OptionalString(content, "data") : null,
-			ResourceUri = OptionalString(content, "uri") ?? EmbeddedUri(content),
-		};
-		Emit(message);
-	}
-
-	private void CompleteContentStreams() {
-		foreach (var message in DrainContentStreams()) Emit(message);
-	}
-
-	private IReadOnlyList<AgentPaneMessage> DrainContentStreams() => _port.CompleteContent();
-
-	private static string? ResourceText(JsonElement content) {
-		if (!content.TryGetProperty("resource", out var resource)) {
-			return OptionalString(content, "description") ?? OptionalString(content, "title");
-		}
-		return OptionalString(resource, "text");
-	}
-
-	private static string? EmbeddedUri(JsonElement content) =>
-		content.TryGetProperty("resource", out var resource) ? OptionalString(resource, "uri") : null;
-
 }

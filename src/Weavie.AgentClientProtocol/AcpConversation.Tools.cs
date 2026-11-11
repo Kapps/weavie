@@ -65,9 +65,10 @@ internal sealed partial class AcpConversation {
 	private AcpToolState MergeTool(JsonElement update, ToolUpdateSource source) {
 		string id = RequiredString(update, "toolCallId", "tool call update");
 		AcpToolState tool;
+		bool introduced;
 		lock (_gate) {
-			bool exists = _tools.TryGetValue(id, out tool!);
-			if (!exists) {
+			introduced = !_tools.TryGetValue(id, out tool!);
+			if (introduced) {
 				if (source == ToolUpdateSource.Update) {
 					throw new AcpProtocolException($"ACP updated unknown tool call '{id}'.");
 				}
@@ -119,6 +120,7 @@ internal sealed partial class AcpConversation {
 				&& tasks.TryGetProperty("backgrounded", out var backgrounded) && backgrounded.ValueKind == JsonValueKind.True;
 			tool.Subagent |= Air(update, "subagent").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null);
 		}
+		if (introduced) CompleteContentStreams();
 		return tool;
 	}
 

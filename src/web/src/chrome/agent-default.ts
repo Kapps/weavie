@@ -20,6 +20,7 @@ declare global {
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
+  thoughtDisplay: "inline",
   providers: [
     {
       id: "claude",
@@ -49,6 +50,11 @@ function defaultsFor(backendId: string): Pick<AgentDefaults, "defaultProvider" |
 /** How far down the agent pane a reply read from its start rests; a preference of the host serving this page. */
 export function agentReplyStartOffset(): number {
   return byBackend().get(LOCAL_BACKEND_ID)!.replyStartOffset;
+}
+
+/** The thought presentation selected on the session's own backend. */
+export function agentThoughtDisplay(backendId: string): AgentDefaults["thoughtDisplay"] {
+  return byBackend().get(backendId)!.thoughtDisplay;
 }
 
 /** The provider the New Session prompt should preselect. */

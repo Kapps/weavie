@@ -196,6 +196,7 @@ public sealed class WorkflowRolesTests : IDisposable {
 		foreach (var (args, message) in new[] {
 			("""{"provider":"fake-acp","clear":true}""", "'role' is required."),
 			("""{"role":"Planner","provider":"fake-acp","agent":{"provider":"fake-acp","model":"alpha"}}""", "\"Planner\" isn't a role name: use lowercase words joined by hyphens."),
+			("""{"role":"Planner","provider":"fake-acp","clear":true}""", "\"Planner\" isn't a role name: use lowercase words joined by hyphens."),
 			("""{"role":"planner","provider":"nope","clear":true}""", "No agent provider 'nope' is registered; the providers are fake-acp."),
 			("""{"role":"planner","provider":"fake-acp"}""", "weavie.workflow.setRole takes exactly one of 'agent' or 'clear'."),
 			("""{"role":"planner","provider":"fake-acp","agent":{"model":"alpha"}}""", "'agent.provider' is required."),

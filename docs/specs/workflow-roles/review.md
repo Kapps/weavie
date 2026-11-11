@@ -5,7 +5,8 @@ a duplication pass over the diff, and every finding was checked against the code
 
 - **First pass**: commit `106e355d`, the whole feature.
 - **Second pass**: commit `cef27991`, the fixes; it confirms each fix and reviews only what that commit changed.
-- Second-pass findings are fixed in the commit after `cef27991`.
+- **Third pass**: commit `496a0daa`, the second round of fixes, reviewed the same way.
+- 18, 19, and 22 are fixed in the commit after `496a0daa`, with no further review pass; 20 and 21 stay open as nits.
 
 ## Findings
 
@@ -28,6 +29,11 @@ a duplication pass over the diff, and every finding was checked against the code
 | 15 | nit | fixed | The fixes copied two pieces of logic: the required-argument check and the role-name rule. |
 | 16 | nit | fixed | The `listWorkflows` roles assertions sat in the test named for forking. |
 | 17 | nit | fixed | The design's error table lacked the refusals the fixes added. |
+| 18 | warn | fixed | `setRole` with `clear` no longer said a malformed role name is malformed. |
+| 19 | nit | fixed | A comment said the provider's refusal comes first; the stray-role check precedes it. |
+| 20 | nit | open | One provider-level reason is still masked when every role has a pick. |
+| 21 | nit | open | The `Save` guard and two tests claim more than they check. |
+| 22 | nit | fixed | A doubled blank line was left in `WorkflowRoleCommand.cs`. |
 
 ## Detail
 
@@ -230,6 +236,64 @@ The `listWorkflows` roles assertions are in `ForkWorkflowCopiesIntoAScopeAndRepo
 `<Name>'s models aren't known yet, so its roles can't be picked.`, both added by the fixes.
 
 **Fixed.** The table lists both refusals, and the pick pseudo-code shows `Save` after `Prepare`.
+
+## Third pass
+
+### Fixes confirmed
+
+All seven hold:
+
+- **13**: `Picks.Resolve` writes nothing and `NewSessionAsync` calls `picks.Save()` only after `Prepare` returns
+  (`src/Weavie.Hosting/HostCore.Sessions.cs:707`), so the order of steps inside `Prepare` no longer matters.
+- **14**: the provider's refusal precedes every pick check but the stray-role one
+  (`src/Weavie.Core/Workflows/WorkflowRoleResolver.cs:63`); see 19 and 20 for what is left.
+- **15**: one `Required` body, added as an overload, and the role-name rule only in `WorkflowRoleStore.Problem`; see 18
+  for its effect on `clear`.
+- **11**: both `weavie.session.new` paths answer with `AgentProviderRegistry.Unregistered`. The consult tool
+  (`src/Weavie.Core/Agents/AgentConsultation.cs:46`) keeps its own text, which predates the feature.
+- **7**, **16**, **17** as described under each finding.
+
+### 18. `clear` accepts a malformed role name (warn)
+
+With the command's own check gone, only `WorkflowRoleStore.Set` validates a role name; `Clear` doesn't.
+`{"role":"Planner","provider":"claude-acp","clear":true}` answers `No Planner is saved for claude-acp sessions.`
+(`src/Weavie.Core/Workflows/WorkflowRoleCommand.cs:23`) where it used to answer `"Planner" isn't a role name: …`.
+The reply is true, since no such name can be saved, but an agent that mistyped the case can report that nothing is
+saved while `planner` still is. The test case was moved from the `clear` form to the `agent` form
+(`tests/Weavie.Core.Tests/Workflows/WorkflowRolesTests.cs:198`), and [design.md](design.md) still says `IsRoleName`
+"lets the command reject a name" and lists the refusal under every `setRole` argument.
+
+**Fixed.** `WorkflowRoleStore.Clear` refuses a name no role can have, with the sentence `Set` uses, so the rule stays in the store for both writes. The test asserts it for the `clear` and the `agent` form, and the design names the store as where the rule lives.
+
+### 19. Comment and order disagree (nit)
+
+The comment at `src/Weavie.Core/Workflows/WorkflowRoleResolver.cs:60` says the provider's own refusal comes first,
+but the stray-role check runs before it: a start on terminal Claude with a pick for a role the workflow doesn't ask
+for reports `asks for no role "X"`. The design's pseudo-code gives this order, so only the comment is wrong.
+
+**Fixed.** The comment says the provider's refusal precedes the model checks.
+
+### 20. A provider with no catalog entry (nit)
+
+For a structured provider the model catalog holds no entry for (it probes only available providers), a pick for
+every role fills every gap, so `NoModelChoice` never fires and the start reports `<Name>'s models aren't known yet…`
+(`src/Weavie.Core/Workflows/WorkflowRoleResolver.cs:66`); the same provider with a pick for only some roles reports
+`…offers no model to choose.` Only an agent's `weavie.session.new` reaches it.
+
+### 21. The guard and its tests (nit)
+
+`Picks.Save`'s doc, exception text, and `PicksAreSavedOnlyOnceTheirLaunchWasPrepared` say "after a launch was
+prepared", but `_resolved` records only that `Resolve` returned once (`src/Weavie.Core/Workflows/WorkflowRoleResolver.cs:98`);
+the real guarantee is the statement order in `NewSessionAsync`. No test covers `Save` staying refused after a
+`Resolve` that threw. The hosting test's unknown-input start
+(`tests/Weavie.Hosting.Tests/HostCoreWorkflowRoleTests.cs:88`) never reaches the resolver, because `ReadInputs` runs
+first, so it would also have passed before the fix.
+
+### 22. Blank lines (nit)
+
+Two blank lines remain at `src/Weavie.Core/Workflows/WorkflowRoleCommand.cs:37`, where `AgentArgument` was removed.
+
+**Fixed.**
 
 ## Checked and sound
 

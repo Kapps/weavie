@@ -164,7 +164,7 @@ probed, so "loading" is the pending request.
 | `WorkflowWork.Role` | `WorkflowDefinition.cs` | `public required string? Role { get; init; }` beside `Agent` |
 | `WorkflowDefinition.Roles` | `WorkflowDefinition.cs` | distinct `Stages[].Run.Role` in first-use order |
 | `WorkflowDefinition.AgentOf(stage, roles)` | `WorkflowDefinition.cs` | the one lookup: the pinned agent, or the role's agent in `roles`, or null; the runner is strict about a missing role, the refusals skip it |
-| `role` field, `WorkflowSchema.IsRoleName` | `WorkflowSchema.cs` | a `TextShape` with `IdPattern()` after `agent`; `IsRoleName` lets the command reject a name no YAML can ask for |
+| `role` field, `WorkflowSchema.IsRoleName` | `WorkflowSchema.cs` | a `TextShape` with `IdPattern()` after `agent`; `IsRoleName` lets the role store refuse to save or clear a name no YAML can ask for |
 | parse, validate | `WorkflowReader.cs`, `WorkflowSemantics.cs` | read `role`; `a step takes agent or role, not both` at `…run.role` |
 | `IWorkflowRoleResolver` | `WorkflowCatalog.cs` | new seam, below |
 | `WorkflowCatalog.Prepare` | `WorkflowCatalog.cs` | one signature taking the resolver; the two-argument overload is deleted |

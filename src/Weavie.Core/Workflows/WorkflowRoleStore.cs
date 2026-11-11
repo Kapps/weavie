@@ -65,8 +65,12 @@ public sealed partial class WorkflowRoleStore : StrictJsonDocumentStore<Dictiona
 		}
 	}
 
-	/// <summary>Removes <paramref name="role"/> from <paramref name="providerId"/> sessions; false when none was saved.</summary>
+	/// <summary>
+	/// Removes <paramref name="role"/> from <paramref name="providerId"/> sessions; false when none was saved. Throws
+	/// <see cref="WorkflowException"/> for a name no role can have.
+	/// </summary>
 	public bool Clear(string providerId, string role) {
+		if (!WorkflowSchema.IsRoleName(role)) throw new WorkflowException(NotARoleName(role));
 		lock (Gate) {
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var roles) || !roles.Remove(role)) return false;
@@ -94,11 +98,12 @@ public sealed partial class WorkflowRoleStore : StrictJsonDocumentStore<Dictiona
 	// The one rule for an entry, so nothing is saved that the file can't be read back with.
 	private static string? Problem(string providerId, IReadOnlyDictionary<string, WorkflowRoleAgent> agents) =>
 		providerId.Length == 0 ? "A workflow role needs a session provider."
-		: agents.FirstOrDefault(entry => !WorkflowSchema.IsRoleName(entry.Key)) is { Key: { } name }
-			? $"\"{name}\" isn't a role name: use lowercase words joined by hyphens."
+		: agents.FirstOrDefault(entry => !WorkflowSchema.IsRoleName(entry.Key)) is { Key: { } name } ? NotARoleName(name)
 		: agents.Values.Any(agent => agent.Provider.Length == 0 || agent.Model.Length == 0)
 			? "A workflow role needs an agent provider and model."
 		: null;
+
+	private static string NotARoleName(string name) => $"\"{name}\" isn't a role name: use lowercase words joined by hyphens.";
 
 	/// <inheritdoc/>
 	protected override string Write(Dictionary<string, Dictionary<string, WorkflowRoleAgent>> state) =>

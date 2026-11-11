@@ -57,7 +57,7 @@ public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderI
 		return new(agents, gaps, refusal, offered);
 	}
 
-	// The provider's own refusal comes first, so a pick never masks why the provider can't run the definition.
+	// The provider's own refusal precedes the model checks, so a pick never masks why the provider can't run the definition.
 	private IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition, IReadOnlyDictionary<string, string> picks) {
 		var read = Read(definition, picks);
 		string? refusal = picks.Keys.FirstOrDefault(role => !definition.Roles.Contains(role)) is { } stray

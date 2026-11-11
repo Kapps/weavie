@@ -35,7 +35,6 @@ public static class WorkflowRoleCommand {
 			+ (saved.Provider == provider ? "." : $" on {saved.Provider}, which runs only once steps on another provider are built.");
 	}
 
-
 	// Agents write option values as JSON text, booleans, or numbers; the provider's value ids are text.
 	private static Dictionary<string, string> Options(JsonElement agent) {
 		var options = new Dictionary<string, string>(StringComparer.Ordinal);

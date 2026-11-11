@@ -53,6 +53,9 @@ flowchart LR
   PR -->|Claude| L["Claude .jsonl transcript"]
   P -->|send, under B's lifecycle gate| Q["B: IStructuredAgentSession.Submit"]
   Q --> BP["B's pane and journal"]
+  P -->|"read B#btw"| V["B's scoped output view"]
+  P -->|"send to B#btw"| R["B: ReplyAside"]
+  R --> BP
 ```
 
 ## Reading
@@ -89,8 +92,7 @@ entry.
 
 A send is refused, with a tool error naming the cause, when the target is the caller, the id is unknown, the target
 is not loaded, the target runs in a terminal, a side session can no longer be continued, or Weavie is draining for a
-restart. The send runs under the target
-slot's lifecycle gate, so it cannot race an unload or delete.
+restart. The send runs under the target slot's lifecycle gate, so it cannot race an unload or delete.
 
 **Sending to a terminal Claude session is refused.** Pasting text into Claude's terminal and pressing Enter would
 submit it joined to whatever the user has half-typed, and on an open permission prompt or menu Enter picks the

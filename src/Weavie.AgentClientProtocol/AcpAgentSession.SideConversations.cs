@@ -9,7 +9,7 @@ public sealed partial class AcpAgentSession {
 	public IReadOnlyList<AgentAside> Asides {
 		get {
 			lock (_turnTransitionGate) {
-				return [.. _sideConversations.Values.Where(side => !side.Failed)
+				return [.. _sideConversations.Values.Where(side => Continuable(side) || _sides.ContainsKey(side.ConversationId))
 					.Select(side => new AgentAside(side.ConversationId, side.InitialPrompt, _sides.GetValueOrDefault(side.ConversationId) is { Settled: false }))];
 			}
 		}
@@ -44,7 +44,7 @@ public sealed partial class AcpAgentSession {
 				conversation.Submit(submission);
 				return;
 			}
-			if (_sideConversations.GetValueOrDefault(conversationId) is not { Failed: false, SessionId: not null } state) {
+			if (_sideConversations.GetValueOrDefault(conversationId) is not { } state || !Continuable(state)) {
 				throw new InvalidOperationException("That side conversation is no longer available.");
 			}
 			EnsureSideConversationSupport(_primary);
@@ -117,6 +117,8 @@ public sealed partial class AcpAgentSession {
 		IsPrimaryThread = false,
 		Status = status,
 	};
+
+	private static bool Continuable(AcpConversationState side) => side is { Failed: false, SessionId: not null };
 
 	private static SideConversation Side(AcpConversationState state) =>
 		new(state.ConversationId, state.AnchorTurnNumber, state.InitialPrompt);

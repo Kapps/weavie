@@ -35,10 +35,12 @@ public sealed partial class HostCore {
 		string title = SessionName.Title(slot.Label);
 		IReadOnlyList<AgentTranscriptEntry> entries;
 		if (side is not null) {
-			entries = await _ui.InvokeAsync(() => Task.FromResult(
-				RequireLoaded(slot).Agent is { SideConversations: { } sides } agent && sides.Asides.Any(aside => aside.Id == side)
-					? AgentTranscript.FromPaneJournal(agent.Output.View(slot.AgentProviderId, side).Rows)
-					: throw UnknownPeer(sessionId)), ct).ConfigureAwait(false);
+			var rows = await _ui.InvokeAsync(() => {
+				var session = RequireLoaded(slot);
+				RequireSide(session, side, sessionId);
+				return Task.FromResult(session.Agent.Output.View(slot.AgentProviderId, side).Rows);
+			}, ct).ConfigureAwait(false);
+			entries = AgentTranscript.FromPaneJournal(rows);
 			return new(sessionId, SideTitle(title), entries.Count, [.. entries.TakeLast(count)]);
 		}
 		try {
@@ -79,7 +81,7 @@ public sealed partial class HostCore {
 				return Task.FromResult(new SessionPeerDelivery(slot.Id, StatusName(target.Status.Status)));
 			}
 			try {
-				(target.Agent.SideConversations ?? throw UnknownPeer(sessionId)).ReplyAside(side, submission);
+				RequireSide(target, side, sessionId).ReplyAside(side, submission);
 			} catch (InvalidOperationException ex) {
 				throw new SessionPeerException($"Session '{sessionId}' can't take the message: {ex.Message}");
 			}
@@ -100,6 +102,9 @@ public sealed partial class HostCore {
 
 	private static HostSession RequireLoaded(SessionSlot slot) => slot.Session
 		?? throw new SessionPeerException($"Session '{slot.Id}' isn't loaded. Load it with weavie.session.load (id '{slot.Id}') first.");
+
+	private static IStructuredAgentSideConversations RequireSide(HostSession session, string side, string id) =>
+		session.Agent.SideConversations is { } sides && sides.Asides.Any(aside => aside.Id == side) ? sides : throw UnknownPeer(id);
 
 	private static SessionPeerException SenderGone() => new("The sending session no longer exists.");
 

@@ -92,6 +92,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
 		}
 
+		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, sessions);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
@@ -102,7 +103,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
 		_sessions = sessions;
-		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, sessions);
 		_agents = agents;
 		_reviewHints = reviewHints;
 		_workflows = workflows;

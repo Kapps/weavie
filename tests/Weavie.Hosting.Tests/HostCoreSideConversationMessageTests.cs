@@ -60,7 +60,7 @@ public sealed class HostCoreSideConversationMessageTests {
 
 		session.Agent.Structured!.Submit(AgentTurnSubmission.Prompt($$"""mcp:messageSession:{"id":"{{side}}","message":"answer"}"""));
 
-		await Eventually(() => Pane(host, session).Any(message => Text(message) == "echo: answer"));
+		await Eventually(() => Pane(host, session).Any(message => message.GetProperty("type").GetString() == "item-completed" && Text(message) == "echo: answer"));
 		var answer = Assert.Single(Pane(host, session), message => Text(message) == "answer");
 		Assert.Equal((current.GetProperty("conversationId").GetString(), new AgentMessageSender("btw-parent", "btw parent")),
 			(answer.GetProperty("conversationId").GetString(), Sender(answer)));
@@ -73,8 +73,10 @@ public sealed class HostCoreSideConversationMessageTests {
 		var peers = session.Peers.Side(side[(side.IndexOf('#') + 1)..]);
 		Assert.Equal("A session can't message itself.", (await RefusedAsync(() => peers.SendAsync(side, "ping", CancellationToken.None))).Message);
 		Assert.Equal("A session can't message itself.", (await RefusedAsync(() => session.Peers.SendAsync("btw-parent", "ping", CancellationToken.None))).Message);
-		Assert.Contains("no longer available", (await RefusedAsync(() => session.Peers.SendAsync("btw-parent#gone", "ping", CancellationToken.None))).Message, StringComparison.Ordinal);
-		Assert.Contains("No session has id 'btw-parent#gone'", (await RefusedAsync(() => session.Peers.ReadAsync("btw-parent#gone", 1, CancellationToken.None))).Message, StringComparison.Ordinal);
+		foreach (string unknown in new[] { "btw-parent#gone", "btw-parent#" }) {
+			Assert.Contains($"No session has id '{unknown}'", (await RefusedAsync(() => session.Peers.SendAsync(unknown, "ping", CancellationToken.None))).Message, StringComparison.Ordinal);
+			Assert.Contains($"No session has id '{unknown}'", (await RefusedAsync(() => session.Peers.ReadAsync(unknown, 1, CancellationToken.None))).Message, StringComparison.Ordinal);
+		}
 	}
 
 	private static async Task<HostSession> StartAsync(TestHost host, TempDirectory state, string mode) {

@@ -20,7 +20,7 @@ public interface ISessionPeers {
 	/// <summary>Every session on this host, including the caller's own, and with <paramref name="includeSides"/> the loaded ones' <c>/btw</c> side sessions.</summary>
 	Task<IReadOnlyList<SessionPeer>> ListAsync(bool includeSides, CancellationToken ct);
 
-	/// <summary>The last <paramref name="count"/> entries of <paramref name="sessionId"/>'s primary conversation.</summary>
+	/// <summary>The last <paramref name="count"/> entries of <paramref name="sessionId"/>'s conversation.</summary>
 	/// <exception cref="SessionPeerException">The session is unknown or its conversation can't be read.</exception>
 	Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct);
 

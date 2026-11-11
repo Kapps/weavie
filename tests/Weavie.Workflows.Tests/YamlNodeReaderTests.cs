@@ -44,6 +44,7 @@ public sealed class YamlNodeReaderTests {
 	[InlineData("a: 1\na: 2\n", "Duplicate key")]
 	[InlineData("", "empty")]
 	[InlineData("a: [1, 2\n", "")]
+	[InlineData("id: bad-yaml\ndescription: [unclosed\nstages:\n  - id: x\n", "malformed at or just after")]
 	public void RejectsWhatWorkflowsDoNotSupport(string text, string message) {
 		var ex = Assert.Throws<WorkflowFormatException>(() => YamlNodeReader.Read(text));
 		Assert.Contains(message, ex.Message, StringComparison.Ordinal);

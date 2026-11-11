@@ -5,6 +5,8 @@
     <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
     <ApplicationId>io.github.kapps.weavie.menutests</ApplicationId>
+    <!-- Unset, this defaults to the SDK pack's own macOS version, which can be newer than the machine running the tests. -->
+    <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

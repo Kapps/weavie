@@ -398,7 +398,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
 		Assert.Equal("built-in", quickFix.GetProperty("scope").GetString());
 		Assert.True(quickFix.GetProperty("valid").GetBoolean());
-		Assert.Equal("text", quickFix.GetProperty("inputs").GetProperty("task").GetString());
+		Assert.Empty(quickFix.GetProperty("inputs").EnumerateObject());
 
 		await SendAsync(ws, Request(3, "tools/call", """{"name":"getWorkflowSchema","arguments":{}}"""));
 		using var schema = await ReceiveAsync(ws);
@@ -569,7 +569,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	private sealed class UnusedPort : IWorkflowRunPort {
-		public void Kickoff(WorkflowKickoff turn) => throw new InvalidOperationException("No kickoff is expected.");
+		public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => throw new InvalidOperationException("No kickoff is expected.");
 
 		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
 

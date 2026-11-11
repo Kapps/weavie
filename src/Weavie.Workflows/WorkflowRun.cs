@@ -66,6 +66,12 @@ public sealed record WorkflowRun {
 	/// <summary>The run's inputs by name.</summary>
 	public required Dictionary<string, WorkflowValue> Inputs { get; init; }
 
+	/// <summary>What the run was started with; a run saved before runs had a prompt reads <see cref="WorkflowPrompt.None"/>.</summary>
+	public WorkflowPrompt Prompt { get; set; } = WorkflowPrompt.None;
+
+	/// <summary>Whether the agent has been sent the prompt's images.</summary>
+	public bool PromptImagesSent { get; set; }
+
 	/// <summary>The current stage id.</summary>
 	public required string Stage { get; init; }
 
@@ -120,6 +126,9 @@ public sealed record WorkflowKickoff {
 
 	/// <summary>The stage this turn opens, or empty for a question or a turn within the open stage.</summary>
 	public required string Opens { get; init; }
+
+	/// <summary>Whether the turn carries the images of the run's prompt.</summary>
+	public bool CarriesPromptImages { get; init; }
 
 	/// <summary>An ordinary prompt within the run's current stage.</summary>
 	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "", Opens = "" };

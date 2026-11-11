@@ -39,6 +39,7 @@ import {
   invokeSessionCommandOnBackend,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
+  launchSource,
   registerViewFeature,
   selectedSession,
   type TermSession,
@@ -905,14 +906,11 @@ export default function App(): JSX.Element {
       existing: boolean;
       prompt?: string;
       attachments?: { id: string; mime: string; dataB64: string }[];
+      workflow?: string;
       agentProviderId: string;
     },
   ): Promise<boolean> => {
-    const selected = selectedSession();
-    const source =
-      !args.existing && args.base === "source" && selected?.connection.id === backendId
-        ? selected.address
-        : undefined;
+    const source = args.existing ? undefined : launchSource(backendId, args.base)?.address;
     return dispatchCommandFromCatalog(backendId, CommandIds.newSession, { ...args, source })
       .then((result) => {
         if (!result.ok) {
@@ -2021,6 +2019,7 @@ export default function App(): JSX.Element {
                 existing: seed.existing,
                 prompt: seed.prompt,
                 attachments: seed.attachments,
+                ...(seed.workflow === null ? {} : { workflow: seed.workflow }),
                 agentProviderId: providerId,
               });
             })

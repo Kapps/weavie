@@ -12,10 +12,11 @@ internal sealed partial class WorkflowTransitions(
 	private const string No = "no";
 
 	/// <summary>
-	/// A new run of the definition with <paramref name="inputs"/>, entering its first stage; it keeps the
-	/// predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
+	/// A new run of the definition with <paramref name="inputs"/> and <paramref name="prompt"/>, entering its first
+	/// stage; it keeps the predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
 	/// </summary>
-	public WorkflowStep Start(string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold) {
+	public WorkflowStep Start(
+		string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold, WorkflowPrompt prompt) {
 		var run = new WorkflowRun {
 			Id = runId,
 			DocumentsDirectory = documentsDirectory,
@@ -23,6 +24,7 @@ internal sealed partial class WorkflowTransitions(
 			SourcePath = sourcePath,
 			SourceText = definition.SourceText,
 			Inputs = inputs,
+			Prompt = prompt,
 			Stage = definition.Stages[0].Id,
 			Phase = WorkflowPhase.Open,
 			Decision = null,
@@ -204,9 +206,12 @@ internal sealed partial class WorkflowTransitions(
 			return Pause(run with { Stage = stage.Id }, missing);
 		}
 
-		var kickoff = stage.Run.Skill is { } skill
+		// A conversation keeps the prompt's images once it has them, so only the first turn to use the prompt carries them.
+		bool images = !run.PromptImagesSent && run.Prompt.Images.Count > 0
+			&& (stage.Run.Prompt ?? stage.Run.Args)?.References.Any(r => r.IsPrompt) == true;
+		var kickoff = (stage.Run.Skill is { } skill
 			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
-			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
+			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id }) with { CarriesPromptImages = images };
 		return new WorkflowStep(
 			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);

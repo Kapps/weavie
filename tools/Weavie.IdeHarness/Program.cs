@@ -28,7 +28,7 @@ var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
 var credential = AgentSessionCredential.Create();
 await using var server = new McpServer(
-	credential.Token, presenter, [workspace], "weavie", settings: null, registryMode: false,
+	credential.Token, presenter, [workspace], "weavie", settings: null, settingsWorkspaceRoot: "", registryMode: false,
 	exposeIdeTools: true, layout: null, editor: null, commands: null, keybindings: null, themeOverrides: null,
 	NoSessionPeers.Instance, AgentConsultation.None, ReviewHintSink.None, WorkflowRegistry.None);
 int port = server.Start();

@@ -64,7 +64,7 @@ load it only when you need it.
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
 - **Decision providers** — one choice question over evidence answered with a probability per label by the
   live `inference.decisionProvider`: the agent, OpenAI Decisions, or TypeSafe Jev, the vendors over keys held in the
-  host-supplied credential store and connected with Connect Service…. Workflow decisions are the first consumer. See
+  host-supplied credential store and connected with Connect Service…. Workflow decisions and the new-session workflow suggestion consume it. See
   [docs/specs/inference-providers.md](docs/specs/inference-providers.md).
 - **Agent consultation** — any embedded agent can consult another configured agent by name ("check with
   Astra") through the registry tools `listAgents`/`consultAgent`: a Core-owned model catalog (refreshed at
@@ -96,8 +96,8 @@ load it only when you need it.
   contextual-suggestion card nudges once enough accumulate. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
 - **Workflows** — user-defined, agent-authored YAML processes (stages that run a prompt or skill, typed outputs,
-  `if`/`then` decisions answered by a model or the user) that a session runs; Weavie owns the run and the agent does
-  each stage. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
+  `if`/`then` decisions answered by a model or the user) that a session runs, started from the new-session composer
+  or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
   [docs/specs/workflows.md](docs/specs/workflows.md).
 - **Design system** — fixed-px chrome type roles, content and prose roles that follow the editor font, and
   layered primitives (row, button, field, section label, key hint, icon box, `ModalShell`) that make

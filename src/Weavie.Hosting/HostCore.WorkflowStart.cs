@@ -1,0 +1,62 @@
+using Weavie.Core.Configuration;
+using Weavie.Core.Workflows;
+using Weavie.Workflows;
+
+namespace Weavie.Hosting;
+
+// Starting a workflow from the new-session composer: the workflows it offers and the one a prompt suggests, both
+// read from the same catalog a start resolves. See docs/specs/new-session-workflow-picker/design.md.
+public sealed partial class HostCore {
+	private const string SourceGoneMessage = "The source session no longer exists.";
+
+	// Where a start reads its workflows and conventions from: the session it is made from, else the workspace. It is
+	// read before any worktree exists, so a bad start leaves no session behind and the new one runs what was checked.
+	private string LaunchRoot(SessionSlot? source) => source?.WorktreePath ?? WorkspaceRoot;
+
+	// False when the session a start names is gone.
+	private bool TryLaunchRoot(string? sourceId, out string root) {
+		var source = string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
+		root = LaunchRoot(source);
+		return source is not null || string.IsNullOrWhiteSpace(sourceId);
+	}
+
+	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(string root, CancellationToken ct) {
+		string configured = _settings.RequireString(WorkflowSettings.Default, WorkspaceRoot);
+		return Task.Run(() => WorkflowStartOptions.From(WeavieWorkflows.Catalog(root), configured), ct);
+	}
+
+	private string RequireLaunchRoot(string? sourceId) =>
+		TryLaunchRoot(sourceId, out string root) ? root : throw new InvalidOperationException(SourceGoneMessage);
+
+	private async Task<WorkflowStartCatalog> WorkflowStartCatalogAsync(WorkflowStartTarget target, CancellationToken ct) {
+		var options = await WorkflowStartOptionsAsync(RequireLaunchRoot(target.SourceId), ct).ConfigureAwait(false);
+		return new(
+			[.. options.Offered.Select(entry => new WorkflowOptionWire(
+				entry.Id, entry.Definition?.Description ?? "", entry.Definition is null ? entry.Error : null))],
+			options.Default,
+			options.DefaultProblem);
+	}
+
+	private async Task<WorkflowSuggestionResult> SuggestWorkflowAsync(WorkflowSuggestionRequest request, CancellationToken ct) {
+		double confidence = _settings.RequireNumber(WorkflowSettings.DecisionConfidence);
+		string root = RequireLaunchRoot(request.SourceId);
+		var options = await WorkflowStartOptionsAsync(root, ct).ConfigureAwait(false);
+		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory)
+			.SuggestAsync(options.Startable, request.Prompt, root, confidence, ct).ConfigureAwait(false);
+		return suggestion switch {
+			WorkflowSuggestion.Chosen chosen => new(true, chosen.WorkflowId, null),
+			WorkflowSuggestion.Failed failed => new(false, null, failed.Reason),
+			_ => new(false, null, null),
+		};
+	}
+
+	internal sealed record WorkflowStartTarget(string? SourceId);
+
+	internal sealed record WorkflowSuggestionRequest(string? SourceId, string Prompt);
+
+	internal sealed record WorkflowOptionWire(string Id, string Description, string? Error);
+
+	internal sealed record WorkflowStartCatalog(IReadOnlyList<WorkflowOptionWire> Workflows, string? Default, string? DefaultProblem);
+
+	internal sealed record WorkflowSuggestionResult(bool Applies, string? Workflow, string? Error);
+}

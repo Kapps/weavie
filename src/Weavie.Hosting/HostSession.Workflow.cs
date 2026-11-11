@@ -11,7 +11,7 @@ namespace Weavie.Hosting;
 // The session's workflow run: Weavie owns its stages and delivers each stage's turn; the agent does the work and
 // reports back through the session's registry. See docs/specs/workflows.md.
 public sealed partial class HostSession {
-	private readonly IdleTurnDelivery<WorkflowKickoff> _workflowTurns;
+	private readonly IdleTurnDelivery<OwedWorkflowTurn> _workflowTurns;
 	private int _runtimeActivated;
 
 	internal string? InheritedWorkflowDocuments { get; set; }
@@ -24,11 +24,11 @@ public sealed partial class HostSession {
 	/// <summary>The workflows visible to this session.</summary>
 	internal WorkflowCatalog WorkflowCatalog { get; }
 
-	private IdleTurnDelivery<WorkflowKickoff> CreateWorkflowTurns() => new(
+	private IdleTurnDelivery<OwedWorkflowTurn> CreateWorkflowTurns() => new(
 		Status,
 		new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
 		SendWorkflowTurn,
-		(_, ex) => FailWorkflowTurn(ex));
+		FailWorkflowTurn);
 
 	private WorkflowRunner CreateWorkflowRunner(
 		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot, Func<string, string> documentsDirectory) =>
@@ -47,29 +47,33 @@ public sealed partial class HostSession {
 
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
-	private void DeliverWorkflowTurn(WorkflowKickoff kickoff) {
+	private void DeliverWorkflowTurn(OwedWorkflowTurn owed) {
 		lock (_initialInputGate) {
 			if (Agent.TerminalSession is not null && Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
-				QueueInitialInput(kickoff.Submission());
-				_ = Task.Run(() => Workflow.TryClaimKickoff(kickoff));
+				QueueInitialInput(owed.Submission());
+				_ = Task.Run(() => Workflow.TryClaimKickoff(owed.Kickoff));
 				return;
 			}
 		}
 
-		_workflowTurns.Queue(kickoff);
+		_workflowTurns.Queue(owed);
 	}
 
-	private async Task SendWorkflowTurn(WorkflowKickoff kickoff) {
-		if (kickoff.Opens.Length > 0 && !await OpenStageAsync(kickoff).ConfigureAwait(false)) return;
-		if (Workflow.TryClaimKickoff(kickoff)) {
-			SendAgentInput(kickoff.Submission());
+	private async Task SendWorkflowTurn(OwedWorkflowTurn owed) {
+		if (owed.Kickoff.Opens.Length > 0 && !await OpenStageAsync(owed.Kickoff).ConfigureAwait(false)) return;
+		if (owed.Images.FirstOrDefault(image => !File.Exists(image.Path)) is { } missing) {
+			Workflow.RefuseOpen(owed.Kickoff, $"The prompt's image {missing.Path} is missing, so the stage's turn was not sent.");
+			return;
+		}
+		if (Workflow.TryClaimKickoff(owed.Kickoff)) {
+			SendAgentInput(owed.Submission());
 		}
 	}
 
-	private void FailWorkflowTurn(Exception ex) {
+	private void FailWorkflowTurn(OwedWorkflowTurn owed, Exception ex) {
 		string reason = $"Weavie couldn't send the stage's turn to the agent: {ex.Message}";
 		try {
-			Workflow.FailStage(reason);
+			Workflow.FailTurn(owed.Kickoff, reason);
 		} catch (WorkflowException) {
 			Notify("error", reason);
 		}
@@ -84,8 +88,13 @@ public sealed partial class HostSession {
 		_workflowRelease.Dispose();
 	}
 
+	// A turn the run owes, with the prompt images it carries.
+	private sealed record OwedWorkflowTurn(WorkflowKickoff Kickoff, IReadOnlyList<WorkflowTurnImage> Images) {
+		public AgentTurnSubmission Submission() => Kickoff.Submission(Images);
+	}
+
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {
-		public void Kickoff(WorkflowKickoff turn) => session.DeliverWorkflowTurn(turn);
+		public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => session.DeliverWorkflowTurn(new(turn, images));
 
 		public void Notify(string message) => session.Notify("warn", message);
 

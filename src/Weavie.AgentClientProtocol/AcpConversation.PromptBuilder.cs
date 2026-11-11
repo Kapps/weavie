@@ -6,19 +6,20 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
 	private PreparedPrompt BuildPrompt(AgentTurnSubmission submission) {
-		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
-			lock (_gate) {
-				var command = ResolveProviderCommandLocked(submission.CommandName);
-				string text = CanonicalCommandText(submission.Text, command.Name);
-				// The command stays the first block, which is how agents recognize it; context may follow it.
-				return submission.CarriesTurnContext && _context.TurnContext.Compose() is { Length: > 0 } stage
-					? new(new JsonArray(AcpContent.Text(text), AcpContent.AssistantText(stage)), [])
-					: new(new JsonArray(AcpContent.Text(text)), []);
-			}
-		}
-
 		var blocks = new List<JsonNode>();
 		var images = new List<SubmittedImage>();
+		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
+			lock (_gate) {
+				blocks.Add(AcpContent.Text(CanonicalCommandText(submission.Text, ResolveProviderCommandLocked(submission.CommandName).Name)));
+			}
+			// The command stays the first block, which is how agents recognize it; images and context may follow it.
+			AddImages(submission, blocks, images);
+			if (submission.CarriesTurnContext && _context.TurnContext.Compose() is { Length: > 0 } stage) {
+				blocks.Add(AcpContent.AssistantText(stage));
+			}
+			return new([.. blocks], images);
+		}
+
 		if (submission.Sender is { } sender) blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SessionMessage(sender)));
 		bool includesGuidance = false;
 		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
@@ -29,15 +30,7 @@ internal sealed partial class AcpConversation {
 		} else if (submission.Text.Length > 0) {
 			blocks.Add(AcpContent.Text(submission.Text));
 		}
-		foreach (var attachment in submission.Attachments) {
-			if (!_features.Images) {
-				throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
-			}
-			var image = new SubmittedImage(attachment.Id, attachment.Mime,
-				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
-			images.Add(image);
-			blocks.Add(AcpContent.Image(image.MediaType, image.Data));
-		}
+		AddImages(submission, blocks, images);
 
 		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
@@ -68,6 +61,22 @@ internal sealed partial class AcpConversation {
 		}
 
 		return new([.. blocks], images);
+	}
+
+	private void RequireImageSupport(AgentTurnSubmission submission) {
+		if (submission.Attachments.Count != 0 && !_features.Images) {
+			throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
+		}
+	}
+
+	private void AddImages(AgentTurnSubmission submission, List<JsonNode> blocks, List<SubmittedImage> images) {
+		RequireImageSupport(submission);
+		foreach (var attachment in submission.Attachments) {
+			var image = new SubmittedImage(attachment.Id, attachment.Mime,
+				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
+			images.Add(image);
+			blocks.Add(AcpContent.Image(image.MediaType, image.Data));
+		}
 	}
 
 	private void EmitSubmitted(AgentTurnSubmission submission, string type, IReadOnlyList<SubmittedImage> images) {

@@ -41,7 +41,7 @@ public sealed partial class AcpAgentSession :
 		ArgumentNullException.ThrowIfNull(log);
 		_context = context;
 		_sessions = sessions;
-		_runtime = new AcpRuntime(context, definition, controlDefaults, log, QueueBackground);
+		_runtime = new AcpRuntime(context, definition, controlDefaults, log, PublishBackground);
 		_primary = CreatePrimary(AcpConversationHandoff.Fresh(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false)));
 		_runtime.Select(_primary);
 	}
@@ -114,7 +114,7 @@ public sealed partial class AcpAgentSession :
 			_primary = next;
 			_runtime.Select(next);
 		}
-		QueueBackground();
+		PublishBackground();
 		return next;
 	}
 

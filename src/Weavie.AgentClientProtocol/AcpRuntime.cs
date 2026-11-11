@@ -159,8 +159,10 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 	}
 
 	internal void UpdateBackground() {
-		lock (TransitionGate) Volatile.Write(ref _background, [.. _conversations.Where(conversation => conversation.OwnsWork).SelectMany(conversation => conversation.Background.Items)]);
-		_backgroundChanged();
+		lock (TransitionGate) {
+			Volatile.Write(ref _background, [.. _conversations.Where(conversation => conversation.OwnsWork).SelectMany(conversation => conversation.Background.Items)]);
+			_backgroundChanged();
+		}
 	}
 
 	private AcpAgentDefinition ResolveDefinition() {

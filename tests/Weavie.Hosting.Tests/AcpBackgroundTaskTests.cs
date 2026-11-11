@@ -20,6 +20,8 @@ public sealed class AcpBackgroundTaskTests {
 			initialize["clientCapabilities"]!.ToJsonString());
 	}
 
+	// FLAKE 2026-11-11 22:24 UTC https://github.com/Kapps/weavie/actions/runs/43110930841: status read Idle, not Waiting.
+	// Background work was published from the thread pool, racing the turn stop; it now publishes inside the transition.
 	[Fact]
 	public async Task ShellTaskIsATrayItemWhoseBackgroundedToolNeverHoldsTheTurn() {
 		await using var fixture = await StartedAsync();

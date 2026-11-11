@@ -6,6 +6,8 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AcpTranscriptRecoveryTests {
+	// FLAKE 2026-11-11 22:25 UTC https://github.com/Kapps/weavie/actions/runs/43110930841 (item-completed, false): Submit's
+	// restart threw while the deferred archive stop ran; 07d38b0 binds that stop to its owner and drops the guard.
 	[Theory]
 	[InlineData("", false)]
 	[InlineData("turn-completed", false)]

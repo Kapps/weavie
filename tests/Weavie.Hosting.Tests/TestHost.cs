@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
+using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -40,6 +41,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	private readonly TempDirectory _temp;
 	public AcpSessionStore AcpSessions => _services.AcpSessions;
 	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
+
+	/// <summary>Registers the fake ACP agent as provider <paramref name="id"/>, in <paramref name="mode"/>, keeping its state under <paramref name="state"/>.</summary>
+	public void RegisterFakeAcp(string id, string mode, TempDirectory state) => AgentProviders.Register(new AcpAgentProvider(
+		new AcpAgentDefinition {
+			Id = id,
+			Name = id,
+			Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			Arguments = [],
+			Environment = new Dictionary<string, string> { ["WEAVIE_FAKE_ACP_MODE"] = mode, ["WEAVIE_ROOT"] = state.Path },
+		},
+		AcpSessions, new AcpControlStore(new LocalFileSystem(), state.Combine("acp-controls.json")), _ => { }));
 
 	private readonly HostServices _services;
 

@@ -4,7 +4,7 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Core.Mcp;
 
-// currentSession / listSessions / readSession / messageSession: one session's view of the others on this host.
+// currentSession / listSessions / readSession / messageSession: one session's view of the sessions on this host.
 // See docs/specs/session-messaging.md.
 public sealed partial class McpServer {
 	private async Task HandleListSessionsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
@@ -74,7 +74,9 @@ public sealed partial class McpServer {
 			return;
 		}
 		await SendToolTextAsync(responder, idRaw,
-			$"Delivered to '{delivery.Id}' (status: {delivery.Status}). It replies with messageSession if it has something to report; don't wait for it.",
+			delivery.Id == _sessions.SelfId
+				? $"Delivered to the main conversation of your own session '{delivery.Id}' (status: {delivery.Status}). It can't reply to a side conversation; don't wait for it."
+				: $"Delivered to '{delivery.Id}' (status: {delivery.Status}). It replies with messageSession if it has something to report; don't wait for it.",
 			ct).ConfigureAwait(false);
 	}
 }

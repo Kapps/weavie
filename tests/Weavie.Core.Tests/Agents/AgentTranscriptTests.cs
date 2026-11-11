@@ -14,7 +14,7 @@ public sealed class AgentTranscriptTests {
 			Message("item-completed", "tool:1", "tool") with { Summary = "grep foo", Status = "completed" },
 			Message("agent-message-delta", "agentMessage:1", "agentMessage") with { Text = "Fixed " },
 			Message("agent-message-delta", "agentMessage:1", "agentMessage") with { Text = "it." },
-			Message("user-steer", "prompt-2", null) with { Text = "Also test", Sender = new("feat/other", "Other") },
+			Message("user-steer", "prompt-2", null) with { Text = "Also test", Sender = new("feat/other", "Other", false) },
 			Message("agent-message-delta", "agentMessage:2", "agentMessage") with { Text = "side", ConversationId = "side-1" },
 			Message("error", null, null) with { Text = "Agent crashed" },
 			Message("turn-completed", null, null),

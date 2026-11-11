@@ -308,7 +308,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The immutable slot and live incarnation used by the router.</summary>
 	internal SessionAddress Address => _endpoint.Address;
 
-	/// <summary>This session's view of the other sessions on the host.</summary>
+	/// <summary>This session's view of the sessions on the host.</summary>
 	internal ISessionPeers Peers { get; }
 
 	/// <summary>The session-owned message bus.</summary>

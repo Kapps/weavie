@@ -2,7 +2,7 @@ namespace Weavie.Core.Agents;
 
 /// <summary>Who produced one transcript entry.</summary>
 public enum AgentTranscriptRole {
-	/// <summary>A prompt the user (or another session) submitted.</summary>
+	/// <summary>A prompt the user (or a session's agent) submitted.</summary>
 	User,
 
 	/// <summary>Text the agent replied with.</summary>
@@ -19,7 +19,7 @@ public enum AgentTranscriptRole {
 /// <param name="Role">Who produced the entry.</param>
 /// <param name="Text">Its text, or a tool's summary.</param>
 /// <param name="Status">The provider's status for the entry, when reported.</param>
-/// <param name="From">The id of the session that sent a user entry, when another session's agent sent it.</param>
+/// <param name="From">The id of the session that sent a user entry, when an agent sent it with messageSession.</param>
 public sealed record AgentTranscriptEntry(AgentTranscriptRole Role, string Text, string? Status, string? From);
 
 /// <summary>Projects a saved pane journal onto the primary conversation's prompts, replies, tools, and errors.</summary>

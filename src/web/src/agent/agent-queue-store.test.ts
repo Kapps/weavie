@@ -15,8 +15,14 @@ describe("queuedSubmissionLabel", () => {
   it("counts the images of an attachment-only submission", () => {
     expect(queuedSubmissionLabel({ text: "", attachments: 1 })).toBe("1 image");
     expect(queuedSubmissionLabel({ text: "", attachments: 3 })).toBe("3 images");
+    const sender = { id: "a", title: "auth", sameSession: false };
+    expect(queuedSubmissionLabel({ text: "ping", attachments: 0, sender })).toBe("From auth: ping");
     expect(
-      queuedSubmissionLabel({ text: "ping", attachments: 0, sender: { id: "a", title: "auth" } }),
-    ).toBe("From auth: ping");
+      queuedSubmissionLabel({
+        text: "ping",
+        attachments: 0,
+        sender: { ...sender, sameSession: true },
+      }),
+    ).toBe("From this session: ping");
   });
 });

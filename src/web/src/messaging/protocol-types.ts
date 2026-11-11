@@ -94,10 +94,11 @@ export interface AgentProviderInfo {
   surface: "terminal" | "structured";
 }
 
-/** The session whose agent sent a prompt to another session. */
+/** The session whose agent sent a prompt; `sameSession` when it came from inside the receiving session. */
 export interface AgentMessageSender {
   id: string;
   title: string;
+  sameSession: boolean;
 }
 
 export interface AgentPaneUpdate {
@@ -131,7 +132,7 @@ export interface AgentPaneUpdate {
   mediaData?: string | null;
   resourceUri?: string | null;
   planPath?: string | null;
-  /** The session that sent a submitted prompt, when another session's agent sent it. */
+  /** The session that sent a submitted prompt, when an agent sent it rather than the user. */
   sender?: AgentMessageSender | null;
 }
 

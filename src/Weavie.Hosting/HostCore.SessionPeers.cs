@@ -4,7 +4,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// One session's view of the other sessions on this host. See docs/specs/session-messaging.md.
+// One session's view of the sessions on this host. See docs/specs/session-messaging.md.
 public sealed partial class HostCore {
 	private Task<IReadOnlyList<SessionPeer>> ListSessionPeersAsync(CancellationToken ct) =>
 		_ui.InvokeAsync(() => Task.FromResult<IReadOnlyList<SessionPeer>>([.. BuildSessionCatalog().Select(entry =>
@@ -36,11 +36,12 @@ public sealed partial class HostCore {
 		string sessionId,
 		string message,
 		CancellationToken ct) {
-		if (sessionId == source.Slot) throw new SessionPeerException("A session can't message itself.");
-		var sender = await CurrentSourceAsync(source, ct).ConfigureAwait(false)
-			?? throw new SessionPeerException("The sending session no longer exists.");
 		var slot = RequirePeer(sessionId);
+		// A session's conversations share its address, so its own id reaches its main conversation.
+		bool sameSession = slot.Id == source.Slot;
+		var sender = sameSession ? slot : await CurrentSourceAsync(source, ct).ConfigureAwait(false) ?? throw SenderGone();
 		return await GatedAsync(slot.Lifecycle, () => _ui.InvokeAsync(() => {
+			if (sameSession && slot.Session?.Address != source) throw SenderGone();
 			if (!ReferenceEquals(_sessions?.Find(slot.Id), slot)) throw UnknownPeer(sessionId);
 			if (slot.Session is not { } target) {
 				throw new SessionPeerException(
@@ -48,17 +49,19 @@ public sealed partial class HostCore {
 			}
 			if (target.Agent.Structured is not { } structured) {
 				throw new SessionPeerException(
-					$"Session '{slot.Id}' runs {target.Agent.Provider.Name} in a terminal, which can't take messages from other sessions.");
+					$"Session '{slot.Id}' runs {target.Agent.Provider.Name} in a terminal, which can't take session messages.");
 			}
 			if (_drainInputFrozen) throw new SessionPeerException("Agent input is paused while Weavie restarts.");
 			structured.Submit(AgentTurnSubmission.Prompt(message) with {
-				Sender = new(sender.Id, SessionName.Title(sender.Label)),
+				Sender = new(sender.Id, SessionName.Title(sender.Label), sameSession),
 			});
 			return Task.FromResult(new SessionPeerDelivery(slot.Id, StatusName(target.Status.Status)));
 		}, ct), ct).ConfigureAwait(false);
 	}
 
 	private SessionSlot RequirePeer(string sessionId) => _sessions?.Find(sessionId) ?? throw UnknownPeer(sessionId);
+
+	private static SessionPeerException SenderGone() => new("The sending session no longer exists.");
 
 	private static SessionPeerException UnknownPeer(string sessionId) =>
 		new($"No session has id '{sessionId}'. Call listSessions for the exact ids.");

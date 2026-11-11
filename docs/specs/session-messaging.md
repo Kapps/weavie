@@ -6,7 +6,8 @@ Status: built
 
 An agent in one session can find the other sessions on its host, read what they have been doing, and send them a
 message. The user says *"ask the auth-refactor session how it handled token refresh"* or *"tell the docs session
-the API changed"*, and their agent does it.
+the API changed"*, and their agent does it. A `/btw` side conversation tells its own session's main conversation
+something the same way.
 
 ## Tools
 
@@ -18,12 +19,16 @@ Claude and every native ACP agent — can use them:
   `ready`, `needsLoad` (load it with `weavie.session.load` first), or `unsupported`. `self` is the caller's id.
 - `readSession({id, count})` returns the last `count` entries of a session's primary conversation and the `total`.
   `count` is required and has no upper bound.
-- `messageSession({id, message})` submits a message to a session's agent and returns once it is delivered, with the
-  target's status at that moment. It does not wait for an answer.
+- `messageSession({id, message})` submits a message to a session's primary conversation and returns once it is
+  delivered, with the target's status at that moment. It does not wait for an answer.
 
 Each session's server is bound to that session's `(slot, incarnation)` address when the session is built
 (`BoundSessionPeers` in `HostCore.SessionPeers.cs`). A call reaching that server is from that session by
-construction, so the sender is never inferred from focus. A send still in flight from a sender incarnation that has since unloaded is refused.
+construction, so the sender is never inferred from focus. A send still in flight from a sender incarnation that has
+since unloaded is refused.
+
+The binding identifies a session, not a conversation: a `/btw` side conversation calls with its session's one
+registry credential, so Weavie cannot tell it from the main conversation.
 
 ```mermaid
 flowchart LR
@@ -68,9 +73,21 @@ reply, the user never sees it — and the submitted pane message carries the sen
 message with **From &lt;session&gt;** instead of **Prompt**. `readSession` reports the sender's id as `from` on that
 entry.
 
-A send is refused, with a tool error naming the cause, when the target is the caller, the id is unknown, the target
-is not loaded, the target runs in a terminal, or Weavie is draining for a restart. The send runs under the target
-slot's lifecycle gate, so it cannot race an unload or delete.
+A send is refused, with a tool error naming the cause, when the id is unknown, the target is not loaded, the target
+runs in a terminal, or Weavie is draining for a restart. The send runs under the target slot's lifecycle gate, so it
+cannot race an unload or delete.
+
+### A session's own id
+
+A session's own id is a valid target and reaches its main conversation, like every other send. This is how a `/btw`
+side conversation reports to the conversation it forked from, including while that one is mid-turn; the side
+instructions name the tool. The same call from the main conversation prompts itself, which Weavie allows because
+it cannot tell the two callers apart, and a refusal would take the side conversation's route away.
+
+Such a message is marked `SameSession` on its sender. The pane heads it **From this session**, never naming a side
+conversation Weavie can't identify, and the guidance block says it came from inside the session, has no reply
+address, and must not be answered with `messageSession` — the main conversation cannot address a side conversation,
+and answering its own id would prompt itself again. It is delivered only to the incarnation that sent it.
 
 **Sending to a terminal Claude session is refused.** Pasting text into Claude's terminal and pressing Enter would
 submit it joined to whatever the user has half-typed, and on an open permission prompt or menu Enter picks the
@@ -83,4 +100,6 @@ and every message is visible in the target's pane and status; there is no hop li
 ## Deferred
 
 - Delivery into terminal Claude through Claude Code channels.
+- Naming the sending conversation, and addressing one other than the primary. Both need a registry credential per
+  conversation.
 - Sessions on other connected backends.

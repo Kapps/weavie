@@ -24,8 +24,11 @@ public enum AgentTurnSubmissionKind {
 	McpPrompt,
 }
 
-/// <summary>The Weavie session whose agent sent a message to another session.</summary>
-public sealed record AgentMessageSender(string Id, string Title);
+/// <summary>
+/// The Weavie session whose agent sent a message. <paramref name="SameSession"/> marks one sent from inside the
+/// receiving session, whose conversations all share its identity.
+/// </summary>
+public sealed record AgentMessageSender(string Id, string Title, bool SameSession);
 
 /// <summary>An atomic structured-agent input: text and the exact staged images for the turn.</summary>
 public sealed record AgentTurnSubmission {
@@ -53,7 +56,7 @@ public sealed record AgentTurnSubmission {
 	/// <summary>The staged images submitted with the text.</summary>
 	public required IReadOnlyList<AgentInputAttachment> Attachments { get; init; }
 
-	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
+	/// <summary>The session that sent this prompt, when an agent sent it with messageSession rather than the user.</summary>
 	public AgentMessageSender? Sender { get; init; }
 
 	/// <summary>Whether a provider command also carries the session's per-turn context, as a workflow stage's opening

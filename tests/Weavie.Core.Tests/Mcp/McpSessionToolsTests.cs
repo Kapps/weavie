@@ -106,6 +106,17 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	}
 
 	[Fact]
+	public async Task MessagingItsOwnSessionSaysTheMainConversationCantReply() {
+		using var response = await CallAsync(_registry, "messageSession", """{"id":"feat/self","message":"finding"}""");
+
+		Assert.False(IsError(response));
+		Assert.Equal(("feat/self", "finding"), _peers.Sent);
+		Assert.Equal(
+			"Delivered to the main conversation of your own session 'feat/self' (status: working). It can't reply to a side conversation; don't wait for it.",
+			Text(response));
+	}
+
+	[Fact]
 	public async Task RefusalsAreToolErrors() {
 		_peers.Refusal = "Session 'feat/other' isn't loaded.";
 

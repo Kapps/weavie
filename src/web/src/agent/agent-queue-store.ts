@@ -4,6 +4,7 @@
 
 import type { AgentQueuedSubmission, ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
+import { senderLabel } from "./AgentTranscriptLabels";
 
 const EMPTY: AgentQueuedSubmission[] = [];
 const queueFor = createSessionFeatureValue<
@@ -24,5 +25,5 @@ export function queuedSubmissionLabel(submission: AgentQueuedSubmission): string
       : submission.attachments === 1
         ? "1 image"
         : `${submission.attachments} images`;
-  return submission.sender ? `From ${submission.sender.title}: ${label}` : label;
+  return submission.sender ? `${senderLabel(submission.sender)}: ${label}` : label;
 }

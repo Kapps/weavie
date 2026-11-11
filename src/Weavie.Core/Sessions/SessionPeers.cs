@@ -4,7 +4,7 @@ using Weavie.Core.Mcp;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The other sessions on this host, as seen from one session. Bound to its caller at construction, so every call
+/// The sessions on this host, as seen from one session. Bound to its caller at construction, so every call
 /// comes from that session by definition. See docs/specs/session-messaging.md.
 /// </summary>
 public interface ISessionPeers {
@@ -18,7 +18,10 @@ public interface ISessionPeers {
 	/// <exception cref="SessionPeerException">The session is unknown or its conversation can't be read.</exception>
 	Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct);
 
-	/// <summary>Submits <paramref name="message"/> to <paramref name="sessionId"/>'s agent, attributed to the caller.</summary>
+	/// <summary>
+	/// Submits <paramref name="message"/> to <paramref name="sessionId"/>'s primary conversation, attributed to the
+	/// caller; the caller's own id is valid, because its side conversations call as the session.
+	/// </summary>
 	/// <exception cref="SessionPeerException">The session can't receive messages; the message says why.</exception>
 	Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct);
 }
@@ -31,7 +34,7 @@ public enum SessionPeerReceive {
 	/// <summary>It must be loaded first.</summary>
 	NeedsLoad,
 
-	/// <summary>Its agent can't take messages from other sessions.</summary>
+	/// <summary>Its agent can't take session messages.</summary>
 	Unsupported,
 }
 

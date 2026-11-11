@@ -37,6 +37,18 @@ public static class InferenceControlAxes {
 					&& control.Options.Any(option => option.Id == "off"));
 	}
 
+	/// <summary>The effort control among <paramref name="controls"/>, or <see langword="null"/> when the agent has none.</summary>
+	public static AgentControlAxis? Effort(IReadOnlyList<AgentControlAxis> controls) {
+		ArgumentNullException.ThrowIfNull(controls);
+		return controls.FirstOrDefault(control => control.Category == "thought_level");
+	}
+
+	/// <summary>The Fast Mode switch among <paramref name="controls"/>, or <see langword="null"/> when the agent has none.</summary>
+	public static AgentControlAxis? FastMode(IReadOnlyList<AgentControlAxis> controls) {
+		ArgumentNullException.ThrowIfNull(controls);
+		return controls.FirstOrDefault(IsFastMode);
+	}
+
 	/// <summary>Asks the selected provider for its controls and builds the pickers; a failed ask keeps the agent picker.</summary>
 	public static async Task<InferenceChoices> AskAsync(SettingsStore settings, AgentProviderRegistry providers, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(settings);
@@ -65,8 +77,8 @@ public static class InferenceControlAxes {
 		string providerId = settings.RequireString(InferenceSettings.DefaultProvider);
 		string offeredBy = $"isn't offered by {available.FirstOrDefault(p => p.Info.Id == providerId)?.Info.Name ?? providerId}";
 		var model = controls.Defaults.FirstOrDefault(c => c.Category == "model");
-		var effort = controls.Selected.FirstOrDefault(c => c.Category == "thought_level");
-		var fast = controls.Selected.FirstOrDefault(IsFastMode);
+		var effort = Effort(controls.Selected);
+		var fast = FastMode(controls.Selected);
 		AgentControlAxis?[] axes = [
 			Axis(InferenceSettings.DefaultProvider, "Agent", null, [.. available.Select(p => new AgentControlOption { Id = p.Info.Id, Label = p.Info.Name })], "isn't installed"),
 			Axis(InferenceSettings.Model, "Model", model?.ValueLabel, model?.Options, offeredBy),

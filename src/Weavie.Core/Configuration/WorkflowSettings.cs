@@ -31,7 +31,7 @@ public static class WorkflowSettings {
 			Key = DecisionConfidence,
 			Kind = SettingKind.Number,
 			Description = "Minimum model confidence for automatic workflow decisions, and for the new-session composer to apply its "
-				+ "workflow suggestion; lower confidence asks you instead, or leaves the composer's workflow as it was.",
+				+ "workflow or role-model suggestion; lower confidence asks you instead, or leaves the composer's field as it was.",
 			Aliases = ["workflow confidence", "decision confidence"],
 			Apply = ApplyMode.Live,
 			Default = 0.8,

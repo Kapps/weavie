@@ -31,7 +31,9 @@ public static class AuthorWorkflowPrompt {
 			   gives a separate stage the main conversation's history, and `fresh` receives only its stage
 			   instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
 			   judgment; both keep main available and return outputs and a summary to it. They use the session's
-			   provider; a fresh stage is not a way to switch providers.
+			   provider; a fresh stage is not a way to switch providers. When stages need different strengths, give
+			   each a `run.role` (prefer `planner`, `builder`, `reviewer`): the user picks each role's model per
+			   provider, so the workflow stays portable. Pin an `agents` entry only when the user names a model.
 			5. Route with `then`: a stage id or `done` to go there, or a decision (`ask` + `choices`, each answer
 			   naming the stage it leads to). Stages without `then` move to the following stage. Use `if` to run
 			   a stage only when a yes/no question says so; a skipped stage falls through to the following one.

@@ -242,6 +242,41 @@
   color: var(--bad);
 }
 
+/* The roles the chosen workflow still needs: a titled group, each role beside the agent's own pickers. */
+.session-composer-roles {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font: var(--font-chrome-secondary);
+}
+
+.session-composer-roles > .ui-section-label,
+.session-composer-roles-note,
+.session-composer-roles > small {
+  grid-column: 1 / -1;
+}
+
+.session-composer-role {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+}
+
+.session-composer-role > .ui-row-desc,
+.session-composer-role > small {
+  grid-column: 2;
+}
+
+.session-composer-roles > small,
+.session-composer-role > small {
+  color: var(--bad);
+}
+
 /* A field that opens a menu: its value, suggestion status, and chevron on one baseline. */
 .session-composer-workflow-toggle {
   display: flex;

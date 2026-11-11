@@ -71,3 +71,64 @@ test("a default an agent sets from its own session is the one the composer prese
   const workflow = page.locator(".session-inbox").getByRole("button", { name: "Workflow" });
   await expect(workflow).toHaveText("quick-fix");
 });
+
+test("the composer asks for each role a workflow needs, suggests a model, and saves it at Start", async ({
+  page,
+  weavie,
+}) => {
+  await writeFile(
+    join(weavie.workspace, "inference-answer.json"),
+    JSON.stringify({ alpha: 0.05, beta: 0.95 }),
+  );
+  await page.locator(".session-rail-add").click();
+  const inbox = page.locator(".session-inbox");
+  const provider = inbox.getByRole("combobox", { name: "Agent provider" });
+  await provider.selectOption("fake-acp");
+  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("add a picker");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("roles");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await page
+    .getByRole("listbox", { name: "Workflow" })
+    .getByRole("option", { name: /^spec-driven/ })
+    .click();
+
+  // Each role's pickers are the agent's own: the suggested model, then the Fast mode that model offers.
+  await expect(inbox.getByText("Roles for spec-driven")).toBeVisible();
+  const planner = inbox.getByRole("group", { name: "planner role" });
+  const builder = inbox.getByRole("group", { name: "builder role" });
+  await expect(planner.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
+  await expect(builder.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
+  await planner.getByRole("button", { name: /Fast mode/ }).click();
+  await page
+    .getByRole("listbox", { name: "Fast mode" })
+    .getByRole("option", { name: "On" })
+    .click();
+  await expect(planner.getByRole("button", { name: /Fast mode/ })).toHaveText("Fast modeOn");
+  await inbox.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(inbox).toBeHidden();
+  const surface = page.locator('[data-surface="structured-agent"]');
+  await expect(surface.locator(".pane-head .pane-run")).toHaveText("spec-driven · requirements");
+  await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
+  await expect(
+    surface
+      .locator(".agent-entry-notice")
+      .filter({ hasText: "Workflow: requirements runs on Beta, Fast On" }),
+  ).toHaveCount(1);
+
+  // Saved for every later start in this provider's sessions; a terminal session can't run the workflow at all.
+  await page.locator(".session-rail-add").click();
+  await provider.selectOption("fake-acp");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await page
+    .getByRole("listbox", { name: "Workflow" })
+    .getByRole("option", { name: /^spec-driven/ })
+    .click();
+  await expect(inbox.getByText("Roles for spec-driven")).toHaveCount(0);
+  await provider.selectOption("claude");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await expect(
+    page
+      .getByRole("listbox", { name: "Workflow" })
+      .getByRole("option", { name: /^spec-driven.*runs in a terminal/ }),
+  ).toHaveAttribute("aria-disabled", "true");
+});

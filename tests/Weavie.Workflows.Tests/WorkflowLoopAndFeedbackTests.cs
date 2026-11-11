@@ -60,7 +60,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void AlternatingModelAnswersStillReachTheLimit() {
 		var machine = Machine(Loops, "loops");
-		var run = machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run;
+		var run = machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run;
 		run = machine.Resolve(Done(machine, run, """{"findings":"a"}""").Run, new WorkflowDecisionResult.Answered("fix", 1), 0.8).Run;
 		run = machine.Resolve(Done(machine, Done(machine, run, "{}").Run, """{"findings":"b"}""").Run, new WorkflowDecisionResult.Answered("retest", 1), 0.8).Run;
 		Assert.Equal("retest", run.Stage);
@@ -72,7 +72,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void AnotherStagesDecisionStartsTheCountOver() {
 		var machine = Machine(Loops, "loops");
-		var run = machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run;
+		var run = machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run;
 		run = machine.Resolve(Done(machine, run, """{"findings":"a"}""").Run, new WorkflowDecisionResult.Answered("fix", 1), 0.8).Run;
 		run = machine.Resolve(Done(machine, Done(machine, run, "{}").Run, """{"findings":"b"}""").Run, new WorkflowDecisionResult.Answered("ok", 1), 0.8).Run;
 		run = machine.Resolve(Done(machine, run, """{"left":["x"]}""").Run, new WorkflowDecisionResult.Answered("more", 1), 0.8).Run;
@@ -84,7 +84,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void FeedbackReachesATargetStageWhoseIfTheModelDecides() {
 		var machine = Machine(Feedback, "feedback");
-		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run, "{}");
+		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run, "{}");
 		var deciding = machine.Answer(asking.Run, "approve", "keep it small");
 		Assert.Contains("keep it small", Single<WorkflowEffect.Decide>(deciding).Plan.Summary);
 		var opened = machine.Resolve(deciding.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
@@ -95,7 +95,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void FeedbackOnAnIfAnsweredNoReachesTheFollowingStage() {
 		var machine = Machine(Feedback, "feedback");
-		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run, "{}");
+		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run, "{}");
 		var polish = machine.Answer(asking.Run, "polish", "");
 		Assert.Equal((WorkflowPhase.Asking, "polish"), (polish.Run.Phase, polish.Run.Stage));
 		var deciding = machine.Answer(polish.Run, "no", "do the tasks instead");
@@ -106,7 +106,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void FeedbackWithNoStageLeftIsInTheFinishedNotice() {
 		var machine = Machine(Feedback, "feedback");
-		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run, "{}");
+		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run, "{}");
 		var done = machine.Answer(asking.Run, "skip", "not worth it");
 		Assert.Equal(WorkflowPhase.Done, done.Run.Phase);
 		Assert.Contains("not worth it", Single<WorkflowEffect.Notify>(done).Message);
@@ -115,7 +115,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	[Fact]
 	public void AnAnsweredIfIsNotAskedAgainOnResume() {
 		var machine = Machine(Feedback, "feedback");
-		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run, "{}");
+		var asking = Done(machine, machine.Start("r-1", "p", [], Path.GetTempPath(), null, WorkflowPrompt.None, []).Run, "{}");
 		var paused = machine.Resolve(machine.Answer(asking.Run, "approve", "").Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 		Assert.Equal((WorkflowPhase.Paused, null), (paused.Run.Phase, paused.Run.Decision));
 		var resumed = machine.Resume(paused.Run);

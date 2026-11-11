@@ -6,6 +6,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
+using Weavie.Core.Tests.Workflows;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
@@ -23,6 +24,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-registry-tests");
 	private readonly List<WorkflowRunner> _runners = [];
+	private readonly WorkflowRoleStore _roles = new(new InMemoryFileSystem(), "/config/workflow-roles.json");
 
 	public void Dispose() {
 		foreach (var runner in _runners) runner.Dispose();
@@ -37,10 +39,10 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	private SessionWorkflowRegistry NewWorkflows(string personal, IWorkflowRunPort port) {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
-			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
+			catalog, NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
 			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), port, () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		_runners.Add(runner);
-		return new SessionWorkflowRegistry(catalog, runner);
+		return new SessionWorkflowRegistry(catalog, runner, _roles);
 	}
 
 	[Fact]
@@ -391,10 +393,20 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		Assert.Equal(3, tools.Count);
 		Assert.All(tools, t => Assert.True(t.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()));
 
+		_roles.Set("codex-acp", new Dictionary<string, WorkflowRoleAgent> {
+			["planner"] = new("codex-acp", "gpt-6-astra", new Dictionary<string, string> { ["reasoning_effort"] = "high" }),
+		});
 		await SendAsync(ws, Request(2, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
 		using var listed = await ReceiveAsync(ws);
 		using var workflows = JsonDocument.Parse(ToolText(listed));
 		var folders = workflows.RootElement.GetProperty("folders");
+		var specDriven = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "spec-driven");
+		Assert.Equal(["planner", "builder"], specDriven.GetProperty("roles").EnumerateArray().Select(role => role.GetString()));
+		var saved = Assert.Single(workflows.RootElement.GetProperty("roles").EnumerateArray());
+		Assert.Equal(
+			("planner", "codex-acp", "gpt-6-astra", "high"),
+			(saved.GetProperty("role").GetString(), saved.GetProperty("provider").GetString(), saved.GetProperty("agent").GetProperty("model").GetString(),
+				saved.GetProperty("agent").GetProperty("options").GetProperty("reasoning_effort").GetString()));
 		Assert.Equal(personal, folders.GetProperty("personal").GetString());
 		Assert.Equal(WeaviePaths.RepositoryWorkflowsDir(_dir.Path), folders.GetProperty("repository").GetString());
 		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
@@ -577,7 +589,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 
 		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
 
-		public string? Refusal(WorkflowDefinition definition) => null;
+		public string? Refusal(WorkflowLaunch launch) => null;
 	}
 
 	private sealed class FixedTurnContext(string text) : Weavie.Core.Agents.IAgentTurnContext {

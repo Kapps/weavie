@@ -40,14 +40,14 @@ public sealed class WorkflowPromptTests : IDisposable {
 
 	private WorkflowRunner Runner(Func<string, string> documents) {
 		var runner = new WorkflowRunner(
-			Catalog, _store, new HeldDecider(), new UnusedFileReader(), _port, () => 3, () => true, () => 0.8, _dir.Combine("worktree"), TestWorkflows.Words, documents);
+			Catalog, TestWorkflows.NoRoles, _store, new HeldDecider(), new UnusedFileReader(), _port, () => 3, () => true, () => 0.8, _dir.Combine("worktree"), TestWorkflows.Words, documents);
 		runner.Activate();
 		return runner;
 	}
 
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
-	private WorkflowLaunch Launch() => Catalog.Prepare("flow", Json("{}"), null, Prompt);
+	private WorkflowLaunch Launch() => Catalog.Prepare("flow", Json("{}"), null, Prompt, TestWorkflows.NoRoles);
 
 	[Fact]
 	public void TheDefinitionKnowsWhetherItUsesThePrompt() {
@@ -59,7 +59,7 @@ public sealed class WorkflowPromptTests : IDisposable {
 	public void AWorkflowThatUsesThePromptCannotStartWithoutOne() {
 		string message = Assert.Throws<WorkflowException>(() => Catalog.Prepare("flow", Json("{}"))).Message;
 		Assert.Contains("{{run.prompt}}", message);
-		Assert.Equal("flow", Catalog.Prepare("flow", Json("{}"), null, new("", Prompt.Images)).Definition.Id);
+		Assert.Equal("flow", Catalog.Prepare("flow", Json("{}"), null, new("", Prompt.Images), TestWorkflows.NoRoles).Definition.Id);
 		Assert.Equal("plain", Catalog.Prepare("plain", Json("{}")).Definition.Id);
 	}
 

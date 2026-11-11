@@ -343,7 +343,7 @@ public sealed class HostCoreWorkflowTests {
 		await Eventually(() => host.Bridge.PostedEvents(session.Address, "status", "run") is { Count: > 0 } lines
 			&& matches(lines[^1].GetProperty("run") is { ValueKind: JsonValueKind.Object } run ? run : null));
 
-	private static async Task<HostSession> WaitForSessionAsync(TestHost host, string slot) {
+	internal static async Task<HostSession> WaitForSessionAsync(TestHost host, string slot) {
 		await Eventually(() => host.Core.SessionForTest(slot) is not null);
 		return host.Session(slot);
 	}

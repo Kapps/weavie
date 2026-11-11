@@ -178,6 +178,7 @@ export function SessionInbox(props: {
           prompt: "",
           attachments: [],
           workflow: null,
+          roles: {},
         }),
         backendId(),
         providerId(),
@@ -262,6 +263,7 @@ export function SessionInbox(props: {
             active={props.active}
             backendId={backendId()}
             base={base()}
+            providerId={providerId()}
             providerAvailable={agentProviders(backendId()).some(
               (provider) => provider.id === providerId() && provider.available,
             )}

@@ -11,11 +11,13 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
-  `args`, `outputs`, `agent`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
+  `args`, `outputs`, `agent` or `role`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
   `confidence`). Every other field is rejected as an unknown key.
 - **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation.
-  A stage's `agent` selects its model and options on the session's provider before prompting. Stage results and user questions return to main. See
-  [workflow-agent-selection.md](workflow-agent-selection.md) and [conversation-layer.md](conversation-layer.md).
+  A stage's `agent` selects its model and options on the session's provider before prompting; a stage's `role` does
+  the same with the agent the user saved for that role and provider. Stage results and user questions return to main. See
+  [workflow-agent-selection.md](workflow-agent-selection.md), [workflow-roles](workflow-roles/design.md), and
+  [conversation-layer.md](conversation-layer.md).
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow`, a `prompt`, and `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
@@ -203,6 +205,7 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | `skill` / `prompt` | what to run; `skill` is sent as the provider's real slash command (`/spec <args>`) |
 | `args` | text passed to the skill |
 | `agent` | the name of an entry in the workflow's `agents` ([workflow-agent-selection.md](workflow-agent-selection.md)) |
+| `role` | a role the user fills per provider, e.g. `planner`; a step takes `agent` or `role`, not both |
 | `context` | `continue`, `fork`, or `fresh` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
@@ -252,8 +255,9 @@ is the uniform channel for what the agent did, for terminal Claude and ACP agent
 An agent's `options` are passed through untouched and validated when the stage starts against what that provider advertises
 (ACP config options; Claude's own switches). An unknown option or value fails the stage loudly, naming what the
 provider supports. A model that only answers typed choices (e.g. Jev, OpenAI Decisions) is valid only on decisions;
-this is checked at load. Provider-native ids are never inferred. Model aliases ("roles") are deferred: built-in
-workflows use only the defaults above, so they ship without naming a model. Which model and provider run each step,
+this is checked at load. Provider-native ids are never inferred. Built-in workflows name no model: `spec-driven` runs
+on the `planner` and `builder` roles, which the user fills per provider, and `quick-fix` on the session's own model.
+Which model and provider run each step,
 and how a stage switches the model on the session's conversation, is designed in
 [workflow-agent-selection.md](workflow-agent-selection.md).
 
@@ -719,7 +723,6 @@ Full-stack on `headless` ([integration-testing-strategy.md](integration-testing-
 ## Deferred
 
 - Repository trust flag.
-- Model aliases (roles) with automatic mapping from the model catalog.
 - Weavie-owned event triggers (`on: pr.comment` fed by the PR monitor).
 - A visual workflow viewer.
 

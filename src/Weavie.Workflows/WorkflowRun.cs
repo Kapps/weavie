@@ -69,6 +69,9 @@ public sealed record WorkflowRun {
 	/// <summary>What the run was started with.</summary>
 	public WorkflowPrompt Prompt { get; set; } = WorkflowPrompt.None;
 
+	/// <summary>The agent filling each of the definition's roles, named for it, as resolved when the run started.</summary>
+	public IReadOnlyList<WorkflowAgent> Roles { get; set; } = [];
+
 	/// <summary>Whether the main conversation has been sent the prompt's images.</summary>
 	public bool PromptImagesSent { get; set; }
 

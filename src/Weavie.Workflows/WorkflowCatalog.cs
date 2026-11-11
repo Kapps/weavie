@@ -65,27 +65,33 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 			})];
 	}
 
-	/// <summary>Resolves <paramref name="id"/> once and reads <paramref name="inputs"/> against this worktree.</summary>
-	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) => Prepare(id, inputs, null, WorkflowStartPrompt.None);
-
-	/// <summary>Prepares a start with <paramref name="prompt"/>, reading inputs with access to the inherited run documents directory.</summary>
-	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs, string? documentsDirectory, WorkflowStartPrompt prompt) {
+	/// <summary>
+	/// Resolves <paramref name="id"/> once, reads <paramref name="inputs"/> against this worktree with access to the
+	/// inherited run documents directory, and fills its roles through <paramref name="roles"/>.
+	/// </summary>
+	public WorkflowLaunch Prepare(
+		string id, System.Text.Json.JsonElement inputs, string? documentsDirectory, WorkflowStartPrompt prompt, IWorkflowRoleResolver roles) {
 		ArgumentNullException.ThrowIfNull(prompt);
-		var (entry, definition) = Winner(id);
+		ArgumentNullException.ThrowIfNull(roles);
+		var (entry, definition) = Startable(id);
 		if (definition.UsesPrompt && prompt.IsEmpty) {
 			throw new WorkflowException($"Workflow {id} can't start: it uses {{{{run.prompt}}}}, and no prompt was given.");
 		}
 
-		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory), prompt);
+		var read = WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory);
+		var resolved = roles.Resolve(definition);
+		IReadOnlyList<WorkflowAgent> filled = [.. definition.Roles.Select(role => resolved.FirstOrDefault(agent => agent.Name == role)
+			?? throw new InvalidOperationException($"The role resolver left role \"{role}\" unfilled."))];
+		return new WorkflowLaunch(definition, entry.Path, read, prompt, filled);
 	}
 
-	private WorkflowCatalogEntry Resolve(string id) {
-		var winners = List().Where(e => e.ShadowedBy is null).ToList();
-		return winners.FirstOrDefault(e => e.Id == id)
-			?? throw new WorkflowException($"No workflow \"{id}\" exists; the workflows are: {string.Join(", ", winners.Select(e => e.Id))}.");
-	}
+	/// <summary>The entry that wins for <paramref name="id"/>, or <see langword="null"/> when no scope has one.</summary>
+	public WorkflowCatalogEntry? Winner(string id) => List().FirstOrDefault(e => e.ShadowedBy is null && e.Id == id);
 
-	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
+	private WorkflowCatalogEntry Resolve(string id) => Winner(id) ?? throw new WorkflowException(
+		$"No workflow \"{id}\" exists; the workflows are: {string.Join(", ", List().Where(e => e.ShadowedBy is null).Select(e => e.Id))}.");
+
+	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Startable(string id) {
 		var entry = Resolve(id);
 		return (entry, entry.Definition ?? throw new WorkflowException(
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {entry.Error}"));
@@ -99,7 +105,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 
 	/// <summary>Copies the valid workflow <paramref name="id"/> into the more specific <paramref name="scope"/>; returns the new path.</summary>
 	public string Fork(string id, WorkflowScope scope) {
-		var (entry, definition) = Winner(id);
+		var (entry, definition) = Startable(id);
 		if (scope <= entry.Scope) {
 			throw new WorkflowException($"Workflow \"{id}\" is already {entry.Scope}, so a {scope} copy would not override it; edit {entry.Path} instead.");
 		}
@@ -163,9 +169,45 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	}
 }
 
-/// <summary>A resolved workflow ready to start: its definition, where it came from, its read inputs, and its prompt.</summary>
-public sealed record WorkflowLaunch(
-	WorkflowDefinition Definition, string SourcePath, Dictionary<string, WorkflowValue> Inputs, WorkflowStartPrompt Prompt);
+/// <summary>Fills a definition's roles for the session that will run it.</summary>
+public interface IWorkflowRoleResolver {
+	/// <summary>
+	/// One agent per role in <see cref="WorkflowDefinition.Roles"/>, each named for its role; throws
+	/// <see cref="WorkflowException"/> when that session can't run the definition or a role has no agent.
+	/// </summary>
+	IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition);
+}
+
+/// <summary>
+/// A resolved workflow ready to start: its definition, where it came from, its read inputs, its prompt, and the agent
+/// filling each of its roles. Only <see cref="WorkflowCatalog.Prepare"/> makes one, so no launch has an unfilled role.
+/// </summary>
+public sealed class WorkflowLaunch {
+	internal WorkflowLaunch(
+		WorkflowDefinition definition, string sourcePath, Dictionary<string, WorkflowValue> inputs, WorkflowStartPrompt prompt,
+		IReadOnlyList<WorkflowAgent> roles) {
+		Definition = definition;
+		SourcePath = sourcePath;
+		Inputs = inputs;
+		Prompt = prompt;
+		Roles = roles;
+	}
+
+	/// <summary>The definition to run.</summary>
+	public WorkflowDefinition Definition { get; }
+
+	/// <summary>Where the definition's file lives.</summary>
+	public string SourcePath { get; }
+
+	/// <summary>The read inputs.</summary>
+	public Dictionary<string, WorkflowValue> Inputs { get; }
+
+	/// <summary>What the run is started with.</summary>
+	public WorkflowStartPrompt Prompt { get; }
+
+	/// <summary>The agent filling each role, named for it, in <see cref="WorkflowDefinition.Roles"/> order.</summary>
+	public IReadOnlyList<WorkflowAgent> Roles { get; }
+}
 
 /// <summary>A workflow request the engine refuses, with a message meant for the agent or user.</summary>
 public sealed class WorkflowException(string message) : Exception(message);

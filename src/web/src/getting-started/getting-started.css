@@ -499,65 +499,6 @@ fieldset.gs-choices {
   gap: 8px;
 }
 
-.gs-bar {
-  display: flex;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--gs-line);
-  border-radius: 8px;
-}
-
-.getting-started .gs-pick {
-  font: var(--font-chrome-body);
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-width: 0;
-  padding: 4px 10px;
-  border: 0;
-  border-left: 1px solid var(--gs-line);
-  background: none;
-  text-align: left;
-}
-
-.gs-pick:first-child {
-  border-left: 0;
-}
-
-.gs-pick span {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.getting-started .gs-pick:not(:disabled):hover,
-.gs-pick[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.gs-pick:disabled span {
-  opacity: 0.5;
-}
-
-.gs-placeholder i {
-  width: 72px;
-  height: 10px;
-  margin: 3px 0;
-  border-radius: 4px;
-  background: var(--gs-line);
-  animation: gs-pulse 1.2s ease-in-out infinite alternate;
-}
-
-@keyframes gs-pulse {
-  to {
-    opacity: 0.35;
-  }
-}
-
 .gs-profile-problem {
   display: flex;
   align-items: center;

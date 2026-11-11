@@ -12,11 +12,13 @@ internal sealed partial class WorkflowTransitions(
 	private const string No = "no";
 
 	/// <summary>
-	/// A new run of the definition with <paramref name="inputs"/> and <paramref name="prompt"/>, entering its first
-	/// stage; it keeps the predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
+	/// A new run of the definition with <paramref name="inputs"/>, <paramref name="prompt"/>, and the agents filling its
+	/// <paramref name="roles"/>, entering its first stage; it keeps the predecessor's <paramref name="hold"/>, whose own
+	/// values are still owed back to the session.
 	/// </summary>
 	public WorkflowStep Start(
-		string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold, WorkflowPrompt prompt) {
+		string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold, WorkflowPrompt prompt,
+		IReadOnlyList<WorkflowAgent> roles) {
 		var run = new WorkflowRun {
 			Id = runId,
 			DocumentsDirectory = documentsDirectory,
@@ -25,6 +27,7 @@ internal sealed partial class WorkflowTransitions(
 			SourceText = definition.SourceText,
 			Inputs = inputs,
 			Prompt = prompt,
+			Roles = roles,
 			Stage = definition.Stages[0].Id,
 			Phase = WorkflowPhase.Open,
 			Decision = null,

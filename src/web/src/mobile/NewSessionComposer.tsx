@@ -1,7 +1,7 @@
 import { ArrowUp } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
-import { selectedSession } from "../bridge";
+import { type RolePick, selectedSession } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -25,6 +25,8 @@ export interface NewSessionSeed {
   attachments: NewSessionSeedAttachment[];
   /** The workflow the session starts in, which takes the prompt and attachments; null for none. */
   workflow: string | null;
+  /** What to save for each role the workflow still needs, from the session's provider. */
+  roles: Record<string, RolePick>;
 }
 
 /** The prompt-first form that starts a session on a new branch. */
@@ -32,6 +34,7 @@ export function NewSessionComposer(props: {
   active: boolean;
   backendId: string;
   base: "source" | "main";
+  providerId: string;
   /** Whether the chosen agent provider can start a session. */
   providerAvailable: boolean;
   /** Whether any Sessions submission is in flight. */
@@ -63,7 +66,7 @@ export function NewSessionComposer(props: {
       return;
     }
     // The workflow is the one on screen at the press: a suggestion landing during the branch wait is not it.
-    const workflow = workflowActions?.capture() ?? null;
+    const start = workflowActions?.capture() ?? { workflow: null, roles: {} };
     if (
       await props.onStart(async () => {
         // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
@@ -76,7 +79,8 @@ export function NewSessionComposer(props: {
               existing: false,
               prompt: text,
               attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
-              workflow,
+              workflow: start.workflow,
+              roles: start.roles,
             };
       })
     ) {
@@ -243,6 +247,7 @@ export function NewSessionComposer(props: {
         active={props.active}
         backendId={props.backendId}
         base={props.base}
+        providerId={props.providerId}
         prompt={prompt()}
         onReady={setWorkflowReady}
         register={(actions) => {

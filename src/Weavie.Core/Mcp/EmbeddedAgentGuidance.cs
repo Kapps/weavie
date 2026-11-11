@@ -80,6 +80,12 @@ public static class EmbeddedAgentGuidance {
 		`author-workflow` and follow what it returns. Find workflows through `mcp__weavie__listWorkflows`, never by
 		assuming a folder.
 
+		A workflow step's `role` (e.g. planner) is filled by the model the user saved for the session's provider. When
+		the user asks what their roles are or to change one ("make Fable my planner"), read them from
+		`mcp__weavie__listWorkflows`, resolve the model with `mcp__weavie__listAgents`, and save it with the
+		`weavie.workflow.setRole` command. When a workflow can't start because a role has no model, ask the user which
+		model and options each role should use; never choose for them.
+
 		Before a task that creates GitHub issues, PRs, or comments (e.g. filing a Weavie issue), first run
 		`gh auth status` or confirm an authenticated GitHub tool. If neither is available, tell the user up front
 		what setup is missing (install gh, or run `gh auth login`) instead of discovering it at the final step.

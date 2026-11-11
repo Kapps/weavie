@@ -48,12 +48,20 @@ public sealed class AgentProviderRegistry {
 		lock (_gate) return _providers.TryGetValue(id, out var provider) ? provider.Info : null;
 	}
 
+	/// <summary>Why <paramref name="id"/> names no provider, listing the registered ones.</summary>
+	public string Unregistered(string id) {
+		lock (_gate) {
+			return $"No agent provider '{id}' is registered; "
+				+ (_providers.Count == 0 ? "none are." : $"the providers are {string.Join(", ", _providers.Keys)}.");
+		}
+	}
+
 	/// <summary>Returns the provider named by <paramref name="id"/>, or fails loudly when it is missing or unavailable.</summary>
 	public IAgentProvider RequireAvailable(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		IAgentProvider provider;
 		lock (_gate) if (!_providers.TryGetValue(id, out provider!)) {
-			throw new InvalidOperationException($"Agent provider '{id}' is not registered.");
+			throw new InvalidOperationException(Unregistered(id));
 		}
 
 		if (!provider.Info.Available) {

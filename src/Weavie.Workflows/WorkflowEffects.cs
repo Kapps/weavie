@@ -18,6 +18,27 @@ internal abstract record WorkflowEffect {
 	public sealed record Notify(string Message) : WorkflowEffect;
 }
 
+/// <summary>What a new run starts with.</summary>
+internal sealed record WorkflowRunStart {
+	/// <summary>The new run's id.</summary>
+	public required string RunId { get; init; }
+
+	/// <summary>Where the workflow's file lives.</summary>
+	public required string SourcePath { get; init; }
+
+	/// <summary>The run's inputs by name.</summary>
+	public required Dictionary<string, WorkflowValue> Inputs { get; init; }
+
+	/// <summary>The run's shared documents directory.</summary>
+	public required string DocumentsDirectory { get; init; }
+
+	/// <summary>The predecessor's hold, whose own values are still owed back to the session.</summary>
+	public required WorkflowHold? Hold { get; init; }
+
+	/// <summary>What the run was started with.</summary>
+	public required WorkflowPrompt Prompt { get; init; }
+}
+
 /// <summary>A run after a transition, and what its owner must do next.</summary>
 internal sealed record WorkflowStep(WorkflowRun Run, IReadOnlyList<WorkflowEffect> Effects);
 

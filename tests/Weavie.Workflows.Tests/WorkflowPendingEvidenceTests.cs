@@ -5,7 +5,7 @@ namespace Weavie.Workflows.Tests;
 public sealed class WorkflowPendingEvidenceTests {
 	private static WorkflowDecisionPlan Plan(IReadOnlyList<string> paths) => new(
 		"Approve - review.md?", [new("approve", "Complete."), new("revise", null)],
-		new Dictionary<string, string> { ["documents"] = "- review.md" }, "Reviewed. User feedback: check links.", paths, Path.GetTempPath(), 0.8);
+		new Dictionary<string, string> { ["documents"] = "- review.md" }, "Reviewed. User feedback: check links.", paths, TestWorkflows.Files(Path.GetTempPath()), 0.8);
 
 	[Fact]
 	public async Task ReadsEveryFileBeforeCallingTheDeciderWithCompletePreparedEvidence() {
@@ -103,7 +103,7 @@ public sealed class WorkflowPendingEvidenceTests {
 	private static Decider NoDecider() => new((_, _) => throw new InvalidOperationException("No model call expected."));
 
 	private sealed class Reader(Func<string, WorkflowFileRead> read) : IWorkflowFileReader {
-		public WorkflowFileRead Read(string relativePath, string documentsDirectory) => read(relativePath);
+		public WorkflowFileRead Read(WorkflowFileScope files, string path) => read(path);
 	}
 
 	private sealed class Decider(Func<WorkflowDecisionRequest, CancellationToken, Task<WorkflowDecisionResult>> decide) : IWorkflowDecider {

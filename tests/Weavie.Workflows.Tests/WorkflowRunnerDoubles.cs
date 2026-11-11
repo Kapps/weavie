@@ -35,7 +35,7 @@ internal sealed class MemoryRunStore : IWorkflowRunStore {
 }
 
 internal sealed class UnusedFileReader : IWorkflowFileReader {
-	public WorkflowFileRead Read(string relativePath, string documentsDirectory) => throw new InvalidOperationException("No file read expected.");
+	public WorkflowFileRead Read(WorkflowFileScope files, string path) => throw new InvalidOperationException("No file read expected.");
 }
 
 internal sealed class HeldDecider : IWorkflowDecider {

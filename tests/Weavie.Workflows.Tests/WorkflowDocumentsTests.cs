@@ -28,15 +28,15 @@ public sealed class WorkflowDocumentsTests {
 		var inputs = JsonSerializer.SerializeToElement(new { docs = new[] { path } });
 		Assert.Throws<WorkflowException>(() => catalog.Prepare("shared", inputs));
 		var launch = catalog.Prepare("shared", inputs, documents, WorkflowStartPrompt.None);
-		var machine = new WorkflowTransitions(launch.Definition, 3, true, 0.8, worktree, TestWorkflows.Words);
-		var start = machine.Start("r-docs", launch.SourcePath, launch.Inputs, documents, null, WorkflowPrompt.None);
+		var machine = TestWorkflows.Machine(launch.Definition, worktree);
+		var start = machine.Start(TestWorkflows.Start with { Inputs = launch.Inputs, DocumentsDirectory = documents });
 		Assert.Equal($"Write {documents}/design.md", start.Run.Kickoff!.Text);
 		var restored = WorkflowRunDocument.Read(WorkflowRunDocument.Write(start.Run))!;
 		Assert.Equal(documents, restored.DocumentsDirectory);
 		var completion = machine.Complete(restored, inputs, "written");
 		Assert.Empty(completion.Errors);
 		var plan = Assert.IsType<WorkflowEffect.Decide>(Assert.Single(completion.Step.Effects)).Plan;
-		Assert.Equal(documents, plan.DocumentsDirectory);
+		Assert.Equal(new WorkflowFileScope(worktree, documents), plan.Files);
 		Assert.Equal(path, Assert.Single(plan.FilePaths));
 	}
 
@@ -48,9 +48,9 @@ public sealed class WorkflowDocumentsTests {
 		dir.WriteFile("documents/design.md", "The design");
 		dir.WriteFile("documents-other/private.md", "Unrelated run");
 		foreach (string path in new[] { documents, dir.Combine("documents-other/private.md"), Path.Combine(documents, "../documents-other/private.md"), "../documents/design.md" }) {
-			Assert.False(WorkflowFilePaths.TryResolve(worktree, documents, path, out _, out _));
+			Assert.False(new WorkflowFileScope(worktree, documents).TryResolve(path, out _, out _));
 		}
-		Assert.True(WorkflowFilePaths.TryResolve(worktree, documents, Path.Combine(documents, "nested/../design.md"), out string label, out string full));
+		Assert.True(new WorkflowFileScope(worktree, documents).TryResolve(Path.Combine(documents, "nested/../design.md"), out string label, out string full));
 		Assert.Equal(Path.Combine(documents, "design.md"), full);
 		Assert.Equal(full, label);
 	}
@@ -67,8 +67,8 @@ public sealed class WorkflowDocumentsTests {
 	[InlineData("relative/path")]
 	public void InvalidPersistedDocumentsOwnershipIsRejected(string? documents) {
 		var definition = WorkflowReader.Read(Flow, "shared").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
-		var run = machine.Start("r-invalid", "source", [], Path.GetTempPath(), null, WorkflowPrompt.None).Run with { DocumentsDirectory = documents! };
+		var machine = TestWorkflows.Machine(definition);
+		var run = machine.Start(TestWorkflows.Start).Run with { DocumentsDirectory = documents! };
 		Assert.Throws<JsonException>(() => WorkflowRunDocument.Read(WorkflowRunDocument.Write(run)));
 	}
 

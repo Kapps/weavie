@@ -37,14 +37,9 @@ public sealed partial class HostSession {
 			WorkflowCatalog,
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
 			decider,
-			new WorkflowFileReader(fileSystem, workspaceRoot),
+			new WorkflowFileReader(fileSystem),
 			new WorkflowPort(this),
-			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
-			() => settings.RequireBool(WorkflowSettings.OpenReviewItem),
-			() => settings.RequireNumber(WorkflowSettings.DecisionConfidence),
-			workspaceRoot,
-			WeavieWorkflows.Vocabulary,
-			runId => InheritedWorkflowDocuments ?? documentsDirectory(runId));
+			WeavieWorkflows.Environment(settings, workspaceRoot, runId => InheritedWorkflowDocuments ?? documentsDirectory(runId)));
 
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.

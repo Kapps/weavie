@@ -20,7 +20,7 @@ public sealed partial class WorkflowRunner {
 	}
 
 	internal string StageBlock(WorkflowStageExecution execution) {
-		lock (_gate) return ReferenceEquals(_execution, execution) ? WorkflowStageBlock.Compose(_run, _definition, _words, ownsStage: true) : "";
+		lock (_gate) return ReferenceEquals(_execution, execution) ? WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: true) : "";
 	}
 
 	internal string CompleteStage(WorkflowStageCall call, JsonElement outputs, string summary) {

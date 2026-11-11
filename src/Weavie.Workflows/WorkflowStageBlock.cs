@@ -29,11 +29,11 @@ internal static class WorkflowStageBlock {
 		return text.ToString();
 	}
 
-	/// <summary>Tells the agent to put <paramref name="asked"/> to the user, opening what it is about when <paramref name="openItem"/>.</summary>
-	public static string PutToUser(WorkflowAsked asked, WorkflowVocabulary words, bool openItem) =>
-		$"{words.Host} now asks the user: {asked.Question} (answers: {string.Join(", ", asked.Choices)}). "
-		+ (openItem
-			? $"If the question is about a document or file, call {words.OpenFile} with preview, rendered, and focus true on the main one only, and link any others in your reply. "
+	/// <summary>Tells the agent to put <paramref name="asked"/> to the user.</summary>
+	public static string PutToUser(WorkflowAsked asked, WorkflowEnvironment environment) =>
+		$"{environment.Words.Host} now asks the user: {asked.Question} (answers: {string.Join(", ", asked.Choices)}). "
+		+ (environment.OpenReviewItem()
+			? $"If the question is about a document or file, call {environment.Words.OpenFile} with preview, rendered, and focus true on the main one only, and link any others in your reply. "
 			: "")
 		+ "Put that question to the user with what they need to answer it, and end your turn.";
 

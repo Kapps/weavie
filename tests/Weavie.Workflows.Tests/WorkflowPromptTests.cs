@@ -40,7 +40,8 @@ public sealed class WorkflowPromptTests : IDisposable {
 
 	private WorkflowRunner Runner(Func<string, string> documents) {
 		var runner = new WorkflowRunner(
-			Catalog, _store, new HeldDecider(), new UnusedFileReader(), _port, () => 3, () => true, () => 0.8, _dir.Combine("worktree"), TestWorkflows.Words, documents);
+			Catalog, _store, new HeldDecider(), new UnusedFileReader(), _port,
+			TestWorkflows.Environment(_dir.Combine("worktree"), _dir.Combine("documents")) with { DocumentsDirectory = documents });
 		runner.Activate();
 		return runner;
 	}

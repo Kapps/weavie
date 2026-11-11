@@ -76,7 +76,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 			throw new WorkflowException($"Workflow {id} can't start: it uses {{{{run.prompt}}}}, and no prompt was given.");
 		}
 
-		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree, documentsDirectory), prompt);
+		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, new WorkflowFileScope(worktree, documentsDirectory)), prompt);
 	}
 
 	private WorkflowCatalogEntry Resolve(string id) {

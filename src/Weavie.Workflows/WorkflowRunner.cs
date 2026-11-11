@@ -27,12 +27,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private readonly IWorkflowDecider _decider;
 	private readonly IWorkflowFileReader _files;
 	private readonly IWorkflowRunPort _port;
-	private readonly Func<int> _maxStageAttempts;
-	private readonly Func<bool> _openReviewItem;
-	private readonly Func<double> _decisionConfidence;
-	private readonly string _worktree;
-	private readonly Func<string, string> _documentsDirectory;
-	private readonly WorkflowVocabulary _words;
+	private readonly WorkflowEnvironment _environment;
 	private WorkflowRun? _run;
 	private WorkflowDefinition? _definition;
 	private PendingDecision? _pending;
@@ -41,18 +36,13 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
 		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowFileReader files, IWorkflowRunPort port,
-		Func<int> maxStageAttempts, Func<bool> openReviewItem, Func<double> decisionConfidence, string worktree, WorkflowVocabulary words, Func<string, string> documentsDirectory) {
+		WorkflowEnvironment environment) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
 		_files = files;
 		_port = port;
-		_maxStageAttempts = maxStageAttempts;
-		_openReviewItem = openReviewItem;
-		_decisionConfidence = decisionConfidence;
-		_worktree = worktree;
-		_documentsDirectory = documentsDirectory;
-		_words = words;
+		_environment = environment;
 		_run = store.Run;
 		Problem = store.LoadFailure;
 	}
@@ -111,7 +101,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The stage block for the agent's next turn, or empty.</summary>
 	public string StageBlock() {
 		lock (_gate) {
-			return WorkflowStageBlock.Compose(_run, _definition, _words, ownsStage: false);
+			return WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: false);
 		}
 	}
 
@@ -136,13 +126,20 @@ public sealed partial class WorkflowRunner : IDisposable {
 			_definition = launch.Definition;
 			Problem = null;
 			string id = $"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}";
-			string documents = _documentsDirectory(id);
+			string documents = _environment.DocumentsDirectory(id);
 			try {
 				Directory.CreateDirectory(documents);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				throw new WorkflowException($"Could not create workflow documents directory {documents}: {ex.Message}");
 			}
-			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold, SavePrompt(launch.Prompt, documents, id)));
+			Apply(Transitions().Start(new WorkflowRunStart {
+				RunId = id,
+				SourcePath = launch.SourcePath,
+				Inputs = launch.Inputs,
+				DocumentsDirectory = documents,
+				Hold = _run?.Hold,
+				Prompt = SavePrompt(launch.Prompt, documents, id),
+			}));
 			return _run!;
 		}
 	}
@@ -183,12 +180,12 @@ public sealed partial class WorkflowRunner : IDisposable {
 			if (completion.Errors.Count > 0) {
 				return _run!.Phase == WorkflowPhase.Paused
 					? $"Rejected again, so the run is paused for the user: {_run.PausedReason}"
-					: $"Not complete — fix these and call {_words.CompleteStage} again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
+					: $"Not complete — fix these and call {_environment.Words.CompleteStage} again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
 			}
 			if (independent) return "Complete. The main conversation receives the result and any user question. End your turn now.";
 
 			return _run!.Phase switch {
-				WorkflowPhase.Asking => $"Complete. {WorkflowStageBlock.PutToUser(_run.Asked!, _words, _openReviewItem())}",
+				WorkflowPhase.Asking => $"Complete. {WorkflowStageBlock.PutToUser(_run.Asked!, _environment)}",
 				WorkflowPhase.Done => "Complete. The workflow is finished.",
 				_ => "Complete. The next stage starts after this turn — end your turn now.",
 			};
@@ -304,7 +301,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 		: _run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
 
 	private WorkflowTransitions Transitions() =>
-		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
+		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _environment);
 
 	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true, completed: false);
 

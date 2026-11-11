@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Weavie.Workflows;
 
@@ -18,6 +19,22 @@ public static class WeavieWorkflows {
 		JumpToStage = CoreCommands.WorkflowJumpToStage,
 		Cancel = CoreCommands.WorkflowCancel,
 	};
+
+	/// <summary>
+	/// A runner's environment in <paramref name="worktree"/>: Weavie's names, the live workflow settings, and each
+	/// run's <paramref name="documentsDirectory"/> from its id.
+	/// </summary>
+	public static WorkflowEnvironment Environment(SettingsStore settings, string worktree, Func<string, string> documentsDirectory) {
+		ArgumentNullException.ThrowIfNull(settings);
+		return new() {
+			Worktree = worktree,
+			Words = Vocabulary,
+			DocumentsDirectory = documentsDirectory,
+			MaxStageAttempts = () => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
+			OpenReviewItem = () => settings.RequireBool(WorkflowSettings.OpenReviewItem),
+			DecisionConfidence = () => settings.RequireNumber(WorkflowSettings.DecisionConfidence),
+		};
+	}
 
 	/// <summary>The workflows visible from <paramref name="worktree"/>: built-in, the user's, and the repository's.</summary>
 	public static WorkflowCatalog Catalog(string worktree) =>

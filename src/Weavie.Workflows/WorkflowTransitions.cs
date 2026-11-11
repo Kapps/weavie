@@ -6,25 +6,20 @@ namespace Weavie.Workflows;
 /// The pure state machine of a run: each transition takes a run and returns the next run plus the effects its
 /// owner must perform. Nothing here touches files, threads, or the agent.
 /// </summary>
-internal sealed partial class WorkflowTransitions(
-	WorkflowDefinition definition, int maxStageAttempts, bool openReviewItem, double decisionConfidence, string worktree, WorkflowVocabulary words) {
+internal sealed partial class WorkflowTransitions(WorkflowDefinition definition, WorkflowEnvironment environment) {
 	private const string Yes = "yes";
 	private const string No = "no";
 
-	/// <summary>
-	/// A new run of the definition with <paramref name="inputs"/> and <paramref name="prompt"/>, entering its first
-	/// stage; it keeps the predecessor's <paramref name="hold"/>, whose own values are still owed back to the session.
-	/// </summary>
-	public WorkflowStep Start(
-		string runId, string sourcePath, Dictionary<string, WorkflowValue> inputs, string documentsDirectory, WorkflowHold? hold, WorkflowPrompt prompt) {
+	/// <summary>A new run of the definition from <paramref name="start"/>, entering its first stage.</summary>
+	public WorkflowStep Start(WorkflowRunStart start) {
 		var run = new WorkflowRun {
-			Id = runId,
-			DocumentsDirectory = documentsDirectory,
+			Id = start.RunId,
+			DocumentsDirectory = start.DocumentsDirectory,
 			WorkflowId = definition.Id,
-			SourcePath = sourcePath,
+			SourcePath = start.SourcePath,
 			SourceText = definition.SourceText,
-			Inputs = inputs,
-			Prompt = prompt,
+			Inputs = start.Inputs,
+			Prompt = start.Prompt,
 			Stage = definition.Stages[0].Id,
 			Phase = WorkflowPhase.Open,
 			Decision = null,
@@ -37,7 +32,7 @@ internal sealed partial class WorkflowTransitions(
 			Note = "",
 			PausedReason = null,
 			Kickoff = null,
-			Hold = hold,
+			Hold = start.Hold,
 		};
 		return Enter(run, definition.Stages[0].Id);
 	}
@@ -47,10 +42,10 @@ internal sealed partial class WorkflowTransitions(
 		Require(run, WorkflowPhase.Open, "complete");
 		var stage = StageOf(run.Stage);
 		var errors = new List<string>();
-		var values = ReadOutputs(stage, outputs, run.DocumentsDirectory, errors);
+		var values = ReadOutputs(stage, outputs, Files(run), errors);
 		if (errors.Count > 0) {
 			int attempts = run.Attempts + 1;
-			return new WorkflowCompletion(attempts >= maxStageAttempts
+			return new WorkflowCompletion(attempts >= environment.MaxStageAttempts()
 				? Pause(run with { Attempts = attempts }, $"Stage \"{stage.Id}\" was rejected {attempts} times: {string.Join("; ", errors)}")
 				: new WorkflowStep(run with { Attempts = attempts }, []), errors);
 		}
@@ -124,7 +119,7 @@ internal sealed partial class WorkflowTransitions(
 			run = run with { Streaks = new() { [run.Stage] = count } };
 		}
 
-		return Route(run, choice, $"{words.Host} decided \"{choice}\"", "");
+		return Route(run, choice, $"{environment.Words.Host} decided \"{choice}\"", "");
 	}
 
 	/// <summary>The user resumes a paused run: a paused decision is asked again, otherwise the stage restarts.</summary>
@@ -180,7 +175,7 @@ internal sealed partial class WorkflowTransitions(
 		var kickoff = WorkflowKickoff.Prompt(
 			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
 			+ (run.Note.Length == 0 ? "" : $" Feedback: {run.Note}")
-			+ $" Revise the work accordingly, then call {words.CompleteStage} again.");
+			+ $" Revise the work accordingly, then call {environment.Words.CompleteStage} again.");
 		var revised = Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" }, StageTurn(run, stage, kickoff));
 		return revised with { Effects = [new WorkflowEffect.ReviseStage(), .. revised.Effects] };
 	}
@@ -257,13 +252,13 @@ internal sealed partial class WorkflowTransitions(
 			[new WorkflowEffect.Decide(new WorkflowDecisionPlan(
 				rendered, [.. choices], new Dictionary<string, string>(outputs),
 				run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
-				paths, run.DocumentsDirectory, question.Confidence ?? decisionConfidence))]);
+				paths, Files(run), question.Confidence ?? environment.DecisionConfidence()))]);
 	}
 
 	// Puts the run's current question to the user through the agent; a non-empty reason says why the model didn't answer it.
 	private WorkflowStep AskUser(WorkflowRun run, string reason) {
 		var asked = run.Asked! with { Reason = reason };
-		var kickoff = WorkflowKickoff.Prompt(WorkflowStageBlock.PutToUser(asked, words, openReviewItem));
+		var kickoff = WorkflowKickoff.Prompt(WorkflowStageBlock.PutToUser(asked, environment));
 		return Send(run with { Phase = WorkflowPhase.Asking, Asked = asked }, kickoff);
 	}
 

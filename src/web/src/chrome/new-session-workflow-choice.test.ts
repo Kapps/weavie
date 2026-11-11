@@ -185,6 +185,23 @@ describe("NewSessionWorkflowChoice", () => {
     expect(state().workflow).toBeNull();
   });
 
+  it("asks and applies nothing while the user is on the field", async () => {
+    const { choice, state, suggestions, answer } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft(DRAFT);
+    choice.claim();
+    await settle();
+    expect(suggestions).toEqual([]);
+
+    choice.release();
+    await settle();
+    expect(suggestions).toHaveLength(1);
+    choice.claim();
+    await answer(applies("quick-fix"));
+    expect(state()).toMatchObject({ workflow: null, status: "ready" });
+  });
+
   it("starts with the value shown and discards a suggestion still on its way", async () => {
     const { choice, state, answer } = harness();
     choice.retarget(LOCAL);

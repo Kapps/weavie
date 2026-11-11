@@ -445,7 +445,7 @@ a draft of any length, the workflow owner asks only for one worth judging.
 | a draft worth judging settles | ask once, if the catalog is loaded and the user has not picked; a failure or a below-threshold answer still spends it |
 | a shorter draft settles, or a settled draft is edited before the ask | nothing; an edited draft has to settle again |
 | user picks or clears | value is theirs; abort any request in flight; no suggestion is asked for this draft again |
-| focus moves onto the workflow field | no suggestion is asked: the user is choosing it themselves |
+| focus is on the workflow field | nothing is asked or applied until focus leaves: the user is choosing it themselves |
 | the catalog can't be read | what was read before, and the value, stand; the reason shows by the field |
 | the catalog has not been read yet | Start waits, so it never runs without the configured default |
 | a suggestion lands | applied only if still current, the user has not picked, and the id is *No workflow* or a valid listed option; an `error` shows `Workflow suggestion failed: <error>` |

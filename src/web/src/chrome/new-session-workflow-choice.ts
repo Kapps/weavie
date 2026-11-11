@@ -49,6 +49,7 @@ export class NewSessionWorkflowChoice {
   /** The value is a pick or an applied suggestion, kept while the catalog being read still offers it. */
   private held = false;
   private online = false;
+  private claimed = false;
   private asked = false;
   private due = false;
   private loaded = false;
@@ -115,6 +116,18 @@ export class NewSessionWorkflowChoice {
     }
   }
 
+  /** The user moved onto the field: it is theirs to set, so nothing is asked or applied until they leave it. */
+  claim(): void {
+    this.claimed = true;
+    this.settle.clear();
+  }
+
+  /** They left the field without choosing; a draft still owed its suggestion can settle again. */
+  release(): void {
+    this.claimed = false;
+    this.draft(this.prompt);
+  }
+
   /** The user chose `workflow` (null for none); nothing automatic writes over it. */
   pick(workflow: string | null): void {
     this.picked = true;
@@ -154,7 +167,7 @@ export class NewSessionWorkflowChoice {
   }
 
   private get mayAsk(): boolean {
-    return !this.asked && !this.picked;
+    return !this.asked && !this.picked && !this.claimed;
   }
 
   private selectable(workflow: string | null): boolean {
@@ -232,7 +245,7 @@ export class NewSessionWorkflowChoice {
 
     this.suggestion = null;
     this.suggestionError = result.error;
-    if (result.applies && this.selectable(result.workflow)) {
+    if (result.applies && !this.claimed && this.selectable(result.workflow)) {
       this.held = true;
       this.state = { ...this.state, workflow: result.workflow };
     }

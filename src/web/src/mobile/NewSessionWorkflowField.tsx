@@ -83,6 +83,8 @@ export function NewSessionWorkflowField(props: {
         aria-expanded={anchor() !== null}
         aria-busy={state().status === "suggesting"}
         disabled={state().status === "loading"}
+        onFocus={() => choice.claim()}
+        onBlur={() => choice.release()}
         onClick={(event) =>
           setAnchor((open) => (open === null ? event.currentTarget.getBoundingClientRect() : null))
         }

@@ -1,14 +1,40 @@
 import type { AgentPaneUpdate } from "../bridge";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
+export function groupSideConversations(messages: readonly AgentPaneUpdate[]): {
+  conversations: ReadonlyMap<string, AgentPaneUpdate[]>;
+  containers: ReadonlyMap<string, string>;
+} {
+  const sides = new Set<string>();
+  const containers = new Map<string, string>();
+  for (const message of messages) {
+    if (!message.conversationId) continue;
+    if (message.type === "side-conversation-started") sides.add(message.conversationId);
+    if (message.type !== "subagent-started" || !message.parentItemId) continue;
+    const container = sides.has(message.parentItemId)
+      ? message.parentItemId
+      : containers.get(message.parentItemId);
+    if (container !== undefined) containers.set(message.conversationId, container);
+  }
+  return { conversations: collectConversations(messages, containers), containers };
+}
+
 export function collectSideConversations(
   messages: readonly AgentPaneUpdate[],
+): ReadonlyMap<string, AgentPaneUpdate[]> {
+  return collectConversations(messages, new Map());
+}
+
+function collectConversations(
+  messages: readonly AgentPaneUpdate[],
+  containers: ReadonlyMap<string, string>,
 ): ReadonlyMap<string, AgentPaneUpdate[]> {
   const conversations = new Map<string, AgentPaneUpdate[]>();
   for (const message of messages) {
     if (!message.conversationId) continue;
-    const existing = conversations.get(message.conversationId);
-    if (existing === undefined) conversations.set(message.conversationId, [message]);
+    const id = containers.get(message.conversationId) ?? message.conversationId;
+    const existing = conversations.get(id);
+    if (existing === undefined) conversations.set(id, [message]);
     else existing.push(message);
   }
   return conversations;
@@ -76,24 +102,23 @@ export function sideConversationEntry(
   project: (messages: readonly AgentPaneUpdate[]) => AgentTranscriptEntry[],
 ): AgentTranscriptEntry {
   const first = messages[0]!;
-  const marker = [...messages]
-    .reverse()
-    .find((message) => message.type === "side-conversation-started");
-  const sideFailure = [...messages]
+  const own = messages.filter((message) => message.conversationId === first.conversationId);
+  const marker = [...own].reverse().find((message) => message.type === "side-conversation-started");
+  const sideFailure = [...own]
     .reverse()
     .find((message) => message.type === "side-conversation-failed");
-  const collapse = [...messages]
+  const collapse = [...own]
     .reverse()
     .find((message) => message.type === "side-conversation-collapsed");
-  const state = sideConversationState(messages);
+  const state = sideConversationState(own);
   const childMessages: AgentPaneUpdate[] = messages
     .filter((message) => !message.type.startsWith("side-conversation-"))
-    .map((message) => ({
-      ...message,
-      conversationId: null,
-      anchorTurnId: null,
-    }));
-  if (!childMessages.some((message) => message.type === "user-message") && marker?.text) {
+    .map((message) =>
+      message.conversationId === first.conversationId
+        ? { ...message, conversationId: null, anchorTurnId: null }
+        : message,
+    );
+  if (!own.some((message) => message.type === "user-message") && marker?.text) {
     childMessages.unshift({
       type: "user-message",
       providerId: marker.providerId,
@@ -104,7 +129,7 @@ export function sideConversationEntry(
       text: marker.text,
     });
   }
-  if (sideFailure !== undefined && !childMessages.some((message) => message.type === "error")) {
+  if (sideFailure !== undefined && !own.some((message) => message.type === "error")) {
     childMessages.push({
       ...sideFailure,
       type: "error",
@@ -135,7 +160,10 @@ export function sideConversationEntry(
 
 /** Whether a nested conversation is a subagent rather than a BTW. */
 export function isSubagentConversation(messages: readonly AgentPaneUpdate[]): boolean {
-  return messages.some((message) => message.type === "subagent-started");
+  return messages.some(
+    (message) =>
+      message.type === "subagent-started" && message.conversationId === messages[0]!.conversationId,
+  );
 }
 
 /** The subagent name each nested conversation announced, for naming a nested spawn's parent. */
@@ -144,7 +172,9 @@ export function subagentNames(
 ): ReadonlyMap<string, string> {
   const names = new Map<string, string>();
   for (const [id, messages] of conversations) {
-    const marker = messages.find((message) => message.type === "subagent-started");
+    const marker = messages.find(
+      (message) => message.type === "subagent-started" && message.conversationId === id,
+    );
     if (marker?.summary) names.set(id, marker.summary);
   }
   return names;

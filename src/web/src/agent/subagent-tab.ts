@@ -9,7 +9,17 @@ export function subagentForTab(
   path: string,
 ): AgentTranscriptEntry | undefined {
   const conversationId = subagentConversationId(path);
-  return agentPaneModel(session)
-    ?.transcript()
-    .entries.find((entry) => entry.kind === "subagent" && entry.conversationId === conversationId);
+  return findSubagent(agentPaneModel(session)?.transcript().entries ?? [], conversationId);
+}
+
+function findSubagent(
+  entries: readonly AgentTranscriptEntry[],
+  conversationId: string,
+): AgentTranscriptEntry | undefined {
+  for (const entry of entries) {
+    if (entry.kind === "subagent" && entry.conversationId === conversationId) return entry;
+    const nested = findSubagent(entry.asideEntries ?? [], conversationId);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
 }

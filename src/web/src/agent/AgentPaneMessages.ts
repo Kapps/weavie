@@ -10,7 +10,7 @@ import {
   requestResolutions,
 } from "./AgentPaneMessageFormat";
 import {
-  collectSideConversations,
+  groupSideConversations,
   isSubagentConversation,
   sideConversationEntry,
   subagentEntry,
@@ -52,7 +52,7 @@ export function projectAgentTranscript(
     }
   }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
-  const sideConversations = collectSideConversations(updates);
+  const { conversations: sideConversations, containers } = groupSideConversations(updates);
   const names = subagentNames(sideConversations);
   const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
@@ -73,9 +73,10 @@ export function projectAgentTranscript(
 
   for (const message of updates) {
     if (message.conversationId) {
-      if (!emittedSideConversations.has(message.conversationId)) {
-        emittedSideConversations.add(message.conversationId);
-        const conversation = sideConversations.get(message.conversationId) ?? [message];
+      const container = containers.get(message.conversationId) ?? message.conversationId;
+      if (!emittedSideConversations.has(container)) {
+        emittedSideConversations.add(container);
+        const conversation = sideConversations.get(container)!;
         const project = (childMessages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
           const child = projectAgentTranscript(childMessages);
           for (const [id, activity] of child.activities) sideActivities.set(id, activity);

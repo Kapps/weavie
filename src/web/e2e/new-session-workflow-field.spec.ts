@@ -2,9 +2,9 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { devices, expect, type Page } from "@playwright/test";
-import { CommandIds, type CommandInfo } from "../src/commands/types";
+import { CommandIds } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
-import { MockHost, mockSession } from "./mock-host";
+import { MockHost, mockSession, NEW_SESSION_COMMAND } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const DRAFT =
@@ -28,18 +28,6 @@ test.beforeAll(() => {
 });
 
 async function openSessions(page: Page, host: MockHost): Promise<void> {
-  const create: CommandInfo = {
-    id: CommandIds.newSession,
-    title: "New Session",
-    runsIn: "core",
-    owner: "backend",
-    executionLane: "weavie.session.lifecycle",
-    scope: "host",
-    keys: [],
-    description: "",
-    aliases: [],
-    showInPalette: false,
-  };
   host.setSessions([mockSession("main", "main", "acp")]);
   host.onHost("request", "git", "branches", (request) => host.respond(request, ["main"]));
   host.onHost("request", "sessionCreation", "workflows", (request) =>
@@ -47,7 +35,7 @@ async function openSessions(page: Page, host: MockHost): Promise<void> {
   );
   await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
   await host.waitUntilConnected();
-  host.publishHost("commands", "catalog", { commands: [create], keybindings: [] });
+  host.publishHost("commands", "catalog", { commands: [NEW_SESSION_COMMAND], keybindings: [] });
 }
 
 test("the composer suggests a workflow once, lets the keyboard change it, and starts the session in it", async ({
@@ -67,7 +55,7 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await expect(workflow).toHaveText("No workflow");
     await expect(workflow).toBeEnabled();
 
-    // One suggestion for the settled draft: it fills the field, and more typing never asks again.
+    // One suggestion for the settled draft fills the field.
     const suggestion = host.waitForHost("request", "sessionCreation", "suggestWorkflow");
     await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(DRAFT);
     const asked = await suggestion;
@@ -100,9 +88,10 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await expect(menu).toBeHidden();
     await expect(modal).toBeVisible();
 
-    // An unavailable workflow can't be picked; the next one can.
+    // An unavailable workflow says why once highlighted and can't be picked; the next one can.
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowUp");
+    await expect(broken.locator(".control-menu-option-reason")).toBeVisible();
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
     await page.keyboard.press("ArrowDown");

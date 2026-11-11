@@ -248,8 +248,11 @@ test.describe("failed branch inference", () => {
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");
-    await expect(inbox.getByRole("alert")).toHaveText(
+    await expect(inbox.locator(".session-composer-branch").getByRole("alert")).toHaveText(
       "Branch suggestion failed: Claude inference exited with code 7. Type a branch to continue.",
+    );
+    await expect(inbox.locator(".session-composer-workflow").getByRole("alert")).toHaveText(
+      "Workflow suggestion failed: Claude inference exited with code 7.",
     );
     await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
     await branch.fill("fix/manual-branch-inference");

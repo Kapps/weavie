@@ -91,18 +91,15 @@ export class NewSessionWorkflowChoice {
     this.catalogLoad = load;
     this.requestCatalog(target, load.signal).then(
       (catalog) => this.catalogLanded(load, catalog),
-      (error: unknown) =>
-        this.catalogLanded(load, {
-          workflows: [],
-          default: null,
-          defaultProblem: `Couldn't list workflows: ${message(error)}`,
-        }),
+      (error: unknown) => this.catalogFailed(load, error),
     );
   }
 
   /** The prompt as it stands; a draft worth judging that then sits unchanged gets the one suggestion. */
   draft(prompt: string): void {
     this.prompt = prompt;
+    // An edited draft has to settle again before it is asked about.
+    this.due = false;
     if (this.mayAsk) {
       this.settle.arm(prompt);
     } else {
@@ -185,6 +182,17 @@ export class NewSessionWorkflowChoice {
     this.ask();
   }
 
+  // What was read before still stands; only the reason is new.
+  private catalogFailed(load: AbortController, error: unknown): void {
+    if (this.catalogLoad !== load) {
+      return;
+    }
+
+    this.catalogLoad = null;
+    this.catalogProblem = `Couldn't list workflows: ${message(error)}`;
+    this.publish({ status: this.suggestion === null ? "ready" : "suggesting" });
+  }
+
   private settled(): void {
     this.due = true;
     this.ask();
@@ -195,11 +203,8 @@ export class NewSessionWorkflowChoice {
     if (!this.due || !this.mayAsk || !this.loaded || !this.online || target === null) {
       return;
     }
-    // A draft cut short since it settled, or a catalog with nothing startable, stays owed its suggestion.
-    if (
-      !draftWorthQuerying(this.prompt) ||
-      !this.state.options.some((option) => option.error === null)
-    ) {
+    // With nothing startable there is no choice to suggest; the draft stays owed one for a later catalog.
+    if (!this.state.options.some((option) => option.error === null)) {
       return;
     }
 

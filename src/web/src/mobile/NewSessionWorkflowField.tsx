@@ -28,6 +28,8 @@ export function NewSessionWorkflowField(props: {
   backendId: string;
   base: "source" | "main";
   prompt: string;
+  /** Whether the field has read what it can offer, so a start would run what it shows. */
+  onReady: (ready: boolean) => void;
   register: (actions: NewSessionWorkflowActions) => void;
 }): JSX.Element {
   const [state, setState] = createSignal<WorkflowChoiceState>({
@@ -41,7 +43,10 @@ export function NewSessionWorkflowField(props: {
     (target, signal) => requestWorkflowCatalog(target.backendId, target.sourceId, signal),
     (target, prompt, signal) =>
       requestWorkflowSuggestion(target.backendId, target.sourceId, prompt, signal),
-    setState,
+    (next) => {
+      setState(next);
+      props.onReady(next.status !== "loading");
+    },
   );
   props.register({
     capture: () => choice.capture(),

@@ -127,6 +127,15 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		Assert.Equal(AgentTurnSubmissionKind.Prompt, WorkflowKickoff.Prompt("go").Submission([]).Kind);
 	}
 
+	[Fact]
+	public void ATerminalAgentTakesACommandBeforeItsImagesAndAPromptAfterThem() {
+		WorkflowTurnImage[] images = [new("/documents/prompt/r-1/image-1.png", "image/png")];
+
+		Assert.Equal(["/spec x", images[0].Path],
+			new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" }.Submission(images).TerminalParts());
+		Assert.Equal([images[0].Path, "go"], WorkflowKickoff.Prompt("go").Submission(images).TerminalParts());
+	}
+
 	private sealed class NoDecider : IWorkflowDecider {
 		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) =>
 			throw new InvalidOperationException("No decision expected.");

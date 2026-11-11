@@ -48,10 +48,14 @@
   color: var(--bad);
 }
 
-/* A pointer shows the reason as the row's tooltip; touch has no hover, so it reads it in the row. */
+/* The reason reads in the row once it is highlighted, by key or pointer; touch has neither, so it always shows. */
 .control-menu-option-reason {
   display: none;
   color: var(--bad);
+}
+
+.control-menu-option.active .control-menu-option-reason {
+  display: block;
 }
 
 @media (hover: none), (pointer: coarse) {

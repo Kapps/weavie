@@ -199,6 +199,30 @@ public sealed class HostCoreWorkflowTests {
 	}
 
 	[Fact]
+	public async Task ATurnTheAgentRefusesPausesTheRunStillOwingItsImages() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
+			Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
+			File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "refused.yaml"),
+				$"id: refused\ndescription: d\nstages:\n  - id: build\n    run: {{ prompt: \"{FakeStructuredAgentProvider.RefusedTurn}: {{{{run.prompt}}}}\" }}\n");
+			CommitFlow(repo);
+		});
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "refused",
+			Prompt = "add a picker",
+			Attachments = [new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "iVBORw0KGgo=" }],
+		})).Ok);
+		var session = host.Session("wf");
+
+		await Eventually(() => session.Workflow.Current!.Phase == WorkflowPhase.Paused);
+
+		Assert.Contains("The fake agent refuses this turn.", session.Workflow.Current!.PausedReason, StringComparison.Ordinal);
+		Assert.False(session.Workflow.Current.PromptImagesSent);
+	}
+
+	[Fact]
 	public async Task AStageWhoseTurnWouldCarryAMissingPromptImagePausesInsteadOfSendingIt() {
 		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {

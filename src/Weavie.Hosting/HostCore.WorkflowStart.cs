@@ -9,15 +9,14 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private const string SourceGoneMessage = "The source session no longer exists.";
 
-	// The workflows a new session can start, read from where the user starts it, before any worktree exists: an
-	// unknown workflow or bad inputs must not leave a session behind, and the new session runs exactly what was checked.
-	private WorkflowCatalog LaunchCatalog(SessionSlot? source) => WeavieWorkflows.Catalog(LaunchRoot(source));
-
+	// Where a start reads its workflows and conventions from: the session it is made from, else the workspace. It is
+	// read before any worktree exists, so a bad start leaves no session behind and the new one runs what was checked.
 	private string LaunchRoot(SessionSlot? source) => source?.WorktreePath ?? WorkspaceRoot;
 
-	// The session a start is made from, or null for the workspace; false when the named session is gone.
-	private bool TrySourceSlot(string? sourceId, out SessionSlot? source) {
-		source = SourceSlot(sourceId);
+	// False when the session a start names is gone.
+	private bool TryLaunchRoot(string? sourceId, out string root) {
+		var source = string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
+		root = LaunchRoot(source);
 		return source is not null || string.IsNullOrWhiteSpace(sourceId);
 	}
 
@@ -27,7 +26,7 @@ public sealed partial class HostCore {
 	}
 
 	private string RequireLaunchRoot(string? sourceId) =>
-		TrySourceSlot(sourceId, out var source) ? LaunchRoot(source) : throw new InvalidOperationException(SourceGoneMessage);
+		TryLaunchRoot(sourceId, out string root) ? root : throw new InvalidOperationException(SourceGoneMessage);
 
 	private async Task<WorkflowStartCatalog> WorkflowStartCatalogAsync(WorkflowStartTarget target, CancellationToken ct) {
 		var options = await WorkflowStartOptionsAsync(RequireLaunchRoot(target.SourceId), ct).ConfigureAwait(false);

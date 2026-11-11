@@ -33,7 +33,7 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
   suggestion, and Start share that one resolver.
 - A workflow that **declares inputs** is not a starting workflow and is not listed.
 - An **invalid** workflow is listed greyed out with a red unavailable icon. Its error shows on hover, and as a
-  second line under the entry on touch. It cannot be selected.
+  second line under the entry while it is highlighted and always on touch. It cannot be selected.
 - Reached by Tab between the branch field and Start. No new command, shortcut, or "suggest again" control.
 
 ### Suggestion
@@ -53,6 +53,7 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
 
 ### Submitting
 
+- Start is unavailable until the field has read its catalog, so it never runs without the configured default.
 - Start uses the workflow field's value at the moment it is pressed. It never waits for a pending suggestion, and
   one landing while Start waits for the branch name is discarded, so a submit cannot launch a workflow the user
   never saw selected.

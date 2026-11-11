@@ -307,18 +307,15 @@ public sealed partial class HostCore {
 		&& element.TryGetProperty(name, out var value)
 		&& value.ValueKind == JsonValueKind.True;
 
-	private SessionSlot? SourceSlot(string? sourceId) =>
-		string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
-
 	private Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
 		HostBranchPreviewRequest message,
 		CancellationToken ct) {
-		if (!TrySourceSlot(message.SourceId, out var source)) {
+		if (!TryLaunchRoot(message.SourceId, out string root)) {
 			return Task.FromResult(BranchPreviewResult.Failed(SourceGoneMessage));
 		}
 
 		return PreviewBranchNameAsync(
-			LaunchRoot(source),
+			root,
 			message.Prompt,
 			message.Attachments,
 			message.UserInitiated

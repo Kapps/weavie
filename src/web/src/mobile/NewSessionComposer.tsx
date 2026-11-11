@@ -51,6 +51,7 @@ export function NewSessionComposer(props: {
     manual: false,
     status: "idle",
   });
+  const [workflowReady, setWorkflowReady] = createSignal(false);
   let branchActions: NewSessionBranchActions | undefined;
   let workflowActions: NewSessionWorkflowActions | undefined;
   let promptInput!: HTMLTextAreaElement;
@@ -126,6 +127,7 @@ export function NewSessionComposer(props: {
   const canStart = (): boolean =>
     !props.busy &&
     named() &&
+    workflowReady() &&
     props.providerAvailable &&
     attachments().every((attachment) => attachment.status === "ready");
 
@@ -171,14 +173,16 @@ export function NewSessionComposer(props: {
         void submitNew();
       }}
       // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
-      // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on the
-      // branch field means the user is naming it themselves.
+      // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on a
+      // suggested field means the user is setting that one themselves.
       onFocusOut={(event) => {
         const next = event.relatedTarget;
         if (!(next instanceof Element) || !event.currentTarget.contains(next)) {
           return;
         }
-        workflowActions?.flush();
+        if (next.closest(".session-composer-workflow") === null) {
+          workflowActions?.flush();
+        }
         if (next.closest(".session-composer-branch") === null) {
           branchActions?.flush();
         }
@@ -240,6 +244,7 @@ export function NewSessionComposer(props: {
         backendId={props.backendId}
         base={props.base}
         prompt={prompt()}
+        onReady={setWorkflowReady}
         register={(actions) => {
           workflowActions = actions;
         }}

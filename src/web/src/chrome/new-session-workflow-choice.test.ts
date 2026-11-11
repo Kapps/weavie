@@ -238,18 +238,35 @@ describe("NewSessionWorkflowChoice", () => {
     expect(state()).toMatchObject({ workflow: "quick-fix", status: "ready" });
   });
 
-  it("never asks about a draft cut short before its catalog arrived", async () => {
+  it("asks about a draft edited after it settled only once it settles again", async () => {
     const { choice, suggestions } = harness();
     choice.retarget(LOCAL);
     choice.draft(DRAFT);
     choice.flush();
-    choice.draft(SHORT);
+    choice.draft(`${DRAFT} after a reconnect`);
     await vi.advanceTimersByTimeAsync(0);
     expect(suggestions).toEqual([]);
 
-    choice.draft(DRAFT);
-    choice.flush();
-    expect(suggestions).toHaveLength(1);
+    await settle();
+    expect(suggestions).toMatchObject([{ prompt: `${DRAFT} after a reconnect` }]);
+  });
+
+  it("keeps what it read, and the pick, when a re-read fails", async () => {
+    const { choice, state, catalogs } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.pick("quick-fix");
+
+    catalogs.delete("local");
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state()).toMatchObject({
+      workflow: "quick-fix",
+      problem: "Couldn't list workflows: offline",
+      status: "ready",
+    });
+    expect(state().options).toHaveLength(3);
   });
 
   it("owes the next draft its own suggestion once this one is submitted", async () => {

@@ -26,7 +26,7 @@ documents, #1173, and workflow agent selection, #1168, are in).
 | Draft-settle trigger | `src/web/src/chrome` | One timer/word-gate/focus trigger feeding both the branch preview and the workflow suggestion |
 | Workflow field | `src/web/src/mobile` | The dropdown, built on `ControlMenu` |
 
-**Decided with you**
+**Decisions**
 
 - The reference is `{{run.prompt}}`, beside `{{run.documents}}`.
 - `workflow.default` is workspace-scoped: a repo can set its own, and the user-wide value applies elsewhere.
@@ -437,8 +437,11 @@ a draft of any length, the workflow owner asks only for one worth judging.
 | target `{backendId, sourceId}` changes | abort; reload the catalog; keep the value if the new catalog offers it, else its default; no new suggestion is asked |
 | the host becomes unreachable, then returns | nothing is reset; the catalog is re-read and an applied suggestion stays |
 | a draft worth judging settles | ask once, if the catalog is loaded and the user has not picked; a failure or a below-threshold answer still spends it |
-| a shorter draft settles, or a settled draft is cut short before the ask | nothing; the one suggestion is not spent |
+| a shorter draft settles, or a settled draft is edited before the ask | nothing; an edited draft has to settle again |
 | user picks or clears | value is theirs; abort any request in flight; no suggestion is asked for this draft again |
+| focus moves onto the workflow field | no suggestion is asked: the user is choosing it themselves |
+| the catalog can't be read | what was read before, and the value, stand; the reason shows by the field |
+| the catalog has not been read yet | Start waits, so it never runs without the configured default |
 | a suggestion lands | applied only if still current, the user has not picked, and the id is *No workflow* or a valid listed option; an `error` shows `Workflow suggestion failed: <error>` |
 | Start | `capture()` returns the value now and discards anything in flight; called before the branch resolve (`SessionInbox.tsx:196`) |
 
@@ -447,8 +450,8 @@ while asking) that opens a `ControlMenu`, positioned as `SuggestionProfile.tsx:4
 moves into `ControlMenu.tsx` instead of being copied).
 
 - `ControlMenu` options gain `unavailable?: string`: the row is `aria-disabled`, greyed, with a red lucide `Ban`
-  icon and the reason as `title`; under `@media (hover: none), (pointer: coarse)` the reason shows as a second
-  line. Accepting it does nothing.
+  icon and the reason as `title`; the reason also reads as a second line while the row is highlighted, by key or
+  pointer, and always on touch. Accepting it does nothing.
 - Keys: Enter, Space, or ArrowDown opens; arrows move; Enter or Tab picks; Escape closes the menu only.
 - `SessionInboxSurface.onKeyDown` (`SessionInboxSurface.tsx:29-55`) must return early while `controlMenuOpen()`,
   or Escape closes the whole Sessions modal and Tab is trapped. `GettingStarted.tsx` already does this.
@@ -509,7 +512,7 @@ multi-paragraph prompt:
 
 | Failure | Where the user sees it |
 | --- | --- |
-| Catalog request fails (host offline, source session gone) | By the field: "Couldn't list workflows: …". The field stays *No workflow*; Start still works |
+| Catalog request fails (host offline, source session gone) | By the field: "Couldn't list workflows: …". The field keeps what it had; Start still works |
 | `workflow.default` missing, invalid, or input-declaring | By the field, from `defaultProblem` |
 | Invalid workflow file | Greyed row, red icon, reason on hover or as a second line on touch |
 | Suggestion provider error, timeout, or refusal | By the field: "Workflow suggestion failed: …". Value unchanged |
@@ -518,7 +521,7 @@ multi-paragraph prompt:
 | Unknown or invalid workflow, or bad inputs, at Start | Existing `WorkflowException` → command failure; no session |
 | Bad attachment (type, size, duplicate id) | Existing decode failure, before anything is created |
 | Image write or run start throws after the session exists | Existing `RollbackSessionLoad` → failure toast naming the path; the unowned folder is collected by `WorkflowDocumentFolders` |
-| The agent doesn't accept images, or a prompt image file is missing | The turn is not sent; the run pauses with the reason in the session's run line, still owing the images |
+| The agent refuses the turn (it doesn't accept images, or no longer has the skill), or a prompt image file is missing | The turn is not sent; the run pauses with the reason in the session's run line, still owing the images. An ACP agent's image support is known once its conversation is ready; a turn queued before that fails the agent runtime instead |
 | Run saved before this change | Loads with an empty prompt; nothing shown |
 
 ## Testing

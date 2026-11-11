@@ -697,7 +697,7 @@ public sealed partial class HostCore {
 			using var documents = _workflowDocuments.Acquire(source?.WorktreePath);
 			if (request.Workflow is { } workflow) {
 				try {
-					var launch = LaunchCatalog(source).Prepare(
+					var launch = WeavieWorkflows.Catalog(LaunchRoot(source)).Prepare(
 						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input));
 					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
 					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");

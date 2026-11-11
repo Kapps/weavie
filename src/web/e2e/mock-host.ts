@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
+import { CommandIds, type CommandInfo } from "../src/commands/types";
 import { basename } from "../src/editor/fs-path";
 import { DEFAULT_EDITOR_OPTIONS } from "../src/editor-options-defaults";
 import type { EditorOptionsSpec } from "../src/messaging/protocol-types";
@@ -64,6 +65,24 @@ interface MessageWaiter {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
+
+/** A catalog entry for a command a spec publishes, with the fields no spec varies filled in. */
+export function mockCommand(
+  info: Pick<CommandInfo, "id" | "title" | "runsIn" | "owner" | "executionLane" | "scope" | "keys">,
+): CommandInfo {
+  return { ...info, description: "", aliases: [], showInPalette: false };
+}
+
+/** The command the Sessions surface invokes to create a session. */
+export const NEW_SESSION_COMMAND = mockCommand({
+  id: CommandIds.newSession,
+  title: "New Session",
+  runsIn: "core",
+  owner: "backend",
+  executionLane: "weavie.session.lifecycle",
+  scope: "host",
+  keys: [],
+});
 
 export function mockSession(id: string, label: string, providerId: string): MockLiveSession {
   return {

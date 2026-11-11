@@ -80,8 +80,7 @@ public sealed partial class HostCore {
 	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
 		string root = RequireLaunchRoot(request.SourceId);
 		var resolver = RoleResolver(RequireProvider(request.ProviderId));
-		var definition = await Task.Run(() => WeavieWorkflows.Catalog(root).List()
-			.FirstOrDefault(entry => entry.Id == request.Workflow && entry.ShadowedBy is null)?.Definition, ct).ConfigureAwait(false);
+		var definition = await Task.Run(() => WeavieWorkflows.Catalog(root).Winner(request.Workflow)?.Definition, ct).ConfigureAwait(false);
 		var read = definition is null ? null : resolver.Read(definition);
 		// Only a role with nothing saved is suggested; a saved model that has gone is the user's to replace.
 		if (read is not { Refusal: null } || read.Unfilled.FirstOrDefault(gap => gap.Role == request.Role) is not { MissingModel: null }) {

@@ -273,11 +273,14 @@ Resolve(definition):                                         // the engine seam;
   refusal = r.Refusal ?? (r.Unfilled.Any ? Unfilled(…) : null)
   refusal is null ? r.Agents : throw WorkflowException(refusal)
 
-Picking(picks).Resolve(definition):                          // a composer start's picks
-  a pick for a role the definition doesn't ask for, while the models aren't known,
-    or of a model not offered                                → throw WorkflowException
-  Resolve(definition) with each pick as { provider.Id, model, options: {} } over the saved roles
-  roles.Set(provider.Id, every pick)                         // one write, only once nothing refused
+Picking(picks).Resolve(definition):                          // a composer start's picks; saves nothing
+  a pick for a role the definition doesn't ask for           → throw WorkflowException
+  the provider's own refusal (terminal, no model choice)     → throw, so a pick never masks it
+  picks while the models aren't known, or of a model not offered → throw
+  each pick as { provider.Id, model, options: {} } over the saved roles; an unfilled role → throw
+
+Picking(picks).Save():                                       // only after Resolve succeeded
+  roles.Set(provider.Id, every pick)                         // one write
 ```
 
 A saved role is trusted while the model list is loading or failed; its step is checked when it opens. When the run
@@ -321,8 +324,9 @@ It is an automatic query, like the workflow suggestion, so it needs `inference.a
 ```text
 NewSessionAsync, before any worktree exists:
   request.Roles.Any and request.Workflow is null → Failure("'roles' needs a 'workflow'.")
-  launch = Catalog(LaunchRoot(source)).Prepare(workflow, inputs, documents, prompt, RoleResolver(providerInfo).Picking(request.Roles))
-  // Prepare resolves roles last, so a start refused for its inputs or prompt saves no pick.
+  picks = RoleResolver(providerInfo).Picking(request.Roles)
+  launch = Catalog(LaunchRoot(source)).Prepare(workflow, inputs, documents, prompt, picks)
+  picks.Save()                                               // a refused Prepare saved nothing
 ```
 
 ### Picker rows (web)
@@ -354,8 +358,10 @@ Each row is the role name as the label and a `.ui-field` toggle opening `Control
 | same, in the composer | by the role's picker | `The saved model "opus-4" is no longer offered.` |
 | a model, option, or value the live session doesn't advertise | command failure, or the run pauses at step open | unchanged |
 | a reloaded run has no agent for a role | paused run | `Run r-… has no agent saved for role "planner"; cancel it and start it again.` |
-| `setRole` arguments | command failure | `weavie.workflow.setRole takes exactly one of 'agent' or 'clear'.`; `'agent' needs 'provider' and 'model'.`; `"Planner" isn't a role name: use lowercase words joined by hyphens.`; `No agent provider 'claude-apc' is registered; the providers are claude, claude-acp, codex-acp.`; `No planner is saved for claude-acp sessions.` |
+| `setRole` arguments | command failure | `weavie.workflow.setRole takes exactly one of 'agent' or 'clear'.`; `'agent.provider' is required.`; `"Planner" isn't a role name: use lowercase words joined by hyphens.`; `No agent provider 'claude-apc' is registered; the providers are claude, claude-acp, codex-acp.` (the registry's one wording); `No planner is saved for claude-acp sessions.` |
 | a Start pick the provider doesn't offer | the Start failure toast; nothing saved | `Role "planner" can't take model "x": Claude Agent offers a, b.` |
+| a Start pick for a role the workflow doesn't ask for | command failure; nothing saved | `Workflow spec-driven asks for no role "Planner".` |
+| a Start pick while the provider's models aren't known | command failure; nothing saved | `Claude Agent's models aren't known yet, so its roles can't be picked.` |
 | a role file unreadable or unwritable | whichever surface touched it | `Workflow roles could not be loaded from '<path>': <cause>` |
 | the model list failed | by each role row; Start waits | `Couldn't list models: <error>` |
 | the role suggestion failed | by that row | `Model suggestion failed: <error>` |

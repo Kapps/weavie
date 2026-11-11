@@ -85,6 +85,9 @@ public sealed class HostCoreWorkflowRoleTests {
 		var unfilled = await host.CreateSessionAsync(Request("unfilled", []));
 		var bad = await host.CreateSessionAsync(Request("bad", new() { ["builder"] = "GPT Retired" }));
 		var stray = await host.CreateSessionAsync(Request("stray", new() { ["builder"] = "GPT Next", ["Planner"] = "GPT Next" }));
+		var badInput = await host.CreateSessionAsync(Request("input", new() { ["builder"] = "GPT Next" }) with {
+			Inputs = JsonSerializer.SerializeToElement(new { bogus = 1 }),
+		});
 		var loose = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "loose",
 			Base = "main",
@@ -95,8 +98,9 @@ public sealed class HostCoreWorkflowRoleTests {
 		Assert.Contains("role \"builder\" has no agent for structured sessions", unfilled.Error, StringComparison.Ordinal);
 		Assert.Equal("Role \"builder\" can't take model \"GPT Retired\": Fake structured agent offers GPT Test, GPT Next, GPT Gone.", bad.Error);
 		Assert.Equal("Workflow roles asks for no role \"Planner\".", stray.Error);
+		Assert.Contains("unknown input \"bogus\"", badInput.Error, StringComparison.Ordinal);
 		Assert.Equal("'roles' needs a 'workflow'.", loose.Error);
-		Assert.All(new[] { "unfilled", "bad", "stray", "loose" }, branch => Assert.Null(host.Core.SessionForTest(branch)));
+		Assert.All(new[] { "unfilled", "bad", "stray", "input", "loose" }, branch => Assert.Null(host.Core.SessionForTest(branch)));
 		Assert.Empty(host.WorkflowRoles.All());
 
 		Assert.True((await host.CreateSessionAsync(Request("picked", new() { ["builder"] = "GPT Next" }))).Ok);

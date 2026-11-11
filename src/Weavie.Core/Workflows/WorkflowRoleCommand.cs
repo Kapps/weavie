@@ -13,9 +13,6 @@ public static class WorkflowRoleCommand {
 		ArgumentNullException.ThrowIfNull(roles);
 		ArgumentNullException.ThrowIfNull(providers);
 		string role = WeavieWorkflows.Required(args, "role");
-		if (!WorkflowSchema.IsRoleName(role)) {
-			throw new WorkflowException($"\"{role}\" isn't a role name: use lowercase words joined by hyphens.");
-		}
 		string provider = WeavieWorkflows.RequireProvider(providers, WeavieWorkflows.Required(args, "provider")).Id;
 		bool clear = args.TryGetProperty("clear", out var clearing) && clearing.ValueKind == JsonValueKind.True;
 		bool set = args.TryGetProperty("agent", out var agent);
@@ -30,18 +27,14 @@ public static class WorkflowRoleCommand {
 		}
 
 		var saved = new WorkflowRoleAgent(
-			WeavieWorkflows.RequireProvider(providers, AgentArgument(agent, "provider")).Id, AgentArgument(agent, "model"), Options(agent));
+			WeavieWorkflows.RequireProvider(providers, WeavieWorkflows.Required(agent, "provider", "agent.provider")).Id,
+			WeavieWorkflows.Required(agent, "model", "agent.model"), Options(agent));
 		roles.Set(provider, new Dictionary<string, WorkflowRoleAgent> { [role] = saved });
 		string options = saved.Options.Count == 0 ? "" : $" ({string.Join(", ", saved.Options.Select(o => $"{o.Key} {o.Value}"))})";
 		return $"{role} in {provider} sessions is now {saved.Model}{options}"
 			+ (saved.Provider == provider ? "." : $" on {saved.Provider}, which runs only once steps on another provider are built.");
 	}
 
-	private static string AgentArgument(JsonElement agent, string name) =>
-		agent.ValueKind == JsonValueKind.Object && agent.TryGetProperty(name, out var value)
-			&& value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
-			? text
-			: throw new WorkflowException("'agent' needs 'provider' and 'model'.");
 
 	// Agents write option values as JSON text, booleans, or numbers; the provider's value ids are text.
 	private static Dictionary<string, string> Options(JsonElement agent) {

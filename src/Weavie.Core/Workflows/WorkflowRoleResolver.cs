@@ -31,10 +31,10 @@ public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderI
 	public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) => Resolve(definition, NoPicks);
 
 	/// <summary>
-	/// Fills roles with <paramref name="picks"/> (role to a model this provider offers) over the saved ones. Resolving
-	/// saves every pick at once, and nothing when it refuses.
+	/// Fills roles with <paramref name="picks"/> (role to a model this provider offers) over the saved ones, saving
+	/// nothing until <see cref="Picks.Save"/>.
 	/// </summary>
-	public IWorkflowRoleResolver Picking(IReadOnlyDictionary<string, string> picks) => new Picked(this, picks);
+	public Picks Picking(IReadOnlyDictionary<string, string> picks) => new(this, picks);
 
 	private WorkflowRoleResolution Read(WorkflowDefinition definition, IReadOnlyDictionary<string, string> picks) {
 		ArgumentNullException.ThrowIfNull(definition);
@@ -57,23 +57,48 @@ public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderI
 		return new(agents, gaps, refusal, offered);
 	}
 
+	// The provider's own refusal comes first, so a pick never masks why the provider can't run the definition.
 	private IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition, IReadOnlyDictionary<string, string> picks) {
 		var read = Read(definition, picks);
 		string? refusal = picks.Keys.FirstOrDefault(role => !definition.Roles.Contains(role)) is { } stray
 			? $"Workflow {definition.Id} asks for no role \"{stray}\"."
-			: picks.Count > 0 && read.Offered is null ? $"{provider.Name}'s models aren't known yet, so its roles can't be picked."
+			: read.Refusal
+			?? (picks.Count > 0 && read.Offered is null ? $"{provider.Name}'s models aren't known yet, so its roles can't be picked."
 			: picks.FirstOrDefault(pick => read.Offered!.All(option => option.Id != pick.Value)) is { Key: { } role, Value: var model }
 				? $"Role \"{role}\" can't take model \"{model}\": {provider.Name} offers {string.Join(", ", read.Offered!.Select(o => o.Id))}."
-			: read.Refusal ?? (read.Unfilled.Count > 0 ? WorkflowAgentControls.Unfilled(definition, read.Unfilled, provider, read.Offered) : null);
-		if (refusal is not null) throw new WorkflowException(refusal);
+			: read.Unfilled.Count > 0 ? WorkflowAgentControls.Unfilled(definition, read.Unfilled, provider, read.Offered) : null);
+		return refusal is null ? read.Agents : throw new WorkflowException(refusal);
+	}
+
+	private void Save(IReadOnlyDictionary<string, string> picks) {
 		if (picks.Count > 0) roles.Set(provider.Id, picks.ToDictionary(pick => pick.Key, pick => Agent(pick.Value), StringComparer.Ordinal));
-		return read.Agents;
 	}
 
 	// A pick takes the model alone: the options depend on the model.
 	private WorkflowRoleAgent Agent(string model) => new(provider.Id, model, new Dictionary<string, string>());
 
-	private sealed class Picked(WorkflowRoleResolver resolver, IReadOnlyDictionary<string, string> picks) : IWorkflowRoleResolver {
-		public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) => resolver.Resolve(definition, picks);
+	/// <summary>A start's picks: they fill its roles when it is prepared, and are saved only once the start was.</summary>
+	public sealed class Picks : IWorkflowRoleResolver {
+		private readonly WorkflowRoleResolver _resolver;
+		private readonly IReadOnlyDictionary<string, string> _picks;
+		private bool _resolved;
+
+		internal Picks(WorkflowRoleResolver resolver, IReadOnlyDictionary<string, string> picks) {
+			_resolver = resolver;
+			_picks = picks;
+		}
+
+		/// <inheritdoc/>
+		public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) {
+			var agents = _resolver.Resolve(definition, _picks);
+			_resolved = true;
+			return agents;
+		}
+
+		/// <summary>Saves every pick in one write; only after a launch was prepared with them.</summary>
+		public void Save() {
+			if (!_resolved) throw new InvalidOperationException("Picks are saved only after a launch was prepared with them.");
+			_resolver.Save(_picks);
+		}
 	}
 }

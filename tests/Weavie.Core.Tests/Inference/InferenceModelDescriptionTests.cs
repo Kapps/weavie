@@ -38,7 +38,7 @@ public sealed class InferenceModelDescriptionTests : IDisposable {
 		SetString(InferenceSettings.DefaultProvider, "missing-agent");
 
 		Assert.Equal(
-			"Suggestions can't run: Agent provider 'missing-agent' is not registered.",
+			"Suggestions can't run: No agent provider 'missing-agent' is registered; none are.",
 			InferenceModelDescription.Describe(_settings, new AgentProviderRegistry()));
 	}
 

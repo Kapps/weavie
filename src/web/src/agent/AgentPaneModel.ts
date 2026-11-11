@@ -32,6 +32,8 @@ export interface AgentPaneModel {
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
   /** Whether the transcript is receiving live output rather than only history. */
   readonly live: Accessor<boolean>;
+  /** The latest reply's id when a live message delivered it rather than the loaded history. */
+  readonly liveReplyId: Accessor<string | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
   readonly session: ClientSession;
@@ -45,7 +47,10 @@ export interface AgentPaneModel {
 }
 
 export interface MutableAgentPaneModel extends AgentPaneModel {
+  /** Applies live output; `changes` are the messages it changed, or none to rebuild every conversation. */
   publish(rows: AgentPaneConversationRows, changes: AgentPaneUpdate[]): void;
+  /** Applies the loaded history. */
+  load(rows: AgentPaneConversationRows): void;
   setHistoryComplete(complete: boolean): void;
   /** Marks the transcript as receiving live output, which history loading never clears. */
   noteLive(): void;
@@ -59,6 +64,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [historyComplete, setHistoryComplete] = createSignal(false);
   const [live, setLive] = createSignal(false);
+  const [liveReplyId, setLiveReplyId] = createSignal<string | null>(null);
+  let latestReplyId: string | null = null;
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [request, setRequest] = createSignal<PendingRequest | null>(null);
@@ -170,6 +177,63 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     }
   };
 
+  const apply = (
+    rows: AgentPaneConversationRows,
+    changes: AgentPaneUpdate[],
+    live: boolean,
+  ): void =>
+    batch(() => {
+      outputChanged = false;
+      pendingChanged = changes.length === 0;
+      resized = new Map();
+      source = rows;
+      if (changes.length === 0) {
+        pending.clear();
+        active.clear();
+        for (const cell of byId.values()) cell[1](undefined);
+        for (const key of views.keys()) if (!source.conversations.has(key)) views.delete(key);
+        const reconstruct = (scope: ConversationRows): void => {
+          for (const child of scope.cards) reconstruct(child);
+          project(scope, []);
+        };
+        reconstruct(source.get(""));
+        for (const scope of source.conversations.values()) retainRequests(scope);
+      } else {
+        const changed = new Map<ConversationRows, AgentPaneUpdate[]>();
+        for (const message of changes) {
+          const scope = source.get(conversationKey(message));
+          const own = changed.get(scope) ?? [];
+          own.push(message);
+          changed.set(scope, own);
+        }
+        const affected = new Set([...changed.keys(), ...source.placements]);
+        const depth = (scope: ConversationRows): number => {
+          let count = 0;
+          for (let parent = scope.container; parent !== null; parent = parent.container) count++;
+          return count;
+        };
+        for (const scope of [...affected].sort((left, right) => depth(right) - depth(left)))
+          project(scope, source.placements.has(scope) ? [] : (changed.get(scope) ?? []));
+        for (const scope of affected) retainRequests(scope);
+      }
+      source.placements.clear();
+      setCardChanges([...resized].map(([id, delta]) => ({ id, delta })));
+      if (pendingChanged) {
+        let latest: { request: PendingRequest; index: number } | undefined;
+        for (const candidate of pending.values())
+          if (latest === undefined || candidate.index > latest.index) latest = candidate;
+        setRequest(latest?.request ?? null);
+      }
+      setInterruptible(active.size > 0);
+      if (outputChanged) setLatestOutput((count) => count + 1);
+      const { entries, latestResultIndex } = main.transcript();
+      const replyId = latestResultIndex === null ? null : entries[latestResultIndex]!.id;
+      if (replyId !== latestReplyId) {
+        latestReplyId = replyId;
+        setLiveReplyId(live ? replyId : null);
+      }
+    });
+
   const model: MutableAgentPaneModel = {
     cardChanges,
     generation,
@@ -179,6 +243,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     latestOutput,
     latestPlan,
     live,
+    liveReplyId,
     pendingLegacyImageCount,
     session,
     turnStartedAt,
@@ -187,53 +252,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     pendingRequestKind: () => request()?.kind ?? null,
     keyboardRequestKey: () => request()?.key ?? null,
     keyboardApprovalId: () => (request()?.kind === "approval" ? request()!.requestId : null),
-    publish(rows, changes) {
-      batch(() => {
-        outputChanged = false;
-        pendingChanged = changes.length === 0;
-        resized = new Map();
-        source = rows;
-        if (changes.length === 0) {
-          pending.clear();
-          active.clear();
-          for (const cell of byId.values()) cell[1](undefined);
-          for (const key of views.keys()) if (!source.conversations.has(key)) views.delete(key);
-          const reconstruct = (scope: ConversationRows): void => {
-            for (const child of scope.cards) reconstruct(child);
-            project(scope, []);
-          };
-          reconstruct(source.get(""));
-          for (const scope of source.conversations.values()) retainRequests(scope);
-        } else {
-          const changed = new Map<ConversationRows, AgentPaneUpdate[]>();
-          for (const message of changes) {
-            const scope = source.get(conversationKey(message));
-            const own = changed.get(scope) ?? [];
-            own.push(message);
-            changed.set(scope, own);
-          }
-          const affected = new Set([...changed.keys(), ...source.placements]);
-          const depth = (scope: ConversationRows): number => {
-            let count = 0;
-            for (let parent = scope.container; parent !== null; parent = parent.container) count++;
-            return count;
-          };
-          for (const scope of [...affected].sort((left, right) => depth(right) - depth(left)))
-            project(scope, source.placements.has(scope) ? [] : (changed.get(scope) ?? []));
-          for (const scope of affected) retainRequests(scope);
-        }
-        source.placements.clear();
-        setCardChanges([...resized].map(([id, delta]) => ({ id, delta })));
-        if (pendingChanged) {
-          let latest: { request: PendingRequest; index: number } | undefined;
-          for (const candidate of pending.values())
-            if (latest === undefined || candidate.index > latest.index) latest = candidate;
-          setRequest(latest?.request ?? null);
-        }
-        setInterruptible(active.size > 0);
-        if (outputChanged) setLatestOutput((count) => count + 1);
-      });
-    },
+    publish: (rows, changes) => apply(rows, changes, true),
+    load: (rows) => apply(rows, [], false),
     conversation(id) {
       return membership(id)[0]()?.linked;
     },
@@ -246,7 +266,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     noteLive: () => setLive(true),
     reset() {
       expanded.clear();
-      model.publish(new AgentPaneConversationRows([]), []);
+      apply(new AgentPaneConversationRows([]), [], false);
       clearAgentInputDrafts(session);
       setGeneration((value) => value + 1);
     },

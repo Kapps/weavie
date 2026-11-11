@@ -5,7 +5,7 @@ import { pressDocumentEnd, pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
-import { reviewScroll, scrollReview } from "../harness/review-scroll";
+import { expectUnobscuredLine, reviewScroll, scrollReview } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 const lineCount = 5_000;
@@ -18,27 +18,6 @@ async function expectBoundedEditor(section: Locator, scroller: Locator): Promise
     .poll(() => section.locator(".monaco-editor").evaluate((element) => element.clientHeight))
     .toBeLessThanOrEqual(viewportHeight);
   await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(250);
-}
-
-async function expectUnobscuredLine(line: Locator): Promise<void> {
-  await expect(line).toBeInViewport();
-  await expect
-    .poll(() =>
-      line.evaluate((element) => {
-        const header = element
-          .closest(".unified-review-file")
-          ?.querySelector(".unified-review-file-header")
-          ?.getBoundingClientRect();
-        const toolbar = document.querySelector(".weavie-inline-toolbar")?.getBoundingClientRect();
-        const bounds = element.getBoundingClientRect();
-        const clearance =
-          header === undefined || toolbar === undefined
-            ? null
-            : Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
-        return clearance;
-      }),
-    )
-    .toBeGreaterThanOrEqual(0);
 }
 
 test.describe("Review Changes tab — large addition", () => {

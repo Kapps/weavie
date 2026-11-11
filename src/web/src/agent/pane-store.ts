@@ -112,7 +112,7 @@ function createHistory(session: ClientSession) {
       if (received > batch.count || (batch.complete && received !== batch.count)) {
         throw new Error("History response has an incorrect record count.");
       }
-      accumulator.mergeHistory("pane", batch.generation, batch.messages, batch.complete, publish);
+      accumulator.mergeHistory("pane", batch.generation, batch.messages, batch.complete, load);
       if (batch.complete) {
         historyGeneration = batch.generation;
         historyRevision = batch.revision;
@@ -156,6 +156,10 @@ function createHistory(session: ClientSession) {
         }
       }
     model.publish(rows, changes);
+  };
+  const load = (rows: AgentPaneConversationRows): void => {
+    applyNewDrafts(rows.messages);
+    model.load(rows);
   };
   const ingest = (message: AgentPaneUpdate): void => {
     model.noteLive();

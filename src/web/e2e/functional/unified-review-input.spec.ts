@@ -1,6 +1,6 @@
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
-import { reviewScroll } from "../harness/review-scroll";
+import { expectUnobscuredLine, reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 test.use({
@@ -61,16 +61,7 @@ test("controlled review preserves scroll-only commands and reveals distant find 
     await expect(match).toBeInViewport();
     await page.keyboard.press("Escape");
     await expect.poll(position).toMatchObject({ lineNumber: line });
-    const headerBottom = await section
-      .locator(".unified-review-file-header")
-      .evaluate((element) => element.getBoundingClientRect().bottom);
-    const toolbarTop = await page
-      .locator(".weavie-inline-toolbar")
-      .evaluate((element) => element.getBoundingClientRect().top);
-    const matchBounds = await match.boundingBox();
-    if (matchBounds === null) throw new Error("Find result was not rendered");
-    expect(matchBounds.y).toBeGreaterThanOrEqual(headerBottom);
-    expect(matchBounds.y + matchBounds.height).toBeLessThanOrEqual(toolbarTop);
+    await expectUnobscuredLine(match);
     expect(await section.locator(".view-line").count()).toBeLessThan(250);
     await checkScrollOnly();
   }

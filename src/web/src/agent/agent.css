@@ -154,6 +154,13 @@
   margin-bottom: auto;
 }
 
+/* Never shorter than the whole transcript, whatever its rows measure; they stay on its bottom edge. */
+.agent-transcript-extent {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
 .agent-transcript {
   max-width: 100%;
   overflow-x: clip;

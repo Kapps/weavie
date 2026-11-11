@@ -122,7 +122,7 @@ public sealed class WorkflowRolesTests : IDisposable {
 	private IReadOnlyList<WorkflowAgent> Pick(params (string Role, string Model)[] picks) => Pick(_roles.Resolver(), picks);
 
 	private IReadOnlyList<WorkflowAgent> Pick(WorkflowRoleResolver resolver, params (string Role, string Model)[] picks) {
-		var picked = resolver.Picking(picks.ToDictionary(pick => pick.Role, pick => pick.Model));
+		var picked = resolver.Picking(picks.ToDictionary(pick => pick.Role, pick => new WorkflowRolePick(pick.Model, new Dictionary<string, string>())));
 		var agents = picked.Resolve(Definition);
 		picked.Save();
 		return agents;
@@ -131,12 +131,54 @@ public sealed class WorkflowRolesTests : IDisposable {
 	[Fact]
 	public void PicksAreSavedOnlyOnceTheirLaunchWasPrepared() {
 		_roles.Offer("alpha", "beta");
-		var picked = _roles.Resolver().Picking(new Dictionary<string, string> { ["planner"] = "beta", ["builder"] = "beta" });
+		var picked = _roles.Resolver().Picking(WorkflowRolePick.Read(Json(
+			"""{"planner":{"model":"beta","options":{"effort":"high","fast":true}},"builder":{"model":"beta"}}""")));
 		Assert.Throws<InvalidOperationException>(picked.Save);
-		picked.Resolve(Definition);
+		Assert.Equal("high", picked.Resolve(Definition)[0].Options["effort"]);
 		Assert.Null(_roles.Store.Find("fake-acp", "planner"));
 		picked.Save();
-		Assert.Equal("beta", _roles.Store.Find("fake-acp", "planner")!.Model);
+		Assert.Equal(("beta", "true"), (_roles.Store.Find("fake-acp", "planner")!.Model, _roles.Store.Find("fake-acp", "planner")!.Options["fast"]));
+		Assert.Empty(_roles.Store.Find("fake-acp", "builder")!.Options);
+	}
+
+	[Fact]
+	public void AStartsRolesArgumentIsReadOrRefused() {
+		Assert.Empty(WorkflowRolePick.Read(null));
+		foreach (var (roles, message) in new[] {
+			("""["planner"]""", "'roles' must be an object of role names to { model, options }."),
+			("""{"planner":"beta"}""", "'roles.planner.model' is required."),
+			("""{"planner":{"model":"beta","options":{"effort":null}}}""", "Option 'effort' needs a value id."),
+		}) {
+			Assert.Equal(message, Assert.Throws<WorkflowException>(() => WorkflowRolePick.Read(Json(roles))).Message);
+		}
+	}
+
+	[Fact]
+	public void TheRolePickersAreTheModelThenTheEffortAndFastModeItOffers() {
+		IReadOnlyList<AgentControlOption> models = [new() { Id = "alpha", Label = "Alpha" }, new() { Id = "beta", Label = "Beta" }];
+		static AgentControlAxis Axis(string id, string? category, string kind, string value, params string[] options) => new() {
+			Id = id,
+			Label = id,
+			Category = category,
+			Kind = kind,
+			Value = value,
+			ValueLabel = value.ToUpperInvariant(),
+			Options = [.. options.Select(option => new AgentControlOption { Id = option, Label = option.ToUpperInvariant() })],
+		};
+
+		var unpicked = Assert.Single(WorkflowRoleAxes.Build(models, "", []));
+		Assert.Equal((WorkflowRoleAxes.ModelCategory, "", "No model", 2), (unpicked.Category, unpicked.Value, unpicked.ValueLabel, unpicked.Options.Count));
+
+		var axes = WorkflowRoleAxes.Build(models, "beta", [
+			Axis("mode", "mode", "select", "ask", "ask", "auto"),
+			Axis("reasoning", "thought_level", "select", "medium", "low", "medium", "high"),
+			Axis("fast", null, "boolean", "false", "true", "false"),
+		]);
+
+		Assert.Equal([("model", "Model", "Beta"), ("reasoning", "Effort", "MEDIUM"), ("fast", "Fast mode", "FALSE")], axes.Select(a => (a.Id, a.Label, a.ValueLabel)));
+		Assert.Equal(["", "low", "medium", "high"], axes[1].Options.Select(option => option.Id));
+		Assert.Equal(("", "Default (MEDIUM)"), (axes[1].Value, axes[1].Options[0].Label));
+		Assert.Equal(["", "true", "false"], axes[2].Options.Select(option => option.Id));
 	}
 
 	[Fact]

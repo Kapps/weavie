@@ -24,11 +24,13 @@ built-in and repository workflows stay portable and each user decides which mode
 - Roles have their own store, not the settings system: one user-wide file.
 - One command sets or clears a role's implementation for a provider; a registry tool lists them. The agent uses
   both ("make Fable my planner", "what are my roles"), including options such as effort.
-- The new-session composer shows a model picker **only for a role the selected workflow names that needs a model**
-  on the chosen provider: none saved, or a saved model the provider no longer offers. With none needing one, nothing
-  is shown. Start is unavailable until each shown role has a model.
-- A pick is saved when Start is pressed. It sets the model and drops the role's previous options, since options
-  depend on the model. The picker lists only the chosen provider's models.
+- The new-session composer shows, under a heading naming the workflow, **only the roles it names that need a
+  model** on the chosen provider: none saved, or a saved model the provider no longer offers. With none needing one,
+  nothing is shown. Start is unavailable until each shown role has a model.
+- Each role is filled with the picker bar the getting-started dialog uses for the suggestion model, one shared
+  component: the agent's own Model, Effort, and Fast mode pickers, without the Agent picker, since a role runs on
+  the session's provider. The model must be chosen; Effort and Fast mode default to what the model runs with.
+- A pick is saved when Start is pressed and replaces the role whole: its model and the options picked with it.
 
 ### Suggestion
 
@@ -83,8 +85,8 @@ built-in and repository workflows stay portable and each user decides which mode
 - Running a step on another provider. Only the stored shape allows for it; nothing else is built.
 - A per-repository override of a role. It is a second file with the same shape, added later.
 - Shipped roles, role descriptions, and default models. An unfilled role is never run on the session's own model.
-- Showing or changing already-saved roles in the composer, picking options or another provider's model there, and
-  any role editor beyond the command.
+- Showing or changing already-saved roles in the composer, picking another provider's model there, and any role
+  editor beyond the command.
 - Roles on decisions or `check`; per-step models on terminal Claude.
 - Any compatibility path for older workflows.
 - The user's personal `feature-build` moves from its pinned `fable` and `opus` agents to `planner` and `builder`
@@ -106,9 +108,9 @@ built-in and repository workflows stay portable and each user decides which mode
   each role it couldn't fill; `WorkflowAgentControls` words it beside the existing refusals. The composer and every
   command start go through it. *Why:* one rule for what is missing and why, wherever a run starts.
 - **Composer (HostCore + web)**: the workflow catalog request takes the chosen provider and returns, per workflow,
-  whether that provider can run it and which roles need a model; the model list (or its loading/failed state) and
-  the suggestion are separate requests. The web adds picker rows under the workflow field, and Start sends the
-  picks to be saved before the run starts. *Why:* all hosts get it at once, and the web never restates catalog,
+  whether that provider can run it and which roles need a model; a role's pickers (asked of the agent for the chosen
+  model) and the suggestion are separate requests. The web adds the roles group under the workflow field on the
+  picker bar shared with getting-started, and Start sends the picks to be saved as the run starts. *Why:* all hosts get it at once, and the web never restates catalog,
   threshold, or refusal rules.
 - **Suggestion (Core)**: a sibling of `WorkflowSuggester` over `IDecisionService` and `AgentModelCatalog`. *Why:*
   choosing one id from an advertised list is exactly a decision, so the answer is always a provider-native id.

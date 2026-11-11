@@ -27,6 +27,63 @@ const CATALOG = {
   defaultProblem: null,
 };
 
+const option = (id: string, label: string, description: string | null) => ({
+  id,
+  label,
+  description,
+  group: null,
+});
+
+/** The agent's pickers for a role: Astra offers an effort, Sol nothing more. */
+function roleControls(model: string) {
+  const models = [
+    option("astra", "Astra", "Frontier intelligence."),
+    option("sol", "Sol", "Workhorse."),
+  ];
+  const axis = (
+    id: string,
+    label: string,
+    category: string,
+    valueLabel: string,
+    value: string,
+  ) => ({
+    id,
+    label,
+    description: null,
+    category,
+    kind: "select",
+    value,
+    valueLabel,
+  });
+  return {
+    axes: [
+      {
+        ...axis(
+          "model",
+          "Model",
+          "model",
+          models.find((m) => m.id === model)?.label ?? "No model",
+          model,
+        ),
+        options: models,
+      },
+      ...(model === "astra"
+        ? [
+            {
+              ...axis("reasoning", "Effort", "thought_level", "Medium", ""),
+              options: [
+                option("", "Default (Medium)", null),
+                option("low", "Low", null),
+                option("high", "High", null),
+              ],
+            },
+          ]
+        : []),
+    ],
+    error: null,
+  };
+}
+
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
@@ -105,7 +162,8 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    const roleModels = host.waitForHost("request", "sessionCreation", "roleModels");
+    // The agent reports a role's pickers: its models, then what the chosen model offers.
+    const models = host.waitForHost("request", "sessionCreation", "roleControls");
     const roleSuggestion = host.waitForHost("request", "sessionCreation", "suggestRole");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
@@ -114,33 +172,41 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await expect(workflow).toBeFocused();
     expect(host.received.filter((message) => message.name === "suggestWorkflow")).toHaveLength(1);
 
-    // Each role spec-driven still needs gets a picker, and Start waits until each has a model.
-    const planner = inbox.getByRole("button", { name: /^planner/ });
-    const builder = inbox.getByRole("button", { name: /^builder/ });
+    // The roles spec-driven still needs sit under their own heading, and Start waits for each one's model.
+    await expect(inbox.getByText("Roles for spec-driven")).toBeVisible();
+    const planner = inbox.getByRole("group", { name: "planner role" });
+    const builder = inbox.getByRole("group", { name: "builder role" });
     const start = inbox.getByRole("button", { name: "Start", exact: true });
-    await expect(planner).toHaveText("Loading models…");
     await expect(start).toBeDisabled();
-    host.respond(await roleModels, {
-      models: [
-        { id: "astra", label: "Astra", description: "Frontier intelligence.", group: null },
-        { id: "sol", label: "Sol", description: "Workhorse.", group: null },
-      ],
-      error: null,
+    host.onHost("request", "sessionCreation", "roleControls", (request) => {
+      const { model } = request.payload as { model: string };
+      host.respond(request, roleControls(model));
     });
+    host.respond(await models, roleControls(""));
+    await expect(builder.getByRole("button")).toHaveText(["ModelNo model"]);
+
     // Only the role with nothing saved is suggested; the gone model is the user's to replace.
     const askedRole = await roleSuggestion;
     expect(askedRole.payload).toMatchObject({ workflow: "spec-driven", role: "planner" });
-    await expect(planner).toContainText("Suggesting…");
+    await expect(inbox.getByText("Suggesting…")).toBeVisible();
     host.respond(askedRole, { applies: true, model: "astra", error: null });
-    await expect(planner).toHaveText("Astra");
+    await expect(planner.getByRole("button")).toHaveText(["ModelAstra", "EffortMedium"]);
     await expect(inbox.getByText('The saved model "nova" is no longer offered.')).toBeVisible();
     await expect(start).toBeDisabled();
-    await builder.click();
+
+    // The effort and model pickers are the agent's own, and what is picked is what a start saves.
+    await planner.getByRole("button", { name: /Effort/ }).click();
     await page
-      .getByRole("listbox", { name: "builder" })
+      .getByRole("listbox", { name: "Effort" })
+      .getByRole("option", { name: "High" })
+      .click();
+    await expect(planner.getByRole("button", { name: /Effort/ })).toHaveText("EffortHigh");
+    await builder.getByRole("button", { name: /Model/ }).click();
+    await page
+      .getByRole("listbox", { name: "Model" })
       .getByRole("option", { name: /^Sol/ })
       .click();
-    await expect(builder).toHaveText("Sol");
+    await expect(builder.getByRole("button")).toHaveText(["ModelSol"]);
     await expect(start).toBeEnabled();
     expect(host.received.filter((message) => message.name === "suggestRole")).toHaveLength(1);
 
@@ -155,7 +221,10 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
         prompt: DRAFT,
         attachments: [],
         workflow: "spec-driven",
-        roles: { planner: "astra", builder: "sol" },
+        roles: {
+          planner: { model: "astra", options: { reasoning: "high" } },
+          builder: { model: "sol", options: {} },
+        },
       },
     });
   } finally {

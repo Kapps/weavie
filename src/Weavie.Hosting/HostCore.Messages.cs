@@ -168,8 +168,8 @@ public sealed partial class HostCore {
 			"suggestWorkflow", MessageActivity.Droppable("Suggesting a workflow"), WireJson.Default.WorkflowSuggestionRequest, WireJson.Default.WorkflowSuggestionResult,
 			SuggestWorkflowAsync);
 		_messages.Host.Feature("sessionCreation").HandleConcurrent(
-			"roleModels", MessageActivity.NoDeadline("Listing models"), WireJson.Default.RoleModelsRequest, WireJson.Default.RoleModelsResult,
-			RoleModelsAsync);
+			"roleControls", MessageActivity.NoDeadline("Asking the agent for its options"), WireJson.Default.RoleControlsRequest, WireJson.Default.RoleControlsResult,
+			RoleControlsAsync);
 		_messages.Host.Feature("sessionCreation").HandleConcurrentWithCallerProgress(
 			"suggestRole", MessageActivity.Droppable("Suggesting a model"), WireJson.Default.RoleSuggestionRequest, WireJson.Default.RoleSuggestionResult,
 			SuggestRoleAsync);

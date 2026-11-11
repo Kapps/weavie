@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RoleModels, RoleSuggestion } from "../bridge";
+import type { RoleControls, RoleSuggestion } from "../bridge";
+import type { AgentControlAxis } from "../messaging/protocol-types";
 import {
   NewSessionRoleChoice,
   type RoleChoiceState,
@@ -8,13 +9,32 @@ import {
 } from "./new-session-role-choice";
 
 const TARGET = { backendId: "local", sourceId: null, providerId: "codex" };
-const MODELS: RoleModels = {
-  models: [
-    { id: "astra", label: "Astra", description: null, group: null },
-    { id: "sol", label: "Sol", description: null, group: null },
-  ],
-  error: null,
+const option = (id: string, label: string) => ({ id, label, description: null, group: null });
+const modelAxis = (value: string): AgentControlAxis => ({
+  id: "model",
+  label: "Model",
+  description: null,
+  category: "model",
+  kind: "select",
+  value,
+  valueLabel: value === "" ? "No model" : value === "astra" ? "Astra" : "Sol",
+  options: [option("astra", "Astra"), option("sol", "Sol")],
+});
+const effortAxis: AgentControlAxis = {
+  id: "reasoning",
+  label: "Effort",
+  description: null,
+  category: "thought_level",
+  kind: "select",
+  value: "",
+  valueLabel: "Medium",
+  options: [option("", "Default (Medium)"), option("low", "Low"), option("high", "High")],
 };
+/** What the agent reports: the models alone until one is chosen, then Astra's effort too. */
+const controls = (model: string): RoleControls => ({
+  axes: model === "astra" ? [modelAxis(model), effortAxis] : [modelAxis(model)],
+  error: null,
+});
 const pair = (problem: string | null = null): RolePair => ({
   target: TARGET,
   workflow: "spec-driven",
@@ -26,26 +46,28 @@ const pair = (problem: string | null = null): RolePair => ({
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-const harness = () => {
+const harness = (answer: (model: string) => RoleControls = controls) => {
   const states: RoleChoiceState[] = [];
-  const models: ((result: RoleModels) => void)[] = [];
+  const asked: string[] = [];
   const suggestions = new Map<
     string,
     { resolve: (result: RoleSuggestion) => void; signal: AbortSignal }
   >();
   const choice = new NewSessionRoleChoice(
-    () => new Promise((resolve) => models.push(resolve)),
+    async (_, model) => {
+      asked.push(model);
+      return answer(model);
+    },
     (_, role, signal) => new Promise((resolve) => suggestions.set(role, { resolve, signal })),
     (state) => states.push(state),
   );
+  const state = () => states.at(-1) as RoleChoiceState;
   return {
     choice,
-    state: () => states.at(-1) as RoleChoiceState,
-    models: async (result: RoleModels) => {
-      models.at(-1)?.(result);
-      await flush();
-    },
+    state,
+    asked,
     suggestions,
+    row: (role: string) => state().rows.find((row) => row.role === role),
     suggest: async (role: string, result: RoleSuggestion) => {
       suggestions.get(role)?.resolve(result);
       await flush();
@@ -53,83 +75,124 @@ const harness = () => {
   };
 };
 
-const model = (state: RoleChoiceState, role: string) =>
-  state.rows.find((row) => row.role === role)?.model;
+const labels = (axes: readonly AgentControlAxis[] | undefined) =>
+  axes?.map((axis) => `${axis.label}: ${axis.valueLabel}`);
 
 describe("NewSessionRoleChoice", () => {
   it("is ready with no roles and waits for every role's model otherwise", async () => {
-    const { choice, state, models } = harness();
+    const { choice, state, row } = harness();
     choice.show(null);
     expect(rolesReady(state())).toBe(true);
 
     choice.show(pair());
-    expect(state().models).toBeNull();
+    expect(row("planner")?.axes).toBeUndefined();
+    await flush();
+    expect(labels(row("planner")?.axes)).toEqual(["Model: No model"]);
+    choice.pick("planner", "model", "sol");
     expect(rolesReady(state())).toBe(false);
-    await models(MODELS);
-    choice.pick("planner", "astra");
-    expect(rolesReady(state())).toBe(false);
-    choice.pick("builder", "sol");
+    choice.pick("builder", "model", "sol");
     expect(rolesReady(state())).toBe(true);
-    expect(choice.capture()).toEqual({ planner: "astra", builder: "sol" });
+    expect(choice.capture()).toEqual({
+      planner: { model: "sol", options: {} },
+      builder: { model: "sol", options: {} },
+    });
+  });
+
+  it("shows the options the chosen model offers and saves the ones picked with it", async () => {
+    const { choice, row, asked } = harness();
+    choice.show(pair());
+    await flush();
+    choice.pick("planner", "model", "astra");
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Astra"]);
+    await flush();
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Astra", "Effort: Medium"]);
+
+    choice.pick("planner", "reasoning", "high");
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Astra", "Effort: High"]);
+    expect(choice.capture().planner).toEqual({ model: "astra", options: { reasoning: "high" } });
+    choice.pick("planner", "reasoning", "");
+    expect(choice.capture().planner).toEqual({ model: "astra", options: {} });
+
+    // Another model has its own options, so the old ones go; the agent is asked once per model.
+    choice.pick("planner", "reasoning", "high");
+    choice.pick("planner", "model", "sol");
+    await flush();
+    expect(choice.capture().planner).toEqual({ model: "sol", options: {} });
+    choice.pick("builder", "model", "astra");
+    await flush();
+    expect(asked).toEqual(["", "astra", "sol"]);
   });
 
   it("suggests only a role with nothing saved and never over a pick or a model not on offer", async () => {
-    const { choice, state, models, suggestions, suggest } = harness();
+    const { choice, row, suggestions, suggest } = harness();
     choice.show(pair('The saved model "nova" is no longer offered.'));
-    await models(MODELS);
+    await flush();
     expect([...suggestions.keys()]).toEqual(["builder"]);
-    expect(state().rows.find((row) => row.role === "builder")?.suggesting).toBe(true);
+    expect(row("builder")?.suggesting).toBe(true);
 
-    choice.pick("builder", "astra");
+    choice.pick("builder", "model", "astra");
     expect(suggestions.get("builder")?.signal.aborted).toBe(true);
     await suggest("builder", { applies: true, model: "sol", error: null });
-    expect(model(state(), "builder")).toBe("astra");
-    expect(state().rows[0]?.problem).toBe('The saved model "nova" is no longer offered.');
+    expect(row("builder")?.model).toBe("astra");
+    expect(row("planner")?.problem).toBe('The saved model "nova" is no longer offered.');
   });
 
   it("applies a confident suggestion on offer and reports a failed one by its row", async () => {
-    const { choice, state, models, suggest } = harness();
-    choice.show({ ...pair(), roles: [{ role: "planner", problem: null }] });
-    await models(MODELS);
+    const { choice, row, suggest } = harness();
+    choice.show(pair());
+    await flush();
     await suggest("planner", { applies: true, model: "gone", error: null });
-    expect(model(state(), "planner")).toBeNull();
+    expect(row("planner")?.model).toBeNull();
+    await suggest("builder", { applies: false, model: null, error: "the model is down" });
+    expect(row("builder")?.problem).toBe("Model suggestion failed: the model is down");
 
     choice.show(null);
-    choice.show({ ...pair(), roles: [{ role: "planner", problem: null }] });
-    await models(MODELS);
-    await suggest("planner", { applies: false, model: null, error: "the model is down" });
-    expect(state().rows[0]?.problem).toBe("Model suggestion failed: the model is down");
-
-    choice.show(null);
-    choice.show({ ...pair(), roles: [{ role: "planner", problem: null }] });
-    await models(MODELS);
-    await suggest("planner", { applies: true, model: "sol", error: null });
-    expect(model(state(), "planner")).toBe("sol");
+    choice.show(pair());
+    await flush();
+    await suggest("planner", { applies: true, model: "astra", error: null });
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Astra", "Effort: Medium"]);
+    expect(row("planner")?.suggesting).toBe(false);
   });
 
   it("reports a failed model list, asks nothing, and lists again when shown again", async () => {
-    const { choice, state, models, suggestions } = harness();
+    let failing = true;
+    const { choice, state, row, suggestions } = harness((model) =>
+      failing ? { axes: [], error: "probe failed" } : controls(model),
+    );
     choice.show(pair());
-    await models({ models: [], error: "probe failed" });
+    await flush();
     expect(state().error).toBe("Couldn't list models: probe failed");
     expect(suggestions.size).toBe(0);
     expect(rolesReady(state())).toBe(false);
 
+    failing = false;
     choice.show(pair());
-    expect(state()).toMatchObject({ models: null, error: null });
-    await models(MODELS);
-    expect(state().models).toEqual(MODELS.models);
+    expect(state().error).toBeNull();
+    await flush();
+    expect(labels(row("planner")?.axes)).toEqual(["Model: No model"]);
     expect([...suggestions.keys()]).toEqual(["planner", "builder"]);
   });
 
-  it("discards a suggestion still on its way when a start captures the rows", async () => {
-    const { choice, state, models, suggestions, suggest } = harness();
+  it("keeps the picked model and says why when its options can't be asked for", async () => {
+    const { choice, row } = harness((model) =>
+      model === "sol" ? { axes: [modelAxis("sol")], error: "agent refused" } : controls(model),
+    );
     choice.show(pair());
-    await models(MODELS);
+    await flush();
+    choice.pick("planner", "model", "sol");
+    await flush();
+    expect(row("planner")?.problem).toBe("Couldn't get the options: agent refused");
+    expect(choice.capture().planner).toEqual({ model: "sol", options: {} });
+  });
+
+  it("discards a suggestion still on its way when a start captures the rows", async () => {
+    const { choice, state, row, suggestions, suggest } = harness();
+    choice.show(pair());
+    await flush();
     expect(choice.capture()).toEqual({});
     expect(suggestions.get("planner")?.signal.aborted).toBe(true);
     await suggest("planner", { applies: true, model: "sol", error: null });
-    expect(model(state(), "planner")).toBeNull();
-    expect(state().rows.every((row) => !row.suggesting)).toBe(true);
+    expect(row("planner")?.model).toBeNull();
+    expect(state().rows.every((candidate) => !candidate.suggesting)).toBe(true);
   });
 });

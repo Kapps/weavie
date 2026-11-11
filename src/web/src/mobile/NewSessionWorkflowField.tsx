@@ -1,12 +1,14 @@
-import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import {
   backendPhase,
   launchSource,
-  requestRoleModels,
+  type RolePick,
+  requestRoleControls,
   requestRoleSuggestion,
   requestWorkflowCatalog,
   requestWorkflowSuggestion,
 } from "../bridge";
+import { ControlBar } from "../chrome/ControlBar";
 import {
   NewSessionRoleChoice,
   type RoleChoiceState,
@@ -19,10 +21,10 @@ import {
 } from "../chrome/new-session-workflow-choice";
 import { NewSessionPicker } from "./NewSessionPicker";
 
-/** What a start runs: the workflow (null for none) and the model to save for each role it still needs. */
+/** What a start runs: the workflow (null for none) and what to save for each role it still needs. */
 export interface NewSessionWorkflowStart {
   workflow: string | null;
-  roles: Record<string, string>;
+  roles: Record<string, RolePick>;
 }
 
 export interface NewSessionWorkflowActions {
@@ -36,8 +38,8 @@ const NONE = "";
 const NONE_HINT = "Tell your agent how you like to work and ask it to create a workflow around it.";
 
 /**
- * The workflow a new session starts in, suggested once from the prompt and the user's to change, and a model
- * picker for each role it needs that the chosen provider can't yet fill.
+ * The workflow a new session starts in, suggested once from the prompt and the user's to change, and under it the
+ * roles it needs that the chosen provider can't yet fill, each with the agent's model, effort, and Fast Mode pickers.
  */
 export function NewSessionWorkflowField(props: {
   active: boolean;
@@ -55,7 +57,7 @@ export function NewSessionWorkflowField(props: {
     problem: null,
     status: "loading",
   });
-  const [roles, setRoles] = createSignal<RoleChoiceState>({ rows: [], models: [], error: null });
+  const [roles, setRoles] = createSignal<RoleChoiceState>({ rows: [], error: null });
   let target: WorkflowTarget | null = null;
   const choice = new NewSessionWorkflowChoice(
     (to, signal) => requestWorkflowCatalog(to.backendId, to.sourceId, to.providerId, signal),
@@ -64,7 +66,7 @@ export function NewSessionWorkflowField(props: {
     setState,
   );
   const roleChoice = new NewSessionRoleChoice(
-    (to, signal) => requestRoleModels(to.backendId, to.providerId, signal),
+    (to, model, signal) => requestRoleControls(to.backendId, to.providerId, model, signal),
     (pair, role, signal) =>
       requestRoleSuggestion(
         pair.target.backendId,
@@ -144,30 +146,36 @@ export function NewSessionWorkflowField(props: {
         onBlur={() => choice.release()}
         onPick={(id) => choice.pick(id === NONE ? null : id)}
       />
-      <Index each={roles().rows}>
-        {(row) => (
-          <NewSessionPicker
-            id={`new-session-role-${row().role}`}
-            label={row().role}
-            value={
-              row().model === null
-                ? roles().models === null
-                  ? "Loading models…"
-                  : "No model"
-                : (roles().models?.find((model) => model.id === row().model)?.label ?? row().model!)
-            }
-            selected={row().model ?? ""}
-            options={roles().models ?? []}
-            busy={row().suggesting ? "Suggesting…" : null}
-            disabled={(roles().models?.length ?? 0) === 0}
-            problem={row().problem ?? roles().error}
-            open={props.active}
-            onFocus={() => {}}
-            onBlur={() => {}}
-            onPick={(model) => roleChoice.pick(row().role, model)}
-          />
-        )}
-      </Index>
+      <Show when={roles().rows.length > 0}>
+        <section class="session-composer-roles" aria-labelledby="new-session-roles-label">
+          <span id="new-session-roles-label" class="ui-section-label">
+            Roles for {state().workflow}
+          </span>
+          <Show when={roles().error}>{(problem) => <small role="alert">{problem()}</small>}</Show>
+          <Index each={roles().error === null ? roles().rows : []}>
+            {(row) => (
+              <div class="session-composer-role">
+                <span>{row().role}</span>
+                <ControlBar
+                  label={`${row().role} role`}
+                  axes={row().axes}
+                  placeholders={["Model"]}
+                  disabled={false}
+                  busy={false}
+                  menuClass="session-composer-workflow-menu"
+                  onPick={(axisId, value) => roleChoice.pick(row().role, axisId, value)}
+                />
+                <Show when={row().suggesting}>
+                  <span class="ui-row-desc">Suggesting…</span>
+                </Show>
+                <Show when={row().problem}>
+                  {(problem) => <small role="alert">{problem()}</small>}
+                </Show>
+              </div>
+            )}
+          </Index>
+        </section>
+      </Show>
     </>
   );
 }

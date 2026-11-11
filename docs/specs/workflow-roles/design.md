@@ -11,7 +11,8 @@ Implements [brief.md](brief.md). Extends [workflow-agent-selection.md](../workfl
   fills each role; every workflow that names the role then uses it.
 - You fill a role by asking your agent ("make Fable my planner", "what are my roles"). A role is user-wide.
 - In the new-session composer, a workflow that names a role you haven't filled for the chosen provider shows one
-  model picker per such role under the workflow field. With inference on, each is prefilled when the decision model
+  row per such role under a "Roles for <workflow>" heading: the agent's own Model, Effort, and Fast mode pickers, on
+  the bar the getting-started dialog uses. With inference on, each model is prefilled when the decision model
   is confident. Start saves the picks. A workflow whose roles are all filled shows nothing new.
 - A workflow the chosen provider can't run appears under *Unavailable* with the reason. `spec-driven` now uses
   `planner` and `builder`, so it is unavailable in terminal Claude sessions.
@@ -51,8 +52,8 @@ flowchart TD
     Can -- no --> Unavail[Listed under Unavailable with the reason]
     Can -- yes --> Need{Roles needing a model?}
     Need -- none --> Ready[Start available]
-    Need -- some --> Models["roleModels(providerId)"]
-    Models --> Rows[One picker per role]
+    Need -- some --> Models["roleControls(providerId, model)"]
+    Models --> Rows[One bar of pickers per role]
     Rows --> Sug["suggestRole per unsaved role"]
     Sug --> Rows
     Rows -- every row has a model --> Ready
@@ -131,7 +132,8 @@ and `"roles": ["planner", "builder"]` to each valid workflow.
 
 ```json
 { "branch": "feat/x", "workflow": "spec-driven", "prompt": "…",
-  "agentProviderId": "claude-acp", "roles": { "planner": "fable", "builder": "opus" } }
+  "agentProviderId": "claude-acp",
+  "roles": { "planner": { "model": "fable", "options": { "effort": "xhigh" } }, "builder": { "model": "opus" } } }
 ```
 
 **Composer wire** (host feature `sessionCreation`):
@@ -140,11 +142,12 @@ and `"roles": ["planner", "builder"]` to each valid workflow.
 | --- | --- | --- |
 | `workflows` (changed) | `{ "sourceId": null, "providerId": "claude-acp" }` | each workflow gains `roles`: `[{ "role": "planner", "problem": null }, { "role": "builder", "problem": "The saved model \"opus-4\" is no longer offered." }]`; `error` also carries why the provider can't run it |
 | `suggestWorkflow` (changed) | `{ "sourceId": null, "providerId": "claude-acp", "prompt": "…" }` | unchanged |
-| `roleModels` (new) | `{ "providerId": "claude-acp" }` | `{ "models": [{ "id": "opus", "label": "Opus 5.5", "description": "…", "group": null }], "error": null }` |
+| `roleControls` (new) | `{ "providerId": "claude-acp", "model": "opus" }` (`""` for no model yet) | `{ "axes": [<Model>, <Effort>, <Fast mode>], "error": null }`: `AgentControlAxis` records, the shape the pane's and getting-started's pickers use |
 | `suggestRole` (new) | `{ "sourceId": null, "providerId": "claude-acp", "workflow": "spec-driven", "role": "planner" }` | `{ "applies": true, "model": "fable", "error": null }` |
 
-`roles` lists only the roles that need a model. `roleModels` stays pending while the provider's models are being
-probed, so "loading" is the pending request.
+`roles` lists only the roles that need a model. `roleControls` stays pending while the provider's models are being
+probed, so "loading" is the pending request. Each option id is the provider's own; `""` on Effort or Fast mode is
+"Default (<what the model runs with>)" and saves nothing for that option.
 
 **The role decision** sent to the decision provider:
 
@@ -211,13 +214,15 @@ public WorkflowLaunch Prepare(string id, JsonElement inputs, string? documentsDi
 | `HostServices.WorkflowRoles` | `HostServices.cs` | host-wide, so every window shares one copy of the file |
 | `RoleResolver(AgentProviderInfo)`, `RoleModelsAsync`, `SuggestRoleAsync`, wire records | `HostCore.WorkflowStart.cs` | the resolver for a provider and the two new composer requests |
 | `WorkflowStartTarget`, `WorkflowSuggestionRequest`, `WorkflowOptionWire` | `HostCore.WorkflowStart.cs` | carry `ProviderId`; options carry `Roles` |
-| registrations, contracts | `HostCore.Messages.cs`, `Messaging/WireJson.cs` | `roleModels` (`NoDeadline`), `suggestRole` (`Droppable`), both concurrent |
+| registrations, contracts | `HostCore.Messages.cs`, `Messaging/WireJson.cs` | `roleControls` (`NoDeadline`), `suggestRole` (`Droppable`), both concurrent |
 | setRole handler, `weavie.workflow.run` | `HostCore.Workflows.cs` | the handler; run goes through `runner.Prepare` |
 | `NewSessionAsync` | `HostCore.Sessions.cs` | saves picks, prepares with the resolver; the explicit `WorkflowAgentControls.Refusal` call there is deleted |
 | `HostSession` | `HostSession.cs`, `HostSession.Workflow.cs` | constructor takes the roles and resolver; `WorkflowPort.Refusal(WorkflowLaunch)` |
 | bridge requests | `src/web/src/bridge.ts` | `providerId` on the two existing requests; `requestRoleModels`, `requestRoleSuggestion` |
 | `NewSessionRoleChoice` | `src/web/src/chrome/new-session-role-choice.ts` (new) | the picker rows' state owner, like `NewSessionWorkflowChoice` |
-| `NewSessionPicker` | `src/web/src/mobile/NewSessionPicker.tsx` (new) | the composer's menu field, shared by the workflow field and each role row, so a model shows the provider's description and group |
+| `ControlBar` | `src/web/src/chrome/ControlBar.tsx` (new) | the bar of agent-reported pickers, extracted from the getting-started dialog's suggestion profile and used by it and by each role row |
+| `NewSessionPicker` | `src/web/src/mobile/NewSessionPicker.tsx` (new) | the workflow field's own menu toggle |
+| `WorkflowRolePick`, `WorkflowRoleAxes` | `src/Weavie.Core/Workflows/WorkflowRolePick.cs` (new) | a start's pick (model and options) and the role pickers built from the provider's models and the chosen model's controls |
 | `providerId` prop | `NewSessionWorkflowField.tsx`, `NewSessionComposer.tsx`, `SessionInbox.tsx`, `App.tsx` | provider down to the field; `roles` in the seed and the create call |
 
 `HostSession.WorkflowAgent.cs` and `HostSession.WorkflowStageOwner.cs` don't change: they see only
@@ -277,7 +282,7 @@ Picking(picks).Resolve(definition):                          // a composer start
   a pick for a role the definition doesn't ask for           → throw WorkflowException
   the provider's own refusal (terminal, no model choice)     → throw, so a pick never masks it
   picks while the models aren't known, or of a model not offered → throw
-  each pick as { provider.Id, model, options: {} } over the saved roles; an unfilled role → throw
+  each pick as { provider.Id, model, options } over the saved roles; an unfilled role → throw
 
 Picking(picks).Save():                                       // only after Resolve succeeded
   roles.Set(provider.Id, every pick)                         // one write
@@ -301,11 +306,12 @@ a default with a Problem → DefaultProblem = The default workflow "x" can't run
 ### Model list and role suggestion
 
 ```text
-roleModels(providerId):
+roleControls(providerId, model):
   entry = await models.SettledAsync(providerId, ct)
-  Ready  → { models, error: null }
-  Failed → { models: [], error: entry.Error }
-  null   → { models: [], error: "<name> offers no model to choose." }
+  not Ready → { axes: [], error: entry.Error or "<name> offers no model to choose." }
+  selected  = model is "" ? [] : provider.ProbeInferenceControlsAsync(model).Selected   // a failure keeps the model picker
+  axes      = WorkflowRoleAxes.Build(entry.Models, model, selected)
+              // Model (required), then the Effort and Fast mode among `selected`, each led by "Default (…)"
 
 suggestRole(sourceId, providerId, workflow, role):
   gap = Read(definition).Unfilled.First(role)                // none, or something saved → Unchanged
@@ -333,17 +339,20 @@ NewSessionAsync, before any worktree exists:
 
 | Event | Rule |
 | --- | --- |
-| target, workflow, or its needed roles change | abort everything; rebuild empty rows; with no rows the field is ready; otherwise request the model list |
-| list pending | each row is disabled and reads `Loading models…`; Start waits |
-| list failed | each row shows `Couldn't list models: <error>`; Start waits |
-| list ready | one `suggestRole` per row with nothing saved; that row reads `Suggesting…` |
-| suggestion lands | applied only when the pair is still current, the user hasn't picked that row, and the model is in the list |
-| user picks | the row is theirs; its request is aborted |
-| `capture()` at Start | returns role → model and discards requests in flight |
+| target, workflow, or its needed roles change | abort everything; rebuild empty rows; with no rows the field is ready; otherwise ask for the pickers with no model |
+| models pending | each row shows the bar's placeholder; Start waits |
+| models failed | the group shows `Couldn't list models: <error>`; Start waits; showing the same pair again asks again |
+| models ready | each row shows its Model picker; one `suggestRole` per row with nothing saved, which reads `Suggesting…` |
+| a model is picked or suggested | the row's options are dropped, and the pickers are asked for with that model, once per model; Effort and Fast mode appear when they land |
+| suggestion lands | applied only when the pair is still current, the user hasn't picked that row's model, and the model is on offer |
+| an option is picked | saved on the row; picking Default removes it |
+| the options can't be asked for | the model stays picked and the row says `Couldn't get the options: <error>` |
+| `capture()` at Start | returns role → `{ model, options }` and discards suggestions in flight |
 | after a successful Start | the field re-reads the catalog, so saved roles stop showing |
 
-Each row is the role name as the label and a `.ui-field` toggle opening `ControlMenu`; the problem line is a
-`<small role="alert">`, as the workflow field's is. No new text beyond those lines.
+The group is titled `Roles for <workflow>` (a `.ui-section-label`), so the rows read as the workflow's and not as
+session fields. Each row is the role name beside a `ControlBar`; the problem line is a `<small role="alert">`, as the
+workflow field's is.
 
 ## Error handling
 
@@ -409,7 +418,7 @@ Each row is the role name as the label and a `.ui-field` toggle opening `Control
 | `src/Weavie.Core/Mcp/McpServer.WorkflowTools.cs`, `McpServer.cs`, `AuthorWorkflowPrompt.cs`, `EmbeddedAgentGuidance.cs` | the listing tool; authoring and "make X my planner" guidance |
 | `src/Weavie.Core/Configuration/WorkflowSettings.cs`, `src/Weavie.Core/WeaviePaths.cs` | the confidence description names the role suggestion; the path |
 | `src/Weavie.Hosting/HostServices.cs`, `HostCore.cs`, `HostCore.WorkflowStart.cs`, `HostCore.Workflows.cs`, `HostCore.Sessions.cs`, `HostCore.Messages.cs`, `Messaging/WireJson.cs`, `HostSession.cs`, `HostSession.Workflow.cs` | wiring, requests, start paths |
-| `src/web/src/bridge.ts`, `chrome/new-session-workflow-choice.ts`, `chrome/new-session-role-choice.ts` (new), `mobile/NewSessionPicker.tsx` (new), `mobile/NewSessionWorkflowField.tsx`, `mobile/NewSessionComposer.tsx`, `mobile/SessionInbox.tsx`, `App.tsx` | the provider reaches the field; the rows |
+| `src/web/src/bridge.ts`, `chrome/new-session-workflow-choice.ts`, `chrome/new-session-role-choice.ts` (new), `chrome/ControlBar.tsx` and `chrome/control-bar.css` (new), `getting-started/SuggestionProfile.tsx`, `mobile/NewSessionPicker.tsx` (new), `mobile/NewSessionWorkflowField.tsx`, `mobile/NewSessionComposer.tsx`, `mobile/SessionInbox.tsx`, `App.tsx` | the provider reaches the field; the rows |
 | `tests/…`, `src/web/e2e/…` | as in the testing strategy |
 | `docs/specs/workflow-agent-selection.md`, `docs/specs/workflows.md`, `AGENTS.md` | a Roles section, `role` in the format, the deferred notes removed, the concept line |
 
@@ -424,7 +433,7 @@ Each row is the role name as the label and a `.ui-field` toggle opening `Control
 - **The provider is written twice in `setRole`** (the session provider and `agent.provider`), which is what storing
   a full agent costs. A mismatch is savable and refused at start, as the brief says.
 - **The model catalog has no change signal today**, so the model-list request waits on a new one instead of
-  replying "loading". A probe that hangs keeps the rows on `Loading models…`, visibly, with Start waiting.
+  replying "loading". A probe that hangs keeps the rows on their placeholder, visibly, with Start waiting.
 - **Two hosts on one `~/.weavie` don't see each other's role writes** until restart; the last writer wins, as for
   the remembered picker defaults.
 - **The composer reads needed roles from the loaded catalog.** A role the agent saves while the composer is open
@@ -450,8 +459,8 @@ Each row is the role name as the label and a `.ui-field` toggle opening `Control
       through `runner.Prepare`, `NewSessionRequest.Roles` and `NewSessionAsync`.
 - [x] `spec-driven.yaml` on `planner` and `builder`; fix the tests that list it.
 - [x] Composer host side: `SettledAsync`, `SuggestRoleAsync` with the shared ask, provider-aware `workflows`
-      and `suggestWorkflow`, `roleModels`, `suggestRole`, `WireJson`.
-- [x] Web: bridge requests, `providerId` down to the field, `NewSessionRoleChoice`, `NewSessionPicker`, the
+      and `suggestWorkflow`, `roleControls`, `suggestRole`, `WireJson`.
+- [x] Web: bridge requests, `providerId` down to the field, `NewSessionRoleChoice`, `ControlBar`, `NewSessionPicker`, the
       seed and create call, CSS.
 - [x] E2E: the mock-host spec, the functional spec, `workflow-agent.spec.ts`, the harness helper (after
       `vite build` and `dotnet build`).

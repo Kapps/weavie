@@ -1,0 +1,71 @@
+/* One bar of pickers echoing the agent status line; --control-bar-line sets its rules. */
+
+.control-bar {
+  --control-bar-line: color-mix(in srgb, var(--fg) 18%, transparent);
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--control-bar-line);
+  border-radius: 8px;
+}
+
+.control-bar-pick {
+  font: var(--font-chrome-body);
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 0;
+  border-left: 1px solid var(--control-bar-line);
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.control-bar-pick:first-child {
+  border-left: 0;
+}
+
+.control-bar-pick span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.control-bar-pick:not(:disabled):hover,
+.control-bar-pick[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.control-bar-pick:disabled {
+  cursor: default;
+}
+
+.control-bar-pick:disabled span {
+  opacity: 0.5;
+}
+
+.control-bar-placeholder {
+  cursor: default;
+}
+
+.control-bar-placeholder i {
+  width: 72px;
+  height: 10px;
+  margin: 3px 0;
+  border-radius: 4px;
+  background: var(--control-bar-line);
+  animation: control-bar-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes control-bar-pulse {
+  to {
+    opacity: 0.35;
+  }
+}

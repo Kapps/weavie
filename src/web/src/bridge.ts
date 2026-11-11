@@ -6,7 +6,7 @@ import { type ClientSession, HostConnection, type HostHello } from "./messaging/
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type {
-  AgentControlOption,
+  AgentControlAxis,
   BackendEndpoint,
   BackendInfo,
   PullRequestInfo,
@@ -603,10 +603,17 @@ export interface WorkflowSuggestion {
   error: string | null;
 }
 
-export interface RoleModels {
-  models: AgentControlOption[];
-  /** Why the provider's models can't be listed; null when they are. */
+/** A role's pickers: its model, then the effort and Fast Mode that model offers. */
+export interface RoleControls {
+  axes: AgentControlAxis[];
+  /** Why the agent couldn't be asked for them; null when it was. */
   error: string | null;
+}
+
+/** What a start saves for one role: the model and the option values chosen with it, by the provider's ids. */
+export interface RolePick {
+  model: string;
+  options: Record<string, string>;
 }
 
 export interface RoleSuggestion {
@@ -657,12 +664,14 @@ export const requestWorkflowSuggestion = (
 ): Promise<WorkflowSuggestion> =>
   requestSessionCreation(backendId, "suggestWorkflow", { sourceId, providerId, prompt }, signal);
 
-/** The models `providerId` offers a role; answers once they aren't being probed. */
-export const requestRoleModels = (
+/** A role's pickers in `providerId` sessions with `model` chosen ("" for none); answers once its models are known. */
+export const requestRoleControls = (
   backendId: string,
   providerId: string,
+  model: string,
   signal: AbortSignal,
-): Promise<RoleModels> => requestSessionCreation(backendId, "roleModels", { providerId }, signal);
+): Promise<RoleControls> =>
+  requestSessionCreation(backendId, "roleControls", { providerId, model }, signal);
 
 export const requestRoleSuggestion = (
   backendId: string,

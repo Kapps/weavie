@@ -92,14 +92,28 @@ test("the composer asks for each role a workflow needs, suggests a model, and sa
     .getByRole("option", { name: /^spec-driven/ })
     .click();
 
-  const planner = inbox.getByRole("button", { name: /^planner/ });
-  await expect(planner).toHaveText("Beta");
-  await expect(inbox.getByRole("button", { name: /^builder/ })).toHaveText("Beta");
+  // Each role's pickers are the agent's own: the suggested model, then the Fast mode that model offers.
+  await expect(inbox.getByText("Roles for spec-driven")).toBeVisible();
+  const planner = inbox.getByRole("group", { name: "planner role" });
+  const builder = inbox.getByRole("group", { name: "builder role" });
+  await expect(planner.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
+  await expect(builder.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
+  await planner.getByRole("button", { name: /Fast mode/ }).click();
+  await page
+    .getByRole("listbox", { name: "Fast mode" })
+    .getByRole("option", { name: "On" })
+    .click();
+  await expect(planner.getByRole("button", { name: /Fast mode/ })).toHaveText("Fast modeOn");
   await inbox.getByRole("button", { name: "Start", exact: true }).click();
   await expect(inbox).toBeHidden();
   const surface = page.locator('[data-surface="structured-agent"]');
   await expect(surface.locator(".pane-head .pane-run")).toHaveText("spec-driven · requirements");
   await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
+  await expect(
+    surface
+      .locator(".agent-entry-notice")
+      .filter({ hasText: "Workflow: requirements runs on Beta, Fast On" }),
+  ).toHaveCount(1);
 
   // Saved for every later start in this provider's sessions; a terminal session can't run the workflow at all.
   await page.locator(".session-rail-add").click();
@@ -109,7 +123,7 @@ test("the composer asks for each role a workflow needs, suggests a model, and sa
     .getByRole("listbox", { name: "Workflow" })
     .getByRole("option", { name: /^spec-driven/ })
     .click();
-  await expect(planner).toHaveCount(0);
+  await expect(inbox.getByText("Roles for spec-driven")).toHaveCount(0);
   await provider.selectOption("claude");
   await inbox.getByRole("button", { name: "Workflow" }).click();
   await expect(

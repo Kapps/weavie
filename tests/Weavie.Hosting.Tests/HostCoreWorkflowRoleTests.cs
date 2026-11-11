@@ -74,25 +74,25 @@ public sealed class HostCoreWorkflowRoleTests {
 	public async Task ANewSessionSavesItsPicksBeforeItStartsAndABadPickLeavesNothing() {
 		var (host, _, _) = await StartAsync();
 		await using var _ = host;
-		static NewSessionRequest Request(string branch, Dictionary<string, string> roles) => new() {
+		static NewSessionRequest Request(string branch, string roles) => new() {
 			Branch = branch,
 			Base = "main",
 			AgentProviderId = "structured",
 			Workflow = "roles",
-			Roles = roles,
+			Roles = Json(roles),
 		};
 
-		var unfilled = await host.CreateSessionAsync(Request("unfilled", []));
-		var bad = await host.CreateSessionAsync(Request("bad", new() { ["builder"] = "GPT Retired" }));
-		var stray = await host.CreateSessionAsync(Request("stray", new() { ["builder"] = "GPT Next", ["Planner"] = "GPT Next" }));
-		var badInput = await host.CreateSessionAsync(Request("input", new() { ["builder"] = "GPT Next" }) with {
+		var unfilled = await host.CreateSessionAsync(Request("unfilled", "{}"));
+		var bad = await host.CreateSessionAsync(Request("bad", """{"builder":{"model":"GPT Retired"}}"""));
+		var stray = await host.CreateSessionAsync(Request("stray", """{"builder":{"model":"GPT Next"},"Planner":{"model":"GPT Next"}}"""));
+		var badInput = await host.CreateSessionAsync(Request("input", """{"builder":{"model":"GPT Next"}}""") with {
 			Inputs = JsonSerializer.SerializeToElement(new { bogus = 1 }),
 		});
 		var loose = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "loose",
 			Base = "main",
 			AgentProviderId = "structured",
-			Roles = new Dictionary<string, string> { ["builder"] = "GPT Next" },
+			Roles = Json("""{"builder":{"model":"GPT Next"}}"""),
 		});
 
 		Assert.Contains("role \"builder\" has no agent for structured sessions", unfilled.Error, StringComparison.Ordinal);
@@ -103,8 +103,10 @@ public sealed class HostCoreWorkflowRoleTests {
 		Assert.All(new[] { "unfilled", "bad", "stray", "input", "loose" }, branch => Assert.Null(host.Core.SessionForTest(branch)));
 		Assert.Empty(host.WorkflowRoles.All());
 
-		Assert.True((await host.CreateSessionAsync(Request("picked", new() { ["builder"] = "GPT Next" }))).Ok);
-		Assert.Equal("GPT Next", host.Session("picked").Workflow.AgentOf("build")!.Model);
+		Assert.True((await host.CreateSessionAsync(Request("picked", """{"builder":{"model":"GPT Next","options":{"fast":true}}}"""))).Ok);
+		var picked = host.Session("picked").Workflow.AgentOf("build")!;
+		Assert.Equal(("GPT Next", "true"), (picked.Model, picked.Options["fast"]));
+		Assert.Equal("true", host.WorkflowRoles.Find("structured", "builder")!.Options["fast"]);
 		Assert.Empty((await RolesWorkflowAsync(host, "structured")).GetProperty("roles").EnumerateArray());
 	}
 
@@ -119,9 +121,11 @@ public sealed class HostCoreWorkflowRoleTests {
 		Assert.StartsWith("Stage \"build\" runs on role \"builder\", but Claude Code runs in a terminal",
 			(await RolesWorkflowAsync(host, "claude")).GetProperty("error").GetString(), StringComparison.Ordinal);
 
-		var models = await host.HostRequestAsync<JsonElement>("sessionCreation", "roleModels", new { providerId = "structured" });
+		var controls = await host.HostRequestAsync<JsonElement>("sessionCreation", "roleControls", new { providerId = "structured", model = "GPT Next" });
+		var models = controls.GetProperty("axes")[0];
+		Assert.Equal(("model", "GPT Next"), (models.GetProperty("category").GetString(), models.GetProperty("value").GetString()));
 		host.Settings.Set(InferenceSettings.AllowAutomatic, JsonSerializer.SerializeToElement(true));
-		Assert.Equal(["GPT Test", "GPT Next", "GPT Gone"], models.GetProperty("models").EnumerateArray().Select(model => model.GetProperty("id").GetString()));
+		Assert.Equal(["GPT Test", "GPT Next", "GPT Gone"], models.GetProperty("options").EnumerateArray().Select(model => model.GetProperty("id").GetString()));
 		var suggestion = await host.HostRequestAsync<JsonElement>("sessionCreation", "suggestRole",
 			new { sourceId = (string?)null, providerId = "structured", workflow = "roles", role = "builder" });
 		Assert.Equal((true, "GPT Next"), (suggestion.GetProperty("applies").GetBoolean(), suggestion.GetProperty("model").GetString()));

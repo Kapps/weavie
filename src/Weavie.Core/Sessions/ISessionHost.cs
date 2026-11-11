@@ -34,8 +34,8 @@ public sealed record NewSessionRequest {
 	/// <summary>The <see cref="Workflow"/>'s inputs, an object keyed by input name; <c>null</c> for none.</summary>
 	public System.Text.Json.JsonElement? Inputs { get; init; }
 
-	/// <summary>Models to save for the <see cref="Workflow"/>'s roles before it starts, by role, from the new session's provider.</summary>
-	public IReadOnlyDictionary<string, string> Roles { get; set; } = new Dictionary<string, string>();
+	/// <summary>What to save for the <see cref="Workflow"/>'s roles as it starts: role to <c>{ model, options }</c> of the new session's provider; <c>null</c> for none.</summary>
+	public System.Text.Json.JsonElement? Roles { get; init; }
 
 	/// <summary>The provider for this new session; <c>null</c> means the host's default provider setting.</summary>
 	public string? AgentProviderId { get; init; }

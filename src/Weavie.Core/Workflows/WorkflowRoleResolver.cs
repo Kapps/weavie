@@ -22,7 +22,7 @@ public sealed record WorkflowRoleResolution(
 /// doesn't know the provider's models a saved role is trusted until its step opens.
 /// </summary>
 public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderInfo provider, AgentModelCatalog models) : IWorkflowRoleResolver {
-	private static readonly Dictionary<string, string> NoPicks = new(StringComparer.Ordinal);
+	private static readonly Dictionary<string, WorkflowRolePick> NoPicks = new(StringComparer.Ordinal);
 
 	/// <summary>How <paramref name="definition"/>'s roles stand.</summary>
 	public WorkflowRoleResolution Read(WorkflowDefinition definition) => Read(definition, NoPicks);
@@ -31,19 +31,19 @@ public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderI
 	public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) => Resolve(definition, NoPicks);
 
 	/// <summary>
-	/// Fills roles with <paramref name="picks"/> (role to a model this provider offers) over the saved ones, saving
-	/// nothing until <see cref="Picks.Save"/>.
+	/// Fills roles with <paramref name="picks"/> (role to a model this provider offers and its options) over the saved
+	/// ones, saving nothing until <see cref="Picks.Save"/>.
 	/// </summary>
-	public Picks Picking(IReadOnlyDictionary<string, string> picks) => new(this, picks);
+	public Picks Picking(IReadOnlyDictionary<string, WorkflowRolePick> picks) => new(this, picks);
 
-	private WorkflowRoleResolution Read(WorkflowDefinition definition, IReadOnlyDictionary<string, string> picks) {
+	private WorkflowRoleResolution Read(WorkflowDefinition definition, IReadOnlyDictionary<string, WorkflowRolePick> picks) {
 		ArgumentNullException.ThrowIfNull(definition);
 		var entry = models.Find(provider.Id);
 		var offered = entry is { Status: AgentModelStatus.Ready } ? entry.Models : null;
 		List<WorkflowAgent> agents = [];
 		List<WorkflowRoleGap> gaps = [];
 		foreach (string role in definition.Roles) {
-			var saved = picks.TryGetValue(role, out string? model) ? Agent(model) : roles.Find(provider.Id, role);
+			var saved = picks.TryGetValue(role, out var pick) ? Agent(pick) : roles.Find(provider.Id, role);
 			if (saved is null) {
 				gaps.Add(new(role, null));
 			} else if (saved.Provider == provider.Id && offered is not null && offered.All(option => option.Id != saved.Model)) {
@@ -58,32 +58,32 @@ public sealed class WorkflowRoleResolver(WorkflowRoleStore roles, AgentProviderI
 	}
 
 	// The provider's own refusal precedes the model checks, so a pick never masks why the provider can't run the definition.
-	private IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition, IReadOnlyDictionary<string, string> picks) {
+	private IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition, IReadOnlyDictionary<string, WorkflowRolePick> picks) {
 		var read = Read(definition, picks);
 		string? refusal = picks.Keys.FirstOrDefault(role => !definition.Roles.Contains(role)) is { } stray
 			? $"Workflow {definition.Id} asks for no role \"{stray}\"."
 			: read.Refusal
 			?? (picks.Count > 0 && read.Offered is null ? $"{provider.Name}'s models aren't known yet, so its roles can't be picked."
-			: picks.FirstOrDefault(pick => read.Offered!.All(option => option.Id != pick.Value)) is { Key: { } role, Value: var model }
-				? $"Role \"{role}\" can't take model \"{model}\": {provider.Name} offers {string.Join(", ", read.Offered!.Select(o => o.Id))}."
+			: picks.FirstOrDefault(pick => read.Offered!.All(option => option.Id != pick.Value.Model)) is { Key: { } role, Value: var refused }
+				? $"Role \"{role}\" can't take model \"{refused.Model}\": {provider.Name} offers {string.Join(", ", read.Offered!.Select(o => o.Id))}."
 			: read.Unfilled.Count > 0 ? WorkflowAgentControls.Unfilled(definition, read.Unfilled, provider, read.Offered) : null);
 		return refusal is null ? read.Agents : throw new WorkflowException(refusal);
 	}
 
-	private void Save(IReadOnlyDictionary<string, string> picks) {
+	private void Save(IReadOnlyDictionary<string, WorkflowRolePick> picks) {
 		if (picks.Count > 0) roles.Set(provider.Id, picks.ToDictionary(pick => pick.Key, pick => Agent(pick.Value), StringComparer.Ordinal));
 	}
 
-	// A pick takes the model alone: the options depend on the model.
-	private WorkflowRoleAgent Agent(string model) => new(provider.Id, model, new Dictionary<string, string>());
+	// A pick replaces the role whole: its options belong to its model.
+	private WorkflowRoleAgent Agent(WorkflowRolePick pick) => new(provider.Id, pick.Model, pick.Options);
 
 	/// <summary>A start's picks: they fill its roles when it is prepared, and are saved only once the start was.</summary>
 	public sealed class Picks : IWorkflowRoleResolver {
 		private readonly WorkflowRoleResolver _resolver;
-		private readonly IReadOnlyDictionary<string, string> _picks;
+		private readonly IReadOnlyDictionary<string, WorkflowRolePick> _picks;
 		private bool _resolved;
 
-		internal Picks(WorkflowRoleResolver resolver, IReadOnlyDictionary<string, string> picks) {
+		internal Picks(WorkflowRoleResolver resolver, IReadOnlyDictionary<string, WorkflowRolePick> picks) {
 			_resolver = resolver;
 			_picks = picks;
 		}

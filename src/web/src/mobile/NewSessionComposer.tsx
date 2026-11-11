@@ -1,7 +1,7 @@
 import { ArrowUp } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
-import { selectedSession } from "../bridge";
+import { type RolePick, selectedSession } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -25,8 +25,8 @@ export interface NewSessionSeed {
   attachments: NewSessionSeedAttachment[];
   /** The workflow the session starts in, which takes the prompt and attachments; null for none. */
   workflow: string | null;
-  /** The model to save for each role the workflow still needs, from the session's provider. */
-  roles: Record<string, string>;
+  /** What to save for each role the workflow still needs, from the session's provider. */
+  roles: Record<string, RolePick>;
 }
 
 /** The prompt-first form that starts a session on a new branch. */

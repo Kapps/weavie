@@ -1,5 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
 
@@ -67,14 +68,25 @@ public sealed partial class HostCore {
 		_ => reply(false, null, null),
 	};
 
-	// Answers once the provider's models aren't being probed, so the composer waits on the request itself.
-	private async Task<RoleModelsResult> RoleModelsAsync(RoleModelsRequest request, CancellationToken ct) {
+	// A role's pickers for one provider: its models, answered once they aren't being probed, then the effort and Fast
+	// Mode the chosen model offers. A provider that can't be asked for those keeps the model picker and says why.
+	private async Task<RoleControlsResult> RoleControlsAsync(RoleControlsRequest request, CancellationToken ct) {
 		var info = RequireProvider(request.ProviderId);
-		return await _agentModels.SettledAsync(info.Id, ct).ConfigureAwait(false) switch {
-			{ Status: AgentModelStatus.Ready, Models: var models } => new(models, null),
-			{ Error: var error } => new([], error),
-			null => new([], $"{info.Name} offers no model to choose."),
-		};
+		var entry = await _agentModels.SettledAsync(info.Id, ct).ConfigureAwait(false);
+		if (entry is not { Status: AgentModelStatus.Ready, Models: var models }) {
+			return new([], entry?.Error ?? $"{info.Name} offers no model to choose.");
+		}
+
+		IReadOnlyList<AgentControlAxis> selected = [];
+		string? error = null;
+		if (request.Model.Length > 0 && _agentProviders.Providers.FirstOrDefault(p => p.Info.Id == info.Id) is IInferenceProvider options) {
+			try {
+				selected = (await options.ProbeInferenceControlsAsync(request.Model, ct).ConfigureAwait(false)).Selected;
+			} catch (Exception ex) when (ex is not OperationCanceledException) {
+				error = ex.Message;
+			}
+		}
+		return new(WorkflowRoleAxes.Build(models, request.Model, selected), error);
 	}
 
 	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
@@ -104,9 +116,9 @@ public sealed partial class HostCore {
 
 	internal sealed record WorkflowSuggestionResult(bool Applies, string? Workflow, string? Error);
 
-	internal sealed record RoleModelsRequest(string ProviderId);
+	internal sealed record RoleControlsRequest(string ProviderId, string Model);
 
-	internal sealed record RoleModelsResult(IReadOnlyList<AgentControlOption> Models, string? Error);
+	internal sealed record RoleControlsResult(IReadOnlyList<AgentControlAxis> Axes, string? Error);
 
 	internal sealed record RoleSuggestionRequest(string? SourceId, string ProviderId, string Workflow, string Role);
 

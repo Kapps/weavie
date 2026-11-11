@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -28,25 +27,10 @@ public static class WorkflowRoleCommand {
 
 		var saved = new WorkflowRoleAgent(
 			WeavieWorkflows.RequireProvider(providers, WeavieWorkflows.Required(agent, "provider", "agent.provider")).Id,
-			WeavieWorkflows.Required(agent, "model", "agent.model"), Options(agent));
+			WeavieWorkflows.Required(agent, "model", "agent.model"), WorkflowRolePick.ReadOptions(agent));
 		roles.Set(provider, new Dictionary<string, WorkflowRoleAgent> { [role] = saved });
 		string options = saved.Options.Count == 0 ? "" : $" ({string.Join(", ", saved.Options.Select(o => $"{o.Key} {o.Value}"))})";
 		return $"{role} in {provider} sessions is now {saved.Model}{options}"
 			+ (saved.Provider == provider ? "." : $" on {saved.Provider}, which runs only once steps on another provider are built.");
-	}
-
-	// Agents write option values as JSON text, booleans, or numbers; the provider's value ids are text.
-	private static Dictionary<string, string> Options(JsonElement agent) {
-		var options = new Dictionary<string, string>(StringComparer.Ordinal);
-		if (!agent.TryGetProperty("options", out var given)) return options;
-		if (given.ValueKind != JsonValueKind.Object) throw new WorkflowException("'agent.options' must be an object of option ids to value ids.");
-		foreach (var option in given.EnumerateObject()) {
-			options[option.Name] = option.Value.ValueKind switch {
-				JsonValueKind.String when option.Value.GetString() is { Length: > 0 } text => text,
-				JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number => option.Value.GetRawText().ToLower(CultureInfo.InvariantCulture),
-				_ => throw new WorkflowException($"Option '{option.Name}' needs a value id."),
-			};
-		}
-		return options;
 	}
 }

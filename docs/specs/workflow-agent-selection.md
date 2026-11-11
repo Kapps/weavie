@@ -63,7 +63,7 @@ sessions and Astra in Codex sessions. Workflows carry no description of a role a
 agent and an undefined `agent` still fails at load.
 
 - **Filling one.** The agent saves a role with `weavie.workflow.setRole` (role, session provider, and an agent of
-  provider, model, and options) and reads them from `listWorkflows`. The new-session composer shows a model picker for
+  provider, model, and options) and reads them from `listWorkflows`. The new-session composer shows the agent's Model, Effort, and Fast mode pickers for
   each role the chosen workflow needs on the chosen provider, prefilled by the decision provider when it is confident
   (evidence: the role's name and the prompts of the stages that use it; choices: the provider's models), and saves
   the picks at Start.

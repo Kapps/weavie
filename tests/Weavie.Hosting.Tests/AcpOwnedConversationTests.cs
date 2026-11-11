@@ -196,7 +196,8 @@ public sealed class AcpOwnedConversationTests {
 	}
 
 	private static AgentConversationBinding Binding(AcpAgentSessionFixture fixture) => new() {
-		Tools = fixture.Registry.CreateGrant(() => null, "Owned conversation"),
+		Tools = fixture.Registry.CreateGrant(() => null),
+		Title = "Owned conversation",
 		TurnContext = AgentTurnContext.None,
 		ControlHold = AgentControlHold.None,
 	};

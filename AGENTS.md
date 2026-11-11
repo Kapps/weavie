@@ -73,7 +73,7 @@ load it only when you need it.
 - **Session messaging** — agents list, read, and message the other sessions on their host through registry tools
   (`listSessions`/`readSession`/`messageSession`), bound to the calling session by construction. Reads come from each
   provider's own saved conversation (ACP journal, Claude `.jsonl`); a message is a prompt, headed with its sender,
-  queued into a loaded ACP session's main conversation, which is also how a `/btw` reports to its own session.
+  queued into a loaded ACP session. A `/btw` side conversation is a session there too, with its own id.
   Terminal Claude can be read but not messaged. See
   [docs/specs/session-messaging.md](docs/specs/session-messaging.md).
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom

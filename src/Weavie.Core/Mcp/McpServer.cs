@@ -92,7 +92,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
 		}
 
-		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, conversation: null);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
@@ -103,6 +102,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
 		_sessions = sessions;
+		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, sessions);
 		_agents = agents;
 		_reviewHints = reviewHints;
 		_workflows = workflows;
@@ -450,16 +450,19 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendToolTextAsync(responder, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
 			case "currentSession":
-				await SendToolTextAsync(responder, idRaw, $"{{\"id\":{JsonString(_sessions.SelfId)}}}", ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, JsonWrite.Object(writer => {
+					writer.WriteString("id", call.Sessions.SelfId);
+					if (call.Sessions.ParentId is { } parent) writer.WriteString("parent", parent);
+				}), ct).ConfigureAwait(false);
 				break;
 			case "listSessions":
-				await HandleListSessionsAsync(responder, idRaw, ct).ConfigureAwait(false);
+				await HandleListSessionsAsync(responder, call.Sessions, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "readSession":
-				await HandleReadSessionAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				await HandleReadSessionAsync(responder, call.Sessions, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "messageSession":
-				await HandleMessageSessionAsync(responder, args, idRaw, call.Conversation, ct).ConfigureAwait(false);
+				await HandleMessageSessionAsync(responder, call.Sessions, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listSettings":
 				await HandleListSettingsAsync(responder, idRaw, ct).ConfigureAwait(false);

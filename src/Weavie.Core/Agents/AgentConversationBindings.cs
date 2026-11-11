@@ -11,15 +11,17 @@ public sealed class AgentConversationBindings(
 
 	/// <summary>Creates a new main incarnation's binding.</summary>
 	public AgentConversationBinding Main() => new() {
+		Title = "Main",
 		TurnContext = mainContext,
 		ControlHold = mainControls,
-		Tools = registry.CreateGrant(stageCall, conversation: null),
+		Tools = registry.CreateGrant(stageCall),
 	};
 
-	/// <summary>Creates a <c>/btw</c> side conversation's binding, without workflow completion authority.</summary>
-	public AgentConversationBinding Side() => new() {
+	/// <summary>Creates the binding of the <c>/btw</c> side conversation <paramref name="conversationId"/>, which calls the registry as itself.</summary>
+	public AgentConversationBinding Side(string conversationId) => new() {
+		Title = "Conversation",
 		TurnContext = AgentTurnContext.None,
 		ControlHold = AgentControlHold.None,
-		Tools = registry.CreateGrant(() => null, "BTW"),
+		Tools = registry.CreateSideGrant(conversationId),
 	};
 }

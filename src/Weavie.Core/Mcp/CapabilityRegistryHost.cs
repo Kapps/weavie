@@ -65,9 +65,11 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 	/// <summary>The Streamable HTTP MCP endpoint URL for native agents.</summary>
 	public string StreamableHttpUrl => $"http://127.0.0.1:{Port}/mcp";
 
-	/// <inheritdoc cref="McpServer.CreateGrant"/>
-	public CapabilityRegistryGrant CreateGrant(Func<WorkflowStageCall?> stageCall, string? conversation) =>
-		Server.CreateGrant(stageCall, conversation);
+	/// <summary>Registers a conversation-specific credential and stage admission.</summary>
+	public CapabilityRegistryGrant CreateGrant(Func<WorkflowStageCall?> stageCall) => Server.CreateGrant(stageCall);
+
+	/// <inheritdoc cref="McpServer.CreateSideGrant"/>
+	public CapabilityRegistryGrant CreateSideGrant(string conversationId) => Server.CreateSideGrant(conversationId);
 
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => Server.DisposeAsync();

@@ -16,11 +16,7 @@ describe("queuedSubmissionLabel", () => {
     expect(queuedSubmissionLabel({ text: "", attachments: 1 })).toBe("1 image");
     expect(queuedSubmissionLabel({ text: "", attachments: 3 })).toBe("3 images");
     expect(
-      queuedSubmissionLabel({
-        text: "ping",
-        attachments: 0,
-        sender: { id: "a", title: "auth", sameSession: false },
-      }),
+      queuedSubmissionLabel({ text: "ping", attachments: 0, sender: { id: "a", title: "auth" } }),
     ).toBe("From auth: ping");
   });
 });

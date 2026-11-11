@@ -26,7 +26,7 @@ const command = (text: string): AgentPaneUpdate => ({
 
 describe("submittedPrompts", () => {
   it("leaves out messages other sessions sent", () => {
-    const sender = { id: "feat/auth", title: "auth", sameSession: false };
+    const sender = { id: "feat/auth", title: "auth" };
     const messages: AgentPaneUpdate[] = [
       user("mine"),
       { ...user("theirs"), sender },

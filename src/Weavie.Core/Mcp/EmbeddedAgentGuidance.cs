@@ -17,7 +17,7 @@ public static class EmbeddedAgentGuidance {
 		and explicit follow-up requests made here. When that work is complete, report the result and stop.
 		Do not resume the primary conversation's work while waiting for another side request.
 		When this side conversation's request asks you to tell the primary conversation something, send it with
-		mcp__weavie__messageSession to your own session's id from mcp__weavie__currentSession.
+		mcp__weavie__messageSession to the `parent` id that mcp__weavie__currentSession returns.
 		""";
 
 	/// <summary>Frames the one request a consulted agent receives from another agent.</summary>
@@ -29,13 +29,11 @@ public static class EmbeddedAgentGuidance {
 		returned verbatim to the agent that consulted you, so make it a complete, self-contained answer.
 		""";
 
-	/// <summary>Tells the receiver of a session message who sent it and how to reply.</summary>
-	public static string SessionMessage(AgentMessageSender sender) => sender.SameSession
-		? $"This prompt is a message from \"{sender.Title}\", another conversation in your own Weavie session, sent by its "
-			+ "agent, not typed by the user. It has no reply address, so act on it here."
-		: $"This prompt is a message from Weavie session \"{sender.Title}\" (id \"{sender.Id}\"), sent by that session's "
-			+ $"agent, not typed by the user. Reply with mcp__weavie__messageSession to id \"{sender.Id}\" only if it asks "
-			+ "you something or you have results to report; never reply to an acknowledgement.";
+	/// <summary>Tells the receiver of another session's message who sent it and how to reply.</summary>
+	public static string SessionMessage(AgentMessageSender sender) =>
+		$"This prompt is a message from Weavie session \"{sender.Title}\" (id \"{sender.Id}\"), sent by that session's "
+		+ $"agent, not typed by the user. Reply with mcp__weavie__messageSession to id \"{sender.Id}\" only if it asks "
+		+ "you something or you have results to report; never reply to an acknowledgement.";
 
 	/// <summary>The instruction text shared by embedded providers.</summary>
 	public const string Instructions =

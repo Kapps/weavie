@@ -6,6 +6,16 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
+	public IReadOnlyList<AgentAside> Asides {
+		get {
+			lock (_turnTransitionGate) {
+				return [.. _sideConversations.Values.Where(side => !side.Failed)
+					.Select(side => new AgentAside(side.ConversationId, side.InitialPrompt, _sides.GetValueOrDefault(side.ConversationId) is { Settled: false }))];
+			}
+		}
+	}
+
+	/// <inheritdoc/>
 	public void AskAside(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
 		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
@@ -16,7 +26,7 @@ public sealed partial class AcpAgentSession {
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
 			var spec = ChildSpec(primary, fork: true, submission.Text, AcpConversationRole.Side);
-			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side());
+			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side(spec.Seed.Continuation.ConversationId));
 		}
 	}
 
@@ -39,7 +49,7 @@ public sealed partial class AcpAgentSession {
 			}
 			EnsureSideConversationSupport(_primary);
 			var seed = AcpConversationHandoff.Fresh(state) with { Pending = [submission] };
-			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Side());
+			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Side(conversationId));
 		}
 	}
 

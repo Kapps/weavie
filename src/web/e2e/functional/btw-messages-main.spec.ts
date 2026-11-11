@@ -2,9 +2,7 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-test("BTW messages its session's busy main conversation through messageSession", async ({
-  page,
-}) => {
+test("BTW and its session message each other through messageSession", async ({ page }) => {
   const surface = await createAcpSession(page, "btw-messages-main");
   const composer = surface.locator("[data-agent-composer] textarea");
   await submitAcpDraft(surface, "hold");
@@ -17,13 +15,27 @@ test("BTW messages its session's busy main conversation through messageSession",
   );
 
   const aside = surface.locator(".agent-aside");
-  await expect(aside).toContainText("Delivered to the main conversation of your own session");
-  const delivered = surface.locator(".agent-entry", {
-    has: page.locator(".agent-entry-label", { hasText: "From BTW" }),
-  });
+  await expect(aside).toContainText(`Delivered to`);
+  const fromBtw = page.locator(".agent-entry-label", { hasText: /^From .+ BTW$/ });
+  const delivered = surface.locator(".agent-entry", { has: fromBtw });
   await expect(delivered).toHaveCount(1);
   await expect(delivered).toContainText("finding from the side");
-  await expect(aside.locator(".agent-entry-label", { hasText: "From BTW" })).toHaveCount(0);
+  await expect(aside.locator(fromBtw)).toHaveCount(0);
   await expect(surface).toContainText("steered: finding from the side");
+
+  await submitAcpDraft(surface, 'mcp:listSessions:{"includeBtw":true}');
+  await expect(surface).toContainText(`${id}#`);
+  const side = (await surface.innerText()).match(new RegExp(`${id}#[0-9a-f]{32}`))?.[0];
+  await submitAcpDraft(
+    surface,
+    `mcp:messageSession:${JSON.stringify({ id: side, message: "answer from main" })}`,
+  );
+
+  await surface.locator(".agent-entry-activity summary").first().click();
+  const answered = aside.locator(".agent-entry", {
+    has: page.locator(".agent-entry-label", { hasText: /^From (?!.* BTW$)/ }),
+  });
+  await expect(answered).toContainText("answer from main");
+  await expect(aside).toContainText("echo: answer from main");
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });

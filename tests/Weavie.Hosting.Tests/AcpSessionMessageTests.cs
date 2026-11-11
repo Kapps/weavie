@@ -9,7 +9,7 @@ public sealed class AcpSessionMessageTests {
 	public async Task ASessionMessageShowsItsSenderAndTellsOnlyTheAgentHowToReply() {
 		await using var fixture = AcpAgentSessionFixture.CreateWithEmbeddedContext(false);
 		await fixture.StartAsync();
-		var sender = new AgentMessageSender("feat/other", "Other", SameSession: false);
+		var sender = new AgentMessageSender("feat/other", "Other");
 
 		fixture.Session.Submit(AgentTurnSubmission.Prompt("ping") with { Sender = sender });
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
@@ -21,15 +21,5 @@ public sealed class AcpSessionMessageTests {
 		Assert.Contains(AcpPromptAssertions.Blocks(prompt), block => block.GetProperty("text").GetString() == "ping");
 		var shown = Assert.Single(fixture.Messages, message => message.Type == "user-message");
 		Assert.Equal(("ping", sender), (shown.Text, shown.Sender));
-	}
-
-	[Fact]
-	public void AMessageFromAnotherConversationOfTheSessionHasNoReplyAddress() {
-		string own = EmbeddedAgentGuidance.SessionMessage(new("feat/docs", "BTW", SameSession: true));
-		string other = EmbeddedAgentGuidance.SessionMessage(new("feat/docs", "Docs", SameSession: false));
-
-		Assert.Contains("""a message from "BTW", another conversation in your own Weavie session""", own, StringComparison.Ordinal);
-		Assert.DoesNotContain("Reply with", own, StringComparison.Ordinal);
-		Assert.Contains("""Reply with mcp__weavie__messageSession to id "feat/docs" only if""", other, StringComparison.Ordinal);
 	}
 }

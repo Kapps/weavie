@@ -557,7 +557,7 @@ public sealed partial class HostCore {
 				_inference,
 				new ModelWorkflowDecider(_decisions, cwd, _decisionHistory),
 				_agentConsultation,
-				new BoundSessionPeers(this, address),
+				new BoundSessionPeers(this, address, side: null),
 				_platform.PtyLauncher,
 				provider,
 				_runtime,

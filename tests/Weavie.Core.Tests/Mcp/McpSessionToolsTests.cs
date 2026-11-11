@@ -16,7 +16,7 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-session-tools-tests");
 	private readonly SettingsStore _settings;
-	private readonly FakePeers _peers = new();
+	private readonly FakePeers _peers = new(null, null);
 	private readonly McpServer _registry;
 	private readonly McpServer _ide;
 	private readonly HttpClient _client = new();
@@ -53,8 +53,20 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	public async Task CurrentSessionReturnsTheBoundId() {
 		using var response = await CallAsync(_registry, "currentSession", "{}");
 
-		using var payload = JsonDocument.Parse(Text(response));
-		Assert.Equal("feat/self", payload.RootElement.GetProperty("id").GetString());
+		Assert.Equal("""{"id":"feat/self"}""", Text(response));
+	}
+
+	[Fact]
+	public async Task ASideGrantCallsAsItsOwnSession() {
+		await using var grant = _registry.CreateSideGrant("b7");
+		string send = Call("messageSession", """{"id":"feat/self","message":"finding"}""");
+
+		using var current = await PostAsync(_registry, Call("currentSession", "{}"), grant.Credential.Token);
+		using var sent = await PostAsync(_registry, send, grant.Credential.Token);
+		using var main = await PostAsync(_registry, send, Token);
+
+		Assert.Equal("""{"id":"feat/self#b7","parent":"feat/self"}""", Text(current));
+		Assert.Equal([("feat/self#b7", "feat/self", "finding"), ("feat/self", "feat/self", "finding")], _peers.Sent);
 	}
 
 	[Fact]
@@ -66,6 +78,18 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		var peers = payload.RootElement.GetProperty("sessions").EnumerateArray()
 			.Select(peer => (peer.GetProperty("id").GetString(), peer.GetProperty("receive").GetString())).ToList();
 		Assert.Equal([("feat/self", "ready"), ("feat/other", "needsLoad"), ("feat/claude", "unsupported")], peers);
+	}
+
+	[Fact]
+	public async Task ListSessionsIncludesSideSessionsOnRequest() {
+		using var response = await CallAsync(_registry, "listSessions", """{"includeBtw":true}""");
+
+		using var payload = JsonDocument.Parse(Text(response));
+		var side = payload.RootElement.GetProperty("sessions").EnumerateArray().Last();
+		Assert.Equal(
+			("feat/self#b7", "feat/self", "why?"),
+			(side.GetProperty("id").GetString(), side.GetProperty("parent").GetString(), side.GetProperty("prompt").GetString()));
+		Assert.False(payload.RootElement.GetProperty("sessions")[0].TryGetProperty("parent", out _));
 	}
 
 	[Fact]
@@ -101,21 +125,8 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		using var response = await CallAsync(_registry, "messageSession", """{"id":"feat/other","message":"ping"}""");
 
 		Assert.False(IsError(response));
-		Assert.Equal(("feat/other", "ping", null), _peers.Sent);
+		Assert.Equal([("feat/self", "feat/other", "ping")], _peers.Sent);
 		Assert.Contains("status: working", Text(response), StringComparison.Ordinal);
-	}
-
-	[Fact]
-	public async Task AConversationsGrantNamesItAsTheSenderToItsOwnSession() {
-		await using var grant = _registry.CreateGrant(() => null, "BTW");
-
-		using var response = await PostAsync(_registry, Call("messageSession", """{"id":"feat/self","message":"finding"}"""), grant.Credential.Token);
-
-		Assert.False(IsError(response));
-		Assert.Equal(("feat/self", "finding", "BTW"), _peers.Sent);
-		Assert.Equal(
-			"Delivered to the main conversation of your own session 'feat/self' (status: working). It can't reply to this conversation; don't wait for it.",
-			Text(response));
 	}
 
 	[Fact]
@@ -153,19 +164,26 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	private static string Text(JsonDocument response) =>
 		response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 
-	private sealed class FakePeers : ISessionPeers {
+	private sealed class FakePeers(FakePeers? root, string? side) : ISessionPeers {
+		private FakePeers Root => root ?? this;
+
 		public (string Id, int Count)? Read { get; private set; }
 
-		public (string Id, string Message, string? Conversation)? Sent { get; private set; }
+		public List<(string From, string Id, string Message)> Sent { get; } = [];
 
 		public string? Refusal { get; set; }
 
-		public string SelfId => "feat/self";
+		public string SelfId => side is null ? "feat/self" : $"feat/self#{side}";
 
-		public Task<IReadOnlyList<SessionPeer>> ListAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<SessionPeer>>([
-			new("feat/self", "Self", "codex", true, "working", SessionPeerReceive.Ready),
-			new("feat/other", "Other", "codex", false, "idle", SessionPeerReceive.NeedsLoad),
-			new("feat/claude", "Claude", "claude", true, "idle", SessionPeerReceive.Unsupported),
+		public string? ParentId => side is null ? null : "feat/self";
+
+		public ISessionPeers Side(string conversationId) => new FakePeers(Root, conversationId);
+
+		public Task<IReadOnlyList<SessionPeer>> ListAsync(bool includeSides, CancellationToken ct) => Task.FromResult<IReadOnlyList<SessionPeer>>([
+			new("feat/self", "Self", "codex", true, "working", SessionPeerReceive.Ready, null, null),
+			new("feat/other", "Other", "codex", false, "idle", SessionPeerReceive.NeedsLoad, null, null),
+			new("feat/claude", "Claude", "claude", true, "idle", SessionPeerReceive.Unsupported, null, null),
+			.. includeSides ? [new SessionPeer("feat/self#b7", "Self BTW", "codex", true, "idle", SessionPeerReceive.Ready, "feat/self", "why?")] : Array.Empty<SessionPeer>(),
 		]);
 
 		public Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct) {
@@ -177,9 +195,9 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 			]));
 		}
 
-		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, string? conversation, CancellationToken ct) {
-			if (Refusal is { } refusal) throw new SessionPeerException(refusal);
-			Sent = (sessionId, message, conversation);
+		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct) {
+			if (Root.Refusal is { } refusal) throw new SessionPeerException(refusal);
+			Root.Sent.Add((SelfId, sessionId, message));
 			return Task.FromResult(new SessionPeerDelivery(sessionId, "working"));
 		}
 	}

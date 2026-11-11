@@ -87,9 +87,10 @@ public sealed partial class HostSession {
 			}
 			await _session.ReturnMainForChildAsync(Execution, ct).ConfigureAwait(false);
 			var binding = new AgentConversationBinding {
+				Title = Execution.Stage.Id,
 				TurnContext = new StageTurnContext(Execution),
 				ControlHold = AgentControlHold.None,
-				Tools = _tools = _session._registry.CreateGrant(Execution.Capture, Execution.Stage.Id),
+				Tools = _tools = _session._registry.CreateGrant(Execution.Capture),
 			};
 			IAgentConversation? conversation = null;
 			try {

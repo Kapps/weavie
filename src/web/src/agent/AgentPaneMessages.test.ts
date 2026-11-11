@@ -52,7 +52,7 @@ describe("toAgentTranscript", () => {
   });
 
   it("heads a message from another session with its sender", () => {
-    const sender = { id: "feat/auth", title: "auth refactor", sameSession: false };
+    const sender = { id: "feat/auth", title: "auth refactor" };
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "acp", turnId: "1", text: "ping", sender },
       { type: "user-steer", providerId: "acp", turnId: "1", text: "also", sender },

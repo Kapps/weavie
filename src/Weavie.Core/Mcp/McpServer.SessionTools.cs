@@ -4,13 +4,13 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Core.Mcp;
 
-// currentSession / listSessions / readSession / messageSession: one session's view of the sessions on this host.
+// currentSession / listSessions / readSession / messageSession: the calling session's view of the sessions on this host.
 // See docs/specs/session-messaging.md.
 public sealed partial class McpServer {
-	private async Task HandleListSessionsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
-		var peers = await _sessions.ListAsync(ct).ConfigureAwait(false);
+	private async Task HandleListSessionsAsync(IMcpResponder responder, ISessionPeers sessions, JsonElement args, string? idRaw, CancellationToken ct) {
+		var peers = await sessions.ListAsync(ReadLenientBool(args, "includeBtw"), ct).ConfigureAwait(false);
 		await SendToolTextAsync(responder, idRaw, JsonWrite.Object(writer => {
-			writer.WriteString("self", _sessions.SelfId);
+			writer.WriteString("self", sessions.SelfId);
 			writer.WriteStartArray("sessions");
 			foreach (var peer in peers) {
 				writer.WriteStartObject();
@@ -20,13 +20,15 @@ public sealed partial class McpServer {
 				writer.WriteBoolean("loaded", peer.Loaded);
 				writer.WriteString("status", peer.Status);
 				writer.WriteString("receive", JsonNamingPolicy.CamelCase.ConvertName(peer.Receive.ToString()));
+				if (peer.Parent is { } parent) writer.WriteString("parent", parent);
+				if (peer.Prompt is { } prompt) writer.WriteString("prompt", prompt);
 				writer.WriteEndObject();
 			}
 			writer.WriteEndArray();
 		}), ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleReadSessionAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleReadSessionAsync(IMcpResponder responder, ISessionPeers sessions, JsonElement args, string? idRaw, CancellationToken ct) {
 		string id = args.GetStringOrEmpty("id");
 		if (id.Length == 0 || !args.TryGetProperty("count", out var countValue)
 			|| countValue.ValueKind != JsonValueKind.Number || !countValue.TryGetInt32(out int count) || count < 1) {
@@ -36,7 +38,7 @@ public sealed partial class McpServer {
 
 		SessionPeerTranscript transcript;
 		try {
-			transcript = await _sessions.ReadAsync(id, count, ct).ConfigureAwait(false);
+			transcript = await sessions.ReadAsync(id, count, ct).ConfigureAwait(false);
 		} catch (SessionPeerException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;
@@ -58,7 +60,7 @@ public sealed partial class McpServer {
 		}), ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleMessageSessionAsync(IMcpResponder responder, JsonElement args, string? idRaw, string? conversation, CancellationToken ct) {
+	private async Task HandleMessageSessionAsync(IMcpResponder responder, ISessionPeers sessions, JsonElement args, string? idRaw, CancellationToken ct) {
 		string id = args.GetStringOrEmpty("id");
 		string message = args.GetStringOrEmpty("message");
 		if (id.Length == 0 || message.Trim().Length == 0) {
@@ -68,15 +70,13 @@ public sealed partial class McpServer {
 
 		SessionPeerDelivery delivery;
 		try {
-			delivery = await _sessions.SendAsync(id, message, conversation, ct).ConfigureAwait(false);
+			delivery = await sessions.SendAsync(id, message, ct).ConfigureAwait(false);
 		} catch (SessionPeerException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;
 		}
 		await SendToolTextAsync(responder, idRaw,
-			delivery.Id == _sessions.SelfId
-				? $"Delivered to the main conversation of your own session '{delivery.Id}' (status: {delivery.Status}). It can't reply to this conversation; don't wait for it."
-				: $"Delivered to '{delivery.Id}' (status: {delivery.Status}). It replies with messageSession if it has something to report; don't wait for it.",
+			$"Delivered to '{delivery.Id}' (status: {delivery.Status}). It replies with messageSession if it has something to report; don't wait for it.",
 			ct).ConfigureAwait(false);
 	}
 }

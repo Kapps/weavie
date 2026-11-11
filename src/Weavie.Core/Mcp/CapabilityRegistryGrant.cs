@@ -1,3 +1,4 @@
+using Weavie.Core.Sessions;
 using Weavie.Workflows;
 
 namespace Weavie.Core.Mcp;
@@ -11,15 +12,17 @@ public sealed class CapabilityRegistryGrant : IAsyncDisposable {
 	private readonly HashSet<TaskCompletionSource> _responses = [];
 	private int _disposed;
 
-	internal CapabilityRegistryGrant(McpServer server, AgentSessionCredential credential, Func<WorkflowStageCall?> stage) {
+	internal CapabilityRegistryGrant(McpServer server, AgentSessionCredential credential, Func<WorkflowStageCall?> stage, ISessionPeers sessions) {
 		_server = server;
 		Credential = credential;
 		_stage = stage;
+		Sessions = sessions;
 		Lifetime = _lifetime.Token;
 	}
 
 	/// <summary>The credential advertised only to the owning conversation.</summary>
 	public AgentSessionCredential Credential { get; }
+	internal ISessionPeers Sessions { get; }
 	internal CancellationToken Lifetime { get; }
 	internal bool Live => Volatile.Read(ref _disposed) == 0;
 	internal WorkflowStageCall? CaptureStage() => _stage();

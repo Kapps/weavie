@@ -6,6 +6,16 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
+	public IReadOnlyList<AgentAside> Asides {
+		get {
+			lock (_turnTransitionGate) {
+				return [.. _sideConversations.Values.Where(side => Continuable(side) || _sides.ContainsKey(side.ConversationId))
+					.Select(side => new AgentAside(side.ConversationId, side.InitialPrompt, _sides.GetValueOrDefault(side.ConversationId) is { Settled: false }))];
+			}
+		}
+	}
+
+	/// <inheritdoc/>
 	public void AskAside(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
 		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
@@ -16,7 +26,7 @@ public sealed partial class AcpAgentSession {
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
 			var spec = ChildSpec(primary, fork: true, submission.Text, AcpConversationRole.Side);
-			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Independent());
+			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side(spec.Seed.Continuation.ConversationId));
 		}
 	}
 
@@ -34,12 +44,12 @@ public sealed partial class AcpAgentSession {
 				conversation.Submit(submission);
 				return;
 			}
-			if (_sideConversations.GetValueOrDefault(conversationId) is not { Failed: false, SessionId: not null } state) {
+			if (_sideConversations.GetValueOrDefault(conversationId) is not { } state || !Continuable(state)) {
 				throw new InvalidOperationException("That side conversation is no longer available.");
 			}
 			EnsureSideConversationSupport(_primary);
 			var seed = AcpConversationHandoff.Fresh(state) with { Pending = [submission] };
-			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Independent());
+			StartOwned(new(seed, AcpConversationOpening.Continue, AcpConversationRole.Side), _context.Bindings.Side(conversationId));
 		}
 	}
 
@@ -107,6 +117,8 @@ public sealed partial class AcpAgentSession {
 		IsPrimaryThread = false,
 		Status = status,
 	};
+
+	private static bool Continuable(AcpConversationState side) => side is { Failed: false, SessionId: not null };
 
 	private static SideConversation Side(AcpConversationState state) =>
 		new(state.ConversationId, state.AnchorTurnNumber, state.InitialPrompt);

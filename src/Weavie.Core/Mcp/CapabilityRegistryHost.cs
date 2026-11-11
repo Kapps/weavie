@@ -68,6 +68,9 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 	/// <summary>Registers a conversation-specific credential and stage admission.</summary>
 	public CapabilityRegistryGrant CreateGrant(Func<WorkflowStageCall?> stageCall) => Server.CreateGrant(stageCall);
 
+	/// <inheritdoc cref="McpServer.CreateSideGrant"/>
+	public CapabilityRegistryGrant CreateSideGrant(string conversationId) => Server.CreateSideGrant(conversationId);
+
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => Server.DisposeAsync();
 }

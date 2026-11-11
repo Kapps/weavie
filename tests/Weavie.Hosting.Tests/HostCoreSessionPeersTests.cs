@@ -47,7 +47,7 @@ public sealed class HostCoreSessionPeersTests {
 		Assert.True(unloaded.Ok, unloaded.Error);
 		string claude = host.WorkspaceSession.SlotId;
 
-		var peers = (await sender.Peers.ListAsync(CancellationToken.None)).ToDictionary(peer => peer.Id, peer => peer.Receive);
+		var peers = (await sender.Peers.ListAsync(includeSides: true, CancellationToken.None)).ToDictionary(peer => peer.Id, peer => peer.Receive);
 		Assert.Equal(SessionPeerReceive.Ready, peers["peer-sender"]);
 		Assert.Equal(SessionPeerReceive.NeedsLoad, peers["peer-dormant"]);
 		Assert.Equal(SessionPeerReceive.Unsupported, peers[claude]);
@@ -56,6 +56,29 @@ public sealed class HostCoreSessionPeersTests {
 		await AssertRefusedAsync(sender, "no-such-session", "No session has id");
 		await AssertRefusedAsync(sender, "peer-dormant", "weavie.session.load");
 		await AssertRefusedAsync(sender, claude, "in a terminal");
+	}
+
+	[Fact]
+	public async Task ASendFromAnIncarnationThatUnloadedIsRefused() {
+		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
+		var target = await CreateStructuredAsync(host, "peer-target");
+		var stale = (await CreateStructuredAsync(host, "peer-reloaded")).Peers.Side("b7");
+		foreach (string command in new[] { SessionCommands.UnloadSession, SessionCommands.LoadSession }) {
+			var result = await host.InvokeCommandAsync(target.SlotId, command, new { id = "peer-reloaded" }, CancellationToken.None);
+			Assert.True(result.Ok, result.Error);
+		}
+		var reloaded = host.Session("peer-reloaded");
+
+		foreach (string id in new[] { "peer-reloaded", "peer-target" }) {
+			var refused = await Assert.ThrowsAsync<SessionPeerException>(() => stale.SendAsync(id, "ping", CancellationToken.None));
+			Assert.Equal("The sending session no longer exists.", refused.Message);
+		}
+		await reloaded.Agent.DrainPaneAsync(CancellationToken.None);
+		await target.Agent.DrainPaneAsync(CancellationToken.None);
+		Assert.DoesNotContain(
+			host.Bridge.PostedEvents(reloaded.Address, "agent", "pane").Concat(host.Bridge.PostedEvents(target.Address, "agent", "pane")),
+			message => message.GetProperty("text").GetString() == "ping");
 	}
 
 	[Fact]

@@ -16,6 +16,8 @@ public static class EmbeddedAgentGuidance {
 		Follow applicable workspace instructions, but act only on the request made in this side conversation
 		and explicit follow-up requests made here. When that work is complete, report the result and stop.
 		Do not resume the primary conversation's work while waiting for another side request.
+		When this side conversation's request asks you to tell the primary conversation something, send it with
+		mcp__weavie__messageSession to the `parent` id that mcp__weavie__currentSession returns.
 		""";
 
 	/// <summary>Frames the one request a consulted agent receives from another agent.</summary>

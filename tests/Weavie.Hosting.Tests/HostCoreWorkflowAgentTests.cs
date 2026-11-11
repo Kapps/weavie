@@ -1,8 +1,6 @@
 using System.Text.Json;
-using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.TestSupport;
 using Weavie.Workflows;
@@ -102,15 +100,7 @@ public sealed class HostCoreWorkflowAgentTests {
 		using var state = new TempDirectory("weavie-workflow-open");
 		var (host, session, _) = await StartAsync();
 		await using var _ = host;
-		host.AgentProviders.Register(new AcpAgentProvider(
-			new AcpAgentDefinition {
-				Id = "effort-acp",
-				Name = "Effort ACP",
-				Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
-				Arguments = [],
-				Environment = new Dictionary<string, string> { ["WEAVIE_FAKE_ACP_MODE"] = "model-effort", ["WEAVIE_ROOT"] = state.Path },
-			},
-			host.AcpSessions, new AcpControlStore(new LocalFileSystem(), state.Combine("acp-controls.json")), _ => { }));
+		host.RegisterFakeAcp("effort-acp", "model-effort", state.Path);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "effort", Base = "main", AgentProviderId = "effort-acp" })).Ok);
 		var effort = host.Session("effort");
 		await Eventually(() => effort.Agent.Controls!.ControlState.Ready);

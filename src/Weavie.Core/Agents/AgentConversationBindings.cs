@@ -17,11 +17,11 @@ public sealed class AgentConversationBindings(
 		Tools = registry.CreateGrant(stageCall),
 	};
 
-	/// <summary>Creates an ordinary independent conversation without workflow completion authority.</summary>
-	public AgentConversationBinding Independent() => new() {
+	/// <summary>Creates the binding of the <c>/btw</c> side conversation <paramref name="conversationId"/>, which calls the registry as itself.</summary>
+	public AgentConversationBinding Side(string conversationId) => new() {
 		Title = "Conversation",
 		TurnContext = AgentTurnContext.None,
 		ControlHold = AgentControlHold.None,
-		Tools = registry.CreateGrant(() => null),
+		Tools = registry.CreateSideGrant(conversationId),
 	};
 }

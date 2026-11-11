@@ -75,8 +75,14 @@ public interface IStructuredAgentSession : IAgentSession {
 
 }
 
+/// <summary>A side conversation that can still be continued, with the question that started it.</summary>
+public sealed record AgentAside(string Id, string Prompt, bool Running);
+
 /// <summary>Context-preserving side conversations owned by one structured agent session.</summary>
 public interface IStructuredAgentSideConversations {
+	/// <summary>The side conversations that can still be continued.</summary>
+	IReadOnlyList<AgentAside> Asides { get; }
+
 	/// <summary>Forks the current context and asks a question outside the primary transcript.</summary>
 	void AskAside(AgentTurnSubmission submission);
 

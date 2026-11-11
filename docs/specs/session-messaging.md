@@ -6,24 +6,42 @@ Status: built
 
 An agent in one session can find the other sessions on its host, read what they have been doing, and send them a
 message. The user says *"ask the auth-refactor session how it handled token refresh"* or *"tell the docs session
-the API changed"*, and their agent does it.
+the API changed"*, and their agent does it. A `/btw` side conversation is a session here too: it reports to the
+session it forked from, and can be answered, the same way.
 
 ## Tools
 
 Four tools on each session's registry MCP server, so every provider that connects to the registry — terminal
 Claude and every native ACP agent — can use them:
 
-- `currentSession` returns the caller's own session id.
-- `listSessions` returns every session on the host: id, title, provider, loaded, status, and `receive` —
-  `ready`, `needsLoad` (load it with `weavie.session.load` first), or `unsupported`. `self` is the caller's id.
-- `readSession({id, count})` returns the last `count` entries of a session's primary conversation and the `total`.
+- `currentSession` returns the caller's own id, and for a side session its `parent` session's id.
+- `listSessions({includeBtw})` returns every session on the host: id, title, provider, loaded, status, and
+  `receive` — `ready`, `needsLoad` (load it with `weavie.session.load` first), or `unsupported`. `self` is the
+  caller's id. With `includeBtw` it also lists side sessions.
+- `readSession({id, count})` returns the last `count` entries of a session's conversation and the `total`.
   `count` is required and has no upper bound.
 - `messageSession({id, message})` submits a message to a session's agent and returns once it is delivered, with the
   target's status at that moment. It does not wait for an answer.
 
 Each session's server is bound to that session's `(slot, incarnation)` address when the session is built
 (`BoundSessionPeers` in `HostCore.SessionPeers.cs`). A call reaching that server is from that session by
-construction, so the sender is never inferred from focus. A send still in flight from a sender incarnation that has since unloaded is refused.
+construction, so the sender is never inferred from focus. A send still in flight from a sender incarnation that has
+since unloaded is refused.
+
+## Side sessions
+
+A `/btw` side conversation that can still be continued is a session whose id is its session's id, `#`, and its
+conversation id. It exists while its parent session is loaded. `listSessions` lists it on request with its
+`parent` and the `prompt` that started it, titled **&lt;session&gt; BTW**; `readSession` returns its own
+conversation; `messageSession` delivers into it through the path a reply typed in its card takes
+(`IStructuredAgentSideConversations.ReplyAside`), reopening a finished one.
+
+Each side conversation calls the registry with its own grant ([conversation-layer.md](conversation-layer.md)),
+which holds a peer view bound to that side session (`ISessionPeers.Side`). So its `currentSession` id, its `self`,
+and the sender on its messages are its own, by construction. Its instructions tell it to report to the `parent` id.
+
+A workflow stage's own conversation and a provider subagent are not sessions: they call as the session that owns
+them.
 
 ```mermaid
 flowchart LR
@@ -35,6 +53,9 @@ flowchart LR
   PR -->|Claude| L["Claude .jsonl transcript"]
   P -->|send, under B's lifecycle gate| Q["B: IStructuredAgentSession.Submit"]
   Q --> BP["B's pane and journal"]
+  P -->|"read B#btw"| V["B's scoped output view"]
+  P -->|"send to B#btw"| R["B: ReplyAside"]
+  R --> BP
 ```
 
 ## Reading
@@ -51,7 +72,8 @@ whether the session is loaded or not.
   id only while `claude.resumeSession` is on, so with it off the read fails and names the setting.
 
 The projection is provider-neutral: user prompts, agent replies, tool calls by summary (never their output), and
-errors. Thoughts, side conversations, subagents, and Claude sidechain and meta records are not part of it.
+errors. Thoughts, side conversations, subagents, and Claude sidechain and meta records are not part of it. A side
+session's own transcript is the same projection of its scoped view in the loaded session's output.
 
 Claude's transcript format is undocumented. A malformed line fails loudly, but a record type Claude renames would
 project as nothing until the reader is updated.
@@ -69,8 +91,8 @@ message with **From &lt;session&gt;** instead of **Prompt**. `readSession` repor
 entry.
 
 A send is refused, with a tool error naming the cause, when the target is the caller, the id is unknown, the target
-is not loaded, the target runs in a terminal, or Weavie is draining for a restart. The send runs under the target
-slot's lifecycle gate, so it cannot race an unload or delete.
+is not loaded, the target runs in a terminal, a side session can no longer be continued, or Weavie is draining for a
+restart. The send runs under the target slot's lifecycle gate, so it cannot race an unload or delete.
 
 **Sending to a terminal Claude session is refused.** Pasting text into Claude's terminal and pressing Enter would
 submit it joined to whatever the user has half-typed, and on an open permission prompt or menu Enter picks the

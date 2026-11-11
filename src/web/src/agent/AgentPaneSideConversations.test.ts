@@ -159,3 +159,62 @@ describe("subagent cards", () => {
     expect(entry!.streaming).toBe(false);
   });
 });
+
+describe("subagents owned by a BTW", () => {
+  it("keeps the BTW turn active when its child finishes", () => {
+    const messages: AgentPaneUpdate[] = [
+      aside("btw"),
+      { ...primary, type: "turn-started", conversationId: "btw" },
+      subagent("child", "btw")[0]!,
+      { type: "turn-completed", providerId: "acp", conversationId: "child", status: "completed" },
+    ];
+    expect(toAgentTranscript(messages)[0]!.asideActive).toBe(true);
+    messages.push({
+      ...primary,
+      type: "turn-completed",
+      conversationId: "btw",
+      status: "end_turn",
+    });
+    expect(toAgentTranscript(messages)[0]!.asideActive).toBe(false);
+  });
+
+  it("keeps child and descendant cards inside their own BTW in receive order", () => {
+    const messages: AgentPaneUpdate[] = [
+      answer("main", "Main answer"),
+      aside("first"),
+      { ...primary, type: "turn-started", conversationId: "first" },
+      ...subagent("child", "first"),
+      aside("second"),
+      ...subagent("other", "second"),
+      ...subagent("descendant", "child"),
+      { ...answer("result", "Child result"), conversationId: "child", threadId: "child" },
+      { type: "turn-completed", providerId: "acp", conversationId: "child", status: "completed" },
+      ...subagent("main-child", null),
+      answer("later", "Main continues"),
+    ];
+    const entries = toAgentTranscript(messages);
+    expect(entries.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "Main answer",
+      "first",
+      "second",
+      "main-child",
+      "Main continues",
+    ]);
+    const first = entries[1]!;
+    expect(first.kind).toBe("aside");
+    expect(first.asideActive).toBe(true);
+    expect(first.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "first",
+      "child",
+      "descendant",
+    ]);
+    const child = first.asideEntries![1]!;
+    expect(child.subagent?.state).toBe("completed");
+    expect(child.asideEntries?.some((entry) => entry.text === "Child result")).toBe(true);
+    expect(first.asideEntries![2]!.subagent?.via).toBe("name child");
+    expect(entries[2]!.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
+      "second",
+      "other",
+    ]);
+  });
+});

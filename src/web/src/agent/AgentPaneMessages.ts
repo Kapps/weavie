@@ -1,7 +1,8 @@
 import type { AgentPaneUpdate } from "../bridge";
-import { isAgentActivity, ProjectedAgentActivity } from "./AgentPaneActivitySummary";
+import { AgentActivitySegments } from "./AgentActivitySegments";
+import { isAgentActivity } from "./AgentPaneActivitySummary";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
-import { paneActivityIdentity, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -14,15 +15,10 @@ import type {
   AgentTranscriptEntry,
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
-import { isPendingRequest } from "./AgentPendingRequests";
 import { planIdentity } from "./agent-plan";
 
-interface MutableActivity extends AgentTranscriptEntry {
-  projection: ProjectedAgentActivity;
-}
-
 export interface AgentTranscriptProjection {
-  activities: ReadonlyMap<string, ProjectedAgentActivity>;
+  segments: AgentActivitySegments;
   entries: AgentTranscriptEntry[];
 }
 
@@ -40,8 +36,8 @@ export function projectAgentTranscript(
       }
     }
   }
-  const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
-  const activities = new Map<string, MutableActivity>();
+  const entries: AgentTranscriptEntry[] = [];
+  const segments = new AgentActivitySegments();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
   let previousWasUserInput = false;
@@ -50,11 +46,6 @@ export function projectAgentTranscript(
   let previousTurnId: string | null | undefined;
   let previousTurnKey: string | null = null;
   let hasPreviousTurn = false;
-  let previousActivityThreadId: string | null | undefined;
-  let previousActivityTurnId: string | null | undefined;
-  let previousActivityFallback = "";
-  let previousActivityKey = "";
-  let hasPreviousActivity = false;
 
   for (const source of messages) {
     const message = isAgentPaneDelta(source)
@@ -66,6 +57,7 @@ export function projectAgentTranscript(
       : source;
     const card = cards.get(message);
     if (card !== undefined) {
+      segments.boundary();
       entries.push(card);
       sequence += 1;
       continue;
@@ -92,6 +84,7 @@ export function projectAgentTranscript(
       if (startsTurn) {
         durable.turnStart = true;
       }
+      segments.boundary();
       entries.push(durable);
       if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -104,41 +97,17 @@ export function projectAgentTranscript(
       continue;
     }
 
-    const activityKey =
-      hasPreviousActivity &&
-      message.threadId === previousActivityThreadId &&
-      message.turnId === previousActivityTurnId &&
-      activeTurn === previousActivityFallback
-        ? previousActivityKey
-        : paneActivityIdentity(message, activeTurn);
-    previousActivityThreadId = message.threadId;
-    previousActivityTurnId = message.turnId;
-    previousActivityFallback = activeTurn;
-    previousActivityKey = activityKey;
-    hasPreviousActivity = true;
-    const activity = activityFor(activityKey, entries, activities);
-    activity.projection.upsert(message);
+    const count = segments.groups.size;
+    const segment = segments.add(message, activeTurn);
+    if (segments.groups.size !== count) entries.push(segment.entry);
+    segments.upsert(segment, message);
   }
 
-  for (const activity of activities.values()) {
-    const state = activity.projection.summary();
-    activity.detailCount = activity.projection.count;
-    activity.summary = state.summary;
-    activity.status = state.status;
-    activity.tone = state.tone;
+  for (const { entry, projection } of segments.groups.values()) {
+    Object.assign(entry, projection.summary(), { detailCount: projection.count });
   }
 
-  return {
-    activities: new Map([
-      ...Array.from(activities.values(), (activity): [string, ProjectedAgentActivity] => [
-        activity.id,
-        activity.projection,
-      ]),
-    ]),
-    entries: clusterTurnActivity(
-      collapseEditLocations(entries.map((entry) => stripMutable(entry))),
-    ),
-  };
+  return { segments, entries: collapseEditLocations(entries) };
 }
 
 function durableEntry(
@@ -147,6 +116,13 @@ function durableEntry(
   reportedTurnErrors: ReadonlySet<string>,
   sequence: number,
 ): AgentTranscriptEntry | null {
+  if (message.itemType === "thought") {
+    if (normalizeText(message.text) === null) return null;
+    return {
+      ...entry(message, sequence, "thought", "system", "Thinking", null),
+      summary: null,
+    };
+  }
   const status = displayStatus(message, resolved);
   const tone = status === "pending" ? "pending" : "system";
   if (message.itemType === "backgroundTask") {
@@ -294,78 +270,6 @@ function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
     : null;
 }
 
-function activityFor(
-  turnKey: string,
-  entries: (AgentTranscriptEntry | MutableActivity)[],
-  activities: Map<string, MutableActivity>,
-): MutableActivity {
-  const existing = activities.get(turnKey);
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const projection = new ProjectedAgentActivity();
-  const activity: MutableActivity = {
-    projection,
-    actionMessage: null,
-    detailCount: 0,
-    details: [],
-    id: `activity-${turnKey}`,
-    kind: "activity",
-    label: "Working",
-    status: null,
-    streaming: false,
-    summary: null,
-    text: null,
-    tone: "activity",
-  };
-  activities.set(turnKey, activity);
-  entries.push(activity);
-  return activity;
-}
-
-function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
-  if (!("projection" in entry)) return entry;
-  return {
-    ...(entry.turnStart === true ? { turnStart: true as const } : {}),
-    ...(entry.promptTurnId === undefined ? {} : { promptTurnId: entry.promptTurnId }),
-    actionMessage: entry.actionMessage,
-    detailCount: entry.detailCount,
-    details: entry.details,
-    id: entry.id,
-    kind: entry.kind,
-    label: entry.label,
-    status: entry.status,
-    streaming: entry.streaming,
-    summary: entry.summary,
-    text: entry.text,
-    tone: entry.tone,
-    ...(entry.asideActive === undefined ? {} : { asideActive: entry.asideActive }),
-    ...(entry.asideCollapsed === undefined ? {} : { asideCollapsed: entry.asideCollapsed }),
-    ...(entry.asideEntries === undefined ? {} : { asideEntries: entry.asideEntries }),
-    ...(entry.asideReplyable === undefined ? {} : { asideReplyable: entry.asideReplyable }),
-    ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
-    ...(entry.subagent === undefined ? {} : { subagent: entry.subagent }),
-  };
-}
-
-function clusterTurnActivity(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
-  const output: AgentTranscriptEntry[] = [];
-  let group: AgentTranscriptEntry[] = [];
-  for (const entry of entries) {
-    if (isUserMessage(entry)) {
-      flushGroup(output, group);
-      group = [];
-      output.push(entry);
-    } else {
-      group.push(entry);
-    }
-  }
-
-  flushGroup(output, group);
-  return output;
-}
-
 function collapseEditLocations(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
   const output: AgentTranscriptEntry[] = [];
   let edits: AgentTranscriptEntry[] = [];
@@ -419,45 +323,6 @@ function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
     tone: "muted",
   };
   return entry.actionMessage === null ? step : { ...step, actionMessage: entry.actionMessage };
-}
-
-function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[]): void {
-  output.push(...clusterActivity(group));
-}
-
-// Keep a turn's activity hugging the bottom — just above the result, or the pending request while
-// blocked, or the segment end while streaming — so live work stays in view instead of scrolling away.
-function clusterActivity(group: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
-  const anchor = lastAnchorIndex(group);
-  const pivot = anchor < 0 ? group.length : anchor;
-  const head = group.slice(0, pivot);
-  return [
-    ...head.filter((entry) => !isActivityEntry(entry)),
-    ...head.filter((entry) => isActivityEntry(entry)),
-    ...group.slice(pivot),
-  ];
-}
-
-function lastAnchorIndex(entries: AgentTranscriptEntry[]): number {
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const entry = entries[i];
-    if (entry !== undefined && (isAssistantResult(entry) || isPendingRequest(entry))) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-function isActivityEntry(entry: AgentTranscriptEntry): boolean {
-  return entry.kind === "activity";
-}
-
-function isAssistantResult(entry: AgentTranscriptEntry): boolean {
-  return entry.tone === "assistant" && (entry.kind === "message" || entry.kind === "plan");
-}
-
-function isUserMessage(entry: AgentTranscriptEntry): boolean {
-  return entry.kind === "message" && entry.tone === "user";
 }
 
 function isUserInput(message: AgentPaneUpdate): boolean {

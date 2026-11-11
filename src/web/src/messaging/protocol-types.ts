@@ -82,6 +82,7 @@ export interface AgentDefaults {
   defaultProvider: string;
   /** Where a reply read from its start rests: a fraction of the agent pane's height below its top. */
   replyStartOffset: number;
+  thoughtDisplay: "inline" | "collapsed";
   providers: AgentProviderInfo[];
 }
 

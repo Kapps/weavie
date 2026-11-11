@@ -20,8 +20,11 @@ public static class AgentSettings {
 	/// <summary>How far down the agent pane a reply read from its start rests, as a fraction of the pane's height.</summary>
 	public const string ReplyStartOffset = "agent.replyStartOffset";
 
+	/// <summary>Whether thought text is shown inline or in a separate collapsed disclosure.</summary>
+	public const string ThoughtDisplay = "agent.thoughtDisplay";
+
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset];
+	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset, ThoughtDisplay];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
 	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
@@ -46,6 +49,7 @@ public static class AgentSettings {
 			}
 			writer.WriteEndArray();
 			writer.WriteNumber("replyStartOffset", store.RequireNumber(ReplyStartOffset));
+			writer.WriteString("thoughtDisplay", store.RequireString(ThoughtDisplay));
 		});
 	}
 }

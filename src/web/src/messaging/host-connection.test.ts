@@ -54,7 +54,12 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   reviewOverview: { collapsed: [] },
   testProfile: "",
   sourceLinkHosts: [],
-  agentDefaults: { defaultProvider: "acp", replyStartOffset: 0.5, providers: [] },
+  agentDefaults: {
+    defaultProvider: "acp",
+    replyStartOffset: 0.5,
+    thoughtDisplay: "inline",
+    providers: [],
+  },
   commandCatalog: { commands: [], keybindings: [] },
 });
 

@@ -280,7 +280,9 @@ describe("toAgentTranscript", () => {
     expect(transcript[1]?.summary).toBe(`ran ${count} commands`);
     expect(transcript[1]?.detailCount).toBe(count);
     expect(transcript[1]?.details).toEqual([]);
-    expect(projection.activities.get(transcript[1]!.id)?.materialize()).toHaveLength(count);
+    expect(
+      projection.segments.groups.get(transcript[1]!.id)?.projection.materialize(),
+    ).toHaveLength(count);
     summary.mockRestore();
     materialize.mockRestore();
   });
@@ -750,7 +752,7 @@ describe("toAgentTranscript", () => {
     );
   });
 
-  it("clusters the working block just above the result when work precedes later chatter", () => {
+  it("keeps work before the later permission and result", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
@@ -778,10 +780,10 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working", "Agent"]);
+    expect(transcript.map((entry) => entry.label)).toEqual(["Working", "Permission", "Agent"]);
   });
 
-  it("keeps the working block at the bottom while streaming after resolved chatter", () => {
+  it("separates new work from earlier work across a resolved permission", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
@@ -809,7 +811,7 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working"]);
+    expect(transcript.map((entry) => entry.label)).toEqual(["Working", "Permission", "Working"]);
   });
 
   it("keeps a pending request below the working block so the ask stays at the bottom", () => {
@@ -883,7 +885,7 @@ describe("toAgentTranscript", () => {
     ]);
   });
 
-  it("coalesces thought deltas into one live activity", () => {
+  it("coalesces thought deltas into one visible Thinking entry", () => {
     const transcript = toAgentTranscript([
       {
         type: "thought-message-delta",
@@ -904,7 +906,13 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.details).toMatchObject([{ detailText: "Inspect code" }]);
+    expect(transcript[0]).toMatchObject({
+      kind: "thought",
+      label: "Thinking",
+      text: "Inspect code",
+      streaming: true,
+      details: [],
+    });
   });
 
   it("promotes a completed plan into an openable result while its delta stays provisional activity", () => {

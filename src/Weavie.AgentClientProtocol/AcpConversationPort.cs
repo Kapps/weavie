@@ -9,8 +9,8 @@ namespace Weavie.AgentClientProtocol;
 /// </summary>
 internal abstract class AcpConversationPort(Lock transitionGate, ConversationView view) : IAgentEventSink {
 
-	public IReadOnlyList<AgentPaneMessage> CompleteContent() {
-		lock (transitionGate) return Publishing ? view.CompleteContent() : [];
+	public AgentPaneMessage? CompleteContent(string? threadId, string turnId, string itemId) {
+		lock (transitionGate) return Publishing ? view.CompleteContent(threadId, turnId, itemId) : null;
 	}
 
 	internal bool Detached { get; private set; }

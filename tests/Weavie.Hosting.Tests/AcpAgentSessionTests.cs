@@ -1207,7 +1207,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.Type == "user-message"
 			&& !string.IsNullOrEmpty(message.ItemId));
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
-			&& message.ItemId == "thought:thought");
+			&& message.ItemId == fixture.Messages.First(item => item.Type == "thought-message-delta").ItemId);
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
 				&& message.ItemId == "progress:current");
 		Assert.Equal(fixture.Messages.Where(message => message.Type == "item-retracted"),

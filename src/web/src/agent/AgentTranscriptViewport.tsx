@@ -126,6 +126,7 @@ export function AgentTranscriptViewport(props: {
       return entry.borderBoxSize[0]!.blockSize;
     },
     observeElementOffset: scroll.observeOffset,
+    useAnimationFrameWithResizeObserver: true,
     overscan: 4,
     scrollToFn: scroll.scrollTo,
   });

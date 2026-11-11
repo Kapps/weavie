@@ -18,6 +18,7 @@ import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { isPendingRequest } from "./AgentPendingRequests";
 import { AgentSubagentEntry } from "./AgentSubagentEntry";
+import { AgentThoughtEntry } from "./AgentThoughtEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
@@ -34,6 +35,9 @@ export function TranscriptEntry(props: {
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
+  if (props.entry.kind === "thought") {
+    return <AgentThoughtEntry {...props} />;
+  }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
   }

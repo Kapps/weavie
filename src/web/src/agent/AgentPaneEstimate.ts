@@ -19,7 +19,8 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (cached !== undefined) {
     return cached;
   }
-  const prose = entry.kind === "message" && entry.tone === "assistant";
+  const prose =
+    entry.kind === "thought" || (entry.kind === "message" && entry.tone === "assistant");
   if (entry.kind === "aside" || entry.kind === "subagent") {
     const children =
       entry.kind === "subagent"
@@ -30,7 +31,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return size;
   }
   const size =
-    (prose ? 12 : 34) +
+    (prose && entry.kind !== "thought" ? 12 : 34) +
     (entry.summary === null
       ? 0
       : entry.kind === "activity"

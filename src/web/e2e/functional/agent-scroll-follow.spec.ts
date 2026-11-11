@@ -1,5 +1,6 @@
 import { awaitEditorReady, createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { fromReplyStart } from "../harness/reply-start";
 
 test("precision scrolling and composer resizing keep a paused reading position on the bottom", async ({
   page,
@@ -106,7 +107,6 @@ test("a long response arriving at once is shown from its start", async ({ page }
   await createSession(page, { branch: "scroll-response-top", provider: "fake-acp" });
   const surface = page.locator('[data-surface="structured-agent"]');
   const composer = surface.locator("[data-agent-composer] textarea");
-  const body = surface.locator(".agent-body");
 
   await composer.fill(
     `# Long answer\n\n${Array.from({ length: 40 }, (_, index) => `Paragraph ${index + 1} of the answer.`).join("\n\n")}`,
@@ -118,10 +118,7 @@ test("a long response arriving at once is shown from its start", async ({ page }
   const answerRow = surface
     .locator(".agent-virtual-row:not(.agent-virtual-row-user)")
     .filter({ hasText: "Paragraph 40" });
-  const answerOffset = async () => {
-    const [row, viewport] = await Promise.all([answerRow.boundingBox(), body.boundingBox()]);
-    return Math.abs((row?.y ?? Number.NaN) - (viewport?.y ?? 0));
-  };
+  const answerOffset = async () => Math.abs(await fromReplyStart(answerRow));
   await expect.poll(answerOffset).toBeLessThanOrEqual(1);
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),

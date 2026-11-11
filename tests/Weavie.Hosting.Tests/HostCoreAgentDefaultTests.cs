@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
 using Xunit;
 
@@ -18,6 +19,18 @@ public sealed class HostCoreAgentDefaultTests {
 		string bootstrap = host.Core.BuildBootstrap();
 		Assert.Contains("window.__WEAVIE_AGENT__ = {\"defaultProvider\":\"claude\",\"providers\":[", bootstrap);
 		Assert.Contains("\"id\":\"claude\",\"name\":\"Claude Code\"", bootstrap);
+	}
+
+	[Fact]
+	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
+		await using var host = await TestHost.StartAsync();
+		Assert.Contains("\"replyStartOffset\":0.5}", host.Core.BuildBootstrap());
+		host.Bridge.Clear();
+
+		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));
+
+		var push = host.Bridge.LastEvent("settings", "agent-defaults");
+		Assert.Equal(0.25, push!.Value.GetProperty("replyStartOffset").GetDouble());
 	}
 
 	[Fact]

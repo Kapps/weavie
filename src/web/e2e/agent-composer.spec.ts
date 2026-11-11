@@ -5,6 +5,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
 import { withHeldAnimationFrames } from "./harness/animation-frames";
 import { test } from "./harness/network-fixtures";
+import { fromReplyStart } from "./harness/reply-start";
 import { MockHost, mockSession } from "./mock-host";
 
 // Drives the native ACP composer in a real browser against the mock host: it renders the structured agent
@@ -2267,13 +2268,6 @@ test.describe("ACP composer", () => {
     await expectFollowingLatest();
   });
 
-  const offsetInBody = (row: Locator) =>
-    row.evaluate(
-      (element) =>
-        element.getBoundingClientRect().top -
-        (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-    );
-
   async function observeHistoryRead(page: Page): Promise<() => Promise<void>> {
     const consumed = Promise.withResolvers<void>();
     await page.exposeFunction("agentHistoryConsumed", consumed.resolve);
@@ -2308,7 +2302,7 @@ test.describe("ACP composer", () => {
   }
 
   for (const delayed of ["history", "pane", "viewport"] as const) {
-    test(`a streaming response stays at its top with delayed ${delayed}`, async ({ page }) => {
+    test(`a streaming response rests at its start with delayed ${delayed}`, async ({ page }) => {
       // The first viewport measurement may arrive after the live reply has already been measured.
       if (delayed === "viewport") {
         await page.addInitScript(() => {
@@ -2396,7 +2390,9 @@ test.describe("ACP composer", () => {
         });
         gate.resolve();
         await historyRead();
-        await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
+        await expect
+          .poll(async () => Math.abs(await fromReplyStart(answer)))
+          .toBeLessThanOrEqual(1);
         await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(
           1,
         );
@@ -2448,7 +2444,7 @@ test.describe("ACP composer", () => {
     );
     const body = page.locator(".agent-body");
     const planRow = page.locator(".agent-virtual-row", { hasText: "Step 60." });
-    await expect.poll(async () => Math.abs(await offsetInBody(planRow))).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs(await fromReplyStart(planRow))).toBeLessThanOrEqual(1);
 
     publishPane(
       paneMessage({
@@ -2519,8 +2515,8 @@ test.describe("ACP composer", () => {
 
     const answerRow = page.locator(".agent-virtual-row", { hasText: "Paragraph 80." });
     await expect(agentTurnStart).toContainText("Opening update before the final response.");
-    await expect.poll(async () => Math.abs(await offsetInBody(answerRow))).toBeLessThanOrEqual(1);
-    await expect.poll(() => offsetInBody(agentTurnStart)).toBeLessThan(0);
+    await expect.poll(async () => Math.abs(await fromReplyStart(answerRow))).toBeLessThanOrEqual(1);
+    await expect(agentTurnStart).toBeInViewport();
     await expect(turnButton).toHaveCount(0);
     await expect(latestButton).toHaveCount(1);
 
@@ -2597,25 +2593,9 @@ test.describe("ACP composer", () => {
 
     await turnButton.click();
     await expect
-      .poll(() =>
-        agentTurnStart.evaluate((element) => {
-          const scrollBody = element.closest(".agent-body");
-          return Math.abs(
-            element.getBoundingClientRect().top -
-              (scrollBody?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY),
-          );
-        }),
-      )
-      .toBeLessThan(1);
-    await expect
-      .poll(() =>
-        prompt.evaluate(
-          (element) =>
-            element.getBoundingClientRect().bottom -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeLessThan(0);
+      .poll(async () => Math.abs(await fromReplyStart(agentTurnStart)))
+      .toBeLessThanOrEqual(1);
+    await expect(prompt).toBeInViewport();
     await expect(turnButton).toHaveCount(0);
     await expect(latestButton).toHaveAttribute(
       "title",

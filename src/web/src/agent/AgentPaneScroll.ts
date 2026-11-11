@@ -1,4 +1,4 @@
-import { observeElementOffset, type Virtualizer } from "@tanstack/solid-virtual";
+import { observeElementOffset, type VirtualItem, type Virtualizer } from "@tanstack/solid-virtual";
 import {
   type Accessor,
   batch,
@@ -10,6 +10,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
+import { agentReplyStartOffset } from "../chrome/agent-default";
 import { isAutoscrolling } from "../chrome/middle-click-autoscroll";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -62,7 +63,7 @@ export function createAgentPaneScroll(
   let viewport = 0;
   let lineHeight = 0;
   let pinned = false;
-  // The live reply the pin watches; one already above the viewport when following began never pins.
+  // The live reply the pin watches; one that appears while following starts with its top seen.
   let watchedId = saved?.watchedId ?? null;
   let topSeen = saved?.topSeen ?? false;
   let notifyOffset = (): void => {};
@@ -72,6 +73,9 @@ export function createAgentPaneScroll(
   const maxPosition = (): number => Math.max(0, virtualizer().getTotalSize() - viewport);
   const clamped = (to: number): number => Math.max(0, Math.min(maxPosition(), to));
   const nearBottom = (): boolean => position <= Math.ceil(lineHeight * 3);
+  // Where a row read from its start is placed: below the viewport top, so what came before shows above it.
+  const startLine = (): number => viewport * (1 - agentReplyStartOffset());
+  const startOf = (row: VirtualItem): number => clamped(row.end - startLine());
   // The reader is moving the pane, so the pane doesn't write over them.
   const driving = (): boolean =>
     gesture.touching() || wheel.isActive() || isAutoscrolling(element());
@@ -113,9 +117,16 @@ export function createAgentPaneScroll(
   };
   const gesture = createAgentPaneGesture(body, syncHold);
 
+  const liveReply = (): number | null => (model.live() ? shown().latestResultIndex : null);
+
   const setFollowing = (value: boolean): void => {
     if (value === following()) return;
-    if (value) topSeen = false;
+    if (value) {
+      // A reply already there when following begins pins only once its top has been back in view.
+      const index = untrack(liveReply);
+      watchedId = index === null ? null : untrack(shown).entries[index]!.id;
+      topSeen = false;
+    }
     if (!value) pickAnchor();
     batch(() => {
       setFollowingSignal(value);
@@ -124,10 +135,10 @@ export function createAgentPaneScroll(
     });
   };
 
-  // A live reply whose top scrolls out of view while following stops there, so it is read from its start. One
-  // pushed out by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
+  // A live reply whose top rises past its start line while following stops there, so it is read from its start. One
+  // pushed past by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
   const pin = (shrunk: boolean): void => {
-    const index = model.live() ? shown().latestResultIndex : null;
+    const index = liveReply();
     const row = layout().rowAt(index);
     // Decided on measured sizes, never on estimates.
     if (index === null || row === undefined || !anchor.measuredThrough(row.index)) return;
@@ -136,16 +147,16 @@ export function createAgentPaneScroll(
       watchedId = id;
       topSeen = true;
     }
-    const overshoot = viewport - (row.end - position);
-    if (overshoot > 0) {
-      if (overshoot < viewport) topSeen = true;
+    const start = startOf(row);
+    if (start <= position) {
+      if (row.end > position) topSeen = true;
       return;
     }
     if (shrunk) topSeen = false;
     if (!topSeen) return;
     pinned = true;
     const placing = !driving();
-    if (placing) place(position - overshoot);
+    if (placing) place(start);
     setFollowing(false);
     if (placing) anchor.reveal(row, position);
     notifyOffset();
@@ -205,14 +216,14 @@ export function createAgentPaneScroll(
     return true;
   };
 
-  // Puts a row's top at the viewport top and keeps it there while the rows around it are measured.
+  // Puts a row's top at its start line and keeps it there while the rows around it are measured.
   const reveal = (index: number): void => {
     const row = layout().rowAt(index);
     if (row === undefined) return;
     wheel.cancel();
     pinned = false;
     setFollowing(false);
-    place(row.end - viewport);
+    place(startOf(row));
     anchor.reveal(row, position);
     notifyOffset();
   };
@@ -296,13 +307,13 @@ export function createAgentPaneScroll(
     onLayout: (): void => settle(false),
     /**
      * The viewport's height, from a resize observer; a resized viewport keeps its bottom edge, like a chat, except
-     * that a reply placed at the top to be read from its start stays at the top.
+     * that a reply placed to be read from its start stays on its start line.
      */
     onResize(height: number): void {
       const shrunk = height < viewport;
       viewport = height;
       measureLineHeight();
-      if (!following() && !anchor.keepTop(viewport)) pickAnchor();
+      if (!following() && !anchor.keepStart(startLine())) pickAnchor();
       // A remount shows the transcript as the reader left it, then applies what arrived once the viewport is known.
       syncHold();
       settle(shrunk);

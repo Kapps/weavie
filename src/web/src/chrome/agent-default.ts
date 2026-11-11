@@ -19,6 +19,7 @@ declare global {
 
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
+  replyStartOffset: 0.5,
   providers: [
     {
       id: "claude",
@@ -36,13 +37,18 @@ const [byBackend, setByBackend] = createSignal(
   new Map<string, AgentDefaults>([[LOCAL_BACKEND_ID, injected]]),
 );
 
-function defaultsFor(backendId: string): AgentDefaults {
+function defaultsFor(backendId: string): Pick<AgentDefaults, "defaultProvider" | "providers"> {
   return (
     byBackend().get(backendId) ?? {
       defaultProvider: "",
       providers: [],
     }
   );
+}
+
+/** How far down the agent pane a reply read from its start rests; a preference of the host serving this page. */
+export function agentReplyStartOffset(): number {
+  return byBackend().get(LOCAL_BACKEND_ID)!.replyStartOffset;
 }
 
 /** The provider the New Session prompt should preselect. */

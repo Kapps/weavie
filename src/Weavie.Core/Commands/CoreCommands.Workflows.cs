@@ -35,7 +35,7 @@ public static partial class CoreCommands {
 				RunArg + ",\"stage\":{\"type\":\"string\"}"),
 			(WorkflowCancel, "Cancel Workflow", "Cancel a workflow run.", RunArg),
 			(WorkflowSetRole, "Set Workflow Role", "Set or clear, for every workspace, which model fills a workflow role (a step's 'role', e.g. planner) "
-				+ "in one provider's sessions. listWorkflowRoles shows what is saved; listAgents gives the provider and model ids. Pass exactly one "
+				+ "in one provider's sessions. listWorkflows shows what is saved; listAgents gives the provider and model ids. Pass exactly one "
 				+ "of 'agent' or 'clear'.",
 				"\"role\":{\"type\":\"string\",\"description\":\"The role name: lowercase words joined by hyphens\"},"
 				+ "\"provider\":{\"type\":\"string\",\"description\":\"The session provider id this applies to, e.g. claude-acp\"},"

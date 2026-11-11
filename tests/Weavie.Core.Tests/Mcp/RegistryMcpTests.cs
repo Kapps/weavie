@@ -24,6 +24,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-registry-tests");
 	private readonly List<WorkflowRunner> _runners = [];
+	private readonly WorkflowRoleStore _roles = new(new InMemoryFileSystem(), "/config/workflow-roles.json");
 
 	public void Dispose() {
 		foreach (var runner in _runners) runner.Dispose();
@@ -41,7 +42,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 			catalog, NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
 			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), port, () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		_runners.Add(runner);
-		return new SessionWorkflowRegistry(catalog, runner, new WorkflowRoleStore(new InMemoryFileSystem(), "/config/workflow-roles.json"));
+		return new SessionWorkflowRegistry(catalog, runner, _roles);
 	}
 
 	[Fact]
@@ -463,9 +464,19 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		Assert.Equal($"Forked quick-fix to {path}.", ToolText(forked));
 		Assert.True(File.Exists(path));
 
+		_roles.Set("codex-acp", new Dictionary<string, WorkflowRoleAgent> {
+			["planner"] = new("codex-acp", "gpt-6-astra", new Dictionary<string, string> { ["reasoning_effort"] = "high" }),
+		});
 		await SendAsync(ws, Request(9, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
 		using var listed = await ReceiveAsync(ws);
 		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var specDriven = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "spec-driven");
+		Assert.Equal(["planner", "builder"], specDriven.GetProperty("roles").EnumerateArray().Select(role => role.GetString()));
+		var saved = Assert.Single(workflows.RootElement.GetProperty("roles").EnumerateArray());
+		Assert.Equal(
+			("planner", "codex-acp", "gpt-6-astra", "high"),
+			(saved.GetProperty("role").GetString(), saved.GetProperty("provider").GetString(), saved.GetProperty("agent").GetProperty("model").GetString(),
+				saved.GetProperty("agent").GetProperty("options").GetProperty("reasoning_effort").GetString()));
 		var copies = workflows.RootElement.GetProperty("workflows").EnumerateArray()
 			.Where(w => w.GetProperty("id").GetString() == "quick-fix").ToList();
 		Assert.False(copies.Single(w => w.GetProperty("scope").GetString() == "personal").TryGetProperty("shadowedBy", out _));

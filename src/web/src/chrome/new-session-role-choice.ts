@@ -1,6 +1,6 @@
 import type { RoleModels, RoleSuggestion, WorkflowRoleNeed } from "../bridge";
 import type { AgentControlOption } from "../messaging/protocol-types";
-import type { WorkflowTarget } from "./new-session-workflow-choice";
+import { errorMessage, type WorkflowTarget } from "./new-session-workflow-choice";
 
 /** The roles a start would need models for: those the shown workflow asks for that the provider can't yet fill. */
 export interface RolePair {
@@ -33,9 +33,6 @@ type SuggestionRequest = (
   signal: AbortSignal,
 ) => Promise<RoleSuggestion>;
 
-const message = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 /** Whether every role a start needs has a model. */
 export const rolesReady = (state: RoleChoiceState): boolean =>
   state.rows.every((row) => row.model !== null);
@@ -58,10 +55,10 @@ export class NewSessionRoleChoice {
     private readonly changed: (state: RoleChoiceState) => void,
   ) {}
 
-  /** Shows the pickers `pair` needs; null for none. The same pair again changes nothing. */
+  /** Shows the pickers `pair` needs; null for none. The same pair again changes nothing unless its models failed to list. */
   show(pair: RolePair | null): void {
     const key = pair === null ? "" : JSON.stringify([pair.target, pair.workflow, pair.roles]);
-    if (key === this.key) {
+    if (key === this.key && this.state.error === null) {
       return;
     }
 
@@ -84,7 +81,7 @@ export class NewSessionRoleChoice {
     this.load = load;
     this.requestModels(pair.target, load.signal).then(
       (result) => this.modelsLanded(load, result),
-      (error: unknown) => this.modelsLanded(load, { models: [], error: message(error) }),
+      (error: unknown) => this.modelsLanded(load, { models: [], error: errorMessage(error) }),
     );
   }
 
@@ -139,7 +136,11 @@ export class NewSessionRoleChoice {
     this.requestSuggestion(pair, role, ask.signal).then(
       (result) => this.suggestionLanded(role, ask, result),
       (error: unknown) =>
-        this.suggestionLanded(role, ask, { applies: false, model: null, error: message(error) }),
+        this.suggestionLanded(role, ask, {
+          applies: false,
+          model: null,
+          error: errorMessage(error),
+        }),
     );
   }
 

@@ -50,15 +50,17 @@ public sealed partial class WorkflowRoleStore : StrictJsonDocumentStore<Dictiona
 		}
 	}
 
-	/// <summary>Saves <paramref name="agent"/> as <paramref name="role"/> in <paramref name="providerId"/> sessions.</summary>
-	public void Set(string providerId, string role, WorkflowRoleAgent agent) {
-		ArgumentException.ThrowIfNullOrEmpty(providerId);
-		ArgumentException.ThrowIfNullOrEmpty(role);
-		ArgumentNullException.ThrowIfNull(agent);
+	/// <summary>
+	/// Saves each of <paramref name="agents"/> as its role in <paramref name="providerId"/> sessions, all or none; throws
+	/// <see cref="WorkflowException"/> for an entry the file couldn't be read back with.
+	/// </summary>
+	public void Set(string providerId, IReadOnlyDictionary<string, WorkflowRoleAgent> agents) {
+		ArgumentNullException.ThrowIfNull(agents);
+		if (Problem(providerId, agents) is { } problem) throw new WorkflowException(problem);
 		lock (Gate) {
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var roles)) next.Add(providerId, roles = new(StringComparer.Ordinal));
-			roles[role] = agent;
+			foreach (var (role, agent) in agents) roles[role] = agent;
 			Commit(next);
 		}
 	}
@@ -83,13 +85,20 @@ public sealed partial class WorkflowRoleStore : StrictJsonDocumentStore<Dictiona
 		if (document.Version != Version) throw new JsonException($"The workflow role document is version {document.Version}; this build reads version {Version}.");
 		var providers = Empty();
 		foreach (var (provider, roles) in document.Providers) {
-			if (provider.Length == 0 || roles.Any(role => !WorkflowSchema.IsRoleName(role.Key) || role.Value.Provider.Length == 0 || role.Value.Model.Length == 0)) {
-				throw new JsonException("Workflow role providers, names, agent providers, and models must be non-empty, and names lowercase words joined by hyphens.");
-			}
+			if (Problem(provider, roles) is { } problem) throw new JsonException(problem);
 			providers.Add(provider, new Dictionary<string, WorkflowRoleAgent>(roles, StringComparer.Ordinal));
 		}
 		return providers;
 	}
+
+	// The one rule for an entry, so nothing is saved that the file can't be read back with.
+	private static string? Problem(string providerId, IReadOnlyDictionary<string, WorkflowRoleAgent> agents) =>
+		providerId.Length == 0 ? "A workflow role needs a session provider."
+		: agents.FirstOrDefault(entry => !WorkflowSchema.IsRoleName(entry.Key)) is { Key: { } name }
+			? $"\"{name}\" isn't a role name: use lowercase words joined by hyphens."
+		: agents.Values.Any(agent => agent.Provider.Length == 0 || agent.Model.Length == 0)
+			? "A workflow role needs an agent provider and model."
+		: null;
 
 	/// <inheritdoc/>
 	protected override string Write(Dictionary<string, Dictionary<string, WorkflowRoleAgent>> state) =>

@@ -25,8 +25,7 @@ public sealed partial class HostCore {
 	// The one rule for a workflow's roles in sessions of the provider described by info.
 	private WorkflowRoleResolver RoleResolver(AgentProviderInfo info) => new(_workflowRoles, info, _agentModels);
 
-	private AgentProviderInfo RequireProvider(string providerId) =>
-		_agentProviders.FindInfo(providerId) ?? throw new WorkflowException($"Agent provider '{providerId}' is not registered.");
+	private AgentProviderInfo RequireProvider(string providerId) => WeavieWorkflows.RequireProvider(_agentProviders, providerId);
 
 	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(string root, string providerId, CancellationToken ct) {
 		string configured = _settings.RequireString(WorkflowSettings.Default, WorkspaceRoot);
@@ -81,14 +80,15 @@ public sealed partial class HostCore {
 	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
 		string root = RequireLaunchRoot(request.SourceId);
 		var resolver = RoleResolver(RequireProvider(request.ProviderId));
-		var options = await WorkflowStartOptionsAsync(root, request.ProviderId, ct).ConfigureAwait(false);
+		var definition = await Task.Run(() => WeavieWorkflows.Catalog(root).List()
+			.FirstOrDefault(entry => entry.Id == request.Workflow && entry.ShadowedBy is null)?.Definition, ct).ConfigureAwait(false);
+		var read = definition is null ? null : resolver.Read(definition);
 		// Only a role with nothing saved is suggested; a saved model that has gone is the user's to replace.
-		if (options.Offered.FirstOrDefault(option => option.Entry.Id == request.Workflow && option.Problem is null) is not { } offered
-			|| offered.Roles!.Unfilled.FirstOrDefault(gap => gap.Role == request.Role) is not { MissingModel: null }) {
+		if (read is not { Refusal: null } || read.Unfilled.FirstOrDefault(gap => gap.Role == request.Role) is not { MissingModel: null }) {
 			return new(false, null, null);
 		}
 		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory).SuggestRoleAsync(
-			offered.Entry.Definition!, request.Role, resolver.Offered, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence), ct)
+			definition!, request.Role, read.Offered, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence), ct)
 			.ConfigureAwait(false);
 		return Reply(suggestion, static (applies, model, error) => new RoleSuggestionResult(applies, model, error));
 	}

@@ -61,9 +61,13 @@ public sealed class HostCoreWorkflowRoleTests {
 		Assert.Equal(["apply model=GPT Next"], provider.ControlChanges);
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("agent").GetString() == "builder");
 
-		// The run keeps what its role resolved to.
+		// The run keeps what its role resolved to, through a reload too.
 		Assert.True((await SetBuilderAsync(host, "GPT Test")).Ok);
 		Assert.Equal("GPT Next", session.Workflow.AgentOf("build")!.Model);
+		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
+		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
+			new { id = "wf" }, CancellationToken.None)).Ok);
+		Assert.Equal("GPT Next", (await WaitForSessionAsync(host, "wf")).Workflow.AgentOf("build")!.Model);
 	}
 
 	[Fact]
@@ -80,11 +84,20 @@ public sealed class HostCoreWorkflowRoleTests {
 
 		var unfilled = await host.CreateSessionAsync(Request("unfilled", []));
 		var bad = await host.CreateSessionAsync(Request("bad", new() { ["builder"] = "GPT Retired" }));
+		var stray = await host.CreateSessionAsync(Request("stray", new() { ["builder"] = "GPT Next", ["Planner"] = "GPT Next" }));
+		var loose = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "loose",
+			Base = "main",
+			AgentProviderId = "structured",
+			Roles = new Dictionary<string, string> { ["builder"] = "GPT Next" },
+		});
 
 		Assert.Contains("role \"builder\" has no agent for structured sessions", unfilled.Error, StringComparison.Ordinal);
 		Assert.Equal("Role \"builder\" can't take model \"GPT Retired\": Fake structured agent offers GPT Test, GPT Next, GPT Gone.", bad.Error);
-		Assert.Null(host.Core.SessionForTest("unfilled"));
-		Assert.Null(host.Core.SessionForTest("bad"));
+		Assert.Equal("Workflow roles asks for no role \"Planner\".", stray.Error);
+		Assert.Equal("'roles' needs a 'workflow'.", loose.Error);
+		Assert.All(new[] { "unfilled", "bad", "stray", "loose" }, branch => Assert.Null(host.Core.SessionForTest(branch)));
+		Assert.Empty(host.WorkflowRoles.All());
 
 		Assert.True((await host.CreateSessionAsync(Request("picked", new() { ["builder"] = "GPT Next" }))).Ok);
 		Assert.Equal("GPT Next", host.Session("picked").Workflow.AgentOf("build")!.Model);

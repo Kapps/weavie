@@ -107,13 +107,19 @@ describe("NewSessionRoleChoice", () => {
     expect(model(state(), "planner")).toBe("sol");
   });
 
-  it("reports a failed model list and asks nothing", async () => {
+  it("reports a failed model list, asks nothing, and lists again when shown again", async () => {
     const { choice, state, models, suggestions } = harness();
     choice.show(pair());
     await models({ models: [], error: "probe failed" });
     expect(state().error).toBe("Couldn't list models: probe failed");
     expect(suggestions.size).toBe(0);
     expect(rolesReady(state())).toBe(false);
+
+    choice.show(pair());
+    expect(state()).toMatchObject({ models: null, error: null });
+    await models(MODELS);
+    expect(state().models).toEqual(MODELS.models);
+    expect([...suggestions.keys()]).toEqual(["planner", "builder"]);
   });
 
   it("discards a suggestion still on its way when a start captures the rows", async () => {

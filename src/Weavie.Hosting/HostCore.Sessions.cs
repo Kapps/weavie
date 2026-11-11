@@ -704,10 +704,9 @@ public sealed partial class HostCore {
 			if (request.Workflow is { } workflow) {
 				// The session's controls don't exist yet, so only its provider and saved roles can refuse before a worktree does.
 				try {
-					var roles = RoleResolver(RequireProvider(provider));
-					foreach (var (role, model) in request.Roles) roles.Pick(role, model);
 					input = InitialSessionInput.ForWorkflow(WeavieWorkflows.Catalog(LaunchRoot(source)).Prepare(
-						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input), roles));
+						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input),
+						RoleResolver(RequireProvider(provider)).Picking(request.Roles)));
 				} catch (WorkflowException ex) {
 					return CommandResult.Failure(ex.Message);
 				}

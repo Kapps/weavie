@@ -6,6 +6,13 @@ namespace Weavie.Core.Workflows;
 
 /// <summary>How Weavie hosts the workflow engine: the names it writes for agents and where workflow files live.</summary>
 public static class WeavieWorkflows {
+	/// <summary>The registered provider <paramref name="id"/>; throws <see cref="WorkflowException"/> naming the registered ones otherwise.</summary>
+	public static Agents.AgentProviderInfo RequireProvider(Agents.AgentProviderRegistry providers, string id) {
+		ArgumentNullException.ThrowIfNull(providers);
+		return providers.FindInfo(id) ?? throw new WorkflowException(
+			$"No agent provider '{id}' is registered; the providers are {string.Join(", ", providers.Providers.Select(p => p.Info.Id))}.");
+	}
+
 	/// <summary>The non-empty text argument <paramref name="name"/> of a workflow command; throws <see cref="WorkflowException"/> otherwise.</summary>
 	public static string Required(System.Text.Json.JsonElement args, string name) =>
 		args.ValueKind == System.Text.Json.JsonValueKind.Object && args.TryGetProperty(name, out var value)

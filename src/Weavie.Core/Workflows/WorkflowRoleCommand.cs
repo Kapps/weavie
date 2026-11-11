@@ -16,7 +16,7 @@ public static class WorkflowRoleCommand {
 		if (!WorkflowSchema.IsRoleName(role)) {
 			throw new WorkflowException($"\"{role}\" isn't a role name: use lowercase words joined by hyphens.");
 		}
-		string provider = Registered(WeavieWorkflows.Required(args, "provider"), providers);
+		string provider = WeavieWorkflows.RequireProvider(providers, WeavieWorkflows.Required(args, "provider")).Id;
 		bool clear = args.TryGetProperty("clear", out var clearing) && clearing.ValueKind == JsonValueKind.True;
 		bool set = args.TryGetProperty("agent", out var agent);
 		if (clear == set) {
@@ -29,15 +29,19 @@ public static class WorkflowRoleCommand {
 				: throw new WorkflowException($"No {role} is saved for {provider} sessions.");
 		}
 
-		var saved = new WorkflowRoleAgent(Registered(WeavieWorkflows.Required(agent, "provider"), providers), WeavieWorkflows.Required(agent, "model"), Options(agent));
-		roles.Set(provider, role, saved);
+		var saved = new WorkflowRoleAgent(
+			WeavieWorkflows.RequireProvider(providers, AgentArgument(agent, "provider")).Id, AgentArgument(agent, "model"), Options(agent));
+		roles.Set(provider, new Dictionary<string, WorkflowRoleAgent> { [role] = saved });
 		string options = saved.Options.Count == 0 ? "" : $" ({string.Join(", ", saved.Options.Select(o => $"{o.Key} {o.Value}"))})";
 		return $"{role} in {provider} sessions is now {saved.Model}{options}"
 			+ (saved.Provider == provider ? "." : $" on {saved.Provider}, which runs only once steps on another provider are built.");
 	}
 
-	private static string Registered(string id, AgentProviderRegistry providers) => providers.FindInfo(id) is not null ? id
-		: throw new WorkflowException($"No agent provider '{id}' is registered; the providers are {string.Join(", ", providers.Providers.Select(p => p.Info.Id))}.");
+	private static string AgentArgument(JsonElement agent, string name) =>
+		agent.ValueKind == JsonValueKind.Object && agent.TryGetProperty(name, out var value)
+			&& value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
+			? text
+			: throw new WorkflowException("'agent' needs 'provider' and 'model'.");
 
 	// Agents write option values as JSON text, booleans, or numbers; the provider's value ids are text.
 	private static Dictionary<string, string> Options(JsonElement agent) {

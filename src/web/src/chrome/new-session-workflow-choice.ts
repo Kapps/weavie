@@ -35,7 +35,8 @@ const sameTarget = (left: WorkflowTarget | null, right: WorkflowTarget | null): 
     left.sourceId === right.sourceId &&
     left.providerId === right.providerId);
 
-const message = (error: unknown): string =>
+/** The text of a failed request. */
+export const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
@@ -204,7 +205,7 @@ export class NewSessionWorkflowChoice {
     }
 
     this.catalogLoad = null;
-    this.catalogProblem = `Couldn't list workflows: ${message(error)}`;
+    this.catalogProblem = `Couldn't list workflows: ${errorMessage(error)}`;
     this.publish({ status: this.suggestion === null ? "ready" : "suggesting" });
   }
 
@@ -235,7 +236,7 @@ export class NewSessionWorkflowChoice {
         this.suggestionLanded(suggestion, {
           applies: false,
           workflow: null,
-          error: message(error),
+          error: errorMessage(error),
         }),
     );
   }

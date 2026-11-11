@@ -59,11 +59,10 @@ flowchart TD
   end
   Ready --> New["weavie.session.new { workflow, roles }"]
   Agent[Agent or palette] --> Run[weavie.workflow.run / weavie.session.new]
-  New --> Save[Resolver.Pick saves each role]
-  Save --> Prep
-  Run --> Prep["WorkflowCatalog.Prepare(…, resolver)"]
+  New --> Prep
+  Run --> Prep["WorkflowCatalog.Prepare(…, resolver, with any picks)"]
   Prep --> Res{Every role filled and offered?}
-  Res -- no --> Refuse[Refused: no run, no worktree]
+  Res -- no --> Refuse[Refused: no run, no worktree, no pick saved]
   Res -- yes --> Launch[WorkflowLaunch with Roles]
   Launch --> RunRec[WorkflowRun.Roles persisted]
   RunRec --> Open["Stage opens: WorkflowRunner.AgentOf(stage)"]
@@ -192,8 +191,8 @@ public WorkflowLaunch Prepare(string id, JsonElement inputs, string? documentsDi
 | Symbol | File | Notes |
 | --- | --- | --- |
 | `StrictJsonDocumentStore` | `FileSystem/StrictJsonDocumentStore.cs` (new) | the held load failure, `EnsureAvailable()`, throwing `OnUnusable`/`OnPersistFailed`, and commit-with-rollback, extracted from `AcpControlStore` so the role store copies none of it |
-| `WorkflowRoleStore`, `WorkflowRoleAgent`, `WorkflowRoleAssignment` | `Workflows/WorkflowRoleStore.cs` (new) | the file: `Find(providerId, role)`, `All()`, `Set(providerId, role, agent)`, `bool Clear(providerId, role)`; source-generated document; failures are `WorkflowException` |
-| `WorkflowRoleResolver : IWorkflowRoleResolver` | `Workflows/WorkflowRoleResolver.cs` (new) | `(WorkflowRoleStore, AgentProviderInfo, AgentModelCatalog)`; `Read`, `Resolve`, `Pick`; `WorkflowRoleGap(Role, MissingModel)`, `WorkflowRoleResolution(Agents, Unfilled, Refusal)` |
+| `WorkflowRoleStore`, `WorkflowRoleAgent`, `WorkflowRoleAssignment` | `Workflows/WorkflowRoleStore.cs` (new) | the file: `Find(providerId, role)`, `All()`, `Set(providerId, agents)` (all or none, checked by the rule the file is read back with), `bool Clear(providerId, role)`; source-generated document; failures are `WorkflowException` |
+| `WorkflowRoleResolver : IWorkflowRoleResolver` | `Workflows/WorkflowRoleResolver.cs` (new) | `(WorkflowRoleStore, AgentProviderInfo, AgentModelCatalog)`; `Read`, `Resolve`, `Picking(picks)`; `WorkflowRoleGap(Role, MissingModel)`, `WorkflowRoleResolution(Agents, Unfilled, Refusal, Offered)`, read from one snapshot of the provider's models |
 | `WorkflowAgentControls.Refusal` | `Workflows/WorkflowAgentControls.cs` | gains `IReadOnlyList<WorkflowAgent> roles`; a stage's agent is its pinned one or its role's; new wording `Unfilled`, `NoModelChoice`, `Stale` |
 | `WorkflowRoleCommand.Run` | `Workflows/WorkflowRoleCommand.cs` (new) | parses and validates `setRole` arguments, writes, returns the result text |
 | `CoreCommands.WorkflowSetRole` | `Commands/CoreCommands.Workflows.cs` | `weavie.workflow.setRole`, "Set Workflow Role", unbound, not in the palette (it needs arguments) |
@@ -274,9 +273,11 @@ Resolve(definition):                                         // the engine seam;
   refusal = r.Refusal ?? (r.Unfilled.Any ? Unfilled(…) : null)
   refusal is null ? r.Agents : throw WorkflowException(refusal)
 
-Pick(role, model):                                           // one composer pick
-  offered is null or model not in offered → throw WorkflowException
-  roles.Set(provider.Id, role, { provider.Id, model, options: {} })
+Picking(picks).Resolve(definition):                          // a composer start's picks
+  a pick for a role the definition doesn't ask for, while the models aren't known,
+    or of a model not offered                                → throw WorkflowException
+  Resolve(definition) with each pick as { provider.Id, model, options: {} } over the saved roles
+  roles.Set(provider.Id, every pick)                         // one write, only once nothing refused
 ```
 
 A saved role is trusted while the model list is loading or failed; its step is checked when it opens. When the run
@@ -320,9 +321,8 @@ It is an automatic query, like the workflow suggestion, so it needs `inference.a
 ```text
 NewSessionAsync, before any worktree exists:
   request.Roles.Any and request.Workflow is null → Failure("'roles' needs a 'workflow'.")
-  resolver = RoleResolver(providerInfo)
-  for (role, model) in request.Roles: resolver.Pick(role, model)
-  launch = Catalog(LaunchRoot(source)).Prepare(workflow, inputs, documents, prompt, resolver)
+  launch = Catalog(LaunchRoot(source)).Prepare(workflow, inputs, documents, prompt, RoleResolver(providerInfo).Picking(request.Roles))
+  // Prepare resolves roles last, so a start refused for its inputs or prompt saves no pick.
 ```
 
 ### Picker rows (web)
@@ -369,8 +369,8 @@ Each row is the role name as the label and a `.ui-field` toggle opening `Control
   names `planner` and `builder`, `quick-fix` none.
 - **Core** (`tests/Weavie.Core.Tests`): the store round-trips and holds a malformed, wrong-version, or unknown-member
   file as a failure without touching it; the resolver covers filled, unfilled,
-  stale, stale-ignored-while-probing, terminal, other-provider, and no-model-choice; `Pick` drops options and refuses an
-  unoffered model; every `setRole` argument failure; a role-filled stage gets the same
+  stale, stale-ignored-while-probing, terminal, other-provider, and no-model-choice; picks drop options, refuse an
+  unoffered model or a role the workflow doesn't ask for, and save all or none; every `setRole` argument failure; a role-filled stage gets the same
   refusals as a pinned one; the provider-aware start options; the role decision's evidence, choices, threshold, and
   the two-model rule; `SettledAsync`; roles in `listWorkflows`. `AcpControlStore`'s tests stay unchanged, proving the
   extraction changed no behaviour.

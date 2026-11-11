@@ -49,7 +49,10 @@ const harness = (): Harness => {
     ],
   ]);
   const choice = new NewSessionWorkflowChoice(
-    async (target) => catalogs.get(target.backendId) ?? Promise.reject(new Error("offline")),
+    async (target) =>
+      catalogs.get(`${target.backendId}/${target.providerId}`) ??
+      catalogs.get(target.backendId) ??
+      Promise.reject(new Error("offline")),
     (target, prompt, signal) => {
       suggestions.push({ target, prompt, signal });
       return new Promise((resolve) => answers.push(resolve));
@@ -269,6 +272,25 @@ describe("NewSessionWorkflowChoice", () => {
 
     await settle();
     expect(suggestions).toMatchObject([{ prompt: `${DRAFT} after a reconnect` }]);
+  });
+
+  it("re-reads for another provider and drops a workflow that provider can't run", async () => {
+    const { choice, state, catalogs } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.pick("spec-driven");
+    catalogs.set(
+      "local/claude",
+      catalog({
+        workflows: [{ id: "spec-driven", description: "", error: "runs in a terminal", roles: [] }],
+      }),
+    );
+
+    choice.retarget({ ...LOCAL, providerId: "claude" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state().options.map((option) => option.error)).toEqual(["runs in a terminal"]);
+    expect(state().workflow).toBeNull();
   });
 
   it("keeps what it read, and the pick, when a re-read fails", async () => {

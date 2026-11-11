@@ -39,7 +39,9 @@ internal sealed class TestRoles : IDisposable {
 
 	public void Offer(params string[] models) => Models.Observe(Provider.Info.Id, [FakeConsultProvider.Models(models)], AgentModelSource.Session);
 
-	public void Save(string role, string model) => Store.Set(Provider.Info.Id, role, new(Provider.Info.Id, model, new Dictionary<string, string>()));
+	public void Save(string role, string model) => Save(role, new WorkflowRoleAgent(Provider.Info.Id, model, new Dictionary<string, string>()));
+
+	public void Save(string role, WorkflowRoleAgent agent) => Store.Set(Provider.Info.Id, new Dictionary<string, WorkflowRoleAgent> { [role] = agent });
 
 	public WorkflowRoleResolver Resolver() => new(Store, Provider.Info, Models);
 
@@ -68,7 +70,7 @@ public sealed class WorkflowRolesTests : IDisposable {
 
 	[Fact]
 	public void TheStoreRoundTripsAndNeverResetsAFileItCantUse() {
-		_roles.Store.Set("fake-acp", "planner", new("fake-acp", "alpha", new Dictionary<string, string> { ["effort"] = "high" }));
+		_roles.Save("planner", new WorkflowRoleAgent("fake-acp", "alpha", new Dictionary<string, string> { ["effort"] = "high" }));
 		var reloaded = new WorkflowRoleStore(_roles.Files, TestRoles.StorePath);
 		Assert.Equal("high", reloaded.Find("fake-acp", "planner")!.Options["effort"]);
 		Assert.Equal([("planner", "fake-acp", "alpha")], reloaded.All().Select(r => (r.Role, r.Provider, r.Agent.Model)));
@@ -117,18 +119,38 @@ public sealed class WorkflowRolesTests : IDisposable {
 		Assert.StartsWith("Stage \"requirements\" runs on role \"planner\", but Claude Code runs in a terminal", _roles.Resolver(terminal).Read(Definition).Refusal, StringComparison.Ordinal);
 	}
 
+	private IReadOnlyList<WorkflowAgent> Pick(params (string Role, string Model)[] picks) =>
+		_roles.Resolver().Picking(picks.ToDictionary(pick => pick.Role, pick => pick.Model)).Resolve(Definition);
+
 	[Fact]
-	public void APickSavesTheModelAloneAndOnlyAModelOnOffer() {
-		_roles.Store.Set("fake-acp", "planner", new("fake-acp", "alpha", new Dictionary<string, string> { ["effort"] = "high" }));
-		Assert.Contains("models aren't known yet", Assert.Throws<WorkflowException>(() => _roles.Resolver().Pick("planner", "beta")).Message, StringComparison.Ordinal);
+	public void PicksFillRolesAndAreSavedTogetherOnlyWhenTheWholeStartResolves() {
+		_roles.Save("planner", new WorkflowRoleAgent("fake-acp", "alpha", new Dictionary<string, string> { ["effort"] = "high" }));
+		Assert.Contains("models aren't known yet", Assert.Throws<WorkflowException>(() => Pick(("builder", "beta"))).Message, StringComparison.Ordinal);
 
 		_roles.Offer("alpha", "beta");
-		_roles.Resolver().Pick("planner", "beta");
-		Assert.Equal(new WorkflowRoleAgent("fake-acp", "beta", new Dictionary<string, string>()).Model, _roles.Store.Find("fake-acp", "planner")!.Model);
-		Assert.Empty(_roles.Store.Find("fake-acp", "planner")!.Options);
-		Assert.Equal(
-			"Role \"planner\" can't take model \"gamma\": Fake fake-acp offers alpha, beta.",
-			Assert.Throws<WorkflowException>(() => _roles.Resolver().Pick("planner", "gamma")).Message);
+		((string, string)[] Picks, string Message)[] refused = [
+			([("builder", "beta"), ("planner", "gamma")], "Role \"planner\" can't take model \"gamma\": Fake fake-acp offers alpha, beta."),
+			([("builder", "beta"), ("Planner", "beta")], "Workflow spec-driven asks for no role \"Planner\"."),
+		];
+		foreach (var (picks, message) in refused) {
+			Assert.Equal(message, Assert.Throws<WorkflowException>(() => Pick(picks)).Message);
+			Assert.Null(_roles.Store.Find("fake-acp", "builder"));
+		}
+
+		Assert.Equal(["beta", "beta"], Pick(("builder", "beta"), ("planner", "beta")).Select(agent => agent.Model));
+		Assert.Equal(("beta", 0), (_roles.Store.Find("fake-acp", "planner")!.Model, _roles.Store.Find("fake-acp", "planner")!.Options.Count));
+		Assert.Equal("beta", _roles.Store.Find("fake-acp", "builder")!.Model);
+	}
+
+	[Fact]
+	public void TheStoreRefusesWhatItCouldNotReadBack() {
+		foreach (var (role, agent, message) in new[] {
+			("Planner", new WorkflowRoleAgent("fake-acp", "alpha", new Dictionary<string, string>()), "\"Planner\" isn't a role name: use lowercase words joined by hyphens."),
+			("planner", new WorkflowRoleAgent("fake-acp", "", new Dictionary<string, string>()), "A workflow role needs an agent provider and model."),
+		}) {
+			Assert.Equal(message, Assert.Throws<WorkflowException>(() => _roles.Save(role, agent)).Message);
+		}
+		Assert.Empty(new WorkflowRoleStore(_roles.Files, TestRoles.StorePath).All());
 	}
 
 	[Fact]
@@ -144,7 +166,7 @@ public sealed class WorkflowRolesTests : IDisposable {
 			("""{"role":"Planner","provider":"fake-acp","clear":true}""", "\"Planner\" isn't a role name: use lowercase words joined by hyphens."),
 			("""{"role":"planner","provider":"nope","clear":true}""", "No agent provider 'nope' is registered; the providers are fake-acp."),
 			("""{"role":"planner","provider":"fake-acp"}""", "weavie.workflow.setRole takes exactly one of 'agent' or 'clear'."),
-			("""{"role":"planner","provider":"fake-acp","agent":{"model":"alpha"}}""", "'provider' is required."),
+			("""{"role":"planner","provider":"fake-acp","agent":{"model":"alpha"}}""", "'agent' needs 'provider' and 'model'."),
 			("""{"role":"planner","provider":"fake-acp","clear":true}""", "No planner is saved for fake-acp sessions."),
 		}) {
 			Assert.Equal(message, Assert.Throws<WorkflowException>(() => Run(args)).Message);

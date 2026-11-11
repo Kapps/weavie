@@ -1,3 +1,4 @@
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { awaitEditorReady, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
@@ -24,4 +25,22 @@ test("an empty workspace offers files once and preserves restored tabs", async (
   await runCommand(page, "Close All Editors");
   await expect(page.locator(".editor-tab")).toHaveCount(0);
   await expect(omnibar).not.toHaveClass(/\bopen\b/);
+});
+
+test("restoring a conversation with no open files leaves file search closed", async ({ page }) => {
+  await page.getByRole("combobox", { name: "Go to file", exact: true }).press("Escape");
+  const surface = await createAcpSession(page, "existing-chat");
+  await submitAcpDraft(surface, "Keep this conversation without opening a file");
+  await expect(surface).toContainText("echo: Keep this conversation without opening a file");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+  await expect(page.locator(".editor-tab")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^existing-chat —/);
+  await expect(surface).toContainText("echo: Keep this conversation without opening a file");
+  await awaitEditorReady(page);
+  await expect(page.locator(".editor-tab")).toHaveCount(0);
+  await expect(page.locator(".tb-omnibar-box")).not.toHaveClass(/\bopen\b/);
+  await expect(page.getByRole("combobox", { name: "Go to file", exact: true })).not.toBeFocused();
 });

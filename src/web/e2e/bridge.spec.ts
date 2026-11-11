@@ -3,8 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import { CommandIds } from "../src/commands/types";
+import type { HostHello } from "../src/messaging/host-connection";
 import { test } from "./harness/network-fixtures";
-import { MockHost, mockSession } from "./mock-host";
+import { frames } from "./harness/render-budget";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "./harness/websocket-codec";
+import { type MessageEnvelope, MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 test.beforeAll(() => {
@@ -53,6 +56,95 @@ test.describe("session-addressed WebSocket transport", () => {
       message: "hello-from-mock-host",
     });
     await expect(page.locator(".toast-msg", { hasText: "hello-from-mock-host" })).toBeVisible();
+  });
+
+  test("file search waits for the preferred remote conversation instead of the empty local fallback", async ({
+    page,
+  }) => {
+    const localSession = mockSession("main", "main", "acp");
+    const remoteSession = { ...mockSession("remote-acp", "remote-chat", "acp"), lastActiveAt: 1 };
+    host.setSessions([localSession]);
+    const remote = await MockHost.start({ distDir, sessions: [remoteSession] });
+    remote.pauseHello();
+    await page.addInitScript(() => {
+      window.__WEAVIE_SHELL__ = {
+        platform: "linux",
+        titleBar: "linux",
+        workspaceLabel: "test",
+        recents: [],
+        buildNumber: "test",
+      };
+    });
+    for (const [backend, session] of [
+      [host, localSession],
+      [remote, remoteSession],
+    ] as const) {
+      backend.onSession(session.address, "request", "lifecycle", "sync", () =>
+        backend.publishSession(session.address, "editor", "restore", {
+          session: { active: null, open: [] },
+        }),
+      );
+    }
+    remote.setAgentHistory(remoteSession.address, {
+      generation: 1,
+      messages: [
+        {
+          providerId: "acp",
+          type: "item-completed",
+          itemId: "restored",
+          itemType: "agentMessage",
+          status: "completed",
+          text: "restored remote conversation",
+        },
+      ],
+      batchSize: 100,
+    });
+    await page.routeWebSocket(host.bridgeUrl, (socket) => {
+      const server = socket.connectToServer();
+      server.onMessage((data) => {
+        const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
+        if (
+          message.kind === "response" &&
+          message.feature === "connection" &&
+          message.name === "hello"
+        ) {
+          const hello = message.payload as HostHello;
+          hello.remoteAgents = [{ name: "devbox", url: remote.url, token: "runner-token" }];
+          hello.rail.selected = { backendId: "remote:devbox", slot: remoteSession.id };
+          socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
+        } else socket.send(data);
+      });
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      await remote.waitUntilConnected();
+      await expect(page.locator("#splash")).toHaveCount(0);
+      await expect(page.locator(".session-chip.active")).toHaveAttribute(
+        "data-session-slot",
+        "main",
+      );
+      await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true");
+      await frames(page, 2);
+      const omnibar = page.locator(".tb-omnibar-box");
+      const search = page.getByRole("combobox", { name: "Go to file", exact: true });
+      await expect(omnibar).not.toHaveClass(/\bopen\b/);
+      await expect(search).not.toBeFocused();
+
+      remote.resumeHello();
+      await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
+        "data-session-slot",
+        remoteSession.id,
+      );
+      await expect(page.locator('[data-surface="structured-agent"]')).toContainText(
+        "restored remote conversation",
+      );
+      await frames(page, 2);
+      await expect(omnibar).not.toHaveClass(/\bopen\b/);
+      await expect(search).not.toBeFocused();
+    } finally {
+      await remote.close();
+    }
   });
 
   test("installs and removes an explicitly selected ACP registry distribution", async ({

@@ -44,9 +44,9 @@ public sealed class WorkflowTransitionsTests {
 		Machine.Start("r-1", "p", WorkflowTransitions.ReadInputs(Definition, Json("""{"task":"auth"}"""), Path.GetTempPath(), null), Path.GetTempPath(), null);
 
 	private static WorkflowDecisionPlan Decision(WorkflowStep step) =>
-		Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Plan;
+		Assert.Single(step.Effects.OfType<WorkflowEffect.Decide>()).Plan;
 
-	private static string Kickoff(WorkflowStep step) => Assert.IsType<WorkflowEffect.Kickoff>(Assert.Single(step.Effects)).Turn.Text;
+	private static string Kickoff(WorkflowStep step) => Assert.Single(step.Effects.OfType<WorkflowEffect.Kickoff>()).Turn.Text;
 
 	private static WorkflowStep OpenPlan() => Machine.Resolve(Started().Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 
@@ -70,7 +70,7 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Equal(("plan", WorkflowPhase.Open, "plan auth"), (yes.Run.Stage, yes.Run.Phase, Kickoff(yes)));
 		var no = OpenBuild();
 		Assert.Equal(("build", "/implement auth"), (no.Run.Stage, Kickoff(no)));
-		Assert.Equal(new WorkflowKickoff { Text = "/implement auth", Command = "implement", Opens = "build" }, no.Run.Kickoff);
+		Assert.Equal(new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/implement auth", Command = "implement", Opens = "build" }, no.Run.Kickoff);
 		Assert.Equal("plan", yes.Run.Kickoff!.Opens);
 	}
 

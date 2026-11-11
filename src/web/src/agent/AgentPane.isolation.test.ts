@@ -1,7 +1,7 @@
 import { createRoot } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
-import { createAgentPaneModel } from "./AgentPaneModel";
+import { createTestAgentPaneModel as createAgentPaneModel } from "./AgentPaneTestModel";
 
 const transcriptCalls = vi.hoisted(() => vi.fn());
 
@@ -11,9 +11,10 @@ vi.mock("./AgentPaneMessages", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./AgentPaneMessages")>();
   return {
     ...actual,
-    projectAgentTranscript: (updates: readonly AgentPaneUpdate[]) => {
+    projectAgentTranscript: (...args: Parameters<typeof actual.projectAgentTranscript>) => {
+      const [updates] = args;
       transcriptCalls(updates.length);
-      return actual.projectAgentTranscript(updates);
+      return actual.projectAgentTranscript(...args);
     },
   };
 });

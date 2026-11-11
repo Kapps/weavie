@@ -20,6 +20,9 @@ public static class WorkflowAgentControls {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(provider);
 		foreach (var stage in definition.Stages) {
+			if (stage.Run.Context != WorkflowContext.Continue && !provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)) {
+				return $"Stage \"{stage.Id}\" requires its own conversation; {provider.Name} runs in a terminal.";
+			}
 			if (definition.AgentOf(stage) is not { } agent) continue;
 			string name = agent.Name;
 			string? problem = !provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)

@@ -46,7 +46,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	public void ClearConversation(string workspace) => Transcripts.TryRemove(workspace, out _);
 
 	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
-		AgentTranscript.FromPaneJournal([.. Transcripts.GetOrAdd(workspace, static _ => [])]);
+		AgentTranscript.FromPaneJournal([.. Transcripts.GetOrAdd(workspace, static _ => []).Where(message => message.ConversationId is null)]);
 
 	public Action<AgentSessionContext> CreatingSession { get; set; } = _ => { };
 
@@ -68,13 +68,14 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		CreatingSession(context);
 		return new FakeStructuredAgentSession(
 			context.Events,
+			context.Output,
 			Transcripts.GetOrAdd(context.Workspace, static _ => []),
 			ControlChanges);
 	}
 
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
-	private sealed class FakeStructuredAgentSession(IAgentEventSink events, List<AgentPaneMessage> transcript, ConcurrentQueue<string> controlChanges)
+	private sealed class FakeStructuredAgentSession(IAgentEventSink events, ConversationOutput output, List<AgentPaneMessage> transcript, ConcurrentQueue<string> controlChanges)
 		: IStructuredAgentSession, IStructuredAgentControls, IStructuredAgentBackgroundWork {
 		private bool _started;
 		private int _turns;
@@ -89,8 +90,6 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			return Task.FromResult(true);
 		}
 
-		public event Action<AgentPaneMessage>? PaneMessage;
-		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 		public event Action<AgentControlState>? ControlStateChanged;
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
@@ -98,10 +97,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
 
 		// Every replayable record the provider emits, so a reload can hand back the same conversation.
-		private void Emit(AgentPaneMessage message) {
-			transcript.Add(message);
-			PaneMessage?.Invoke(message);
-		}
+		private void Emit(AgentPaneMessage message) => output.Write(message, () => transcript.Add(message));
 
 		public AgentControlState ControlState { get; private set; } = new() {
 			Ready = true,
@@ -121,9 +117,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			Slash = [],
 		};
 
-		public IReadOnlyList<AgentPaneMessage> Restore() {
+		public void Restore() {
 			_turns = transcript.Count(message => message.Type == "user-message");
-			return [.. transcript];
+			output.Restore([.. transcript]);
 		}
 
 		public void Start() {
@@ -132,7 +128,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			}
 			_started = true;
 			events.Observe(new AgentSessionStarted("startup"));
-			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "structured", Status = "ready" });
+			output.Write(new AgentPaneMessage { Type = "thread-ready", ProviderId = "structured", Status = "ready" }, static () => { });
 
 			ControlStateChanged?.Invoke(ControlState);
 		}
@@ -156,7 +152,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			}
 			if (submission.Text == ResetPrompt) {
 				transcript.Clear();
-				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
+				output.Write(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" }, static () => { });
 				return;
 			}
 			if (submission.Text == PlanPrompt) {
@@ -216,7 +212,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			}
 			if (submission.Text is PlanReplayPrompt or PlanRemovedReplayPrompt) {
 				if (submission.Text == PlanRemovedReplayPrompt) transcript.RemoveAll(message => message.ItemType == "plan");
-				PaneSnapshot?.Invoke([.. transcript]);
+				output.Replace([.. transcript]);
 				return;
 			}
 
@@ -245,7 +241,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		public void StartNewConversation() {
 			transcript.Clear();
 			_turns = 0;
-			PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
+			output.Write(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" }, static () => { });
 		}
 
 		public void PrefillPrompt(string prompt) {

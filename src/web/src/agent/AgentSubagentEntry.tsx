@@ -1,4 +1,4 @@
-import { type JSX, onMount, Show } from "solid-js";
+import { createMemo, type JSX, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
@@ -9,7 +9,7 @@ import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscr
 import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
-/** A read-only subagent row: expanded while it runs, collapsed once it finishes, with Open for its full transcript. */
+/** A collapsed-by-default subagent row with visible requests and Open for its full transcript. */
 export function AgentSubagentEntry(props: {
   entry: AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
@@ -19,9 +19,13 @@ export function AgentSubagentEntry(props: {
 }): JSX.Element {
   const info = () => props.entry.subagent!;
   const running = () => info().state === "running";
-  const flipped = () => props.expandedDetails.has(props.entry.id);
-  const collapsed = () => running() === flipped();
-  const toggle = () => props.onDetailsToggle(props.entry.id, !flipped());
+  const collapsed = () => !props.expandedDetails.has(props.entry.id);
+  const toggle = () => props.onDetailsToggle(props.entry.id, collapsed());
+  const entries = createMemo(() =>
+    collapsed()
+      ? (props.entry.pendingEntries ?? [])
+      : subagentCardEntries(props.entry.asideEntries ?? [], true),
+  );
   const now = liveNow(running);
   const toggleTitle = () =>
     `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
@@ -68,9 +72,9 @@ export function AgentSubagentEntry(props: {
         <div class="agent-entry-summary" title={info().task ?? undefined}>
           {info().name}
         </div>
-        <Show when={!collapsed()}>
+        <Show when={entries().length > 0}>
           <NestedTranscript
-            entries={subagentCardEntries(props.entry.asideEntries ?? [])}
+            entries={entries()}
             expandedDetails={props.expandedDetails}
             keyboardRequestKey={props.keyboardRequestKey}
             onDetailsToggle={props.onDetailsToggle}

@@ -1,6 +1,8 @@
 import type { AgentPaneUpdate } from "../bridge";
 
 export interface AgentPlanIdentity {
+  providerId: string;
+  conversationId: string | null;
   itemId: string;
   threadId: string;
   turnId: string;
@@ -16,6 +18,8 @@ export function planIdentity(message: AgentPaneUpdate): AgentPlanIdentity | null
     return null;
   }
   return {
+    providerId: message.providerId,
+    conversationId: message.conversationId ?? null,
     itemId: message.itemId,
     threadId: message.threadId,
     turnId: message.turnId,
@@ -26,11 +30,19 @@ export function planIdentityFromArgs(value: unknown): AgentPlanIdentity | null {
   if (typeof value !== "object" || value === null) {
     return null;
   }
-  const args = value as { itemId?: unknown; threadId?: unknown; turnId?: unknown };
-  if (!isIdentifier(args.threadId) || !isIdentifier(args.turnId) || !isIdentifier(args.itemId)) {
+  const args = value as Partial<Record<keyof AgentPlanIdentity, unknown>>;
+  if (
+    !isIdentifier(args.providerId) ||
+    (args.conversationId !== null && !isIdentifier(args.conversationId)) ||
+    !isIdentifier(args.threadId) ||
+    !isIdentifier(args.turnId) ||
+    !isIdentifier(args.itemId)
+  ) {
     return null;
   }
   return {
+    providerId: args.providerId,
+    conversationId: args.conversationId,
     itemId: args.itemId,
     threadId: args.threadId,
     turnId: args.turnId,

@@ -7,7 +7,7 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
 	private async Task RestoreControlDefaultsAsync() {
-		var held = _port.HeldControls();
+		var held = _binding.ControlHold.Values();
 		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
 		foreach (var (axis, value) in held) pending[axis] = value;
 		while (pending.Count > 0) {
@@ -25,6 +25,8 @@ internal sealed partial class AcpConversation {
 				}
 			}
 			if (stale is not null && held.ContainsKey(stale.Axis)) {
+				if (_spec.Role == AcpConversationRole.Independent) throw new AgentControlException(
+					$"{Definition.Name} does not advertise '{stale.Value}' for the required '{stale.Axis}' control.");
 				EmitFailure(new AcpProtocolException(
 					$"{Definition.Name} no longer advertises '{stale.Value}' for the '{stale.Axis}' control the workflow stage holds."));
 				continue;
@@ -37,6 +39,9 @@ internal sealed partial class AcpConversation {
 			}
 			if (mutation is null) {
 				if (consumed) continue;
+				if (_spec.Role == AcpConversationRole.Independent && pending.Keys.FirstOrDefault(held.ContainsKey) is { } missing) {
+					throw new AgentControlException($"{Definition.Name} does not advertise the required '{missing}' control.");
+				}
 				break;
 			}
 			await DeliverControlMutationAsync(mutation, persist: false).ConfigureAwait(false);

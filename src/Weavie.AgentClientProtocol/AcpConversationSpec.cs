@@ -8,7 +8,8 @@ internal sealed record AcpConversationHost(
 	AgentSessionContext Context,
 	Func<AcpAgentDefinition> Definition,
 	Action<string> Log,
-	Lock TransitionGate);
+	Lock TransitionGate,
+	Action<AcpConversation> Retired);
 
 /// <summary>What a conversation incarnation starts from, how it opens its provider session, and which role it plays.</summary>
 internal sealed record AcpConversationSpec(
@@ -16,11 +17,11 @@ internal sealed record AcpConversationSpec(
 	AcpConversationOpening Opening,
 	AcpConversationRole Role) {
 	/// <summary>Whether this is a <c>/btw</c> side conversation scoped to its own requests.</summary>
-	public bool Side => Role == AcpConversationRole.Side;
+	public bool Side => Role is AcpConversationRole.Side or AcpConversationRole.Independent;
 }
 
 /// <summary>What a conversation is to its session: the primary, a <c>/btw</c> side, or a read-only subagent.</summary>
-internal enum AcpConversationRole { Primary, Side, Subagent }
+internal enum AcpConversationRole { Primary, Side, Independent, Subagent }
 
 /// <summary>What a retired conversation leaves for its successor; interaction identities stay unique in its pane.</summary>
 internal sealed record AcpConversationHandoff(

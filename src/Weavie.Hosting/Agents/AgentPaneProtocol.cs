@@ -140,17 +140,6 @@ internal sealed record AgentPaneHistoryBatch(
 	IReadOnlyList<AgentPaneWire> Messages,
 	bool Complete);
 
-internal sealed record AgentPaneRecord(
-	long Generation,
-	long Ordinal,
-	long Revision,
-	AgentPaneMessage Message);
-
 internal sealed record AgentPaneRecordRequest(long Generation, long Ordinal);
 
 internal sealed record AgentPaneHistoryRequest(long? KnownGeneration, long? KnownRevision);
-
-internal sealed record AgentPaneHistory(
-	long Generation,
-	long Revision,
-	IReadOnlyList<AgentPaneRecord> Messages);

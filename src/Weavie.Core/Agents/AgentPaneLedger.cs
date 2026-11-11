@@ -16,6 +16,8 @@ public sealed class AgentPaneLedger {
 	private readonly Dictionary<string, int> _itemIndexes = new(StringComparer.Ordinal);
 	private readonly HashSet<string> _activeItems = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, DeltaBuffer> _deltaBuffers = [];
+	private readonly Dictionary<(string Provider, string? Conversation), List<int>> _conversationRows = [];
+	private readonly Dictionary<(string Provider, string? Conversation), string?> _parents = [];
 	private long _nextOrdinal;
 
 	/// <summary>Folds <paramref name="messages"/> into a fresh ledger.</summary>
@@ -41,11 +43,23 @@ public sealed class AgentPaneLedger {
 	/// <summary>The row holding the item <paramref name="key"/> names, when any.</summary>
 	public bool TryItemIndex(string key, out int index) => _itemIndexes.TryGetValue(key, out index);
 
-	/// <summary>Whether the item <paramref name="key"/> names has started or streamed but not yet completed.</summary>
-	public bool IsActive(string key) => _activeItems.Contains(key);
 
-	/// <summary>Each row's stored message, before any streamed text is folded in.</summary>
-	public IReadOnlyList<AgentPaneMessage> Stored => _messages;
+	/// <summary>Materialized rows whose items have not completed or retracted.</summary>
+	public IReadOnlyList<AgentPaneMessage> ActiveItems =>
+		[.. _activeItems.Select(key => EntryAt(_itemIndexes[key]).Message)];
+
+	/// <summary>Reads only the rows belonging to one conversation, without visiting other histories.</summary>
+	public IEnumerable<AgentPaneMessage> ConversationRows(string providerId, string? conversationId, bool active) {
+		if (!_conversationRows.TryGetValue((providerId, conversationId), out var indexes)) yield break;
+		foreach (int index in indexes) {
+			if (!active || AgentPaneIdentity.ItemKey(_messages[index]) is { } key && _activeItems.Contains(key)) {
+				yield return EntryAt(index).Message;
+			}
+		}
+	}
+
+	/// <summary>The parent announced for a nested conversation, or null for a root-owned thread.</summary>
+	public string? ParentConversation(string providerId, string? conversationId) => _parents.GetValueOrDefault((providerId, conversationId));
 
 	/// <summary>Row <paramref name="index"/> with its streamed text folded in.</summary>
 	public AgentPaneLedgerEntry EntryAt(int index) {
@@ -78,10 +92,17 @@ public sealed class AgentPaneLedger {
 				Append(message with { Text = null });
 			}
 			if (!_deltaBuffers.TryGetValue(deltaIndex, out var buffer)) {
-				buffer = new DeltaBuffer(message);
+				var initial = _messages[deltaIndex];
+				buffer = new DeltaBuffer(initial.Type == "item-started" ? initial : message);
+				if (buffer.Latest.Type == "item-started") buffer.Text.Append(buffer.Latest.Text);
 				_deltaBuffers.Add(deltaIndex, buffer);
 			}
-			buffer.Latest = message;
+			buffer.Latest = message with {
+				MediaType = buffer.Latest.MediaType ?? message.MediaType,
+				MediaData = buffer.Latest.MediaData ?? message.MediaData,
+				ResourceUri = buffer.Latest.ResourceUri ?? message.ResourceUri,
+				MessageId = buffer.Latest.MessageId ?? message.MessageId,
+			};
 			buffer.Text.Append(message.Text);
 			_revisions[deltaIndex] = ++Revision;
 			return new(_ordinals[deltaIndex], _revisions[deltaIndex], message);
@@ -106,6 +127,8 @@ public sealed class AgentPaneLedger {
 		_itemIndexes.Clear();
 		_activeItems.Clear();
 		_deltaBuffers.Clear();
+		_conversationRows.Clear();
+		_parents.Clear();
 		_nextOrdinal = 0;
 		Revision = 0;
 	}
@@ -118,6 +141,10 @@ public sealed class AgentPaneLedger {
 	}
 
 	private AgentPaneLedgerEntry Append(AgentPaneMessage message) {
+		var scope = (message.ProviderId, message.ConversationId);
+		if (message.Type == "subagent-started") _parents.TryAdd(scope, message.ParentItemId);
+		if (!_conversationRows.TryGetValue(scope, out var rows)) _conversationRows.Add(scope, rows = []);
+		rows.Add(_messages.Count);
 		long ordinal = ++_nextOrdinal;
 		long revision = ++Revision;
 		_messages.Add(message);

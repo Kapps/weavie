@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Workflows.Tests;
 
-public sealed class WorkflowRunnerTests : IDisposable {
+public sealed partial class WorkflowRunnerTests : IDisposable {
 	private const string Flow = """
 		id: flow
 		description: test flow

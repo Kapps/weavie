@@ -31,6 +31,7 @@ public static partial class WorkflowSchema {
 			"Typed values the step must report when it completes, by name. Files must be worktree-relative or absolute within {{run.documents}}.",
 			NamePattern(), nameHint, new EnumShape("The value's type.", ValueTypes));
 		var work = new ObjectShape("The work step: a prompt, or a skill run as its real slash command.", [
+			new("context", new EnumShape("continue (default) uses main; fork copies its conversation; fresh owns a new conversation. All share the worktree.", ["continue", "fork", "fresh"]), false),
 			new("prompt", new TextShape("Instruction text sent as the stage's turn; references: {{inputs.name}}, {{stage.output}}, {{run.documents}} (shared documents directory)."), false),
 			new("skill", new TextShape(
 				"A skill or slash command the agent already has, without the leading slash.",
@@ -42,7 +43,7 @@ public static partial class WorkflowSchema {
 		]);
 		var agent = new ObjectShape("An agent steps refer to by name; every id is the provider's own, never inferred.", [
 			new("provider", new TextShape(
-				"The provider id, e.g. claude-acp; a step using the agent runs only in that provider's sessions."), true),
+				"The provider id, e.g. claude-acp; a different provider requires context: fresh."), true),
 			new("model", new TextShape("The provider's model id; omit for the session's model as it stands."), false),
 			new("options", new MapShape(
 				"The provider's config option values by option id, applied after the model.",

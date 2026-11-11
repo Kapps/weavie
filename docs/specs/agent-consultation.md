@@ -54,8 +54,9 @@ flowchart LR
 
 ## Consult runtime
 
-A consult is one transient ACP process, one session, and one prompt turn — the same transport as ad-hoc inference,
-answering in free text instead of JSON. Its lifetime is the MCP call: caller cancellation, the caller's disconnect,
+A consult is one transient ACP process, one session, and one prompt turn. `AcpTransientConnection` shares
+initialize, open, configure, prompt, and chunk decoding with ad-hoc inference. The consult reducer retains text
+after the last tool; inference retains all text for typed validation. Neither creates a display ledger. Its lifetime is the MCP call: caller cancellation, the caller's disconnect,
 or session unload kills the process tree. It is a transient one-shot and therefore not `ProcessSupervisor`-owned.
 
 The consulted agent is read-only by construction as far as the protocol allows:
@@ -81,10 +82,10 @@ Terminal Claude is listed but not consultable. Consulting Claude goes through th
 
 Long tool calls own a per-call cancellation source, cancelled by:
 
-- `notifications/cancelled` from the same client — scoped per WebSocket connection, or per `Mcp-Session-Id`, which
+- `notifications/cancelled` from the same client — scoped to its conversation grant and WebSocket connection, or its grant and `Mcp-Session-Id`, which
   the server issues on the HTTP `initialize` response;
 - the calling connection closing;
-- server disposal on session unload.
+- revocation of the calling conversation's grant or server disposal on session unload.
 
 The stdio MCP proxy has no client-side request timeout: the caller's cancellation owns a tool call's lifetime.
 

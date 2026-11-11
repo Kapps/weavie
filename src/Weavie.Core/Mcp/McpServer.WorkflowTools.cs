@@ -114,7 +114,7 @@ public sealed partial class McpServer {
 		await SendToolTextAsync(responder, idRaw, $"Forked {id} to {path}.", ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleCompleteStageAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleCompleteStageAsync(IMcpResponder responder, JsonElement args, string? idRaw, WorkflowStageCall? stage, CancellationToken ct) {
 		string summary = args.GetStringOrEmpty("summary");
 		if (summary.Length == 0) {
 			await SendToolErrorAsync(responder, idRaw, $"{CompleteStageTool} requires 'summary'.", ct).ConfigureAwait(false);
@@ -123,7 +123,7 @@ public sealed partial class McpServer {
 
 		string reply;
 		try {
-			reply = _workflows.CompleteStage(args.TryGetProperty("outputs", out var outputs) ? outputs : default, summary);
+			reply = (stage ?? throw new WorkflowException("This conversation does not own an open workflow stage.")).Complete(args.TryGetProperty("outputs", out var outputs) ? outputs : default, summary);
 		} catch (WorkflowException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;
@@ -132,7 +132,7 @@ public sealed partial class McpServer {
 		await SendToolTextAsync(responder, idRaw, reply, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleFailStageAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleFailStageAsync(IMcpResponder responder, JsonElement args, string? idRaw, WorkflowStageCall? stage, CancellationToken ct) {
 		string reason = args.GetStringOrEmpty("reason");
 		if (reason.Length == 0) {
 			await SendToolErrorAsync(responder, idRaw, $"{FailStageTool} requires 'reason'.", ct).ConfigureAwait(false);
@@ -140,7 +140,7 @@ public sealed partial class McpServer {
 		}
 
 		try {
-			_workflows.FailStage(reason);
+			(stage ?? throw new WorkflowException("This conversation does not own an open workflow stage.")).Fail(reason);
 		} catch (WorkflowException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;

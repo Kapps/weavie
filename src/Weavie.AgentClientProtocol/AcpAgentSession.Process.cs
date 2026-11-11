@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 
@@ -8,7 +7,7 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Start() {
 		bool restored;
-		lock (_gate) {
+		lock (_turnTransitionGate) {
 			if (_started) {
 				return;
 			}
@@ -22,7 +21,7 @@ public sealed partial class AcpAgentSession {
 			FailProcess(_restoreFailure!); // The runtime stays failed until Restart retries the restore.
 		} else {
 			try {
-				_connection.Start();
+				_runtime.Start();
 			} catch (Exception error) {
 				FailProcess(error);
 			}
@@ -33,168 +32,83 @@ public sealed partial class AcpAgentSession {
 	public void Restart() => Restart(clearSubmissions: !Primary.Failed);
 
 	private void Restart(bool clearSubmissions) {
+		if (!_archiveStop.IsCompleted) throw new InvalidOperationException("Wait for the failed conversations to stop before restarting.");
 		lock (_turnTransitionGate) {
-			if (!_displayRestored) PaneSnapshot?.Invoke(RestoreDisplay());
+			if (!_displayRestored) Output.Replace(RestoreDisplay());
 			else if (_storageFailed) _primary.Save([]);
 			_storageFailed = false;
-			var sides = Sides();
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
 				SuspendSides("ACP agent restarted.");
 				_primary.SettleInteractions();
 			} catch (AcpSessionStoreException error) {
-				StopForStorageFailure(error, sides);
+				StopForStorageFailure(error);
 				throw;
 			}
 			// The predecessor dies before the restart fails its pending requests.
-			Launch(Succeed(_primary, null, CreatePrimary), null);
+			Launch(Succeed(_primary, CreatePrimary), null);
 		}
 	}
 
 	/// <inheritdoc/>
 	public void StartNewConversation() {
-		SideRuntime[] sides;
 		lock (_turnTransitionGate) {
-			var predecessor = _primary;
-			sides = Sides();
-			// Decided before settling: settling ends the background work only a restart actually stops.
-			var process = ReplaceableProcess(predecessor);
-			try {
-				TerminalizeConversations("Conversation interrupted by /clear.", sides);
-				predecessor.SettleInteractions();
-				_sessions.Replace(_definition.Id, _context.Workspace, [], []);
-			} catch (AcpSessionStoreException error) {
-				StopForStorageFailure(error, sides);
-				throw;
-			}
-			var successor = Succeed(predecessor, process, handoff => CreatePrimary(handoff with {
-				Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false),
-			}));
-			lock (_gate) _sides.Clear();
-			foreach (var side in sides) side.Conversation.Retire();
-			_sideConversations.Clear();
-			_storageFailed = false;
-			_displayRestored = true;
-			successor.Publish(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
-			Launch(successor, process);
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			if (_clearing) throw new InvalidOperationException("Wait for the conversation to clear.");
+			_clearing = true;
 		}
-		foreach (var side in sides) DisposeSide(side);
+		try {
+			AcpConversationHandle[] sides;
+			lock (_turnTransitionGate) {
+				var predecessor = _primary;
+				sides = Sides();
+				// Decided before settling: settling ends the background work only a restart actually stops.
+				var process = ReplaceableProcess(predecessor);
+				try {
+					TerminalizeConversations("Conversation interrupted by /clear.");
+					predecessor.SettleInteractions();
+					_sessions.Replace(_definition.Id, _context.Workspace, [], []);
+				} catch (AcpSessionStoreException error) {
+					StopForStorageFailure(error);
+					throw;
+				}
+				var successor = Succeed(predecessor, handoff => CreatePrimary(handoff with {
+					Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false),
+				}));
+				_sides.Clear();
+				foreach (var side in sides) side.Conversation.Retire();
+				_sideConversations.Clear();
+				_storageFailed = false;
+				_displayRestored = true;
+				successor.Publish(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
+				Launch(successor, process);
+			}
+			foreach (var side in sides) DisposeSide(side);
+		} finally {
+			lock (_turnTransitionGate) _clearing = false;
+		}
 	}
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		SideRuntime[] sides;
-		AcpConversation primary;
 		lock (_turnTransitionGate) {
-			lock (_gate) {
-				if (_disposed) {
-					return;
-				}
-				_disposed = true;
-				primary = _primary;
-				sides = [.. _sides.Values];
-				_sides.Clear();
-			}
-			primary.SettleForDisposal();
-			foreach (var side in sides) side.Conversation.SettleForDisposal();
-			foreach (var side in sides) side.Conversation.Retire();
+			if (_disposed) return;
+			_disposed = true;
+			_sides.Clear();
 		}
-		try {
-			await primary.CloseAsync(async () => {
-				var disposals = sides.Select(side => side.Conversation.CloseAsync(static () => Task.CompletedTask)).ToArray();
-				await _connection.DisposeAsync().ConfigureAwait(false);
-				await Task.WhenAll(disposals).ConfigureAwait(false);
-			}).ConfigureAwait(false);
-		} finally {
-			await _context.Registry.DisposeAsync().ConfigureAwait(false);
-		}
+		await _runtime.DisposeAsync().ConfigureAwait(false);
+		await _archiveStop.ConfigureAwait(false);
 	}
 
-	// The process starts synchronously inside Start or Restart, so this attaches the primary just installed.
-	private void OnProcessStarted(AcpProcessGeneration process) {
-		AcpConversation conversation;
-		lock (_turnTransitionGate) {
-			conversation = _primary;
-			lock (_gate) (_processGeneration, _process) = (process.Generation, null);
-			conversation.Attach(new AcpProcess(_connection, process.Generation));
-		}
-		conversation.RunRuntime(() => InitializeAsync(conversation, process.Generation));
+	private bool FailProcess(Exception error) => _runtime.Fail(error);
+
+	private void StopForStorageFailure(AcpSessionStoreException error) {
+		ArchiveFailed(error);
+		_runtime.Fail(error, cancel: true);
 	}
 
-	private async Task InitializeAsync(AcpConversation conversation, long generation) {
-		var features = AcpAgentFeatures.Read(await _connection.RequestAsync(
-			"initialize",
-			new JsonObject {
-				["protocolVersion"] = 1,
-				["clientCapabilities"] = new JsonObject {
-					["auth"] = new JsonObject { ["terminal"] = true },
-					["fs"] = new JsonObject { ["readTextFile"] = true, ["writeTextFile"] = true },
-					["plan"] = new JsonObject(),
-					["subagents"] = new JsonObject(),
-					["terminal"] = true,
-					["session"] = PaneSessionCapabilities(),
-					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
-					["_meta"] = new JsonObject {
-						["jetbrains"] = new JsonObject {
-							["air"] = new JsonObject {
-								["version"] = 1,
-								["capabilities"] = new JsonArray("nativeSubagentSessions", "asyncTasks", "planFile"),
-							},
-						},
-					},
-				},
-				["clientInfo"] = AcpInferenceClient.ClientInfo(
-					_context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture)),
-			},
-			generation,
-			CancellationToken.None).ConfigureAwait(false));
-		lock (_turnTransitionGate) {
-			if (!conversation.Live) return;
-			lock (_gate) (_features, _process) = (features, new AcpProcess(_connection, generation));
-		}
-		await conversation.OpenAsync(features).ConfigureAwait(false);
-	}
-
-	// The pane presents notices itself, so agents need not fold them into replies.
-	private static JsonObject PaneSessionCapabilities() {
-		var session = AcpInferenceClient.SessionCapabilities();
-		session["notices"] = new JsonObject();
-		return session;
-	}
-
-	private void OnProtocolFault(long generation, Exception error) {
-		lock (_turnTransitionGate) {
-			// Attached conversations take their process's faults through their endpoints; a launch failure has none.
-			if (!_primary.Attached && _connection.IsLatestGeneration(generation)) FailProcess(error);
-		}
-	}
-
-	/// <summary>Fails the process and every conversation on it; false when the primary already ended.</summary>
-	private bool FailProcess(Exception error) {
-		lock (_turnTransitionGate) {
-			var primary = _primary;
-			if (!primary.Live) return false;
-			if (_processGeneration > 0) {
-				_connection.TerminateGeneration(
-					_processGeneration,
-					string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
-			}
-			foreach (var side in Sides()) side.Conversation.Terminate(error);
-			primary.Terminate(error);
-			return true;
-		}
-	}
-
-	private void StopForStorageFailure(AcpSessionStoreException error, IReadOnlyList<SideRuntime> sides) {
-		_storageFailed = true;
-		_primary.MarkFailed();
-		if (_processGeneration > 0) _connection.TerminateGeneration(_processGeneration, error.Message);
-		TerminalizeConversations("Conversation interrupted by a storage failure.", sides);
-		_primary.ReportFailure(error);
-	}
-
-	private void TerminalizeConversations(string summary, IReadOnlyList<SideRuntime> sides) {
-		_primary.TerminalizeForRestart(clearSubmissions: true, summary);
-		foreach (var side in sides) side.Conversation.TerminalizeForRestart(clearSubmissions: true, summary);
+	private void TerminalizeConversations(string summary) {
+		foreach (var conversation in Roots()) conversation.TerminalizeForRestart(clearSubmissions: true, summary);
+		foreach (var conversation in _runtime.Conversations.Where(conversation => conversation.Independent)) _ = _runtime.CloseAsync(conversation);
 	}
 }

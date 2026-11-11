@@ -12,7 +12,7 @@ namespace Weavie.AgentClientProtocol;
 /// The JSON-RPC transport for one transient ACP process: launched once, never restarted, and killed as a tree on
 /// disposal. Owners decide how agent requests and notifications are answered.
 /// </summary>
-internal sealed class AcpTransientConnection : IAsyncDisposable {
+internal sealed partial class AcpTransientConnection : IAsyncDisposable {
 	private const int StderrTailLines = 12;
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 	private readonly Queue<string> _stderr = new();

@@ -13,6 +13,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession {
 	private readonly IdleTurnDelivery<WorkflowKickoff> _workflowTurns;
 	private int _runtimeActivated;
+	private WorkflowStageOwner? _workflowConversation;
 
 	internal string? InheritedWorkflowDocuments { get; set; }
 
@@ -48,6 +49,15 @@ public sealed partial class HostSession {
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(WorkflowKickoff kickoff) {
+		if (kickoff.Context != WorkflowContext.Continue && Workflow.Execution is { } execution) {
+			if (_workflowConversation?.Execution != execution) {
+				_workflowConversation = new WorkflowStageOwner(this, execution, Workflow.AgentOf(execution.Stage.Id));
+				_ = Background.Run(_workflowConversation.RunLifetimeAsync);
+			}
+			var conversation = _workflowConversation;
+			_ = Background.Run(ct => conversation.SendAsync(kickoff, ct));
+			return;
+		}
 		lock (_initialInputGate) {
 			if (Agent.TerminalSession is not null && Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
 				QueueInitialInput(kickoff.Submission());
@@ -79,9 +89,15 @@ public sealed partial class HostSession {
 
 	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
-		Workflow.Dispose();
-		_workflowTurns.Dispose();
-		_workflowRelease.Dispose();
+		try {
+			if (_workflowConversation is { Execution: var execution } && Workflow.Execution == execution) {
+				execution.ConversationEnded("The stage conversation ended when the session unloaded. Resume to open a new conversation.");
+			}
+		} finally {
+			Workflow.Dispose();
+			_workflowTurns.Dispose();
+			_workflowRelease.Dispose();
+		}
 	}
 
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {

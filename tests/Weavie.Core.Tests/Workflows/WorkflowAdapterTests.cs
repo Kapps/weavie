@@ -73,9 +73,10 @@ public sealed class WorkflowAdapterTests : IDisposable {
 	public void SessionRegistryRoutesToItsRunnerAndErrorsWithoutARun() {
 		using var runner = Runner();
 		var registry = new SessionWorkflowRegistry(Catalog(), runner);
-		Assert.Throws<WorkflowException>(() => registry.CompleteStage(Json("{}"), "s"));
+		Assert.Null(registry.CaptureStageCall());
 		runner.Start("flow", Json("{}"));
-		registry.FailStage("stuck");
+		var call = registry.CaptureStageCall();
+		call!.Fail("stuck");
 		Assert.Equal(WorkflowPhase.Paused, runner.Current!.Phase);
 	}
 
@@ -120,7 +121,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	[Fact]
 	public void AKickoffBecomesAnAgentTurnOfItsKind() {
-		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" };
+		var skill = new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" };
 		Assert.Equal(("/spec x", "spec"), (skill.Submission().Text, skill.Submission().CommandName));
 		Assert.Equal(AgentTurnSubmissionKind.ProviderCommand, skill.Submission().Kind);
 		Assert.Equal(AgentTurnSubmissionKind.Prompt, WorkflowKickoff.Prompt("go").Submission().Kind);

@@ -31,7 +31,7 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 	}
 
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
-	private static WorkflowDecisionPlan Plan(WorkflowStep step) => Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Plan;
+	private static WorkflowDecisionPlan Plan(WorkflowStep step) => Assert.Single(step.Effects.OfType<WorkflowEffect.Decide>()).Plan;
 
 	[Fact]
 	public void IfAndThenSelectTypedReferencesInOrderAndKeepQuestionValuesAndSummary() {

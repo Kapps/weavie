@@ -16,7 +16,7 @@ public sealed class AcpRewindTests {
 
 		var snapshot = await fixture.WaitForSnapshotAsync();
 		Assert.Contains(snapshot, message => message.Text == "echo: alpha");
-		Assert.DoesNotContain(snapshot, message => message.Text is "bravo" or "echo: bravo" or "charlie");
+		Assert.DoesNotContain(snapshot, message => message.Type != "draft" && message.Text is "bravo" or "echo: bravo" or "charlie");
 		Assert.Equal("bravo", (await fixture.WaitForMessageAsync(message => message.Type == "draft")).Text);
 		string branch = fixture.Sessions.Resolve("fake", fixture.Workspace)!;
 		Assert.StartsWith("fake-fork-", branch, StringComparison.Ordinal);
@@ -137,7 +137,8 @@ public sealed class AcpRewindTests {
 
 		await fixture.Session.RewindLatestAsync();
 
-		Assert.Empty(await fixture.WaitForSnapshotAsync());
+		Assert.DoesNotContain(await fixture.WaitForSnapshotAsync(), message =>
+			message.Type is "turn-started" or "user-message" || message.ItemType is "agentMessage" or "tool");
 		Assert.Equal("alpha", (await fixture.WaitForMessageAsync(message => message.Type == "draft")).Text);
 		await SubmitTurnsAsync(fixture, "bravo");
 		Assert.NotEqual(original, fixture.Sessions.Resolve("fake", fixture.Workspace));

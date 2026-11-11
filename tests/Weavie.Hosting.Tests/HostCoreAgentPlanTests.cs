@@ -17,7 +17,7 @@ public sealed class HostCoreAgentPlanTests {
 		})).Ok);
 		var session = host.Session("live-plan");
 		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
-		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		Assert.True(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "plan-1"));
 		string? path = session.EditorSession.Active;
 		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
@@ -25,7 +25,7 @@ public sealed class HostCoreAgentPlanTests {
 		Submit(host, session, FakeStructuredAgentProvider.PlanRevisionPrompt);
 		Submit(host, session, FakeStructuredAgentProvider.PlanReplayPrompt);
 		var revisions = host.Bridge.PostedEvents(session.Address, "editor", "agentPlan").ToArray();
-		Assert.Equal(2, revisions.Length);
+		Assert.Single(revisions);
 		Assert.All(revisions, plan => {
 			Assert.Equal(path, plan.GetProperty("path").GetString());
 			Assert.Equal(FakeStructuredAgentProvider.RevisedPlanMarkdown, plan.GetProperty("markdown").GetString());
@@ -54,14 +54,14 @@ public sealed class HostCoreAgentPlanTests {
 		})).Ok);
 		var session = host.Session("removed-plan");
 		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
-		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		Assert.True(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "plan-1"));
 		string? path = session.EditorSession.Active;
 		host.Bridge.Clear();
 		Submit(host, session, prompt);
 		var removed = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlanRemoved"));
 		Assert.Equal(path, removed.GetProperty("path").GetString());
 		Assert.Equal(path, Assert.Single(session.EditorSession.Open).Path);
-		Assert.False(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		Assert.False(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "plan-1"));
 
 		host.Bridge.Clear();
 		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
@@ -94,19 +94,19 @@ public sealed class HostCoreAgentPlanTests {
 			host.WorkspaceSession,
 			"agent",
 			"openPlan",
-			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
+			new { providerId = "structured", conversationId = (string?)null, threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
 		bool opened = await host.SessionRequestAsync<bool>(
 			session,
 			"agent",
 			"openPlan",
-			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
+			new { providerId = "structured", conversationId = (string?)null, threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
 
 		Assert.False(wrongSession);
 		Assert.True(opened);
 		Assert.Empty(host.Bridge.PostedEvents(host.WorkspaceSession.Address, "editor", "agentPlan"));
 		var plan = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
 		Assert.Equal(
-			AgentPaneIdentity.ItemKey("thread-fake", "turn-1", "plan-1"),
+			AgentPaneIdentity.ItemKey("structured", null, "thread-fake", "turn-1", "plan-1"),
 			plan.GetProperty("id").GetString());
 		Assert.Equal("Plan", plan.GetProperty("title").GetString());
 		Assert.Equal(FakeStructuredAgentProvider.PlanMarkdown, plan.GetProperty("markdown").GetString());
@@ -130,7 +130,7 @@ public sealed class HostCoreAgentPlanTests {
 			session,
 			"agent",
 			"openPlan",
-			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
+			new { providerId = "structured", conversationId = (string?)null, threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
 
 		Assert.False(opened);
 		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
@@ -154,7 +154,7 @@ public sealed class HostCoreAgentPlanTests {
 			background,
 			"agent",
 			"openPlan",
-			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
+			new { providerId = "structured", conversationId = (string?)null, threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
 
 		Assert.True(opened);
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);

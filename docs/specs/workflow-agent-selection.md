@@ -1,7 +1,7 @@
 # Workflow agent selection
 
-Status: partially built. `agents`, a `run` step's `agent`, and `continue` on the session's own provider run end to end
-in native ACP sessions; `context` (`fork`, `fresh`), another provider's steps, `check`, and run history are not built.
+Status: partially built. `agents`, a `run` step's `agent`, and `continue`, `fork`, and `fresh` on the session's own provider run end to end
+in native ACP sessions; another provider's steps, `check`, and run history are not built.
 Extends [workflows.md](workflows.md).
 
 ## Purpose
@@ -56,8 +56,8 @@ stages:
 
 ## Where a step runs
 
-The user only ever converses with the session's own provider, so a conversation never changes provider and the
-session is never recreated.
+Each conversation keeps its provider. Main stays usable while a same-provider stage runs in its own
+replyable card. Another-provider rows below describe the deferred extension.
 
 | `context` | Session's provider | Another provider |
 | --- | --- | --- |
@@ -68,9 +68,9 @@ session is never recreated.
 - **`continue`** changes the session's conversation in place with the same call the pane's model picker makes. Stage
   turns are delivered only while the session is idle, so a switch always lands between turns. The turn is sent only
   after the agent confirms every change.
-- **`fork` and `fresh`** steps own their conversation, so the session's conversation is untouched. Weavie always sets
-  the step's model on the new conversation, including the session's own model for a step that names nothing: a fork
-  opens on the provider's default, not its parent's model.
+- **`fork` and `fresh`** steps own their conversation, so the session's conversation is untouched. Weavie copies main's
+  controls, including permission mode, then applies the step's model and options before prompting. A stage
+  naming no agent keeps those captured controls; the workflow cannot change permission mode.
 - **Another provider** runs only as a `fresh` background step, written explicitly. It receives what the workflow
   owns: its rendered prompt and args, the outputs it references, and the files in the shared worktree. There is no
   generated handoff summary.
@@ -84,7 +84,7 @@ the agent advertises it, so a step never inherits the previous step's options.
 - A workflow change is never remembered as the user's default for that provider. Only the picker remembers.
 - The run persists one **hold**: the session's own value of every axis outside the `mode` category, recorded when a
   step first takes an agent, and the step and values it holds over them (its agent's model and options, plus any
-  picks made during it). The hold is recorded before the change is applied. Every conversation that opens while the
+  picks made during it). The hold is recorded before the change is applied. Main reopening during `continue` while the
   run is live (a restart, `/clear`, Rewind, a reload after a host restart) opens on the user's defaults overlaid with
   the held values, model first.
 - When a `continue` step names nothing, the conversation returns to the session's own values before its turn and the

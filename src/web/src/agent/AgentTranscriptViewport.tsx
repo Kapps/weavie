@@ -97,7 +97,13 @@ export function AgentTranscriptViewport(props: {
     () => layout,
   );
   props.onJumpToLatest(scroll.jumpToLatest);
-  const layout = createAgentPaneLayout(scroll.shown, () => virtualizer, scroll.forgetMeasured);
+  const layout = createAgentPaneLayout(
+    scroll.shown,
+    () => virtualizer,
+    scroll.forgetMeasured,
+    props.model.cardChanges,
+    scroll.holding,
+  );
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
       return layout.count();

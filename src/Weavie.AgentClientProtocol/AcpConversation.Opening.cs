@@ -115,6 +115,7 @@ internal sealed partial class AcpConversation {
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
 			RestoreSetupActivity();
 			RaiseControls();
+			_opened.TrySetResult(null);
 			DispatchPendingSubmission();
 		}
 	}
@@ -155,7 +156,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private bool SettleInterruptedSideOpening() {
-		lock (_gate) if (!_spec.Side || _pendingSubmissions.Count > 0) return false;
+		lock (_gate) if (_spec.Role != AcpConversationRole.Side || _pendingSubmissions.Count > 0) return false;
 		Terminate(new InvalidOperationException("Side conversation interrupted."));
 		return true;
 	}
@@ -178,7 +179,7 @@ internal sealed partial class AcpConversation {
 				["type"] = "http",
 				["name"] = "weavie",
 				["url"] = _context.Registry.StreamableHttpUrl,
-				["headers"] = new JsonArray(NameValue("Authorization", "Bearer " + _context.Registry.Credential.Token)),
+				["headers"] = new JsonArray(NameValue("Authorization", "Bearer " + _binding.Tools.Credential.Token)),
 			});
 		}
 		return new JsonArray(new JsonObject {
@@ -188,7 +189,7 @@ internal sealed partial class AcpConversation {
 			["args"] = new JsonArray(),
 			["env"] = new JsonArray(
 				NameValue("WEAVIE_MCP_URL", _context.Registry.StreamableHttpUrl),
-				NameValue("WEAVIE_MCP_TOKEN", _context.Registry.Credential.Token)),
+				NameValue("WEAVIE_MCP_TOKEN", _binding.Tools.Credential.Token)),
 		});
 	}
 

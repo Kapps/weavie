@@ -8,33 +8,29 @@ namespace Weavie.Hosting.Agents;
 /// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
 public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly MessageFeatureChannel _messages;
-	private readonly AgentPaneLedger _pane = new();
-	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
-	private long _paneGeneration;
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(
 		IAgentProvider provider,
-		AgentSessionContext context,
+		Func<ConversationOutput, AgentSessionContext> contextFactory,
 		MessageFeatureChannel messages,
 		MessageFeatureChannel terminalMessages,
 		SettingsStore settings,
 		IPtyLauncher ptyLauncher) {
 		ArgumentNullException.ThrowIfNull(provider);
-		ArgumentNullException.ThrowIfNull(context);
+		ArgumentNullException.ThrowIfNull(contextFactory);
 		ArgumentNullException.ThrowIfNull(messages);
 		ArgumentNullException.ThrowIfNull(terminalMessages);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		_messages = messages;
+		_paneOutput = new AgentPaneOutput(messages, settings.RequireInt(AgentSettings.PaneCoalesceMs), PublishPlans, Console.WriteLine);
+		Output = new ConversationOutput(_paneOutput);
+		var context = contextFactory(Output);
 		_authenticationTerminal = context.AuthenticationTerminal;
 		AuthenticationTerminal = context.AuthenticationTerminal as AgentAuthenticationTerminal;
-		_paneOutput = new AgentPaneOutput(
-			messages,
-			settings.RequireInt(AgentSettings.PaneCoalesceMs),
-			Console.WriteLine);
 		Provider = provider.Info;
 		try {
 			Session = provider.CreateSession(context);
@@ -54,10 +50,8 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			};
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
-			structuredSession.PaneMessage += PublishPaneMessage;
-			structuredSession.PaneSnapshot += RestorePaneSnapshot;
 			structuredSession.QueuedSubmissionsChanged += PublishQueuedSubmissions;
-			LoadSavedTranscript(structuredSession.Restore());
+			structuredSession.Restore();
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
@@ -77,6 +71,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		SideConversations = Session as IStructuredAgentSideConversations;
 		Rewind = Session as IStructuredAgentRewind;
 	}
+
+	/// <summary>The shared conversation ledger.</summary>
+	public ConversationOutput Output { get; }
 
 	/// <summary>The selected provider identity.</summary>
 	public AgentProviderInfo Provider { get; }
@@ -119,8 +116,6 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
 		}
 		if (Structured is { } structured) {
-			structured.PaneMessage -= PublishPaneMessage;
-			structured.PaneSnapshot -= RestorePaneSnapshot;
 			structured.QueuedSubmissionsChanged -= PublishQueuedSubmissions;
 		}
 		if (Controls is { } controls) {

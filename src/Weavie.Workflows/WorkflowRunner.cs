@@ -75,7 +75,11 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>Resumes the persisted run: re-reads its definition and re-performs any owed turn or decision.</summary>
 	public void Activate() {
 		lock (_gate) {
-			if (_run is not { IsFinished: false } run) {
+			if (_run is not { } run) {
+				return;
+			}
+			if (run.IsFinished) {
+				if (run.Kickoff is { } report) _port.Kickoff(report);
 				return;
 			}
 
@@ -90,6 +94,13 @@ public sealed partial class WorkflowRunner : IDisposable {
 			}
 
 			_definition = read.Definition;
+			_execution = CreateExecution();
+			if (_execution.Stage.Run.Context != WorkflowContext.Continue && run.Phase != WorkflowPhase.Paused
+				&& run.Decision != WorkflowDecisionKind.If
+				&& run.Kickoff is not { Context: not WorkflowContext.Continue }) {
+				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to open a new conversation.");
+				return;
+			}
 			if (run.Kickoff is { } kickoff) _port.Kickoff(kickoff);
 			if (run.Phase == WorkflowPhase.Deciding) {
 				Apply(Transitions().Resume(run with { Phase = WorkflowPhase.Paused }));
@@ -100,7 +111,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The stage block for the agent's next turn, or empty.</summary>
 	public string StageBlock() {
 		lock (_gate) {
-			return WorkflowStageBlock.Compose(_run, _definition, _words);
+			return WorkflowStageBlock.Compose(_run, _definition, _words, ownsStage: false);
 		}
 	}
 
@@ -138,14 +149,21 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	/// <summary>The agent completes the current stage with its outputs and a summary; returns the reply for the agent.</summary>
 	public string CompleteStage(JsonElement outputs, string summary) {
+		var call = CaptureStageCall() ?? throw new WorkflowException("This conversation does not own an open workflow stage.");
+		return call.Complete(outputs, summary);
+	}
+
+	private string CompleteStageLocked(JsonElement outputs, string summary) {
 		lock (_gate) {
+			bool independent = _execution!.Stage.Run.Context != WorkflowContext.Continue;
 			var completion = Transitions().Complete(Live(), outputs, summary);
-			Apply(completion.Step);
+			Commit(completion.Step.Run, completion.Step.Effects, replaceDecision: true, completed: true);
 			if (completion.Errors.Count > 0) {
 				return _run!.Phase == WorkflowPhase.Paused
 					? $"Rejected again, so the run is paused for the user: {_run.PausedReason}"
 					: $"Not complete — fix these and call {_words.CompleteStage} again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
 			}
+			if (independent) return "Complete. The main conversation receives the result and any user question. End your turn now.";
 
 			return _run!.Phase switch {
 				WorkflowPhase.Asking => $"Complete. {WorkflowStageBlock.PutToUser(_run.Asked!, _words, _openReviewItem())}",
@@ -169,7 +187,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	}
 
 	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
-	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback));
+	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback), completed: true);
 
 	/// <summary>The user resumes paused run <paramref name="runId"/>.</summary>
 	public void Resume(string runId) => Mutate(runId, run => Transitions().Resume(run));
@@ -220,7 +238,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return false;
 			}
 
-			Commit(_run! with { Kickoff = null }, []);
+			Commit(_run! with { Kickoff = null, Unreported = turn.Context == WorkflowContext.Continue ? "" : _run.Unreported }, []);
 			return true;
 		}
 	}
@@ -229,19 +247,24 @@ public sealed partial class WorkflowRunner : IDisposable {
 	public void Dispose() {
 		lock (_gate) {
 			_closed = true;
+			_execution?.Retire(completed: false);
+			_execution = null;
 			_pending?.Dispose();
 			_pending = null;
 		}
 	}
 
-	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition) {
+	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition) => Mutate(runId, transition, completed: false);
+
+	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition, bool completed) {
 		lock (_gate) {
 			var run = Live();
 			if (runId is not null && run.Id != runId) {
 				throw new WorkflowException($"Run {runId} isn't this session's live run ({run.Id}).");
 			}
 
-			Apply(transition(run));
+			var step = transition(run);
+			Commit(step.Run, step.Effects, replaceDecision: true, completed);
 		}
 	}
 
@@ -252,17 +275,18 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private WorkflowTransitions Transitions() =>
 		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
 
-	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true);
+	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true, completed: false);
 
-	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) => Commit(run, effects, replaceDecision: false);
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) => Commit(run, effects, replaceDecision: false, completed: false);
 
-	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects, bool replaceDecision) {
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects, bool replaceDecision, bool completed) {
 		_store.Save(run);
 		if (replaceDecision) {
 			_pending?.Dispose();
 			_pending = null;
 		}
 		_run = run;
+		UpdateExecution(effects, completed);
 		foreach (var effect in effects) {
 			switch (effect) {
 				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
@@ -281,7 +305,8 @@ public sealed partial class WorkflowRunner : IDisposable {
 			}
 
 			try {
-				Apply(Transitions().Resolve(_run!, result, decision.MinimumConfidence));
+				var step = Transitions().Resolve(_run!, result, decision.MinimumConfidence);
+				Commit(step.Run, step.Effects, replaceDecision: true, completed: true);
 			} catch (Exception ex) when (ex is WorkflowException or IOException or UnauthorizedAccessException) {
 				_pending?.Dispose();
 				_pending = null;

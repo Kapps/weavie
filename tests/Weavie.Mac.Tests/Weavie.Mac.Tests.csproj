@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-macos</TargetFramework>
+    <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
     <OutputType>Exe</OutputType>
     <ApplicationId>io.github.kapps.weavie.menutests</ApplicationId>
     <IsPackable>false</IsPackable>

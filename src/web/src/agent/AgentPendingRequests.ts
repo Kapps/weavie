@@ -13,7 +13,9 @@ export function orderPendingRequests(source: readonly AgentTranscriptEntry[]): {
   const retained = new Set<string>();
   for (const original of source) {
     let entry = original;
-    if (entry.asideEntries !== undefined) {
+    if (entry.conversation !== undefined) {
+      if (entry.conversation.transcript().pendingRowIndexes.length > 0) retained.add(entry.id);
+    } else if (entry.asideEntries !== undefined) {
       const aside = orderPendingRequests(entry.asideEntries);
       entry = { ...entry, asideEntries: aside.entries };
       if (aside.pendingRowIndexes.length > 0) retained.add(entry.id);

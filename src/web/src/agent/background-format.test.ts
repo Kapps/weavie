@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toAgentTranscript } from "./AgentPaneMessages";
+import { toAgentTranscript } from "./AgentPaneTestModel";
 import { backgroundStatus, rovingTarget } from "./background-format";
 
 describe("background tray", () => {

@@ -43,6 +43,7 @@ export default function AgentSubagentTab(props: {
               </div>
             </article>
             <NestedTranscript
+              pendingOnly={false}
               entries={subagent().asideEntries ?? []}
               expandedDetails={expanded()}
               keyboardRequestKey={null}

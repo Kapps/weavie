@@ -15,9 +15,9 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
   await expect(card).toHaveAttribute("data-state", "running");
   const toggle = card.locator(".agent-entry-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(card).not.toContainText("counting");
+  await expect(card.getByText("counting", { exact: true })).toBeHidden();
   await toggle.click();
-  await expect(card).toContainText("counting");
+  await expect(card.getByText("counting", { exact: true })).toBeVisible();
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);

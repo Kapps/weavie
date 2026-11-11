@@ -263,7 +263,7 @@ export function createAgentPaneScroll(
   // New output while following lands at the bottom, unless the reader is moving.
   createEffect(
     on(
-      shown,
+      [shown, model.latestOutput],
       () => {
         if (following() && position !== 0 && !driving()) moveTo(0);
       },

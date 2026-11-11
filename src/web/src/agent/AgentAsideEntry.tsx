@@ -52,9 +52,8 @@ export function AsideEntry(props: {
       </button>
       <div>
         <NestedTranscript
-          entries={
-            collapsed() ? (props.entry.pendingEntries ?? []) : (props.entry.asideEntries ?? [])
-          }
+          entries={props.entry.asideEntries ?? []}
+          pendingOnly={collapsed()}
           expandedDetails={props.expandedDetails}
           keyboardRequestKey={props.keyboardRequestKey}
           onDetailsToggle={props.onDetailsToggle}

@@ -21,11 +21,7 @@ export function AgentSubagentEntry(props: {
   const running = () => info().state === "running";
   const collapsed = () => !props.expandedDetails.has(props.entry.id);
   const toggle = () => props.onDetailsToggle(props.entry.id, collapsed());
-  const entries = createMemo(() =>
-    collapsed()
-      ? (props.entry.pendingEntries ?? [])
-      : subagentCardEntries(props.entry.asideEntries ?? [], true),
-  );
+  const entries = createMemo(() => subagentCardEntries(props.entry.asideEntries ?? [], true));
   const now = liveNow(running);
   const toggleTitle = () =>
     `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
@@ -75,6 +71,7 @@ export function AgentSubagentEntry(props: {
         <Show when={entries().length > 0}>
           <NestedTranscript
             entries={entries()}
+            pendingOnly={collapsed()}
             expandedDetails={props.expandedDetails}
             keyboardRequestKey={props.keyboardRequestKey}
             onDetailsToggle={props.onDetailsToggle}

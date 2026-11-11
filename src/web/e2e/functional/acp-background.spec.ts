@@ -20,9 +20,9 @@ test("a subagent starts collapsed and keeps explicit expansion when it finishes"
   await expect(card.locator(".agent-entry-summary").first()).toHaveText("Explore");
   const toggle = card.locator(".agent-entry-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(card).not.toContainText("counting");
+  await expect(card.getByText("counting", { exact: true })).toBeHidden();
   await toggle.click();
-  await expect(card).toContainText("counting");
+  await expect(card.getByText("counting", { exact: true })).toBeVisible();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await submitAcpDraft(surface, "/btw side question");
   await expect(surface.locator(".agent-aside")).toContainText("echo: side question");

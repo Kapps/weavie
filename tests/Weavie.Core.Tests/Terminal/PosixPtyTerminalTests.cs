@@ -47,6 +47,20 @@ public sealed class PosixPtyTerminalTests {
 	}
 
 	[Fact]
+	public void InitialSizeIsAvailableToTheChildAtLaunch() {
+		if (OperatingSystem.IsWindows()) return;
+
+		var (output, exitCode) = RunToCompletion(new TerminalStartInfo {
+			Command = "/bin/stty",
+			Arguments = ["size"],
+			Columns = 131,
+			Rows = 37,
+		}, 5);
+		Assert.Equal(0, exitCode);
+		Assert.Contains("37 131", output, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void Dispose_HangsUpAnInteractiveShell_InsteadOfKillingIt() {
 		if (OperatingSystem.IsWindows()) return;
 

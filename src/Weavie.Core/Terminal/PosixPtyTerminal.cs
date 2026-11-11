@@ -59,8 +59,6 @@ public sealed class PosixPtyTerminal : ITerminal {
 			_hangUpOnStop = startInfo.HangUpOnStop;
 			_running = true;
 
-			Resize(startInfo.Columns, startInfo.Rows);
-
 			_readThread = new Thread(ReadLoop) { IsBackground = true, Name = "weavie-pty-read" };
 			_readThread.Start();
 		}
@@ -119,6 +117,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 				throw new IOException("ptsname returned null.");
 			}
 
+			SetWindowSize(master, startInfo.Columns, startInfo.Rows);
 			int pid = SpawnChild(startInfo, slavePath);
 			return (master, pid);
 		} catch {
@@ -252,16 +251,16 @@ public sealed class PosixPtyTerminal : ITerminal {
 			return;
 		}
 
-		ushort cols = (ushort)Math.Clamp(columns, 1, ushort.MaxValue);
-		ushort rowCount = (ushort)Math.Clamp(rows, 1, ushort.MaxValue);
-		SetWindowSize(_masterFd, rowCount, cols);
+		SetWindowSize(_masterFd, columns, rows);
 	}
 
-	private static void SetWindowSize(int fd, ushort rows, ushort cols) {
+	private static void SetWindowSize(int fd, int columns, int rows) {
+		ushort cols = (ushort)Math.Clamp(columns, 1, ushort.MaxValue);
+		ushort rowCount = (ushort)Math.Clamp(rows, 1, ushort.MaxValue);
 		if (OperatingSystem.IsMacOS()) {
-			weavie_set_winsize(fd, rows, cols);
+			weavie_set_winsize(fd, rowCount, cols);
 		} else {
-			var ws = new Winsize { ws_row = rows, ws_col = cols };
+			var ws = new Winsize { ws_row = rowCount, ws_col = cols };
 			ioctl(fd, TIOCSWINSZ, ref ws);
 		}
 	}

@@ -258,6 +258,37 @@ test("jumping to the latest output reaches the end of a reply that arrived while
   await expect(jumpToLatest(page)).toHaveCount(0);
 });
 
+test("the transcript is never shorter while its rows update than once they have", async ({
+  page,
+  openPanes,
+}) => {
+  // WebKitGTK lays out between a row's removal and the spacer that replaces it, and clamps a reader near the
+  // top to the shorter transcript. This lays out at every removal and again once the update is done.
+  await page.addInitScript(() => {
+    const shortfalls: number[] = [];
+    Object.assign(window, { shortfalls });
+    const { remove } = Element.prototype;
+    Element.prototype.remove = function (this: Element): void {
+      remove.call(this);
+      if (!this.classList.contains("agent-virtual-row")) return;
+      const body = document.querySelector(".agent-body")!;
+      const during = body.scrollHeight;
+      queueMicrotask(() => shortfalls.push(body.scrollHeight - during));
+    };
+  });
+  const pane = await openPanes({ "row-updates": history });
+  const { body } = pane;
+  await expect(page.getByText("Answer 29", { exact: true })).toBeVisible();
+  await wheelUp(pane, 1500, 1000);
+  await wheelUp(pane, 1500, 2000);
+  const shortfalls = await page.evaluate(
+    () => (window as unknown as { shortfalls: number[] }).shortfalls,
+  );
+  expect(shortfalls.length).toBeGreaterThan(0);
+  expect(Math.max(...shortfalls)).toBeLessThanOrEqual(1);
+  expect(await fromBottom(body)).toBeGreaterThan(2000);
+});
+
 test("following the latest output stays at the bottom and keyboard keys scroll the pane", async ({
   page,
   openPanes,

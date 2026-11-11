@@ -27,13 +27,14 @@ export function AgentTranscript(props: {
   const rows = createMemo(() => {
     const items = props.virtualizer.getVirtualItems();
     const placed = new Map<VirtualItem["key"], { gap: number; index: number }>();
-    let above = props.virtualizer.getTotalSize();
+    const total = props.virtualizer.getTotalSize();
+    let above = total;
     for (let position = items.length - 1; position >= 0; position--) {
       const item = items[position]!;
       placed.set(item.key, { gap: above - item.end, index: item.index });
       above = item.start;
     }
-    return { below: above, placed };
+    return { below: above, placed, total };
   });
   // After the whole update, once every row has rendered where the virtualizer placed it.
   createEffect(on(rows, () => queueMicrotask(props.onLayout), { defer: true }));
@@ -42,69 +43,72 @@ export function AgentTranscript(props: {
       when={props.transcript.entries.length > 0}
       fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
     >
-      <div
-        class="agent-transcript"
-        data-agent-transcript
-        style={`padding-bottom:${rows().below}px`}
-      >
-        <For each={[...rows().placed.keys()]}>
-          {(key) => {
-            // By identity, so a row's view updates only when its own entry changes; a removed row keeps its
-            // last entry until it unmounts.
-            const entry = createMemo<AgentTranscriptEntry>(
-              (last) => props.entryForKey(key) ?? last!,
-            );
-            const row = () => rows().placed.get(key)!;
-            const previous = () => props.entryAt(row().index + 1);
-            let element: HTMLDivElement | undefined;
-            onCleanup(() => {
-              props.virtualizer.measureElement(null);
-              // A focused row scrolled out of range hands focus to the scroller, which keeps the scrolling keys.
-              if (element?.contains(document.activeElement) === true) {
-                element.closest<HTMLElement>(".agent-transcript-scroller")!.focus({
-                  preventScroll: true,
-                });
-              }
-            });
-            return (
-              <div
-                class="agent-virtual-row"
-                classList={{
-                  "agent-virtual-row-assistant-pair":
-                    entry().kind === "message" &&
-                    entry().tone === "assistant" &&
-                    previous()?.kind === "message" &&
-                    previous()?.tone === "assistant",
-                  "agent-virtual-row-first": previous() === undefined,
-                  "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
-                }}
-                data-index={row().index}
-                data-agent-turn-output-start={
-                  entry().id === props.transcript.agentTurnStartId ? "" : undefined
+      {/* Holds the full height while rows and spacers change one by one, so no layout in between clamps the reader. */}
+      <div class="agent-transcript-extent" style={`min-height:${rows().total}px`}>
+        <div
+          class="agent-transcript"
+          data-agent-transcript
+          style={`padding-bottom:${rows().below}px`}
+        >
+          <For each={[...rows().placed.keys()]}>
+            {(key) => {
+              // By identity, so a row's view updates only when its own entry changes; a removed row keeps its
+              // last entry until it unmounts.
+              const entry = createMemo<AgentTranscriptEntry>(
+                (last) => props.entryForKey(key) ?? last!,
+              );
+              const row = () => rows().placed.get(key)!;
+              const previous = () => props.entryAt(row().index + 1);
+              let element: HTMLDivElement | undefined;
+              onCleanup(() => {
+                props.virtualizer.measureElement(null);
+                // A focused row scrolled out of range hands focus to the scroller, which keeps the scrolling keys.
+                if (element?.contains(document.activeElement) === true) {
+                  element.closest<HTMLElement>(".agent-transcript-scroller")!.focus({
+                    preventScroll: true,
+                  });
                 }
-                data-transcript-entry={entry().id}
-                // Observed once its index is set; the observer measures it after layout, even mid-scroll.
-                ref={(mounted) => {
-                  element = mounted;
-                  queueMicrotask(
-                    () => mounted.isConnected && props.virtualizer.measureElement(mounted),
-                  );
-                }}
-                style={row().gap > 0 ? `margin-top:${row().gap}px` : undefined}
-              >
-                <TranscriptEntry
-                  expandedDetails={props.expandedDetails}
-                  entry={entry()}
-                  keyboardRequestKey={props.keyboardRequestKey}
-                  latestPromptTurn={latestPromptTurn()}
-                  onDetailsToggle={props.onDetailsToggle}
-                  sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
-                  session={props.session}
-                />
-              </div>
-            );
-          }}
-        </For>
+              });
+              return (
+                <div
+                  class="agent-virtual-row"
+                  classList={{
+                    "agent-virtual-row-assistant-pair":
+                      entry().kind === "message" &&
+                      entry().tone === "assistant" &&
+                      previous()?.kind === "message" &&
+                      previous()?.tone === "assistant",
+                    "agent-virtual-row-first": previous() === undefined,
+                    "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
+                  }}
+                  data-index={row().index}
+                  data-agent-turn-output-start={
+                    entry().id === props.transcript.agentTurnStartId ? "" : undefined
+                  }
+                  data-transcript-entry={entry().id}
+                  // Observed once its index is set; the observer measures it after layout, even mid-scroll.
+                  ref={(mounted) => {
+                    element = mounted;
+                    queueMicrotask(
+                      () => mounted.isConnected && props.virtualizer.measureElement(mounted),
+                    );
+                  }}
+                  style={row().gap > 0 ? `margin-top:${row().gap}px` : undefined}
+                >
+                  <TranscriptEntry
+                    expandedDetails={props.expandedDetails}
+                    entry={entry()}
+                    keyboardRequestKey={props.keyboardRequestKey}
+                    latestPromptTurn={latestPromptTurn()}
+                    onDetailsToggle={props.onDetailsToggle}
+                    sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
+                    session={props.session}
+                  />
+                </div>
+              );
+            }}
+          </For>
+        </div>
       </div>
     </Show>
   );

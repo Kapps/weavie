@@ -7,16 +7,16 @@ public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, AcpConversationState> _sideConversations = new(StringComparer.Ordinal);
 	private volatile bool _storageFailed;
 	private Task _archiveStop = Task.CompletedTask;
-	private readonly Lock _archiveGate = new();
 	private bool _displayRestored;
 	private Exception? _restoreFailure;
 
 	private void ArchiveFailed(AcpSessionStoreException error) {
-		lock (_archiveGate) {
+		lock (_turnTransitionGate) {
 			if (_storageFailed) return;
 			_storageFailed = true;
+			var owner = _primary;
 			_archiveStop = Task.Run(() => {
-				_runtime.Fail(error);
+				lock (_turnTransitionGate) if (owner.Live) _runtime.Fail(error);
 			});
 		}
 	}

@@ -32,7 +32,6 @@ public sealed partial class AcpAgentSession {
 	public void Restart() => Restart(clearSubmissions: !Primary.Failed);
 
 	private void Restart(bool clearSubmissions) {
-		if (!_archiveStop.IsCompleted) throw new InvalidOperationException("Wait for the failed conversations to stop before restarting.");
 		lock (_turnTransitionGate) {
 			if (!_displayRestored) Output.Replace(RestoreDisplay());
 			else if (_storageFailed) _primary.Save([]);

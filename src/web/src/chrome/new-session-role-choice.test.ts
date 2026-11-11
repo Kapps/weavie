@@ -46,7 +46,7 @@ const pair = (problem: string | null = null): RolePair => ({
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-const harness = (answer: (model: string) => RoleControls = controls) => {
+const harness = (answer: (model: string) => RoleControls | Promise<RoleControls> = controls) => {
   const states: RoleChoiceState[] = [];
   const asked: string[] = [];
   const suggestions = new Map<
@@ -89,8 +89,11 @@ describe("NewSessionRoleChoice", () => {
     await flush();
     expect(labels(row("planner")?.axes)).toEqual(["Model: No model"]);
     choice.pick("planner", "model", "sol");
-    expect(rolesReady(state())).toBe(false);
     choice.pick("builder", "model", "sol");
+    // Not until the agent has said what the model offers: a start saves what is on screen.
+    expect(row("builder")?.pending).toBe(true);
+    expect(rolesReady(state())).toBe(false);
+    await flush();
     expect(rolesReady(state())).toBe(true);
     expect(choice.capture()).toEqual({
       planner: { model: "sol", options: {} },
@@ -173,16 +176,43 @@ describe("NewSessionRoleChoice", () => {
     expect([...suggestions.keys()]).toEqual(["planner", "builder"]);
   });
 
-  it("keeps the picked model and says why when its options can't be asked for", async () => {
+  it("keeps the picked model, says why its options can't be asked for, and asks again next time", async () => {
+    let failing = true;
+    const { choice, row, asked } = harness((model) => {
+      if (model !== "astra" || !failing) return controls(model);
+      throw new Error("agent refused");
+    });
+    choice.show(pair());
+    await flush();
+    choice.pick("planner", "model", "astra");
+    await flush();
+    expect(row("planner")).toMatchObject({
+      pending: false,
+      problem: "Couldn't get the options: agent refused",
+    });
+    expect(choice.capture().planner).toEqual({ model: "astra", options: {} });
+
+    failing = false;
+    choice.pick("builder", "model", "astra");
+    await flush();
+    expect(labels(row("builder")?.axes)).toEqual(["Model: Astra", "Effort: Medium"]);
+    expect(asked).toEqual(["", "astra", "astra"]);
+  });
+
+  it("ignores a model's options that land after another model was picked", async () => {
+    const late: ((result: RoleControls) => void)[] = [];
     const { choice, row } = harness((model) =>
-      model === "sol" ? { axes: [modelAxis("sol")], error: "agent refused" } : controls(model),
+      model === "astra" ? new Promise((resolve) => late.push(resolve)) : controls(model),
     );
     choice.show(pair());
     await flush();
+    choice.pick("planner", "model", "astra");
     choice.pick("planner", "model", "sol");
     await flush();
-    expect(row("planner")?.problem).toBe("Couldn't get the options: agent refused");
-    expect(choice.capture().planner).toEqual({ model: "sol", options: {} });
+    late[0]?.(controls("astra"));
+    await flush();
+    expect(labels(row("planner")?.axes)).toEqual(["Model: Sol"]);
+    expect(row("planner")?.pending).toBe(false);
   });
 
   it("discards a suggestion still on its way when a start captures the rows", async () => {

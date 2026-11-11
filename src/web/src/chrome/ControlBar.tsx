@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-solid";
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createSignal, createUniqueId, For, Index, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { AgentControlAxis } from "../messaging/protocol-types";
 import { ControlMenu, controlMenuPlacement } from "./ControlMenu";
@@ -19,41 +19,53 @@ export function ControlBar(props: {
   menuClass: string;
   onPick: (axisId: string, value: string) => void;
 }): JSX.Element {
-  const [open, setOpen] = createSignal<{ axis: AgentControlAxis; anchor: DOMRect } | null>(null);
-  const toggle = (axis: AgentControlAxis, segment: HTMLElement): void => {
+  // The open segment's id and where it sat; a menu and its toggles are told apart from every other bar's by `scope`.
+  const [open, setOpen] = createSignal<{ id: string; anchor: DOMRect } | null>(null);
+  const scope = createUniqueId();
+  // A busy segment stays focusable, so the focus survives the change it is waiting on; it just doesn't open.
+  const toggle = (id: string, segment: HTMLElement): void => {
+    if (props.busy) {
+      return;
+    }
     setOpen((current) =>
-      current?.axis.id === axis.id ? null : { axis, anchor: segment.getBoundingClientRect() },
+      current?.id === id ? null : { id, anchor: segment.getBoundingClientRect() },
     );
   };
 
   return (
     <>
-      <fieldset class="control-bar" aria-label={props.label} disabled={props.disabled}>
-        <For each={props.axes}>
+      <fieldset
+        class="control-bar"
+        aria-label={props.label}
+        disabled={props.disabled}
+        data-control-bar={scope}
+      >
+        {/* By position, so a segment whose value changed stays the same button and keeps the focus. */}
+        <Index each={props.axes}>
           {(axis) => (
             <button
               type="button"
               class="control-bar-pick"
-              disabled={props.busy}
+              aria-disabled={props.busy}
               aria-haspopup="listbox"
-              aria-expanded={open()?.axis.id === axis.id}
-              title={`${axis.label}: ${axis.valueLabel}`}
-              onClick={(event) => toggle(axis, event.currentTarget)}
+              aria-expanded={open()?.id === axis().id}
+              title={`${axis().label}: ${axis().valueLabel}`}
+              onClick={(event) => toggle(axis().id, event.currentTarget)}
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown" && open() === null) {
                   event.preventDefault();
-                  toggle(axis, event.currentTarget);
+                  toggle(axis().id, event.currentTarget);
                 }
               }}
             >
-              <small class="ui-section-label">{axis.label}</small>
+              <small class="ui-section-label">{axis().label}</small>
               <span>
-                {axis.valueLabel}
+                {axis().valueLabel}
                 <ChevronDown size="0.95em" aria-hidden="true" />
               </span>
             </button>
           )}
-        </For>
+        </Index>
         <Show when={props.axes === undefined}>
           <For each={props.placeholders}>
             {(label) => (
@@ -70,20 +82,24 @@ export function ControlBar(props: {
         </Show>
       </fieldset>
       <Show when={open()} keyed>
-        {(menu) => (
-          <Portal>
-            <ControlMenu
-              axis={menu.axis}
-              class={props.menuClass}
-              style={controlMenuPlacement(menu.anchor)}
-              inside={`.${props.menuClass}, .control-bar-pick`}
-              onPick={(value) => {
-                setOpen(null);
-                props.onPick(menu.axis.id, value);
-              }}
-              onClose={() => setOpen(null)}
-            />
-          </Portal>
+        {(at) => (
+          <Show when={props.axes?.find((candidate) => candidate.id === at.id)}>
+            {(axis) => (
+              <Portal>
+                <ControlMenu
+                  axis={axis()}
+                  class={`${props.menuClass} control-bar-menu-${scope}`}
+                  style={controlMenuPlacement(at.anchor)}
+                  inside={`.control-bar-menu-${scope}, [data-control-bar="${scope}"] .control-bar-pick`}
+                  onPick={(value) => {
+                    setOpen(null);
+                    props.onPick(at.id, value);
+                  }}
+                  onClose={() => setOpen(null)}
+                />
+              </Portal>
+            )}
+          </Show>
         )}
       </Show>
     </>

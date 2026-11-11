@@ -175,7 +175,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.WorkflowSuggestionRequest))]
 [JsonSerializable(typeof(HostCore.WorkflowSuggestionResult))]
 [JsonSerializable(typeof(HostCore.RoleControlsRequest))]
-[JsonSerializable(typeof(HostCore.RoleControlsResult))]
+[JsonSerializable(typeof(Weavie.Core.Workflows.WorkflowRoleControls))]
 [JsonSerializable(typeof(HostCore.RoleSuggestionRequest))]
 [JsonSerializable(typeof(HostCore.RoleSuggestionResult))]
 [JsonSerializable(typeof(HostCore.HostHello))]

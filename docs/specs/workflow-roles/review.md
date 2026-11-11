@@ -7,6 +7,7 @@ a duplication pass over the diff, and every finding was checked against the code
 - **Second pass**: commit `cef27991`, the fixes; it confirms each fix and reviews only what that commit changed.
 - **Third pass**: commit `496a0daa`, the second round of fixes, reviewed the same way.
 - 18, 19, and 22 are fixed in the commit after `496a0daa`, with no further review pass; 20 and 21 stay open as nits.
+- **Rework pass**: commit `35209ce0`, the role pickers rebuilt on the getting-started bar. Its findings are fixed in the commit after it, with no further review pass.
 
 ## Findings
 
@@ -34,6 +35,16 @@ a duplication pass over the diff, and every finding was checked against the code
 | 20 | nit | open | One provider-level reason is still masked when every role has a pick. |
 | 21 | nit | open | The `Save` guard and two tests claim more than they check. |
 | 22 | nit | fixed | A doubled blank line was left in `WorkflowRoleCommand.cs`. |
+| 23 | bug | fixed | Two role menus could be open at once, and one Enter picked in both. |
+| 24 | warn | fixed | A keyboard pick dropped the focus to the page. |
+| 25 | warn | fixed | A role menu could run off a phone screen. |
+| 26 | warn | fixed | A model the agent refused silently showed another model's Effort and Fast mode. |
+| 27 | warn | fixed | A failed options request was remembered for as long as the workflow and provider stayed chosen. |
+| 28 | warn | fixed | Nothing showed that a model's options were being fetched, and Start could save the role without them. |
+| 29 | warn | fixed | The late-result guard, the rejection path, and the options probe had no tests. |
+| 30 | nit | fixed | A provider that can't be asked for options returned no reason. |
+| 31 | nit | fixed | The design still described the model-only shape in four places. |
+| 32 | nit | open | The shared bar keeps the getting-started dialog's from-scratch button styling. |
 
 ## Detail
 
@@ -294,6 +305,35 @@ first, so it would also have passed before the fix.
 Two blank lines remain at `src/Weavie.Core/Workflows/WorkflowRoleCommand.cs:37`, where `AgentArgument` was removed.
 
 **Fixed.**
+
+## Rework pass
+
+The composer's role rows were rebuilt on the getting-started dialog's picker bar (`ControlBar`), with Model, Effort,
+and Fast mode. One fresh-context review of that commit:
+
+- **23 (bug, fixed).** Every `ControlBar` treated any bar's segment as its own, so clicking another role's picker
+  left the first menu open, and both took the same key. Each bar now scopes its menu and segments with its own id.
+  The composer spec opens one role's menu, then another's, and expects one listbox.
+- **24 (warn, fixed).** Segments were re-created whenever a value changed, and a busy segment was disabled, so the
+  focus fell to the page after a keyboard pick. Segments are kept by position and a busy one stays focusable; the
+  composer spec asserts the segment is still focused.
+- **25 (warn, fixed).** `controlMenuPlacement` opens a menu from its anchor's right edge when its least width
+  wouldn't fit before the viewport's. Checked by a probe at 390px (the menu's right edge at 362); no committed test,
+  since the unit tests have no DOM.
+- **26 (warn, fixed).** `WorkflowRoleAxes.AskAsync` shows a model's options only when the probe reports that model
+  selected; otherwise the row keeps its Model picker and says the agent didn't take the model.
+- **27 (warn, fixed).** A failed options request is forgotten, so picking the model again asks again.
+- **28 (warn, fixed).** A row is busy while its model's options are asked for, and Start waits for it.
+- **29 (warn, fixed).** Tests cover a result landing after another model was picked, a rejected request, and the
+  probe succeeding, failing, being refused, and being unavailable.
+- **30**, **31 (nits, fixed).**
+- **32 (nit, open).** `.control-bar-pick` sets a font on a control, takes its height from padding, and sizes its
+  chevron in `em`, moved as it was from getting-started so the two look the same. Rebuilding it on the primitives
+  would change the getting-started dialog too.
+
+The recording pass noted, without calling them defects: a disabled Start gives no reason while a role has no model;
+a row's bar goes from one full-width segment to two when the model's options arrive; and the composer's segments are
+wide for short values.
 
 ## Checked and sound
 

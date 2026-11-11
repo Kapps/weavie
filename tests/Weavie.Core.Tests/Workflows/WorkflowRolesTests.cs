@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
 using Weavie.Core.Workflows;
 using Weavie.TestSupport;
 using Weavie.Workflows;
@@ -150,6 +151,43 @@ public sealed class WorkflowRolesTests : IDisposable {
 			("""{"planner":{"model":"beta","options":{"effort":null}}}""", "Option 'effort' needs a value id."),
 		}) {
 			Assert.Equal(message, Assert.Throws<WorkflowException>(() => WorkflowRolePick.Read(Json(roles))).Message);
+		}
+	}
+
+	[Fact]
+	public async Task AskingForAModelsOptionsKeepsTheModelPickerAndSaysWhyWhenTheyArentKnown() {
+		IReadOnlyList<AgentControlOption> models = [new() { Id = "alpha", Label = "Alpha" }, new() { Id = "beta", Label = "Beta" }];
+		var info = _roles.Provider.Info;
+		static AgentControlAxis Model(string value) => FakeConsultProvider.Models("alpha", "beta") with { Value = value };
+		AgentControlAxis effort = new() { Id = "reasoning", Label = "Reasoning", Category = "thought_level", Kind = "select", Value = "low", ValueLabel = "Low", Options = [] };
+		async Task<(string Axes, string? Error)> Ask(IInferenceProvider? options, string model) {
+			var controls = await WorkflowRoleAxes.AskAsync(info, options, models, model, CancellationToken.None);
+			return (string.Join(", ", controls.Axes.Select(axis => axis.Label)), controls.Error);
+		}
+
+		var offered = new ProbedOptions(model => Task.FromResult<IReadOnlyList<AgentControlAxis>>([Model(model), effort]));
+		Assert.Equal(("Model", null), await Ask(offered, ""));
+		Assert.Equal(0, offered.Asked);
+		Assert.Equal(("Model, Effort", null), await Ask(offered, "beta"));
+
+		// The agent kept its default model, so the options it reports aren't beta's.
+		var refused = new ProbedOptions(_ => Task.FromResult<IReadOnlyList<AgentControlAxis>>([Model("alpha"), effort]));
+		Assert.Equal(("Model", "Fake fake-acp didn't take model \"beta\", so its options aren't known."), await Ask(refused, "beta"));
+		var failing = new ProbedOptions(_ => throw new InvalidOperationException("agent exited"));
+		Assert.Equal(("Model", "agent exited"), await Ask(failing, "beta"));
+		Assert.Equal(("Model", "Fake fake-acp doesn't report its options."), await Ask(null, "beta"));
+	}
+
+	private sealed class ProbedOptions(Func<string, Task<IReadOnlyList<AgentControlAxis>>> selected) : IInferenceProvider {
+		public int Asked { get; private set; }
+
+		public InferenceProviderInfo InferenceInfo => throw new NotSupportedException();
+
+		public Task<InferenceProviderResult> QueryInferenceAsync(InferenceProviderRequest request, CancellationToken ct) => throw new NotSupportedException();
+
+		public async Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) {
+			Asked++;
+			return new InferenceControls { Defaults = [], Selected = await selected(model) };
 		}
 	}
 

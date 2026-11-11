@@ -17,6 +17,8 @@ export interface RoleRow {
   options: Readonly<Record<string, string>>;
   /** The pickers as they stand; undefined while the agent is being asked for the models. */
   axes: readonly AgentControlAxis[] | undefined;
+  /** The agent is being asked what the row's model offers, so its pickers aren't all there yet. */
+  pending: boolean;
   problem: string | null;
   suggesting: boolean;
 }
@@ -41,9 +43,9 @@ type SuggestionRequest = (
 
 const MODEL = "model";
 
-/** Whether every role a start needs has a model. */
+/** Whether every role a start needs has a model and its pickers, so a start saves what is on screen. */
 export const rolesReady = (state: RoleChoiceState): boolean =>
-  state.rows.every((row) => row.model !== null);
+  state.rows.every((row) => row.model !== null && !row.pending);
 
 // The agent's pickers with the row's own picks shown on them.
 const shown = (
@@ -100,6 +102,7 @@ export class NewSessionRoleChoice {
       model: null,
       options: {},
       axes: undefined,
+      pending: false,
       problem: need.problem,
       suggesting: false,
     }));
@@ -161,15 +164,20 @@ export class NewSessionRoleChoice {
     for (const role of [...this.suggestions.keys()]) this.dropSuggestion(role);
   }
 
+  // Asked once per model; a failed ask is forgotten, so picking the model again asks again.
   private ask(target: WorkflowTarget, model: string): Promise<RoleControls> {
-    let asked = this.controls.get(model);
-    if (asked === undefined) {
-      asked = this.requestControls(target, model, this.load.signal).catch((error: unknown) => ({
-        axes: [],
-        error: errorMessage(error),
-      }));
-      this.controls.set(model, asked);
+    const cached = this.controls.get(model);
+    if (cached !== undefined) {
+      return cached;
     }
+    const asked: Promise<RoleControls> = this.requestControls(target, model, this.load.signal)
+      .catch((error: unknown) => ({ axes: [], error: errorMessage(error) }))
+      .then((result) => {
+        if (result.error !== null && this.controls.get(model) === asked)
+          this.controls.delete(model);
+        return result;
+      });
+    this.controls.set(model, asked);
     return asked;
   }
 
@@ -183,7 +191,7 @@ export class NewSessionRoleChoice {
       role,
       (this.base.get(role) ?? []).filter((axis) => axis.category === MODEL),
     );
-    this.update(role, { model, options: {}, problem: null, suggesting: false });
+    this.update(role, { model, options: {}, pending: true, problem: null, suggesting: false });
     const load = this.load;
     this.ask(pair.target, model).then((result) => {
       const row = this.state.rows.find((candidate) => candidate.role === role);
@@ -191,10 +199,10 @@ export class NewSessionRoleChoice {
         return;
       }
       if (result.axes.length > 0) this.base.set(role, result.axes);
-      this.update(
-        role,
-        result.error === null ? {} : { problem: `Couldn't get the options: ${result.error}` },
-      );
+      this.update(role, {
+        pending: false,
+        ...(result.error === null ? {} : { problem: `Couldn't get the options: ${result.error}` }),
+      });
     });
   }
 

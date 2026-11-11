@@ -128,7 +128,7 @@ Results: `planner in claude-acp sessions is now fable (effort xhigh).` and
 
 and `"roles": ["planner", "builder"]` to each valid workflow.
 
-**`weavie.session.new`** gains `roles`, role → a model id of `agentProviderId`:
+**`weavie.session.new`** gains `roles`, role → the model and options of `agentProviderId` to save for it:
 
 ```json
 { "branch": "feat/x", "workflow": "spec-driven", "prompt": "…",
@@ -212,13 +212,13 @@ public WorkflowLaunch Prepare(string id, JsonElement inputs, string? documentsDi
 | Symbol | File | Notes |
 | --- | --- | --- |
 | `HostServices.WorkflowRoles` | `HostServices.cs` | host-wide, so every window shares one copy of the file |
-| `RoleResolver(AgentProviderInfo)`, `RoleModelsAsync`, `SuggestRoleAsync`, wire records | `HostCore.WorkflowStart.cs` | the resolver for a provider and the two new composer requests |
+| `RoleResolver(AgentProviderInfo)`, `RoleControlsAsync`, `SuggestRoleAsync`, wire records | `HostCore.WorkflowStart.cs` | the resolver for a provider and the two new composer requests |
 | `WorkflowStartTarget`, `WorkflowSuggestionRequest`, `WorkflowOptionWire` | `HostCore.WorkflowStart.cs` | carry `ProviderId`; options carry `Roles` |
 | registrations, contracts | `HostCore.Messages.cs`, `Messaging/WireJson.cs` | `roleControls` (`NoDeadline`), `suggestRole` (`Droppable`), both concurrent |
 | setRole handler, `weavie.workflow.run` | `HostCore.Workflows.cs` | the handler; run goes through `runner.Prepare` |
 | `NewSessionAsync` | `HostCore.Sessions.cs` | saves picks, prepares with the resolver; the explicit `WorkflowAgentControls.Refusal` call there is deleted |
 | `HostSession` | `HostSession.cs`, `HostSession.Workflow.cs` | constructor takes the roles and resolver; `WorkflowPort.Refusal(WorkflowLaunch)` |
-| bridge requests | `src/web/src/bridge.ts` | `providerId` on the two existing requests; `requestRoleModels`, `requestRoleSuggestion` |
+| bridge requests | `src/web/src/bridge.ts` | `providerId` on the two existing requests; `requestRoleControls`, `requestRoleSuggestion` |
 | `NewSessionRoleChoice` | `src/web/src/chrome/new-session-role-choice.ts` (new) | the picker rows' state owner, like `NewSessionWorkflowChoice` |
 | `ControlBar` | `src/web/src/chrome/ControlBar.tsx` (new) | the bar of agent-reported pickers, extracted from the getting-started dialog's suggestion profile and used by it and by each role row |
 | `NewSessionPicker` | `src/web/src/mobile/NewSessionPicker.tsx` (new) | the workflow field's own menu toggle |
@@ -309,9 +309,12 @@ a default with a Problem → DefaultProblem = The default workflow "x" can't run
 roleControls(providerId, model):
   entry = await models.SettledAsync(providerId, ct)
   not Ready → { axes: [], error: entry.Error or "<name> offers no model to choose." }
-  selected  = model is "" ? [] : provider.ProbeInferenceControlsAsync(model).Selected   // a failure keeps the model picker
-  axes      = WorkflowRoleAxes.Build(entry.Models, model, selected)
-              // Model (required), then the Effort and Fast mode among `selected`, each led by "Default (…)"
+  WorkflowRoleAxes.AskAsync(provider, models, model):
+    model is ""                              → the Model picker alone
+    the provider can't be asked, the probe fails, or it kept another model selected
+                                             → the Model picker and why the options aren't known
+    otherwise                                → Model (required), then the Effort and Fast mode the probe reports
+                                               with that model applied, each led by "Default (…)"
 
 suggestRole(sourceId, providerId, workflow, role):
   gap = Read(definition).Unfilled.First(role)                // none, or something saved → Unchanged
@@ -343,7 +346,7 @@ NewSessionAsync, before any worktree exists:
 | models pending | each row shows the bar's placeholder; Start waits |
 | models failed | the group shows `Couldn't list models: <error>`; Start waits; showing the same pair again asks again |
 | models ready | each row shows its Model picker; one `suggestRole` per row with nothing saved, which reads `Suggesting…` |
-| a model is picked or suggested | the row's options are dropped, and the pickers are asked for with that model, once per model; Effort and Fast mode appear when they land |
+| a model is picked or suggested | the row's options are dropped and the pickers are asked for with that model, once per model unless the ask failed; meanwhile the row is busy and Start waits, then Effort and Fast mode appear |
 | suggestion lands | applied only when the pair is still current, the user hasn't picked that row's model, and the model is on offer |
 | an option is picked | saved on the row; picking Default removes it |
 | the options can't be asked for | the model stays picked and the row says `Couldn't get the options: <error>` |
@@ -352,7 +355,9 @@ NewSessionAsync, before any worktree exists:
 
 The group is titled `Roles for <workflow>` (a `.ui-section-label`), so the rows read as the workflow's and not as
 session fields. Each row is the role name beside a `ControlBar`; the problem line is a `<small role="alert">`, as the
-workflow field's is.
+workflow field's is. Each bar owns its one open menu, so opening another role's picker closes it; a segment keeps
+the focus through a pick; and a menu that wouldn't fit to the right of its segment opens from the segment's right
+edge.
 
 ## Error handling
 
@@ -384,7 +389,7 @@ workflow field's is.
   names `planner` and `builder`, `quick-fix` none.
 - **Core** (`tests/Weavie.Core.Tests`): the store round-trips and holds a malformed, wrong-version, or unknown-member
   file as a failure without touching it; the resolver covers filled, unfilled,
-  stale, stale-ignored-while-probing, terminal, other-provider, and no-model-choice; picks drop options, refuse an
+  stale, stale-ignored-while-probing, terminal, other-provider, and no-model-choice; picks carry the options chosen with their model, refuse an
   unoffered model or a role the workflow doesn't ask for, and save all or none; every `setRole` argument failure; a role-filled stage gets the same
   refusals as a pinned one; the provider-aware start options; the role decision's evidence, choices, threshold, and
   the two-model rule; `SettledAsync`; roles in `listWorkflows`. `AcpControlStore`'s tests stay unchanged, proving the

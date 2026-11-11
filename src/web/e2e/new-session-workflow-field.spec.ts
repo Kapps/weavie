@@ -201,12 +201,19 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
       .getByRole("option", { name: "High" })
       .click();
     await expect(planner.getByRole("button", { name: /Effort/ })).toHaveText("EffortHigh");
-    await builder.getByRole("button", { name: /Model/ }).click();
-    await page
-      .getByRole("listbox", { name: "Model" })
-      .getByRole("option", { name: /^Sol/ })
-      .click();
+    // One menu at a time: opening another role's picker closes this one's, and a keyboard pick keeps the focus.
+    const builderModel = builder.getByRole("button", { name: /Model/ });
+    await builderModel.click();
+    await planner.getByRole("button", { name: /Model/ }).click({ force: true });
+    await expect(page.getByRole("listbox", { name: "Model" })).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await builderModel.focus();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
     await expect(builder.getByRole("button")).toHaveText(["ModelSol"]);
+    await expect(builderModel).toBeFocused();
+    await expect(planner.getByRole("button")).toHaveText(["ModelAstra", "EffortHigh"]);
     await expect(start).toBeEnabled();
     expect(host.received.filter((message) => message.name === "suggestRole")).toHaveLength(1);
 

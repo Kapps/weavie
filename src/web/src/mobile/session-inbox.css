@@ -246,7 +246,7 @@
 .session-composer-roles {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
+  align-items: baseline;
   gap: 6px 10px;
   padding: 7px 12px;
   border-top: 1px solid var(--border);
@@ -263,7 +263,7 @@
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-  align-items: center;
+  align-items: baseline;
 }
 
 .session-composer-role > .ui-row-desc,

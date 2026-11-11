@@ -161,7 +161,7 @@ export function NewSessionWorkflowField(props: {
                   axes={row().axes}
                   placeholders={["Model"]}
                   disabled={false}
-                  busy={false}
+                  busy={row().pending}
                   menuClass="session-composer-workflow-menu"
                   onPick={(axisId, value) => roleChoice.pick(row().role, axisId, value)}
                 />

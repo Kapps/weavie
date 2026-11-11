@@ -68,25 +68,16 @@ public sealed partial class HostCore {
 		_ => reply(false, null, null),
 	};
 
-	// A role's pickers for one provider: its models, answered once they aren't being probed, then the effort and Fast
-	// Mode the chosen model offers. A provider that can't be asked for those keeps the model picker and says why.
-	private async Task<RoleControlsResult> RoleControlsAsync(RoleControlsRequest request, CancellationToken ct) {
+	// A role's pickers for one provider: its models, answered once they aren't being probed, then what the chosen
+	// model offers, asked of the agent.
+	private async Task<WorkflowRoleControls> RoleControlsAsync(RoleControlsRequest request, CancellationToken ct) {
 		var info = RequireProvider(request.ProviderId);
 		var entry = await _agentModels.SettledAsync(info.Id, ct).ConfigureAwait(false);
-		if (entry is not { Status: AgentModelStatus.Ready, Models: var models }) {
-			return new([], entry?.Error ?? $"{info.Name} offers no model to choose.");
-		}
-
-		IReadOnlyList<AgentControlAxis> selected = [];
-		string? error = null;
-		if (request.Model.Length > 0 && _agentProviders.Providers.FirstOrDefault(p => p.Info.Id == info.Id) is IInferenceProvider options) {
-			try {
-				selected = (await options.ProbeInferenceControlsAsync(request.Model, ct).ConfigureAwait(false)).Selected;
-			} catch (Exception ex) when (ex is not OperationCanceledException) {
-				error = ex.Message;
-			}
-		}
-		return new(WorkflowRoleAxes.Build(models, request.Model, selected), error);
+		return entry is { Status: AgentModelStatus.Ready, Models: var models }
+			? await WorkflowRoleAxes.AskAsync(
+				info, _agentProviders.Providers.FirstOrDefault(p => p.Info.Id == info.Id) as IInferenceProvider, models, request.Model, ct)
+				.ConfigureAwait(false)
+			: new([], entry?.Error ?? $"{info.Name} offers no model to choose.");
 	}
 
 	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
@@ -117,8 +108,6 @@ public sealed partial class HostCore {
 	internal sealed record WorkflowSuggestionResult(bool Applies, string? Workflow, string? Error);
 
 	internal sealed record RoleControlsRequest(string ProviderId, string Model);
-
-	internal sealed record RoleControlsResult(IReadOnlyList<AgentControlAxis> Axes, string? Error);
 
 	internal sealed record RoleSuggestionRequest(string? SourceId, string ProviderId, string Workflow, string Role);
 

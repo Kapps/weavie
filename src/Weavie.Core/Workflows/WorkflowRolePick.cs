@@ -37,6 +37,11 @@ public sealed record WorkflowRolePick(string Model, IReadOnlyDictionary<string, 
 	}
 }
 
+/// <summary>A role's pickers, and why the agent couldn't be asked for all of them.</summary>
+/// <param name="Axes">The model picker, then the effort and Fast Mode the chosen model offers.</param>
+/// <param name="Error">Why the options aren't known, or <see langword="null"/>.</param>
+public sealed record WorkflowRoleControls(IReadOnlyList<AgentControlAxis> Axes, string? Error);
+
 /// <summary>
 /// The pickers that fill a role in one provider's sessions: the model, then the effort and Fast Mode that model
 /// offers. Each option id is the provider's own; an empty id leaves that option as the session has it.
@@ -44,6 +49,26 @@ public sealed record WorkflowRolePick(string Model, IReadOnlyDictionary<string, 
 public static class WorkflowRoleAxes {
 	/// <summary>The category of the model picker, the one a role can't leave unset.</summary>
 	public const string ModelCategory = "model";
+
+	/// <summary>
+	/// Asks <paramref name="options"/> (null when the provider can't be asked) what <paramref name="model"/> offers and
+	/// builds the pickers; with no model chosen there is nothing to ask. A failed ask keeps the model picker.
+	/// </summary>
+	public static async Task<WorkflowRoleControls> AskAsync(
+		AgentProviderInfo provider, IInferenceProvider? options, IReadOnlyList<AgentControlOption> models, string model, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(provider);
+		if (model.Length == 0) return new(Build(models, model, []), null);
+		if (options is null) return new(Build(models, model, []), $"{provider.Name} doesn't report its options.");
+		try {
+			var selected = (await options.ProbeInferenceControlsAsync(model, ct).ConfigureAwait(false)).Selected;
+			// A model the agent refuses leaves its default selected, and those options aren't this model's.
+			return selected.FirstOrDefault(control => control.Category == ModelCategory)?.Value == model
+				? new(Build(models, model, selected), null)
+				: new(Build(models, model, []), $"{provider.Name} didn't take model \"{model}\", so its options aren't known.");
+		} catch (Exception ex) when (ex is not OperationCanceledException) {
+			return new(Build(models, model, []), ex.Message);
+		}
+	}
 
 	/// <summary>
 	/// Builds the pickers from the provider's <paramref name="models"/>, the chosen <paramref name="model"/> (empty

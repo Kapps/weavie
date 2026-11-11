@@ -38,16 +38,16 @@
   white-space: nowrap;
 }
 
-.control-bar-pick:not(:disabled):hover,
+.control-bar-pick:not(:disabled, [aria-disabled="true"]):hover,
 .control-bar-pick[aria-expanded="true"] {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.control-bar-pick:disabled {
+.control-bar-pick:is(:disabled, [aria-disabled="true"]) {
   cursor: default;
 }
 
-.control-bar-pick:disabled span {
+.control-bar-pick:is(:disabled, [aria-disabled="true"]) span {
   opacity: 0.5;
 }
 

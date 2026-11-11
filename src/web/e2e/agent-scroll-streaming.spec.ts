@@ -105,6 +105,89 @@ test("reading while a turn streams keeps the reader still and announces the outp
   expect(await fromBottom(body)).toBeLessThanOrEqual(1);
 });
 
+for (const input of ["trackpad", "native"] as const) {
+  test(`small upward ${input} scrolling stays paused while a side conversation streams`, async ({
+    page,
+    openPanes,
+  }) => {
+    const pane = await openPane(openPanes, "nested-reading");
+    const { body, host, session } = pane;
+    const side = {
+      providerId: "acp",
+      conversationId: "side",
+      anchorTurnId: "h29",
+      threadId: "side-thread",
+      turnId: "1",
+      isPrimaryThread: false,
+    };
+    host.publishAgentPane(session.address, {
+      ...side,
+      type: "side-conversation-started",
+      status: "forking",
+      text: "Investigate this in a separate conversation",
+    });
+    host.publishAgentPane(session.address, { ...side, type: "turn-started" });
+    const publish = (text: string): void =>
+      host.publishAgentPane(session.address, {
+        ...side,
+        type: "agent-message-delta",
+        itemId: "side-reply",
+        itemType: "agentMessage",
+        text,
+      });
+    publish("The side conversation is reporting its findings.");
+    const reply = body.locator(".agent-aside .agent-tone-assistant").last();
+    await expect(reply).toContainText("reporting its findings");
+    await reply.hover();
+    const latest = jumpToLatest(page);
+    const scrollBy = async (delta: number): Promise<void> => {
+      if (input === "trackpad") await page.mouse.wheel(0, delta);
+      else
+        await body.evaluate((element, pixels) => {
+          element.scrollTop += pixels;
+        }, delta);
+      await body.evaluate(untilStill);
+    };
+    expect(await scrollTop(body)).toBe(0);
+
+    // Trackpads can leave the bottom in steps smaller than the three-line following threshold.
+    await scrollBy(-12.5);
+    await expect.poll(() => fromBottom(body)).toBeGreaterThan(10);
+    await expect(latest).toBeVisible();
+    const anchor = await body.evaluate(readAnchor);
+    publish(" More findings arrive while the reader is scrolling upward.");
+    await expect(reply).toContainText("scrolling upward");
+    await frames(page, 2);
+    expect(await drift(body, anchor)).toBeLessThanOrEqual(1);
+    await expect(latest).toContainText("New output");
+
+    await scrollBy(-12.5);
+    const farther = await fromBottom(body);
+    publish(" The reader can continue moving toward earlier messages.");
+    await expect(reply).toContainText("earlier messages");
+    await frames(page, 2);
+    expect(await fromBottom(body)).toBeGreaterThanOrEqual(farther - 1);
+
+    await latest.click();
+    await expect.poll(() => scrollTop(body)).toBe(0);
+    await expect(latest).toHaveCount(0);
+    publish(" Following resumes when requested.");
+    await expect(reply).toContainText("when requested");
+    await frames(page, 2);
+    expect(await scrollTop(body)).toBe(0);
+
+    await reply.hover();
+    await scrollBy(-12.5);
+    await expect(latest).toBeVisible();
+    await scrollBy(5.5);
+    await expect(latest).toHaveCount(0);
+    publish(" Scrolling back toward the bottom resumes following too.");
+    await expect(reply).toContainText("following too");
+    await frames(page, 2);
+    expect(await scrollTop(body)).toBe(0);
+  });
+}
+
 test("a request arriving while the reader is away keeps their position", async ({
   page,
   openPanes,

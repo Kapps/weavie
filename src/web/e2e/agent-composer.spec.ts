@@ -2191,8 +2191,8 @@ test.describe("ACP composer", () => {
     expect(decision).toMatchObject({ requestId: "a1", optionId: "allow-once" });
   });
 
-  // Pins the follow threshold and navigation: staying within three lines keeps following; scrolling farther up pauses it.
-  test("scrolling beyond three lines shows jump-to-latest navigation", async ({ page }) => {
+  // Upward scrolling pauses following; scrolling back within three lines resumes it.
+  test("scroll direction controls following and jump-to-latest navigation", async ({ page }) => {
     await mountAgent(page);
     for (let i = 0; i < 40; i += 1) {
       publishPane(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
@@ -2246,6 +2246,10 @@ test.describe("ACP composer", () => {
     };
 
     await scrollLinesFromBottom(2.5);
+    await expect(latestButton).toHaveCount(1);
+    await scrollLinesFromBottom(4);
+    await expect(latestButton).toHaveCount(1);
+    await page.mouse.wheel(0, lineHeight * 1.5);
     await expectFollowingLatest();
     publishPane(userMessage("near-bottom follow check"));
     await expect(page.getByText("near-bottom follow check", { exact: true })).toBeVisible();

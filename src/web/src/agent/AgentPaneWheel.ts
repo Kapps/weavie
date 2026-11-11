@@ -16,7 +16,7 @@ interface AgentPaneWheelTarget {
   /** Moves toward the latest output by `delta` pixels; returns the edge the move reached. */
   scrollBy(delta: number): "start" | "end" | null;
   intent(delta: number): void;
-  settled(): void;
+  settled(delta: number): void;
   start(): void;
   end(): void;
   lineHeight(): number;
@@ -54,7 +54,7 @@ export function createAgentPaneWheel(
     move(delta);
     if (next === 1 || remaining === 0) {
       cancel();
-      pane.settled();
+      pane.settled(distance);
     } else {
       frame = requestAnimationFrame(animate);
     }
@@ -111,7 +111,7 @@ export function createAgentPaneWheel(
         cancel();
       }
       move(movement);
-      pane.settled();
+      pane.settled(delta);
       return;
     }
     if (Math.sign(delta) !== Math.sign(remaining)) cancel();
@@ -127,7 +127,7 @@ export function createAgentPaneWheel(
     const interrupt = (): void => {
       const active = frame !== null;
       cancel();
-      if (active) pane.settled();
+      if (active) pane.settled(distance);
     };
     // Keys scroll here rather than natively, so their motion is the reader's like the wheel's.
     const keydown = (event: KeyboardEvent): void => {

@@ -176,9 +176,10 @@ export function createAgentPaneScroll(
         (to < position - 0.5 && to < element().scrollHeight - element().clientHeight - 1),
     );
     if (Math.abs(to - position) <= 1) return;
+    const towardLatest = to < position;
     position = clamped(to);
     pinned = false;
-    setFollowing(!wheel.isActive() && nearBottom());
+    setFollowing(!wheel.isActive() && towardLatest && nearBottom());
     if (!following()) pickAnchor();
     updateTurnStartAbove();
   };
@@ -238,8 +239,8 @@ export function createAgentPaneScroll(
       pinned = false;
       if (delta < 0) setFollowing(false);
     },
-    settled() {
-      if (nearBottom()) setFollowing(true);
+    settled(delta) {
+      if (delta > 0 && nearBottom()) setFollowing(true);
     },
     start: () => reveal(0),
     end: jumpToLatest,

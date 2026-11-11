@@ -19,6 +19,7 @@ import {
   clearAgentInputDrafts,
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
+import type { AgentPaneConversationRows } from "./AgentPaneConversationRows";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
 import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
@@ -145,13 +146,20 @@ function createHistory(session: ClientSession) {
     }
     appliedDrafts = Math.max(appliedDrafts, occurrence);
   };
-  const publish = (updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void => {
-    applyNewDrafts(updates);
-    model.publish(updates, changes);
+  const publish = (rows: AgentPaneConversationRows, changes: AgentPaneUpdate[]): void => {
+    if (changes.length === 0) applyNewDrafts(rows.messages);
+    else
+      for (const message of changes) {
+        if (message.type === "draft") {
+          setComposerDraft(session, message.text ?? "");
+          appliedDrafts += 1;
+        }
+      }
+    model.publish(rows, changes);
   };
-  const load = (updates: AgentPaneUpdate[]): void => {
-    applyNewDrafts(updates);
-    model.replace(updates);
+  const load = (rows: AgentPaneConversationRows): void => {
+    applyNewDrafts(rows.messages);
+    model.load(rows);
   };
   const ingest = (message: AgentPaneUpdate): void => {
     model.noteLive();

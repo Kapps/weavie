@@ -5,8 +5,8 @@ namespace Weavie.Workflows;
 
 /// <summary>What a session's runner needs from its owner: deliver turns and tell the user.</summary>
 public interface IWorkflowRunPort {
-	/// <summary>Sends <paramref name="turn"/> to the session's agent as its next turn, once it can take one.</summary>
-	void Kickoff(WorkflowKickoff turn);
+	/// <summary>Sends <paramref name="turn"/> with <paramref name="images"/> to the session's agent as its next turn, once it can take one.</summary>
+	void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images);
 
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
@@ -75,7 +75,11 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>Resumes the persisted run: re-reads its definition and re-performs any owed turn or decision.</summary>
 	public void Activate() {
 		lock (_gate) {
-			if (_run is not { IsFinished: false } run) {
+			if (_run is not { } run) {
+				return;
+			}
+			if (run.IsFinished) {
+				if (run.Kickoff is { } report) Deliver(run, report);
 				return;
 			}
 
@@ -90,7 +94,14 @@ public sealed partial class WorkflowRunner : IDisposable {
 			}
 
 			_definition = read.Definition;
-			if (run.Kickoff is { } kickoff) _port.Kickoff(kickoff);
+			_execution = CreateExecution();
+			if (_execution.Stage.Run.Context != WorkflowContext.Continue && run.Phase != WorkflowPhase.Paused
+				&& run.Decision != WorkflowDecisionKind.If
+				&& run.Kickoff is not { Context: not WorkflowContext.Continue }) {
+				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to open a new conversation.");
+				return;
+			}
+			if (run.Kickoff is { } kickoff) Deliver(run, kickoff);
 			if (run.Phase == WorkflowPhase.Deciding) {
 				Apply(Transitions().Resume(run with { Phase = WorkflowPhase.Paused }));
 			}
@@ -100,7 +111,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The stage block for the agent's next turn, or empty.</summary>
 	public string StageBlock() {
 		lock (_gate) {
-			return WorkflowStageBlock.Compose(_run, _definition, _words);
+			return WorkflowStageBlock.Compose(_run, _definition, _words, ownsStage: false);
 		}
 	}
 
@@ -131,21 +142,50 @@ public sealed partial class WorkflowRunner : IDisposable {
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				throw new WorkflowException($"Could not create workflow documents directory {documents}: {ex.Message}");
 			}
-			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold));
+			Apply(Transitions().Start(id, launch.SourcePath, launch.Inputs, documents, _run?.Hold, SavePrompt(launch.Prompt, documents, id)));
 			return _run!;
 		}
 	}
 
+	// A run's images sit under its own id, so a run sharing an inherited folder never meets another's.
+	private static WorkflowPrompt SavePrompt(WorkflowStartPrompt prompt, string documents, string runId) {
+		string folder = Path.Combine("prompt", runId);
+		try {
+			if (prompt.Images.Count > 0) Directory.CreateDirectory(Path.Combine(documents, folder));
+			return new WorkflowPrompt {
+				Text = prompt.Text,
+				Images = [.. prompt.Images.Select((image, i) => {
+					string file = Path.Combine(folder, $"image-{i + 1}{image.Extension}");
+					File.WriteAllBytes(Path.Combine(documents, file), image.Bytes);
+					return new WorkflowPromptImage { File = file, Mime = image.Mime };
+				})],
+			};
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			throw new WorkflowException($"Could not save the prompt's images under {Path.Combine(documents, folder)}: {ex.Message}");
+		}
+	}
+
+	private void Deliver(WorkflowRun run, WorkflowKickoff turn) => _port.Kickoff(turn, turn.CarriesPromptImages
+		? [.. run.Prompt.Images.Select(image => new WorkflowTurnImage(Path.Combine(run.DocumentsDirectory, image.File), image.Mime))]
+		: []);
+
 	/// <summary>The agent completes the current stage with its outputs and a summary; returns the reply for the agent.</summary>
 	public string CompleteStage(JsonElement outputs, string summary) {
+		var call = CaptureStageCall() ?? throw new WorkflowException("This conversation does not own an open workflow stage.");
+		return call.Complete(outputs, summary);
+	}
+
+	private string CompleteStageLocked(JsonElement outputs, string summary) {
 		lock (_gate) {
+			bool independent = _execution!.Stage.Run.Context != WorkflowContext.Continue;
 			var completion = Transitions().Complete(Live(), outputs, summary);
-			Apply(completion.Step);
+			Commit(completion.Step.Run, completion.Step.Effects, replaceDecision: true, completed: true);
 			if (completion.Errors.Count > 0) {
 				return _run!.Phase == WorkflowPhase.Paused
 					? $"Rejected again, so the run is paused for the user: {_run.PausedReason}"
 					: $"Not complete — fix these and call {_words.CompleteStage} again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
 			}
+			if (independent) return "Complete. The main conversation receives the result and any user question. End your turn now.";
 
 			return _run!.Phase switch {
 				WorkflowPhase.Asking => $"Complete. {WorkflowStageBlock.PutToUser(_run.Asked!, _words, _openReviewItem())}",
@@ -159,6 +199,15 @@ public sealed partial class WorkflowRunner : IDisposable {
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
 
 	/// <summary>
+	/// The claimed <paramref name="turn"/> never reached the agent, so the stage fails with <paramref name="reason"/>
+	/// and the prompt images it carried are still owed to the agent.
+	/// </summary>
+	public void FailTurn(WorkflowKickoff turn, string reason) {
+		ArgumentNullException.ThrowIfNull(turn);
+		Mutate(null, run => Transitions().Fail(turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages ? run with { PromptImagesSent = false } : run, reason));
+	}
+
+	/// <summary>
 	/// The stage <paramref name="turn"/> opens couldn't open, so the turn is never sent and the run pauses with
 	/// <paramref name="reason"/>; nothing changes once the run no longer owes that turn.
 	/// </summary>
@@ -169,7 +218,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	}
 
 	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
-	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback));
+	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback), completed: true);
 
 	/// <summary>The user resumes paused run <paramref name="runId"/>.</summary>
 	public void Resume(string runId) => Mutate(runId, run => Transitions().Resume(run));
@@ -220,7 +269,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return false;
 			}
 
-			Commit(_run! with { Kickoff = null }, []);
+			Commit(_run! with { Kickoff = null, PromptImagesSent = _run.PromptImagesSent || turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages, Unreported = turn.Context == WorkflowContext.Continue ? "" : _run.Unreported }, []);
 			return true;
 		}
 	}
@@ -229,19 +278,24 @@ public sealed partial class WorkflowRunner : IDisposable {
 	public void Dispose() {
 		lock (_gate) {
 			_closed = true;
+			_execution?.Retire(completed: false);
+			_execution = null;
 			_pending?.Dispose();
 			_pending = null;
 		}
 	}
 
-	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition) {
+	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition) => Mutate(runId, transition, completed: false);
+
+	private void Mutate(string? runId, Func<WorkflowRun, WorkflowStep> transition, bool completed) {
 		lock (_gate) {
 			var run = Live();
 			if (runId is not null && run.Id != runId) {
 				throw new WorkflowException($"Run {runId} isn't this session's live run ({run.Id}).");
 			}
 
-			Apply(transition(run));
+			var step = transition(run);
+			Commit(step.Run, step.Effects, replaceDecision: true, completed);
 		}
 	}
 
@@ -252,20 +306,21 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private WorkflowTransitions Transitions() =>
 		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
 
-	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true);
+	private void Apply(WorkflowStep step) => Commit(step.Run, step.Effects, replaceDecision: true, completed: false);
 
-	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) => Commit(run, effects, replaceDecision: false);
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects) => Commit(run, effects, replaceDecision: false, completed: false);
 
-	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects, bool replaceDecision) {
+	private void Commit(WorkflowRun run, IReadOnlyList<WorkflowEffect> effects, bool replaceDecision, bool completed) {
 		_store.Save(run);
 		if (replaceDecision) {
 			_pending?.Dispose();
 			_pending = null;
 		}
 		_run = run;
+		UpdateExecution(effects, completed);
 		foreach (var effect in effects) {
 			switch (effect) {
-				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
+				case WorkflowEffect.Kickoff kickoff: Deliver(run, kickoff.Turn); break;
 				case WorkflowEffect.Notify notify: _port.Notify(notify.Message); break;
 				case WorkflowEffect.Decide decide: _pending = new PendingDecision(decide.Plan, _files, _decider, Resolve); break;
 			}
@@ -281,7 +336,8 @@ public sealed partial class WorkflowRunner : IDisposable {
 			}
 
 			try {
-				Apply(Transitions().Resolve(_run!, result, decision.MinimumConfidence));
+				var step = Transitions().Resolve(_run!, result, decision.MinimumConfidence);
+				Commit(step.Run, step.Effects, replaceDecision: true, completed: true);
 			} catch (Exception ex) when (ex is WorkflowException or IOException or UnauthorizedAccessException) {
 				_pending?.Dispose();
 				_pending = null;

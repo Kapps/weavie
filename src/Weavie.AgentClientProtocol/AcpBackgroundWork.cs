@@ -31,7 +31,7 @@ internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 		string name = OptionalString(update, "name") ?? "Subagent";
 		string task = OptionalString(update, "task") ?? string.Empty;
 		long started = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-		string? parentId = ReferenceEquals(parent, root) ? null : parent.ConversationId;
+		string? parentId = parent.ConversationId.Length == 0 ? null : parent.ConversationId;
 		var continuation = new AcpConversationState {
 			ConversationId = Guid.NewGuid().ToString("N"),
 			SessionId = sessionId,
@@ -118,6 +118,7 @@ internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 			ending = [.. _subagents.Values.Where(subagent => subagent.Item.Running && scope(subagent))];
 			foreach (var subagent in ending) subagent.Item = subagent.Item with { State = State(state), EndedAtMs = ended };
 		}
+		if (ending.Length > 0) root.RaiseBackground();
 		foreach (var subagent in ending) subagent.Conversation.EndSubagent(state);
 		RetireSettled();
 		return ending.Length > 0;

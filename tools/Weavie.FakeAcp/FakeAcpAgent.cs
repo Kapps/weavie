@@ -47,6 +47,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	public Task TerminalFailure => _never.Task;
 
+	internal void BindFork(string sessionId) => _sessionId = sessionId;
+
 	internal void CopyConnectionState(FakeAcpAgent source) {
 		_authenticated = source._authenticated;
 		_supportsPlanUpdates = source._supportsPlanUpdates;
@@ -139,7 +141,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
 			["promptCapabilities"] = new JsonObject {
-				["image"] = true,
+				["image"] = _fakeMode != "no-images",
 				["embeddedContext"] = _fakeMode != "no-embedded-context",
 			},
 			["sessionCapabilities"] = new JsonObject {
@@ -189,7 +191,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
-		else RequireMcp(parameters);
+		else _weavieMcp = RequireMcp(parameters);
 		_sessionId = sessionId;
 		if (replay) {
 			File.AppendAllText(
@@ -444,7 +446,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (text.StartsWith("/review", StringComparison.Ordinal)) {
 			RequireIsolatedCommand(prompt, text);
-			Message("review command: " + text["/review".Length..].Trim());
+			int images = prompt.EnumerateArray().Count(block => AcpJson.OptionalString(block, "type") == "image");
+			Message("review command: " + text["/review".Length..].Trim() + (images == 0 ? "" : $" [{images} image(s)]"));
 			return new JsonObject { ["stopReason"] = "end_turn" };
 		}
 		if (text == "/hold-command") {
@@ -619,7 +622,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			|| AcpJson.OptionalString(block, "text") != text) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
 		}
-		if (prompt.EnumerateArray().Skip(1).Any(next => !IsAssistantAudience(next))) {
+		if (prompt.EnumerateArray().Skip(1).Any(next => AcpJson.OptionalString(next, "type") != "image" && !IsAssistantAudience(next))) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
 		}
 	}
@@ -1392,7 +1395,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
-	private void RequireMcp(JsonElement parameters) {
+	private static (string Url, string Authorization) RequireMcp(JsonElement parameters) {
 		var servers = AcpJson.RequiredArray(parameters, "mcpServers", "session open");
 		foreach (var server in servers.EnumerateArray()) {
 			if (AcpJson.OptionalString(server, "name") != "weavie" || AcpJson.OptionalString(server, "type") != "http"
@@ -1401,8 +1404,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				if (AcpJson.OptionalString(header, "name") == "Authorization"
 					&& AcpJson.OptionalString(header, "value") is { } authorization
 					&& authorization.StartsWith("Bearer ", StringComparison.Ordinal)) {
-					_weavieMcp = (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
-					return;
+					return (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
 				}
 			}
 		}

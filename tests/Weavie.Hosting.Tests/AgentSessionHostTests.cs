@@ -514,6 +514,7 @@ public sealed partial class AgentSessionHostTests {
 			[dir.Path],
 			"weavie",
 			settings,
+			dir.Path,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			new EditorStore(),
 			exposeIdeTools: true,
@@ -536,7 +537,8 @@ public sealed partial class AgentSessionHostTests {
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		var host = new AgentSessionHost(
 			new FakeStructuredProvider(session),
-			new AgentSessionContext {
+			output => new AgentSessionContext {
+				Output = output,
 				Settings = settings,
 				Workspace = dir.Path,
 				FileSystem = fileSystem,
@@ -547,8 +549,7 @@ public sealed partial class AgentSessionHostTests {
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
 				AuthenticationTerminal = authenticationTerminal,
-				TurnContext = AgentTurnContext.None,
-				ControlHold = AgentControlHold.None,
+				Bindings = new AgentConversationBindings(registry, AgentTurnContext.None, AgentControlHold.None, () => null),
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),
@@ -592,12 +593,14 @@ public sealed partial class AgentSessionHostTests {
 
 		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
 
-		public IAgentSession CreateSession(AgentSessionContext context) => session;
+		public IAgentSession CreateSession(AgentSessionContext context) {
+			session.Output = context.Output;
+			return session;
+		}
 	}
 
 	private sealed class FakeStructuredSession : IStructuredAgentSession, IStructuredAgentUsage {
-		public event Action<AgentPaneMessage>? PaneMessage;
-		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
+		public ConversationOutput Output { get; set; } = null!;
 		public event Action<AgentUsageSnapshot>? UsageChanged;
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
@@ -610,16 +613,16 @@ public sealed partial class AgentSessionHostTests {
 
 		public IReadOnlyList<AgentPaneMessage> Saved { get; init; } = [];
 
-		public IReadOnlyList<AgentPaneMessage> Restore() => Saved;
+		public void Restore() => Output.Restore(Saved);
 
 		public void Start() {
 			Started = true;
-			PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
+			Output.Write(new AgentPaneMessage { Type = "started", ProviderId = "structured" }, static () => { });
 		}
 
-		public void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
+		public void Emit(AgentPaneMessage message) => Output.Write(message, static () => { });
 
-		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => PaneSnapshot?.Invoke(messages);
+		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => Output.Replace(messages);
 
 		public void EmitUsage(AgentUsageSnapshot usage) {
 			Snapshot = usage;

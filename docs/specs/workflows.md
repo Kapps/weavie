@@ -11,13 +11,13 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
-  `args`, `outputs`, `agent`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
+  `args`, `outputs`, `agent`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
   `confidence`). Every other field is rejected as an unknown key.
-- **Agents** — a `run` step's `agent` switches the session's conversation to that agent's model and options before the
-  stage's turn, in native ACP sessions of the agent's provider; a stage naming none and the run's end return it to the
-  session's own values. See [workflow-agent-selection.md](workflow-agent-selection.md).
+- **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation.
+  A stage's `agent` selects its model and options on the session's provider before prompting. Stage results and user questions return to main. See
+  [workflow-agent-selection.md](workflow-agent-selection.md) and [conversation-layer.md](conversation-layer.md).
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
-  with `workflow` + `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
+  with `workflow`, a `prompt`, and `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
   agent, which runs `weavie.workflow.answer`.
 - **Decisions** — answered by the decision provider (`by: model`) or the user (`by: user`); a model decision sees its
@@ -27,9 +27,12 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   reply or decision, or a paused run, sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
-Not built yet: `check`, `context` (`fork` / `fresh`), another provider's steps, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), the new-session workflow picker, run history, suggestions, and model
-overrides on decisions.
+- **Starting from the composer** — the new-session composer's workflow field, suggested once from the prompt by the
+  decision provider and started with the prompt and its images. See
+  [new-session-workflow-picker/design.md](new-session-workflow-picker/design.md).
+
+Not built yet: `check`, another provider's steps, child runs (`workflow`, `foreach`, `in`,
+`wait`, milestones), run history, suggestions, and model overrides on decisions.
 
 ## Purpose
 
@@ -161,7 +164,7 @@ snapshot it started with, so editing a file never changes a run in flight. A vis
 ```yaml
 id: <kebab-case>                 # unique within its scope
 description: <one line>          # shown in the picker; read by the workflow suggestion
-inputs: { <name>: <type> }       # `?` suffix marks optional
+inputs: { <name>: <type> }       # `?` suffix marks optional; a workflow the composer starts declares none
 milestones: [<name>]             # optional; points a parent can wait for
 agents: { <name>: <agent> }      # optional; `{ provider, model, options }`, all provider-native
 stages: [<stage>]
@@ -203,7 +206,8 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | `context` | `continue`, `fork`, or `fresh` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
-Templates reference `{{inputs.<name>}}`, `{{<stage>.<output>}}`, and `{{run.documents}}`. The `run` stage id is reserved.
+Templates reference `{{run.prompt}}` (what the run was started with), `{{inputs.<name>}}`, `{{<stage>.<output>}}`,
+and `{{run.documents}}`. The `run` stage id is reserved.
 `{{item}}` belongs to the deferred child-run syntax. There is no expression language.
 
 ### Defaults
@@ -219,9 +223,11 @@ Nothing defaults to `fresh`: a step missing context it needed fails invisibly, w
 history. `fresh` is for deliberate independence (a reviewer that must not inherit the author's assumptions).
 
 - `continue` runs in the session's conversation.
-- `fork` copies the conversation (ACP `session/fork`; Claude `--resume … --fork-session`); only its outputs, choice,
-  or summary return. Forked and fresh steps appear as background-work cards with Stop.
-- `fresh` starts a new conversation seeded only with the step's prompt and args.
+- `fork` copies the native ACP conversation with `session/fork`; its outputs and summary return to main.
+- `fresh` starts a conversation seeded with the step's prompt or skill, arguments, and stage context.
+- Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. The stage owns
+  the thread through revisions and pauses; leaving the stage closes it. Losing it pauses the run, and Resume
+  creates a new incarnation. Terminal Claude refuses both contexts.
 - All three share the worktree; files are never forked.
 
 #### Choosing context
@@ -234,8 +240,8 @@ Ask whether later steps — and the user — need *how* the step did its work, o
 | `fork` | the step needs everything so far, but only its result matters afterward | record videos, gather review findings, research, a check |
 | `fresh` | the step must not inherit the author's assumptions, or its inputs fully describe it | an independent review, one `foreach` item whose context is on disk |
 
-A forked step runs as a background-work card, which the user can watch but not talk to, so a step that expects
-conversation is always `continue`.
+The user can reply in an independent step's card. Prefer `continue` when that conversation's reasoning belongs
+in main's continuing context.
 
 A model decision runs with no tools. It sees its rendered `ask`, explicitly referenced file contents, the stage's
 output values, and the completion summary with user feedback. It receives no conversation transcript. The summary
@@ -253,12 +259,20 @@ and how a stage switches the model on the session's conversation, is designed in
 
 ## Starting a run
 
-- The new-session composer gains a **workflow picker** beside the branch field. It is auto-suggested from the first
-  prompt by one utility typed query, the same way the branch name is; `workflow.default` sets the initial value.
-  The query also extracts the workflow's `inputs` from the prompt into editable composer fields. A failed suggestion
-  shows the default with the failure reason.
-- `weavie.session.new` gains `workflow` and `inputs` arguments, so an agent can start a session running a workflow.
-- **Run Workflow** starts a workflow in the current session.
+Every run has a **prompt**: the text and images it was started with, read by templates as `{{run.prompt}}`. Its
+images are saved under `prompt/<run-id>/` in the run's [shared documents](#shared-documents). Each conversation receives
+them with its first stage turn that reads the prompt; revisions reuse them, and a replacement child receives them again.
+A workflow that reads the prompt refuses to start without one.
+
+- The new-session composer has a **workflow field** after the branch field, listing the workflows a prompt alone can
+  start: each valid one that declares no `inputs`, and each broken one as unavailable with its error.
+  `workflow.default` sets the initial value. Once the prompt is worth judging, the decision provider suggests one
+  workflow (or none), applied only at `workflow.decisionConfidence` and never over the user's own pick; a failed
+  suggestion leaves the field as it was and shows the reason. Start runs the workflow shown, with the composer's
+  prompt and images as the run's prompt.
+- `weavie.session.new` takes `workflow`, with `prompt` and `attachments` as the run's prompt and `inputs` for a
+  workflow that declares them, so an agent can start a session running any workflow.
+- **Run Workflow** starts a workflow in the current session, with `prompt` and `inputs`.
 
 ## Shared documents
 
@@ -496,9 +510,9 @@ rejected at one stage.
 
 | Key | Meaning |
 | --- | --- |
-| `workflow.default` | workflow preselected in the new-session composer |
+| `workflow.default` | workflow preselected in the new-session composer; per workspace, falling back to the user's |
 | `workflow.maxStageAttempts` | rejected completions before a run pauses |
-| `workflow.decisionConfidence` | live finite number in `[0, 1]`, default `0.8`; minimum confidence to advance unless the decision overrides it |
+| `workflow.decisionConfidence` | live finite number in `[0, 1]`, default `0.8`; minimum confidence to advance unless the decision overrides it, and for the composer to apply its workflow suggestion |
 | `workflow.openReviewItem` | the agent opens the main item a question to the user is about (default on) |
 
 ## Naming
@@ -513,10 +527,9 @@ through `runPrompt`; "workflow" means only this feature.
 ```yaml
 id: quick-fix
 description: A small, well-understood change. Implement, verify, open a PR.
-inputs: { task: text }
 stages:
   - id: implement
-    run: { prompt: "{{inputs.task}}" }
+    run: { prompt: "{{run.prompt}}" }
     check:
       prompt: Run the tests and the linter. Pass only if both are green and the work is committed.
   - id: pr
@@ -578,13 +591,14 @@ stages:
 ```yaml
 id: spec-driven
 description: Requirements, design, and tasks — each approved — then implement the tasks one by one on this branch.
-inputs: { feature: text }
 stages:
   - id: requirements
     run:
       prompt: >
-        Interview me as needed, then choose a short kebab-case slug and write EARS-style user stories
-        with acceptance criteria for "{{inputs.feature}}" to docs/specs/<slug>/requirements.md.
+        Interview me as needed about the feature described below, then choose a short kebab-case slug and
+        write EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md.
+
+        {{run.prompt}}
       outputs: { dir: text }
     then:
       ask: Approve the requirements in {{requirements.dir}}/requirements.md?

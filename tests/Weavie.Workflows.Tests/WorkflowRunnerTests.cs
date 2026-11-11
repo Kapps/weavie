@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Workflows.Tests;
 
-public sealed class WorkflowRunnerTests : IDisposable {
+public sealed partial class WorkflowRunnerTests : IDisposable {
 	private const string Flow = """
 		id: flow
 		description: test flow
@@ -22,9 +22,9 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		""";
 
 	private readonly TempDirectory _dir = new("weavie-workflow-runner");
-	private readonly Port _port = new();
-	private readonly Decider _decider = new();
-	private readonly MemoryStore _store = new();
+	private readonly RunnerPort _port = new();
+	private readonly HeldDecider _decider = new();
+	private readonly MemoryRunStore _store = new();
 	private bool _openReviewItem = true;
 	private double _confidence = 0.8;
 
@@ -371,50 +371,5 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private static async Task WaitFor(Func<bool> condition) {
 		for (int i = 0; i < 200 && !condition(); i++) await Task.Delay(10);
 		Assert.True(condition());
-	}
-
-	private sealed class Port : IWorkflowRunPort {
-		public List<string> Kickoffs { get; } = [];
-
-		public List<string> Notices { get; } = [];
-
-		public void Kickoff(WorkflowKickoff turn) => Kickoffs.Add(turn.Text);
-
-		public void Notify(string message) => Notices.Add(message);
-
-		public string? Refuses { get; set; }
-
-		public string? Refusal(WorkflowDefinition definition) => Refuses;
-	}
-
-	private sealed class MemoryStore : IWorkflowRunStore {
-		public string Text { get; set; } = WorkflowRunDocument.Write(null);
-
-		public WorkflowRun? Run => WorkflowRunDocument.Read(Text);
-
-		public string? LoadFailure => null;
-
-		public bool FailWrites { get; set; }
-
-		public void Save(WorkflowRun? run) {
-			if (FailWrites) throw new WorkflowException("storage unavailable");
-			Text = WorkflowRunDocument.Write(run);
-		}
-	}
-
-	private sealed class UnusedFileReader : IWorkflowFileReader {
-		public WorkflowFileRead Read(string relativePath, string documentsDirectory) => throw new InvalidOperationException("No file read expected.");
-	}
-
-	private sealed class Decider : IWorkflowDecider {
-		public TaskCompletionSource<WorkflowDecisionResult> Next { get; set; } = new();
-
-		public System.Threading.Channels.Channel<CancellationToken> Started { get; } = System.Threading.Channels.Channel.CreateUnbounded<CancellationToken>();
-
-		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) {
-			var answer = Next.Task;
-			Started.Writer.TryWrite(ct);
-			return answer.WaitAsync(ct);
-		}
 	}
 }

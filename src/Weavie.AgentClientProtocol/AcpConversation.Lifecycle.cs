@@ -26,13 +26,16 @@ internal sealed partial class AcpConversation {
 	}
 
 	/// <summary>Ends this conversation after an unrecoverable failure.</summary>
-	internal void Terminate(Exception error) {
+	internal void Terminate(Exception error) => Terminate(error, cancel: false);
+
+	internal void Terminate(Exception error, bool cancel) {
 		lock (_turnTransitionGate) {
+			if (Failed || Retired) return;
+			lock (_gate) _runtimeFailed = true;
+			if (cancel) TerminalizeForRestart(clearSubmissions: true, "Conversation interrupted by a storage failure.");
 			TerminalizedTool[] tools;
 			bool promptActive;
 			lock (_gate) {
-				if (!Live) return;
-				_runtimeFailed = true;
 				_ready = false;
 				promptActive = _promptActive;
 				_promptActive = false;
@@ -63,7 +66,10 @@ internal sealed partial class AcpConversation {
 				});
 			}
 			EmitFailure(error);
+			_opened.TrySetResult(error);
+			_completion.TrySetResult(new("failed", error));
 			SignalSettled();
+			_retired(this);
 		}
 	}
 
@@ -117,28 +123,21 @@ internal sealed partial class AcpConversation {
 		AbandonClientRequests();
 	}
 
-	internal void MarkFailed() {
-		lock (_gate) _runtimeFailed = true;
-	}
-
-	internal void ReportFailure(Exception error) {
-		Observe(new AgentRuntimeFailed());
-		EmitFailure(error);
-	}
-
 	/// <summary>Ends this incarnation; nothing it does afterwards reaches its owner or the agent.</summary>
-	internal AcpConversationHandoff Retire() => Retire(static endpoint => endpoint.Retire());
-
-	/// <summary>Ends this incarnation on a process that keeps running, closing its provider session there.</summary>
-	internal AcpConversationHandoff RetireClosing() => Retire(static endpoint => _ = endpoint.CloseAsync());
-
-	private AcpConversationHandoff Retire(Action<AcpSessionEndpoint> release) {
+	internal AcpConversationHandoff Retire() {
 		lock (_turnTransitionGate) {
 			_lifetime.Cancel();
 			if (OwnsWork) Background.Abandon();
-			_port.Detach();
-			if (_endpoint.IsSet) release(_endpoint.Value);
-			_terminals.Close();
+			_opened.TrySetResult(new ObjectDisposedException(nameof(AcpConversation)));
+			_completion.TrySetResult(new("closed", null));
+			try {
+				if (_ownsBinding) _port.Closed(Continuation);
+			} finally {
+				_port.Detach();
+				_retired(this);
+				if (_endpoint.IsSet) _endpoint.Value.Retire();
+				_terminals.Close();
+			}
 			lock (_gate) return new(Continuation, _pendingSubmissions.Snapshot(), [.. _resolvedRequests], _authenticationSequence);
 		}
 	}
@@ -155,21 +154,53 @@ internal sealed partial class AcpConversation {
 		ObserveTerminalizedTools(tools);
 	}
 
-	/// <summary>Closes the provider session of a settled or ended conversation around <paramref name="teardown"/>.</summary>
-	internal async Task CloseAsync(Func<Task> teardown) {
+	/// <summary>Closes the provider session and terminals exactly once, including a session still opening.</summary>
+	internal Task CloseAsync() {
+		lock (_turnTransitionGate) {
+			if (_closing is not null) return _closing;
+			var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			_closing = completion.Task;
+			_ = CloseCoreAsync(completion);
+			return _closing;
+		}
+	}
+
+	private async Task CloseCoreAsync(TaskCompletionSource completion) {
+		await Task.Yield();
+		try {
+			try {
+				await RevokeToolsAsync().ConfigureAwait(false);
+			} finally {
+				await ReleaseAsync().ConfigureAwait(false);
+			}
+			completion.SetResult();
+		} catch (Exception error) {
+			completion.SetException(error);
+		}
+	}
+
+	internal Task RevokeToolsAsync() {
+		lock (_turnTransitionGate) return _revocation ??= RevokeCoreAsync();
+	}
+
+	private async Task RevokeCoreAsync() {
+		await Task.Yield();
+		if (_ownsBinding) await _binding.Tools.DisposeAsync().ConfigureAwait(false);
+	}
+
+	private async Task ReleaseAsync() {
 		bool close;
 		AcpSessionEndpoint? endpoint;
 		lock (_gate) {
 			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
-			close = (_ready || _spec.Side) && _features.Close;
+			close = _spec.Role != AcpConversationRole.Subagent && _features.Close && endpoint is not null;
 		}
 		SettleInteractions();
 		var closing = close ? endpoint!.CloseAsync() : Task.CompletedTask;
 		endpoint?.Retire();
 		try {
-			await teardown().ConfigureAwait(false);
-		} finally {
 			await closing.ConfigureAwait(false);
+		} finally {
 			await _terminals.DisposeAsync().ConfigureAwait(false);
 		}
 	}

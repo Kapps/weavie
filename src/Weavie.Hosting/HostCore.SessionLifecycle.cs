@@ -32,7 +32,7 @@ public sealed partial class HostCore {
 			.ConfigureAwait(false);
 	}
 
-	private static CommandResult SourceGone() => CommandResult.Failure("The source session no longer exists.");
+	private static CommandResult SourceGone() => CommandResult.Failure(SourceGoneMessage);
 
 	private static async Task<T> GatedAsync<T>(SemaphoreSlim gate, Func<Task<T>> action, CancellationToken ct) {
 		await gate.WaitAsync(ct).ConfigureAwait(false);

@@ -1,13 +1,5 @@
 import type { BranchPreviewResult, EncodedImageAttachment } from "../bridge";
-
-/** How long the prompt must sit unchanged before the composer spends a query on it. */
-export const BRANCH_PREVIEW_IDLE_MS = 1200;
-
-/**
- * Words a prompt needs before an automatic query is worth its process spawn. Attached images do not count
- * toward it — an image carries no task description on its own. A flush ignores the gate entirely.
- */
-export const BRANCH_PREVIEW_MIN_WORDS = 16;
+import { DraftSettleTimer } from "./new-session-draft-settle";
 
 export interface BranchPreviewContext {
   backendId: string;
@@ -65,13 +57,10 @@ const sameSuggestion = (
 const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
   previous !== null && previous.backendId !== next.backendId;
 
-const worthQuerying = (context: BranchPreviewContext): boolean =>
-  context.prompt.split(/\s+/).filter((word) => word.length > 0).length >= BRANCH_PREVIEW_MIN_WORDS;
-
 /**
  * Owns one branch suggestion per composed prompt: it queries once the prompt is worth naming and settles
  * there, so typing on never re-spends a query. Only a prompt the model calls too vague stays open, and only
- * {@link refresh} re-runs a name the user can already see.
+ * {@link refresh} re-runs a name the user can already see. A {@link flush} names a draft of any length.
  */
 export class NewSessionBranchPreview {
   private claimed = false;
@@ -81,8 +70,8 @@ export class NewSessionBranchPreview {
   private pending: Promise<void> | null = null;
   private queried: BranchPreviewContext | null = null;
   private settled = false;
+  private readonly settle = new DraftSettleTimer(() => this.run(false));
   private state: BranchPreviewState = { branch: "", error: null, manual: false, status: "idle" };
-  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly request: PreviewRequest,
@@ -142,10 +131,7 @@ export class NewSessionBranchPreview {
     if (sameSuggestion(this.queried, this.context)) {
       return;
     }
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.settle.clear();
     this.run(false);
   }
 
@@ -223,11 +209,8 @@ export class NewSessionBranchPreview {
     if (this.context === null || this.frozen || sameSuggestion(this.queried, this.context)) {
       return;
     }
-    if (!worthQuerying(this.context)) {
-      return;
-    }
 
-    this.timer = setTimeout(() => this.run(false), BRANCH_PREVIEW_IDLE_MS);
+    this.settle.arm(this.context.prompt);
   }
 
   private run(userInitiated: boolean): void {
@@ -236,7 +219,6 @@ export class NewSessionBranchPreview {
       return;
     }
 
-    this.timer = null;
     this.queried = context;
     const generation = this.generation;
     const controller = new AbortController();
@@ -278,10 +260,7 @@ export class NewSessionBranchPreview {
   private invalidate(): void {
     this.generation++;
     this.queried = null;
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.settle.clear();
     this.controller?.abort();
     this.controller = null;
     this.pending = null;

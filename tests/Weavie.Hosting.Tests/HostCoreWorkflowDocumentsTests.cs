@@ -15,7 +15,7 @@ public sealed class HostCoreWorkflowDocumentsTests {
 		await using var host = await HostCoreWorkflowTests.StartAsync(new HostCoreWorkflowTests.DecisionStub("yes", 0.9));
 		var contexts = new Dictionary<string, IAgentTurnContext>();
 		var provider = Assert.IsType<FakeStructuredAgentProvider>(host.AgentProviders.RequireAvailable("structured"));
-		provider.CreatingSession = context => contexts[context.Workspace] = context.TurnContext;
+		provider.CreatingSession = context => contexts[context.Workspace] = context.Bindings.MainTurnContext;
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "parent",
 			Base = "main",

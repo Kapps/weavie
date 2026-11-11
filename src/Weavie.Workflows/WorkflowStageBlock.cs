@@ -5,17 +5,21 @@ namespace Weavie.Workflows;
 /// <summary>The short block each agent turn carries while a run is live, so the stage survives compaction.</summary>
 internal static class WorkflowStageBlock {
 	/// <summary>The block for <paramref name="run"/>, or empty when no run is live.</summary>
-	public static string Compose(WorkflowRun? run, WorkflowDefinition? definition, WorkflowVocabulary words) {
+	public static string Compose(WorkflowRun? run, WorkflowDefinition? definition, WorkflowVocabulary words, bool ownsStage) {
 		if (run is null || run.IsFinished || definition is null) {
 			return "";
 		}
 
 		var stage = definition.Stages.First(s => s.Id == run.Stage);
+		bool independent = stage.Run.Context != WorkflowContext.Continue;
 		var text = new StringBuilder()
 			.Append($"[{words.Host} workflow] Run {run.Id} of workflow \"{run.WorkflowId}\" is at stage \"{run.Stage}\" ")
 			.Append($"({definition.Stages.ToList().IndexOf(stage) + 1} of {definition.Stages.Count}). ");
+		if (independent && !ownsStage) text.Append($"The stage runs in its own conversation; only that conversation can call {words.CompleteStage} or {words.FailStage} for it. ");
 		text.Append(run.Phase switch {
+			WorkflowPhase.Open when independent && !ownsStage => $"Keep helping the user; {words.Host} will send its result here.",
 			WorkflowPhase.Open => OpenInstructions(stage, words),
+			WorkflowPhase.Asking when independent && ownsStage => $"{words.Host} is asking the user in the main conversation; wait for its answer.",
 			WorkflowPhase.Asking => AnswerRules(run, words),
 			WorkflowPhase.Deciding => $"{words.Host} is deciding what comes next; wait for its next message.",
 			WorkflowPhase.Paused => $"The run is paused: {run.PausedReason} Only the user resumes, jumps, or cancels it ({words.RunCommand} {words.Resume}, {words.JumpToStage}, or {words.Cancel} with run \"{run.Id}\"), and only when they say so.",

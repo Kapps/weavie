@@ -4,24 +4,26 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Agents;
 
-internal sealed class AgentPaneOutput : IAsyncDisposable {
+internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSink {
 	private readonly Channel<OutputCommand> _commands = Channel.CreateUnbounded<OutputCommand>(
 		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 	private readonly IMessageFeatureTarget _broadcast;
 	private readonly TimeSpan _window;
 	private readonly Action<string> _log;
+	private readonly Action _publishPlans;
 	private readonly List<AgentPaneRecord> _buffer = [];
 	private readonly Task _worker;
 	private long _flushVersion;
 	private int _closed;
 
-	public AgentPaneOutput(IMessageFeatureTarget broadcast, long windowMs, Action<string> log) {
+	public AgentPaneOutput(IMessageFeatureTarget broadcast, long windowMs, Action publishPlans, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(broadcast);
 		ArgumentOutOfRangeException.ThrowIfNegative(windowMs);
 		ArgumentNullException.ThrowIfNull(log);
 		_broadcast = broadcast;
 		_window = TimeSpan.FromMilliseconds(windowMs);
 		_log = log;
+		_publishPlans = publishPlans;
 		_worker = Task.Run(RunAsync);
 	}
 
@@ -62,6 +64,8 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 				switch (command) {
 					case LiveCommand live:
 						_buffer.Add(live.Message);
+						if (live.Message.Message.ItemType is "plan" or "plan-review"
+							|| live.Message.Message.Type is "item-retracted" or "approval-resolved") _publishPlans();
 						if (_window == TimeSpan.Zero) {
 							Flush();
 						} else if (_buffer.Count == 1) {
@@ -71,6 +75,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 						break;
 					case ResetCommand:
 						Discard();
+						_publishPlans();
 						_broadcast.Publish("paneReset", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 						break;
 					case FlushCommand flush when flush.Version == _flushVersion:

@@ -21,7 +21,7 @@ import type { createAgentPaneLayout } from "./AgentPaneLayout";
 import type { AgentPaneModel } from "./AgentPaneModel";
 import type { AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
-import { withLivePending } from "./AgentTranscriptSnapshot";
+import { holdTranscript, withLivePending } from "./AgentTranscriptSnapshot";
 
 type PaneVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
 
@@ -112,7 +112,7 @@ export function createAgentPaneScroll(
 
   const syncHold = (): void => {
     const holding = gesture.touching() && !following();
-    if (holding && held() === null) setHeld(shown());
+    if (holding && held() === null) setHeld(untrack(() => holdTranscript(shown())));
     else if (!holding && held() !== null) setHeld(null);
   };
   const gesture = createAgentPaneGesture(body, syncHold);
@@ -265,7 +265,7 @@ export function createAgentPaneScroll(
   // New output while following lands at the bottom, unless the reader is moving.
   createEffect(
     on(
-      shown,
+      [shown, model.latestOutput],
       () => {
         if (following() && position !== 0 && !driving()) moveTo(0);
       },
@@ -292,6 +292,7 @@ export function createAgentPaneScroll(
 
   return {
     following,
+    holding: () => held() !== null,
     jumpToLatest,
     jumpToTurn,
     shown,
@@ -327,7 +328,7 @@ export function createAgentPaneScroll(
       following: following(),
       offset: position,
       seen: seen(),
-      shown: shown(),
+      shown: untrack(() => holdTranscript(shown())),
       topSeen,
       watchedId,
     }),

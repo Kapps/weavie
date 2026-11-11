@@ -9,3 +9,12 @@ export function isAgentPaneDelta(message: AgentPaneUpdate): boolean {
     message.type === "command-output-delta"
   );
 }
+
+/** The first content identity survives caption-only deltas and history/live reconciliation. */
+export function retainPaneContent<T extends AgentPaneUpdate>(first: AgentPaneUpdate, next: T): T {
+  const merged = { ...next };
+  for (const key of ["mediaType", "mediaData", "resourceUri"] as const) {
+    if (first[key] != null) merged[key] = first[key];
+  }
+  return merged;
+}

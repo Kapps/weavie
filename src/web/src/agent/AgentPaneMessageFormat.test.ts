@@ -12,7 +12,7 @@ describe("requestLifecycles", () => {
   it("reports an open request with its kind and answerable id", () => {
     expect(requestLifecycles([msg({ type: "approval-requested", itemId: "a1" })])).toEqual([
       {
-        key: JSON.stringify([null, null, "a1"]),
+        key: JSON.stringify(["acp", null, null, null, "a1"]),
         requestId: "a1",
         kind: "approval",
         resolution: null,

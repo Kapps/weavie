@@ -155,6 +155,24 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task SetSetting_WorkspaceScopedKey_FromAWorktreeSession_LandsWhereItsWorkspaceReadsIt() {
+		using var store = NewStore();
+		string worktree = _dir.Combine("worktree");
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [worktree], "weavie", store, settingsWorkspaceRoot: _dir.Path);
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+
+		await SendAsync(ws, Request(6, "tools/call",
+			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"workflow.default\",\"value\":\"quick-fix\"}}"));
+		using var response = await ReceiveAsync(ws);
+
+		Assert.False(response.RootElement.GetProperty("result").TryGetProperty("isError", out var err) && err.GetBoolean());
+		Assert.Equal("quick-fix", store.RequireString(WorkflowSettings.Default, _dir.Path));
+		Assert.Equal("", store.RequireString(WorkflowSettings.Default, worktree));
+	}
+
+	[Fact]
 	public async Task ListSettings_WorkspaceScopedKey_ReflectsWorkspaceOverlay() {
 		using var store = NewStore();
 		await using var server = NewServer(store);

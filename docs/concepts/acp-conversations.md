@@ -1,9 +1,13 @@
 # ACP conversations
 
-`AcpAgentSession` is the public face of one native ACP session: it owns the agent process, the display
-journal, the set of conversations, and the routing of user input. Every conversation on that process —
-the primary and each `/btw` side — is an `AcpConversation`: one owned incarnation that reaches the process
-only through its own endpoint and its owner only through its own port.
+`AcpAgentSession` supplies main input and presentation for a loaded native session. `AcpRuntime` owns one
+supervised provider process, initialization, and its hosted controllers. Main, BTW, independently owned workflow
+threads, and adopted subagents use the same `AcpConversation` controller, with an endpoint and output port.
+
+`ConversationOutput` owns the Core ledger. `ConversationView` reads one indexed conversation scope; the web
+accumulator mirrors that membership and updates only affected projections. A consumer that controls a thread
+holds `IAgentConversation`; a background transcript only needs the view. See
+[conversation model and execution](../specs/conversation-layer.md) for the ownership and projection contract.
 
 ## Slot and incarnation
 
@@ -33,7 +37,7 @@ stateDiagram-v2
 The primary, sides, and subagents are one type. `AcpConversationSpec` gives the seed, the opening (`Continue`: load
 or resume the seed's session, or create one; `ForkFromOpening`: fork a live parent, at a message for a rewind;
 `AdoptedOpening`: take over a subagent session its parent announced), and the role (`Primary`, `Side`,
-`Subagent`). The side-only behaviour left inside the conversation is the scope instruction in its prompts,
+`Independent`, `Subagent`). The side-only behaviour left inside the conversation is the scope instruction in its prompts,
 settling an interrupted opening, and its opening strategy; a subagent never opens, prompts, or closes, and shares
 its root's background work. Everything else that differs lives in its port. See
 [background work](../specs/background-work.md).
@@ -48,7 +52,7 @@ its root's background work. Everything else that differs lives in its port. See
    its conversation was replaced is still closed.
 2. **Port** — `AcpConversationPort`, handed in at construction, is the conversation's only event sink and its
    only way to persist, publish, report controls, usage and queue changes, fail the process, or restart it.
-   `PrimaryPort` raises the facade events; `SidePort` and `SubagentPort` share `NestedPort`, which namespaces
+   `PrimaryPort` raises the facade events; `SidePort`, `IndependentPort`, and `SubagentPort` share `NestedPort`, which namespaces
    nested messages, request ids, and events; `SidePort` completes the side, `SubagentPort` journals display
    events without a continuation; `RewindPort` stages a rewind's fork (below). Every port call takes the transition gate and is inert
    once the port is detached.
@@ -62,10 +66,15 @@ its root's background work. Everything else that differs lives in its port. See
 A conversation's root background work ends with it: failure ends subagents and tasks as failed, terminalizing
 for a restart ends them as stopped, and retiring or disposing retires them.
 
-The owner keeps only process-level state: the connection, `initialize` and the advertised
-`AcpAgentFeatures`, the attached process generation (to terminate it, attach sides, and route unscoped
-traffic), the journal, and the conversation set. Launch failures are the owner's, because an unattached
-primary has no endpoint to receive them.
+The runtime keeps process-level state: the connection, `initialize`, advertised `AcpAgentFeatures`, the
+attached process generation, and conversation membership. The loaded session owns the journal and shared
+output. Runtime failures end their hosted controllers; a journal failure ends writers across the session. Launch failures belong to the runtime because an unattached controller
+has no endpoint to receive them.
+
+Each Weavie-created controller receives an `AgentConversationBinding`: turn context, required controls, and
+its own revocable grant on the session's MCP registry. Workflow grants capture one stage execution and completion
+round. Ordinary BTW has no workflow completion authority. Adopted subagents borrow their parent's binding;
+the protocol does not provide an independent credential for them.
 
 ## Controls
 
@@ -76,7 +85,8 @@ it completes once the agent confirms each change, checks each against what the a
 value isn't offered or the agent refuses it. The batch is bound to the conversation's lifetime, so replacing the
 conversation faults it. A conversation opens on the user's defaults overlaid with the values the host holds
 (`IAgentControlHold`), model first, before it turns ready; a held value the agent no longer offers is reported, and
-never forgets the user's default.
+never forgets the user's default. Independently owned opening requires every supplied control to succeed before
+returning a handle.
 
 ## Locking
 
@@ -107,7 +117,8 @@ endpoint to the same initialized process and opens there. An agent that refuses 
 since nothing else would stop that session. Without close, or while the predecessor is still opening (a request
 that may never return), only stopping the process stops the predecessor's work, so
 the successor waits for a restart, which attaches it; the restart failing the old process's pending requests can
-no longer reach the retired incarnation. Restart always restarts the process.
+no longer reach the retired incarnation. Restart ends all work on the shared process. Clear ends independent work before replacing the archive.
+Rewind refuses active independent work and closes idle workflow children, pausing their stages.
 
 A primary's pane request ids stay unprefixed: every successor on a live process opens a new provider session, so
 its cards carry a different thread identity, and the predecessor's cards are all resolved before it retires.

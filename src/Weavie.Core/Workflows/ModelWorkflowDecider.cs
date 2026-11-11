@@ -34,9 +34,7 @@ public sealed partial class ModelWorkflowDecider : IWorkflowDecider {
 		}, ct).ConfigureAwait(false);
 		switch (result) {
 			case InferenceSuccess<DecisionAnswer> { Value: var answer, Receipt: var receipt }:
-				if (receipt.ProviderId == DecisionProviderIds.Agent) {
-					_history.Append(receipt.Duration);
-				}
+				_history.Record(receipt);
 				return new WorkflowDecisionResult.Answered(answer.Choice, answer.Probability);
 			case InferenceFailure<DecisionAnswer> { Kind: InferenceFailureKind.Refused } refusal:
 				return new WorkflowDecisionResult.Refused(refusal.Detail);

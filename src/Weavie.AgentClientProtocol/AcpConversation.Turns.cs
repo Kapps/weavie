@@ -162,6 +162,8 @@ internal sealed partial class AcpConversation {
 	}
 
 	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {
+		// Refused here, before the turn is accepted, whenever the agent's features are already known.
+		if (_ready) RequireImageSupport(submission);
 		if (submission.Kind == AgentTurnSubmissionKind.Prompt) {
 			if (submission.CommandName.Length != 0) {
 				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
@@ -174,9 +176,6 @@ internal sealed partial class AcpConversation {
 		}
 		if (submission.Kind != AgentTurnSubmissionKind.ProviderCommand) {
 			throw new InvalidOperationException($"Unknown agent submission kind '{submission.Kind}'.");
-		}
-		if (submission.Attachments.Count != 0) {
-			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
 		if (submission.CommandName.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
 		if (_ready) ResolveProviderCommandLocked(submission.CommandName);

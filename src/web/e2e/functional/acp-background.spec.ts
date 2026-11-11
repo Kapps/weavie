@@ -8,7 +8,7 @@ async function signal(workspace: string, name: string): Promise<void> {
   await writeFile(join(sessionWorktrees(workspace)[0]!, name), "");
 }
 
-test("a subagent renders as a live card that collapses when it finishes", async ({
+test("a subagent starts collapsed and keeps explicit expansion when it finishes", async ({
   page,
   weavie,
 }) => {
@@ -18,14 +18,19 @@ test("a subagent renders as a live card that collapses when it finishes", async 
   const card = surface.locator("[data-agent-subagent]");
   await expect(card).toHaveAttribute("data-state", "running");
   await expect(card.locator(".agent-entry-summary").first()).toHaveText("Explore");
-  await expect(card).toContainText("counting");
-  await expect(card.locator(".agent-entry-toggle")).toHaveAttribute("aria-expanded", "true");
+  const toggle = card.locator(".agent-entry-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(card.getByText("counting", { exact: true })).toBeHidden();
+  await toggle.click();
+  await expect(card.getByText("counting", { exact: true })).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await submitAcpDraft(surface, "/btw side question");
   await expect(surface.locator(".agent-aside")).toContainText("echo: side question");
 
   await signal(weavie.workspace, "release-subagent");
   await expect(card).toHaveAttribute("data-state", "completed");
-  await expect(card.locator(".agent-entry-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(card).toContainText("held subagent finished");
 
   await card.getByRole("button", { name: "Open" }).click();
   const tab = page.locator(".editor-tab", { hasText: "Subagent · Explore" });
@@ -207,6 +212,10 @@ test.describe("with approvals", () => {
   }) => {
     const surface = await createAcpSession(page, "acp-subagent-approval");
     await submitAcpDraft(surface, "subagent-permission");
+    await expect(surface.locator("[data-agent-subagent] .agent-entry-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     const request = surface.locator("[data-agent-subagent] .agent-entry-request");
     const input = request.locator(".agent-entry-main > .agent-entry-text");
     await expect(input).toContainText("README.md");

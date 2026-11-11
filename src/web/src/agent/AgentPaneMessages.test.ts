@@ -3,21 +3,16 @@ import type { AgentPaneUpdate } from "../bridge";
 import { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { projectAgentTranscript } from "./AgentPaneMessages";
 
+import { toAgentTranscript as projectFixture } from "./AgentPaneTestModel";
+
 function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
-  const projection = projectAgentTranscript(
+  return projectFixture(
     messages.map((message) =>
       message.type.endsWith("-requested") && message.requestId === undefined
         ? { ...message, requestId: message.itemId ?? null }
         : message,
     ),
   );
-  for (const entry of projection.entries) {
-    const activity = projection.activities.get(entry.id);
-    if (activity !== undefined) {
-      entry.details = activity.materialize();
-    }
-  }
-  return projection.entries;
 }
 
 describe("toAgentTranscript", () => {
@@ -262,18 +257,21 @@ describe("toAgentTranscript", () => {
     const materialize = vi.spyOn(ProjectedAgentActivity.prototype, "materialize");
     const count = 15_000;
     const turnId = "long-turn";
-    const projection = projectAgentTranscript([
-      { type: "user-message", providerId: "acp", turnId, text: "Do the long task" },
-      ...Array.from<unknown, AgentPaneUpdate>({ length: count }, (_, index) => ({
-        type: "item-completed",
-        providerId: "acp",
-        turnId,
-        itemId: `command-${index}`,
-        itemType: "commandExecution",
-        status: "completed",
-        summary: `command ${index}`,
-      })),
-    ]);
+    const projection = projectAgentTranscript(
+      [
+        { type: "user-message", providerId: "acp", turnId, text: "Do the long task" },
+        ...Array.from<unknown, AgentPaneUpdate>({ length: count }, (_, index) => ({
+          type: "item-completed",
+          providerId: "acp",
+          turnId,
+          itemId: `command-${index}`,
+          itemType: "commandExecution",
+          status: "completed",
+          summary: `command ${index}`,
+        })),
+      ],
+      new Map(),
+    );
 
     const transcript = projection.entries;
     expect(summary).toHaveBeenCalledTimes(1);
@@ -746,7 +744,7 @@ describe("toAgentTranscript", () => {
     ]);
 
     const requests = transcript.filter((entry) => entry.kind === "request");
-    expect(requests.map((entry) => entry.status)).toEqual(["pending", "accepted"]);
+    expect(requests.map((entry) => entry.status)).toEqual(["accepted", "pending"]);
     expect(transcript.filter((entry) => entry.tone === "error").map((entry) => entry.text)).toEqual(
       ["Subagent failed", "Root failed"],
     );

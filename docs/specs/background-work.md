@@ -78,7 +78,8 @@ Running work keeps the session status on Waiting unless it works or needs input,
 ## Presentation
 
 - **Subagent card** — a transcript row where it was spawned: label, live state and elapsed time, the parent of a
-  nested spawn, its latest activity and any request. Expanded while running, collapsed when finished; Open
+  nested spawn, its latest activity and any request. Collapsed by default, with requests always visible; an
+  explicit expansion stays open when it finishes. Open
   (`weavie.agent.openSubagent`) shows its whole transcript as a read-only editor tab of its session, rendered
   with the agent pane's own transcript components and updating while the subagent runs.
 - **Workflow card** — a Claude workflow (`taskType` `workflow`; Claude reports `showInTranscript: false` for

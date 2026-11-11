@@ -19,7 +19,7 @@ namespace Weavie.Core.Tests;
 /// Verifies registry-only tool advertisement, Bearer auth, and the generated port-scoped config file.
 /// </summary>
 [Collection("Settings")]
-public sealed class RegistryMcpTests : IDisposable {
+public sealed partial class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-registry-tests");
 	private readonly List<WorkflowRunner> _runners = [];
@@ -32,11 +32,13 @@ public sealed class RegistryMcpTests : IDisposable {
 	private SettingsStore NewStore() =>
 		CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 
-	private SessionWorkflowRegistry NewWorkflows(string personal) {
+	private SessionWorkflowRegistry NewWorkflows(string personal) => NewWorkflows(personal, new UnusedPort());
+
+	private SessionWorkflowRegistry NewWorkflows(string personal, IWorkflowRunPort port) {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), new UnusedPort(), () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
+			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), port, () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		_runners.Add(runner);
 		return new SessionWorkflowRegistry(catalog, runner);
 	}
@@ -398,7 +400,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
 		Assert.Equal("built-in", quickFix.GetProperty("scope").GetString());
 		Assert.True(quickFix.GetProperty("valid").GetBoolean());
-		Assert.Equal("text", quickFix.GetProperty("inputs").GetProperty("task").GetString());
+		Assert.Empty(quickFix.GetProperty("inputs").EnumerateObject());
 
 		await SendAsync(ws, Request(3, "tools/call", """{"name":"getWorkflowSchema","arguments":{}}"""));
 		using var schema = await ReceiveAsync(ws);
@@ -554,12 +556,14 @@ public sealed class RegistryMcpTests : IDisposable {
 	private static string Request(int id, string method, string paramsJson) =>
 		$"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"{method}\",\"params\":{paramsJson}}}";
 
-	private static async Task<HttpResponseMessage> PostHttpAsync(int port, string json) {
+	private static Task<HttpResponseMessage> PostHttpAsync(int port, string json) => PostHttpAsync(port, json, Token);
+
+	private static async Task<HttpResponseMessage> PostHttpAsync(int port, string json, string token) {
 		using var client = new HttpClient();
 		using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/mcp") {
 			Content = new StringContent(json, Encoding.UTF8, "application/json"),
 		};
-		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		return await client.SendAsync(request);
 	}
 
@@ -569,7 +573,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	private sealed class UnusedPort : IWorkflowRunPort {
-		public void Kickoff(WorkflowKickoff turn) => throw new InvalidOperationException("No kickoff is expected.");
+		public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => throw new InvalidOperationException("No kickoff is expected.");
 
 		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
 

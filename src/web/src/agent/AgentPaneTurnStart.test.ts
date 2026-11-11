@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toAgentTranscript } from "./AgentPaneMessages";
+import { toAgentTranscript } from "./AgentPaneTestModel";
 
 describe("agent turn starts", () => {
   it("marks prompts and image-only turns, but not prompt attachments or steers", () => {

@@ -9,6 +9,10 @@ a pluggable **decision provider**: the configured agent, OpenAI Decisions (`gpt-
 models never write text; they take evidence plus named questions and return a probability for every choice, which is
 exactly a workflow decision, and the probability is calibrated rather than a number a chat model invents.
 
+The new-session composer is the second consumer: it asks which startable workflow fits the drafted prompt, as an
+automatic query (`inference.allowAutomatic`), so a vendor provider receives the draft before the session is started.
+See [new-session-workflow-picker/design.md](new-session-workflow-picker/design.md).
+
 ## Why decision models, and not direct chat APIs
 
 Measured on 2026-11-08 from the Debian worker, three review-routing cases (clean review, real bug + red CI, one

@@ -3,57 +3,55 @@ using Weavie.Core.Agents;
 namespace Weavie.Hosting.Agents;
 
 public sealed partial class AgentSessionHost {
+	private readonly Lock _planGate = new();
+	private AgentPlansSnapshot? _publishedPlans;
 	internal event Action<AgentPlansSnapshot>? PlansChanged;
 
-	internal bool WithCompletedPlan(string threadId, string turnId, string itemId, Action<AgentPlan> publish) {
-		ArgumentNullException.ThrowIfNull(publish);
-		lock (_paneGate) {
-			if (MessageLocked(threadId, turnId, itemId) is not { } message || CompletedPlanLocked(message) is not { } plan) return false;
+	internal bool WithCompletedPlan(string providerId, string? conversationId, string threadId, string turnId, string itemId, Action<AgentPlan> publish) {
+		lock (_planGate) {
+			if (Message(providerId, conversationId, threadId, turnId, itemId) is not { } message || CompletedPlan(message) is not { } plan) return false;
 			publish(plan);
 			return true;
 		}
 	}
 
-	/// <summary>Runs <paramref name="open"/> with the plan file the identified review asks about.</summary>
-	internal bool WithPlanFile(string threadId, string turnId, string itemId, Action<string> open) {
-		ArgumentNullException.ThrowIfNull(open);
-		lock (_paneGate) {
-			if (MessageLocked(threadId, turnId, itemId) is not { ItemType: "plan-review", PlanPath: { } path }) return false;
+	internal bool WithPlanFile(string providerId, string? conversationId, string threadId, string turnId, string itemId, Action<string> open) {
+		lock (_planGate) {
+			if (Message(providerId, conversationId, threadId, turnId, itemId) is not { ItemType: "plan-review", PlanPath: { } path }) return false;
 			open(path);
 			return true;
 		}
 	}
 
-	private AgentPaneMessage? MessageLocked(string threadId, string turnId, string itemId) =>
+	private AgentPaneMessage? Message(string providerId, string? conversationId, string threadId, string turnId, string itemId) =>
 		string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)
-			|| !_pane.TryItemIndex(AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!, out int index)
-			? null
-			: _pane.Stored[index];
+			? null : Output.FindItem(AgentPaneIdentity.ItemKey(providerId, conversationId, threadId, turnId, itemId)!);
 
-	private AgentPlan? CompletedPlanLocked(AgentPaneMessage message) {
-		if (message.Type != "item-completed" || message.ItemType != "plan"
-			|| string.IsNullOrWhiteSpace(message.Text)
-			|| AgentPaneIdentity.ItemKey(message) is not { } key
-			|| _pane.IsActive(key)) return null;
-		return new AgentPlan(key, "Plan", message.Text);
-	}
+	private static AgentPlan? CompletedPlan(AgentPaneMessage message) =>
+		message is { Type: "item-completed", ItemType: "plan" }
+			&& !string.IsNullOrWhiteSpace(message.Text) && AgentPaneIdentity.ItemKey(message) is { } key
+			? new AgentPlan(key, "Plan", message.Text) : null;
 
-	private static bool AffectsPlans(AgentPaneMessage message) =>
-		message.ItemType is "plan" or "plan-review" || message.Type is "item-retracted" or "approval-resolved";
-
-	private void PublishPlansLocked() {
-		var documents = new List<AgentPlan>();
-		var reviews = new Dictionary<string, AgentPlanReview>(StringComparer.Ordinal);
-		foreach (var message in _pane.Stored) {
-			if (CompletedPlanLocked(message) is { } document) documents.Add(document);
-			if (AgentPaneIdentity.ItemKey(message) is not { } key) continue;
-			if (message is { Type: "approval-requested", ItemType: "plan-review", PlanPath: { } path }) {
-				reviews[key] = new AgentPlanReview(message.RequestId!, path, message.Actions ?? []);
-			} else if (message.Type == "approval-resolved") {
-				reviews.Remove(key);
+	private void PublishPlans() {
+		lock (_planGate) {
+			var documents = new List<AgentPlan>();
+			var reviews = new Dictionary<string, AgentPlanReview>(StringComparer.Ordinal);
+			foreach (var record in Output.ReadHistory(null, null).Messages) {
+				var message = record.Message;
+				if (CompletedPlan(message) is { } document) documents.Add(document);
+				if (AgentPaneIdentity.ItemKey(message) is not { } key) continue;
+				if (message is { Type: "approval-requested", ItemType: "plan-review", PlanPath: { } path }) {
+					reviews[key] = new AgentPlanReview(message.RequestId!, path, message.Actions ?? []);
+				} else if (message.Type == "approval-resolved") {
+					reviews.Remove(key);
+				}
 			}
+			var next = new AgentPlansSnapshot(documents, [.. reviews.Values]);
+			if (_publishedPlans is { } previous && previous.Documents.SequenceEqual(next.Documents)
+				&& previous.Reviews.SequenceEqual(next.Reviews)) return;
+			_publishedPlans = next;
+			PlansChanged?.Invoke(next);
 		}
-		PlansChanged?.Invoke(new(documents, [.. reviews.Values]));
 	}
 }
 

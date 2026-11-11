@@ -1,5 +1,9 @@
 import type { Locator, Page } from "@playwright/test";
 
+/** A valid 64×64 PNG, small enough to paste as it is. */
+export const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
+
 /** Real, incompressible pixels force the browser to resize rather than discard PNG padding. */
 export async function oversizedPng(page: Page): Promise<string> {
   return page.evaluate(() => {

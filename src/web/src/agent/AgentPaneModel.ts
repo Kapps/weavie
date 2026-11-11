@@ -1,30 +1,25 @@
 import { type Accessor, batch, createSignal } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
-import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
-import { paneActivityIdentity } from "./AgentPaneIdentity";
-import { projectAgentTranscript } from "./AgentPaneMessages";
+import {
+  AgentPaneConversationRows,
+  type ConversationRows,
+  conversationKey,
+} from "./AgentPaneConversationRows";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
-import { orderPendingRequests } from "./AgentPendingRequests";
-import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
-import {
-  activeTurnStartedAt,
-  hasActiveTurn,
-  hasInterruptibleActivity,
-  type PendingRequestKind,
-  pendingRequest,
-} from "./turn-progress";
+import type { PendingRequest, PendingRequestKind } from "./turn-progress";
 
 export type { AgentSectionLabel } from "./AgentPaneTranscriptTypes";
 
 export interface AgentPaneModel {
+  readonly cardChanges: Accessor<readonly { id: string; delta: number }[]>;
   readonly generation: Accessor<number>;
   readonly history: Accessor<readonly string[]>;
   /** Whether the host's stored transcript has fully loaded. */
@@ -45,195 +40,222 @@ export interface AgentPaneModel {
   readonly transcript: Accessor<AgentTranscriptSnapshot>;
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
+  conversation(id: string): AgentTranscriptEntry | undefined;
   setActivityExpanded(id: string, expanded: boolean): void;
   /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
   activityStep(itemId: string): AgentActivityStep | undefined;
 }
 
 export interface MutableAgentPaneModel extends AgentPaneModel {
-  /** Applies live output; `changes` are the messages it changed. */
-  publish(updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void;
+  /** Applies live output; `changes` are the messages it changed, or none to rebuild every conversation. */
+  publish(rows: AgentPaneConversationRows, changes: AgentPaneUpdate[]): void;
   /** Applies the loaded history. */
-  replace(updates: AgentPaneUpdate[]): void;
+  load(rows: AgentPaneConversationRows): void;
   setHistoryComplete(complete: boolean): void;
   /** Marks the transcript as receiving live output, which history loading never clears. */
   noteLive(): void;
   reset(): void;
 }
 
-interface ProjectedActivity {
-  path: number[];
-  projection: ProjectedAgentActivity;
-}
-
 export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
-  const [transcript, setTranscript] = createSignal(emptyTranscript);
-  const [latestOutput, setLatestOutput] = createSignal(0);
+  const [cardChanges, setCardChanges] = createSignal<readonly { id: string; delta: number }[]>([]);
   const [generation, setGeneration] = createSignal(0);
-  // Steps can change without changing any shown entry, so step readers track projections directly.
-  const [projected, setProjected] = createSignal(undefined, { equals: false });
-  const [turnActive, setTurnActive] = createSignal(false);
-  const [interruptible, setInterruptible] = createSignal(false);
-  const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
-  const [pendingRequestKind, setPendingRequestKind] = createSignal<PendingRequestKind | null>(null);
-  const [keyboardApprovalId, setKeyboardApprovalId] = createSignal<string | null>(null);
-  const [keyboardRequestKey, setKeyboardRequestKey] = createSignal<string | null>(null);
-  const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
+  const [latestOutput, setLatestOutput] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [historyComplete, setHistoryComplete] = createSignal(false);
   const [live, setLive] = createSignal(false);
   const [liveReplyId, setLiveReplyId] = createSignal<string | null>(null);
   let latestReplyId: string | null = null;
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
-  const activities = new Map<string, ProjectedActivity>();
-  const expandedActivities = new Set<string>();
-
-  const project = (updates: AgentPaneUpdate[], live: boolean): void => {
-    const projection = projectAgentTranscript(updates);
-    for (const id of expandedActivities) {
-      if (!projection.activities.has(id)) {
-        expandedActivities.delete(id);
-      }
+  const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
+  const [request, setRequest] = createSignal<PendingRequest | null>(null);
+  const [interruptible, setInterruptible] = createSignal(false);
+  const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
+  const expanded = new Set<string>();
+  const main = new AgentConversationProjection(expanded);
+  const views = new Map<string, AgentConversationProjection>([["", main]]);
+  const byId = new Map<
+    string,
+    ReturnType<typeof createSignal<AgentConversationProjection | undefined>>
+  >();
+  const membership = (id: string) => {
+    let cell = byId.get(id);
+    if (cell === undefined) {
+      cell = createSignal<AgentConversationProjection>();
+      byId.set(id, cell);
     }
-    visitEntries(projection.entries, (entry) => {
-      const activity = projection.activities.get(entry.id);
-      if (activity !== undefined && expandedActivities.has(entry.id)) {
-        entry.details = activity.materialize();
-      }
-    });
+    return cell;
+  };
+  const pending = new Map<string, { request: PendingRequest; index: number }>();
+  const active = new Set<string>();
+  let source: AgentPaneConversationRows;
+  let outputChanged = false;
+  let pendingChanged = false;
+  let resized = new Map<string, number>();
 
-    const active = hasActiveTurn(updates);
-    const canInterrupt = hasInterruptibleActivity(updates);
-    const request = pendingRequest(updates);
-    const approvalId = request?.kind === "approval" ? request.requestId : null;
-    const turnStartId = latestAgentTurnStartId(projection.entries);
-    const ordered = orderPendingRequests(projection.entries);
-    const visible = ordered.entries;
-    const turnStartIndex =
-      turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
-    const resultIndex = latestResultIndex(visible);
-    const replyId = resultIndex === null ? null : visible[resultIndex]!.id;
-    activities.clear();
-    visitEntries(visible, (entry, path) => {
-      const activity = projection.activities.get(entry.id);
-      if (activity !== undefined) activities.set(entry.id, { path, projection: activity });
-    });
+  const viewFor = (scope: ConversationRows): AgentConversationProjection => {
+    let view = views.get(scope.key);
+    if (view === undefined) {
+      view = new AgentConversationProjection(expanded);
+      views.set(scope.key, view);
+    }
+    view.bind(scope.marker);
+    if (scope.marker?.conversationId) membership(scope.marker.conversationId)[1](view);
+    return view;
+  };
 
-    batch(() => {
-      publishTranscript((previous) =>
-        shareTranscript(previous, {
-          agentTurnStartId: turnStartId,
-          agentTurnStartIndex: turnStartIndex,
-          entries: visible,
-          latestResultIndex: resultIndex,
-          pendingRowIndexes: ordered.pendingRowIndexes,
-          sectionLabels: computeSectionLabels(visible, active),
-          turnActive: active,
-        }),
+  const project = (scope: ConversationRows, changes: AgentPaneUpdate[]): void => {
+    const view = viewFor(scope);
+    const cards = new Map<AgentPaneUpdate, AgentTranscriptEntry>();
+    const indexes = [...scope.indexes];
+    for (const child of scope.cards) {
+      cards.set(child.marker!, viewFor(child).linked);
+      indexes.push(child.markerIndex);
+    }
+    const rows =
+      scope.cards.size === 0
+        ? source.rows(scope)
+        : indexes.sort((a, b) => a - b).map((index) => source.messages[index]!);
+    const height = view.estimatedHeight;
+    const before = view.transcript().entries.at(-1);
+    const status = view.card()?.status;
+    view.publish(
+      rows,
+      changes,
+      cards,
+      scope.parent?.marker?.type === "subagent-started"
+        ? (scope.parent.marker.summary ?? null)
+        : null,
+      scope.marker,
+    );
+    resizeAncestors(scope, view.estimatedHeight - height);
+    outputChanged ||= before !== view.transcript().entries.at(-1) || status !== view.card()?.status;
+    if (view.request === null) pendingChanged = pending.delete(scope.key) || pendingChanged;
+    else {
+      const index = scope.indexes.findLast(
+        (index) =>
+          source.messages[index]?.requestId === view.request!.requestId &&
+          source.messages[index]?.type.endsWith("-requested"),
+      )!;
+      const before = pending.get(scope.key);
+      pendingChanged ||= before?.index !== index || before.request.key !== view.request.key;
+      pending.set(scope.key, { request: view.request, index });
+    }
+    if (view.active || view.card()?.asideActive === true) active.add(scope.key);
+    else active.delete(scope.key);
+    if (scope.key === "") {
+      setHistory(submittedPrompts(rows));
+      setLatestPlan(latestCompletedPlan(rows));
+      setPendingLegacyImageCount(countPendingLegacyImages(rows));
+      setTurnStartedAt(view.startedAt);
+    }
+  };
+
+  const resizeAncestors = (scope: ConversationRows, delta: number): void => {
+    if (delta === 0 || scope.container === null) return;
+    let child = scope;
+    while (child.container !== null && child.container.key !== "") {
+      const parent = viewFor(child.container);
+      const before = parent.estimatedHeight;
+      parent.childResized(viewFor(child).linked.id, delta);
+      delta = parent.estimatedHeight - before;
+      child = child.container;
+    }
+    const id = viewFor(child).linked.id;
+    resized.set(id, (resized.get(id) ?? 0) + delta);
+  };
+
+  const retainRequests = (scope: ConversationRows): void => {
+    for (let child = scope; child.container !== null; child = child.container) {
+      const parent = viewFor(child.container);
+      const before = parent.estimatedHeight;
+      parent.setCardPending(
+        viewFor(child).linked.id,
+        viewFor(child).transcript().pendingRowIndexes.length > 0,
       );
+      resizeAncestors(child.container, parent.estimatedHeight - before);
+    }
+  };
+
+  const apply = (
+    rows: AgentPaneConversationRows,
+    changes: AgentPaneUpdate[],
+    live: boolean,
+  ): void =>
+    batch(() => {
+      outputChanged = false;
+      pendingChanged = changes.length === 0;
+      resized = new Map();
+      source = rows;
+      if (changes.length === 0) {
+        pending.clear();
+        active.clear();
+        for (const cell of byId.values()) cell[1](undefined);
+        for (const key of views.keys()) if (!source.conversations.has(key)) views.delete(key);
+        const reconstruct = (scope: ConversationRows): void => {
+          for (const child of scope.cards) reconstruct(child);
+          project(scope, []);
+        };
+        reconstruct(source.get(""));
+        for (const scope of source.conversations.values()) retainRequests(scope);
+      } else {
+        const changed = new Map<ConversationRows, AgentPaneUpdate[]>();
+        for (const message of changes) {
+          const scope = source.get(conversationKey(message));
+          const own = changed.get(scope) ?? [];
+          own.push(message);
+          changed.set(scope, own);
+        }
+        const affected = new Set([...changed.keys(), ...source.placements]);
+        const depth = (scope: ConversationRows): number => {
+          let count = 0;
+          for (let parent = scope.container; parent !== null; parent = parent.container) count++;
+          return count;
+        };
+        for (const scope of [...affected].sort((left, right) => depth(right) - depth(left)))
+          project(scope, source.placements.has(scope) ? [] : (changed.get(scope) ?? []));
+        for (const scope of affected) retainRequests(scope);
+      }
+      source.placements.clear();
+      setCardChanges([...resized].map(([id, delta]) => ({ id, delta })));
+      if (pendingChanged) {
+        let latest: { request: PendingRequest; index: number } | undefined;
+        for (const candidate of pending.values())
+          if (latest === undefined || candidate.index > latest.index) latest = candidate;
+        setRequest(latest?.request ?? null);
+      }
+      setInterruptible(active.size > 0);
+      if (outputChanged) setLatestOutput((count) => count + 1);
+      const { entries, latestResultIndex } = main.transcript();
+      const replyId = latestResultIndex === null ? null : entries[latestResultIndex]!.id;
       if (replyId !== latestReplyId) {
         latestReplyId = replyId;
         setLiveReplyId(live ? replyId : null);
       }
-      setTurnActive(active);
-      setInterruptible(canInterrupt);
-      setTurnStartedAt(activeTurnStartedAt(updates));
-      setPendingRequestKind(request?.kind ?? null);
-      setKeyboardApprovalId(approvalId);
-      setKeyboardRequestKey(request?.key ?? null);
-      setPendingLegacyImageCount(countPendingLegacyImages(updates));
-      setHistory(submittedPrompts(updates));
-      setLatestPlan(latestCompletedPlan(updates));
-      setProjected();
     });
-  };
-
-  const projectActivityChanges = (changes: AgentPaneUpdate[]): boolean => {
-    const mutations: Array<{ activity: ProjectedActivity; message: AgentPaneUpdate }> = [];
-    for (const message of changes) {
-      if (message.conversationId) return false;
-      if (message.turnId === null || message.turnId === undefined || message.turnId.length === 0) {
-        return false;
-      }
-      const activity = activities.get(`activity-${paneActivityIdentity(message, "")}`);
-      if (activity === undefined || !activity.projection.canUpsert(message)) {
-        return false;
-      }
-      mutations.push({ activity, message });
-    }
-    if (mutations.length === 0) {
-      return false;
-    }
-
-    const changed = new Map<ProjectedActivity, Set<number>>();
-    for (const { activity, message } of mutations) {
-      const indexes = changed.get(activity) ?? new Set<number>();
-      indexes.add(activity.projection.upsert(message));
-      changed.set(activity, indexes);
-    }
-    batch(() => {
-      // One copy per changed activity, however many of its steps the batch touched.
-      publishTranscript((previous) => {
-        let entries = previous.entries;
-        for (const [activity, indexes] of changed) {
-          entries = replaceAtPath(entries, activity.path, (entry) => {
-            const details = expandedActivities.has(entry.id) ? [...entry.details] : entry.details;
-            if (details !== entry.details) {
-              for (const index of indexes)
-                details[index] = activity.projection.materializeAt(index);
-            }
-            return {
-              ...entry,
-              ...activity.projection.summary(),
-              detailCount: activity.projection.count,
-              details,
-            };
-          });
-        }
-        return { ...previous, entries };
-      });
-      setProjected();
-    });
-    return true;
-  };
-
-  // Output from the agent: the latest row changing is output a reader away from the bottom hasn't seen.
-  const publishTranscript = (
-    next: (previous: AgentTranscriptSnapshot) => AgentTranscriptSnapshot,
-  ): void => {
-    const latest = transcript().entries.at(-1);
-    setTranscript(next);
-    if (transcript().entries.at(-1) !== latest) setLatestOutput((count) => count + 1);
-  };
 
   const model: MutableAgentPaneModel = {
+    cardChanges,
     generation,
     history,
     historyComplete,
     interruptible,
-    keyboardApprovalId,
-    keyboardRequestKey,
     latestOutput,
     latestPlan,
     live,
     liveReplyId,
     pendingLegacyImageCount,
-    pendingRequestKind,
     session,
-    transcript,
-    turnActive,
     turnStartedAt,
-    publish(updates, changes) {
-      const activityChanged =
-        hasActiveTurn(updates) !== turnActive() ||
-        hasInterruptibleActivity(updates) !== interruptible() ||
-        activeTurnStartedAt(updates) !== turnStartedAt();
-      if (activityChanged || !projectActivityChanges(changes)) {
-        project(updates, true);
-      }
-    },
-    replace(updates) {
-      project(updates, false);
+    transcript: main.transcript,
+    turnActive: () => main.transcript().turnActive,
+    pendingRequestKind: () => request()?.kind ?? null,
+    keyboardRequestKey: () => request()?.key ?? null,
+    keyboardApprovalId: () => (request()?.kind === "approval" ? request()!.requestId : null),
+    publish: (rows, changes) => apply(rows, changes, true),
+    load: (rows) => apply(rows, [], false),
+    conversation(id) {
+      return membership(id)[0]()?.linked;
     },
     setHistoryComplete(complete) {
       batch(() => {
@@ -243,33 +265,27 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     },
     noteLive: () => setLive(true),
     reset() {
-      expandedActivities.clear();
-      project([], false);
+      expanded.clear();
+      apply(new AgentPaneConversationRows([]), [], false);
       clearAgentInputDrafts(session);
       setGeneration((value) => value + 1);
     },
     activityStep(itemId) {
-      projected();
-      for (const activity of activities.values()) {
-        const step = activity.projection.step(itemId);
+      for (const view of views.values()) {
+        const step = view.activityStep(itemId);
         if (step !== undefined) return step;
       }
       return undefined;
     },
     setActivityExpanded(id, expanded) {
-      const activity = activities.get(id);
-      if (activity === undefined || expandedActivities.has(id) === expanded) {
-        return;
+      for (const [key, view] of views) {
+        const before = view.estimatedHeight;
+        if (!view.setExpanded(id, expanded)) continue;
+        resized = new Map();
+        resizeAncestors(source.get(key), view.estimatedHeight - before);
+        setCardChanges([...resized].map(([id, delta]) => ({ id, delta })));
+        break;
       }
-      if (expanded) expandedActivities.add(id);
-      else expandedActivities.delete(id);
-      setTranscript((previous) => ({
-        ...previous,
-        entries: replaceAtPath(previous.entries, activity.path, (entry) => ({
-          ...entry,
-          details: expanded ? activity.projection.materialize() : [],
-        })),
-      }));
     },
   };
   return model;
@@ -287,37 +303,4 @@ function countPendingLegacyImages(messages: readonly AgentPaneUpdate[]): number 
     }
   }
   return count;
-}
-
-// Copies only the entries along `path`, so every other entry keeps its identity.
-function replaceAtPath(
-  entries: readonly AgentTranscriptEntry[],
-  path: readonly number[],
-  update: (entry: AgentTranscriptEntry) => AgentTranscriptEntry,
-): readonly AgentTranscriptEntry[] {
-  const [index, ...rest] = path as [number, ...number[]];
-  const entry = entries[index]!;
-  const copy = [...entries];
-  copy[index] =
-    rest.length === 0
-      ? update(entry)
-      : {
-          ...entry,
-          asideEntries: replaceAtPath(entry.asideEntries!, rest, update) as AgentTranscriptEntry[],
-        };
-  return copy;
-}
-
-function visitEntries(
-  entries: AgentTranscriptEntry[],
-  visit: (entry: AgentTranscriptEntry, path: number[]) => void,
-): void {
-  const walk = (siblings: AgentTranscriptEntry[], parent: number[]): void => {
-    siblings.forEach((entry, index) => {
-      const path = [...parent, index];
-      visit(entry, path);
-      if (entry.asideEntries !== undefined) walk(entry.asideEntries, path);
-    });
-  };
-  walk(entries, []);
 }

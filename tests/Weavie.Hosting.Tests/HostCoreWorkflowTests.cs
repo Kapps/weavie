@@ -41,6 +41,29 @@ public sealed class HostCoreWorkflowTests {
 		TempGitRepo.Run(repo, "commit", "-m", "flow");
 	}
 
+	private static void CommitPromptFlow(string repo) {
+		Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
+		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "ask.yaml"), """
+			id: ask
+			description: two stages that both read the prompt
+			stages:
+			  - id: build
+			    run: { prompt: "build: {{run.prompt}}" }
+			  - id: prove
+			    run: { prompt: "prove: {{run.prompt}}" }
+			""");
+		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "late.yaml"), """
+			id: late
+			description: only the second stage reads the prompt
+			stages:
+			  - id: plan
+			    run: { prompt: "plan it" }
+			  - id: build
+			    run: { prompt: "build: {{run.prompt}}" }
+			""");
+		CommitFlow(repo);
+	}
+
 	internal static WorkflowDecisionHistory DecisionHistory(string repo) =>
 		new(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
 
@@ -62,7 +85,7 @@ public sealed class HostCoreWorkflowTests {
 		await using var host = await StartAsync(decisions);
 		var provider = Assert.IsType<FakeStructuredAgentProvider>(host.AgentProviders.RequireAvailable("structured"));
 		IAgentTurnContext? turnContext = null;
-		provider.CreatingSession = context => turnContext = context.TurnContext;
+		provider.CreatingSession = context => turnContext = context.Bindings.MainTurnContext;
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session("wf");
 
@@ -130,16 +153,106 @@ public sealed class HostCoreWorkflowTests {
 			Workflow = "missing",
 		});
 		Assert.False(unknown.Ok);
-		var both = await host.CreateSessionAsync(new NewSessionRequest {
-			Branch = "both",
+		Assert.Null(host.Core.SessionForTest("nope"));
+	}
+
+	[Fact]
+	public async Task NewSessionHandsItsPromptAndImagesToTheRunWhichKeepsThemInItsDocuments() {
+		byte[] png = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
+
+		var unprompted = await host.CreateSessionAsync(new NewSessionRequest { Branch = "none", Base = "main", AgentProviderId = "structured", Workflow = "ask" });
+		Assert.Contains("{{run.prompt}}", unprompted.Error, StringComparison.Ordinal);
+		Assert.Null(host.Core.SessionForTest("none"));
+
+		var created = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
 			Base = "main",
 			AgentProviderId = "structured",
-			Workflow = "flow",
-			Prompt = "hi",
+			Workflow = "ask",
+			Prompt = "add a picker",
+			Attachments = [new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = Convert.ToBase64String(png) }],
 		});
-		Assert.False(both.Ok);
-		Assert.Null(host.Core.SessionForTest("nope"));
-		Assert.Null(host.Core.SessionForTest("both"));
+		Assert.True(created.Ok, created.Error);
+		var session = host.Session("wf");
+		await WaitForEchoAsync(host, session, "build: add a picker [1 image(s)]");
+		var run = session.Workflow.Current!;
+		string image = Path.Combine(run.DocumentsDirectory, Assert.Single(run.Prompt.Images).File);
+		Assert.Equal(png, File.ReadAllBytes(image));
+
+		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
+		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
+			new { id = "wf" }, CancellationToken.None)).Ok);
+		var reloaded = await WaitForSessionAsync(host, "wf");
+		Assert.True(File.Exists(image));
+
+		// The conversation already holds the images, so the next stage that reads the prompt sends its text alone.
+		reloaded.Workflow.CompleteStage(Json("{}"), "built");
+		await Eventually(() => host.Bridge.PostedEvents(reloaded.Address, "agent", "pane").Any(message =>
+			message.GetProperty("type").GetString() == "item-completed" && message.GetProperty("text").GetString() == "echo: prove: add a picker"));
+
+		reloaded.Workflow.Cancel(run.Id);
+		Assert.True(File.Exists(image));
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync("wf", force: true, classify: false)).Ok);
+		await Eventually(() => !File.Exists(image));
+	}
+
+	[Fact]
+	public async Task ATurnTheAgentRefusesPausesTheRunStillOwingItsImages() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
+			Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
+			File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "refused.yaml"),
+				$"id: refused\ndescription: d\nstages:\n  - id: build\n    run: {{ prompt: \"{FakeStructuredAgentProvider.RefusedTurn}: {{{{run.prompt}}}}\" }}\n");
+			CommitFlow(repo);
+		});
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "refused",
+			Prompt = "add a picker",
+			Attachments = [new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "iVBORw0KGgo=" }],
+		})).Ok);
+		var session = host.Session("wf");
+
+		await Eventually(() => session.Workflow.Current!.Phase == WorkflowPhase.Paused);
+
+		Assert.Contains("The fake agent refuses this turn.", session.Workflow.Current!.PausedReason, StringComparison.Ordinal);
+		Assert.False(session.Workflow.Current.PromptImagesSent);
+	}
+
+	[Fact]
+	public async Task AStageWhoseTurnWouldCarryAMissingPromptImagePausesInsteadOfSendingIt() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "late",
+			Prompt = "add a picker",
+			Attachments = [new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "iVBORw0KGgo=" }],
+		})).Ok);
+		var session = host.Session("wf");
+		await WaitForEchoAsync(host, session, "plan it");
+		var run = session.Workflow.Current!;
+		File.Delete(Path.Combine(run.DocumentsDirectory, run.Prompt.Images[0].File));
+
+		session.Workflow.CompleteStage(Json("{}"), "planned");
+
+		await Eventually(() => session.Workflow.Current!.Phase == WorkflowPhase.Paused);
+		Assert.Contains("is missing", session.Workflow.Current!.PausedReason, StringComparison.Ordinal);
+		Assert.False(session.Workflow.Current.PromptImagesSent);
+	}
+
+	[Fact]
+	public async Task RunWorkflowTakesAPrompt() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), CommitPromptFlow);
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
+
+		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRun, new { workflow = "ask" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRun, new { workflow = "ask", prompt = " add a picker " }, CancellationToken.None)).Ok);
+		await WaitForEchoAsync(host, host.Session("wf"), "build: add a picker");
 	}
 
 	[Fact]

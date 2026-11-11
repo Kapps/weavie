@@ -50,6 +50,9 @@ public sealed record AgentProviderInfo {
 
 /// <summary>Required provider-neutral dependencies for one worktree-scoped agent session.</summary>
 public sealed record AgentSessionContext {
+	/// <summary>The session-owned output ledger shared by all visible conversations.</summary>
+	public required ConversationOutput Output { get; init; }
+
 	/// <summary>The live settings store.</summary>
 	public required SettingsStore Settings { get; init; }
 
@@ -80,11 +83,9 @@ public sealed record AgentSessionContext {
 	/// <summary>The host-owned visible terminal used for standard ACP terminal authentication.</summary>
 	public required IAgentAuthenticationTerminal AuthenticationTerminal { get; init; }
 
-	/// <summary>The context attached to every primary-conversation turn.</summary>
-	public required IAgentTurnContext TurnContext { get; init; }
+	/// <summary>Creates main and independent conversation bindings over the session's registry.</summary>
+	public required AgentConversationBindings Bindings { get; init; }
 
-	/// <summary>The control values held over the user's defaults whenever one of its conversations opens.</summary>
-	public required IAgentControlHold ControlHold { get; init; }
 }
 
 /// <summary>Creates provider sessions without exposing provider protocols to the host composition.</summary>

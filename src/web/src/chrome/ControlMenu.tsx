@@ -1,5 +1,5 @@
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import type { AgentControlAxis } from "../bridge";
+import type { AgentControlAxis, AgentControlOption } from "../bridge";
 import { createListNavigation } from "../list-navigation";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
 import "./control-menu.css";
@@ -9,13 +9,33 @@ const [openMenus, setOpenMenus] = createSignal(0);
 /** Whether a control menu is open, so an enclosing dialog leaves Enter and Escape to it. */
 export const controlMenuOpen = (): boolean => openMenus() > 0;
 
+/** An option the menu may list without letting it be picked; its description says why. */
+export interface ControlMenuOption extends AgentControlOption {
+  unavailable?: boolean;
+}
+
+/** Fixed below the anchor, or above it when the viewport has no room underneath. */
+export function controlMenuPlacement(anchor: DOMRect): JSX.CSSProperties {
+  const below = window.innerHeight - anchor.bottom;
+  const above = below < 180 && anchor.top > below;
+  return {
+    position: "fixed",
+    left: `${anchor.left}px`,
+    "min-width": `${Math.max(anchor.width, 200)}px`,
+    "max-height": `${Math.min((above ? anchor.top : below) - 12, window.innerHeight * 0.45)}px`,
+    ...(above
+      ? { bottom: `${window.innerHeight - anchor.top + 4}px` }
+      : { top: `${anchor.bottom + 4}px` }),
+  };
+}
+
 /**
  * One axis's options as a keyboard-driven listbox, mounted while open. Keys are read in the window's capture phase so
  * a pick beats the focused composer or dialog; a pointer-down outside `inside` (the menu plus its toggle) or the window
  * losing focus closes it. A null `inside` leaves dismissal to the enclosing modal, which survives a window blur.
  */
 export function ControlMenu(props: {
-  axis: AgentControlAxis;
+  axis: Pick<AgentControlAxis, "label" | "value"> & { options: readonly ControlMenuOption[] };
   class: string;
   style?: JSX.CSSProperties;
   inside: string | null;
@@ -34,7 +54,7 @@ export function ControlMenu(props: {
     onAccept: (index) => {
       const option = props.axis.options[index];
       if (option === undefined) props.onClose();
-      else props.onPick(option.id);
+      else if (option.unavailable !== true) props.onPick(option.id);
     },
     onDismiss: props.onClose,
   });
@@ -81,10 +101,11 @@ export function ControlMenu(props: {
               role="option"
               tabindex={-1}
               aria-selected={option.id === props.axis.value}
+              aria-disabled={option.unavailable === true}
               classList={{ active: index() === nav.index() }}
               onPointerDown={(event) => {
                 event.preventDefault();
-                props.onPick(option.id);
+                if (option.unavailable !== true) props.onPick(option.id);
               }}
             >
               <span class="ui-row-text">

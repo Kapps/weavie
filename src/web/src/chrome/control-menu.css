@@ -36,6 +36,14 @@
   color: var(--fg);
 }
 
+.control-menu-option[aria-disabled="true"] {
+  cursor: default;
+}
+
+.control-menu-option[aria-disabled="true"] .control-menu-option-label {
+  color: var(--dim);
+}
+
 .control-menu-option-group {
   padding: 6px 8px 2px;
 }

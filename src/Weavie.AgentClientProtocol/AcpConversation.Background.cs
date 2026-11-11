@@ -13,9 +13,11 @@ internal sealed partial class AcpConversation {
 	/// <summary>The primary turn after which this root's nested cards render: a side's own anchor, else the current turn.</summary>
 	internal long NestedAnchorTurn => _spec.Side ? _spec.Seed.Continuation.AnchorTurnNumber : TurnNumber;
 
-	private bool OwnsWork => _spec.Role != AcpConversationRole.Subagent;
+	internal bool Independent => _spec.Role == AcpConversationRole.Independent;
 
-	internal AcpConversation CreateSubagent(AcpConversationSpec spec) => _port.CreateSubagent(spec);
+	internal bool OwnsWork => _spec.Role != AcpConversationRole.Subagent;
+
+	internal AcpConversation CreateSubagent(AcpConversationSpec spec) => _port.CreateSubagent(spec, _binding);
 
 	internal void RaiseBackground() => _port.BackgroundChanged();
 
@@ -27,6 +29,7 @@ internal sealed partial class AcpConversation {
 			_ready = true;
 			_promptActive = true;
 			_turnNumber = 1;
+			_opened.TrySetResult(null);
 		}
 		Publish(new AgentPaneMessage {
 			Type = "subagent-started",

@@ -23,15 +23,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	private readonly TempDirectory _directory;
 	private readonly SettingsStore _settings;
 	private readonly KeybindingStore _keybindings;
-	private readonly Channel<AgentPaneMessage> _pane = Channel.CreateUnbounded<AgentPaneMessage>();
-	private readonly Channel<IReadOnlyList<AgentPaneMessage>> _snapshots =
-		Channel.CreateUnbounded<IReadOnlyList<AgentPaneMessage>>();
+	private readonly RecordingConversationOutput _output;
 	private readonly Channel<AgentControlState> _controls = Channel.CreateUnbounded<AgentControlState>();
 	private readonly Channel<IReadOnlyList<AgentTurnSubmission>> _queues =
 		Channel.CreateUnbounded<IReadOnlyList<AgentTurnSubmission>>();
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
-	private readonly Lock _messageGate = new();
-	private readonly List<AgentPaneMessage> _messages = [];
 
 	private AcpAgentSessionFixture(
 		TempDirectory directory,
@@ -41,14 +37,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		AcpSessionStore sessions,
 		AcpControlStore controlDefaults,
 		AcpAgentSession session,
+		RecordingConversationOutput output,
 		RecordingAgentEventSink events,
 		IAgentAuthenticationTerminal authenticationTerminal,
 		ReviewHintStore reviewHints,
 		WorkflowRunner workflow,
 		RecordingWorkflowPort workflowPort,
-		TestControlHold controlHold) {
+		TestControlHold controlHold, CapabilityRegistryHost registry) {
 		_directory = directory;
 		ControlHold = controlHold;
+		Registry = registry;
 		Workflow = workflow;
 		WorkflowKickoffs = workflowPort.Kickoffs;
 		ReviewHints = reviewHints;
@@ -58,17 +56,14 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		Sessions = sessions;
 		ControlDefaults = controlDefaults;
 		Session = session;
+		_output = output;
 		Events = events;
 		_authenticationTerminal = authenticationTerminal;
-		session.PaneMessage += message => {
-			lock (_messageGate) _messages.Add(message);
-			_pane.Writer.TryWrite(message);
-		};
-		session.PaneSnapshot += snapshot => _snapshots.Writer.TryWrite(snapshot);
 		session.ControlStateChanged += state => _controls.Writer.TryWrite(state);
 		session.QueuedSubmissionsChanged += queued => _queues.Writer.TryWrite(queued);
 	}
 
+	public CapabilityRegistryHost Registry { get; }
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
 	public AcpControlStore ControlDefaults { get; }
@@ -83,11 +78,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
 
-	public IReadOnlyList<AgentPaneMessage> Messages {
-		get {
-			lock (_messageGate) return [.. _messages];
-		}
-	}
+	public IReadOnlyList<AgentPaneMessage> Messages => _output.History.ToArray();
 
 	public static AcpAgentSessionFixture Create(bool allowAllPermissions, string? persistedSessionId) {
 		return Create(
@@ -126,6 +117,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
 		new Dictionary<string, string>(StringComparer.Ordinal) {
 			["WEAVIE_FAKE_ACP_MODE"] = "no-steering",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
+	public static AcpAgentSessionFixture CreateWithoutImagesAdapter() => Create(
+		"fake",
+		"Text-only ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "no-images",
 		},
 		allowAllPermissions: true,
 		persistedSessionId: null,
@@ -424,6 +426,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			[workspace],
 			"weavie-test",
 			settings,
+			workspace,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 			editor,
 			exposeIdeTools: true,
@@ -457,8 +460,10 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			Arguments = [],
 			Environment = processEnvironment,
 		};
+		var output = new RecordingConversationOutput(providerId);
 		var session = new AcpAgentSession(
 			new AgentSessionContext {
+				Output = new ConversationOutput(output),
 				Settings = settings,
 				Workspace = workspace,
 				FileSystem = fileSystem,
@@ -469,8 +474,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				Events = events,
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
-				TurnContext = new WorkflowStageContext(workflow),
-				ControlHold = controlHold,
+				Bindings = new AgentConversationBindings(registry, new WorkflowStageContext(workflow), controlHold, workflow.CaptureStageCall),
 			},
 			launches(definition),
 			store,
@@ -484,12 +488,13 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			store,
 			controls,
 			session,
+			output,
 			events,
 			authenticationTerminal,
 			reviewHints,
 			workflow,
 			workflowPort,
-			controlHold);
+			controlHold, registry);
 	}
 
 	internal static void SeedSession(AcpSessionStore store, string provider, string workspace, string sessionId, long turnNumber) =>
@@ -505,8 +510,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		});
 
 	public void Start() {
-		var restored = Session.Restore();
-		if (restored.Count > 0) _snapshots.Writer.TryWrite(restored);
+		Session.Restore();
+		if (Session.Output.ReadHistory(null, null).Messages.Count > 0) _output.Resets.Writer.TryWrite(true);
 		Session.Start();
 	}
 
@@ -517,12 +522,10 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public async Task<AgentPaneMessage> WaitForMessageAsync(Func<AgentPaneMessage, bool> predicate) {
 		ArgumentNullException.ThrowIfNull(predicate);
-		lock (_messageGate) {
-			if (_messages.LastOrDefault(predicate) is { } existing) return existing;
-		}
+		if (_output.History.LastOrDefault(predicate) is { } existing) return existing;
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 		while (true) {
-			var message = await _pane.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+			var message = await _output.Messages.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
 			if (predicate(message)) return message;
 		}
 	}
@@ -539,8 +542,10 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public Task<IReadOnlyList<AgentTurnSubmission>> WaitForQueueAsync(
 		Func<IReadOnlyList<AgentTurnSubmission>, bool> predicate) => ReadAsync(_queues.Reader, predicate);
 
-	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() =>
-		ReadAsync(_snapshots.Reader, _ => true);
+	public async Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() {
+		await ReadAsync(_output.Resets.Reader, _ => true);
+		return [.. Session.Output.ReadHistory(null, null).Messages.Select(record => record.Message)];
+	}
 
 	public void Submit(string text) => Session.Submit(Prompt(text));
 
@@ -550,7 +555,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
-	public void Deliver(WorkflowKickoff kickoff) => Session.Submit(kickoff.Submission());
+	public void Deliver(WorkflowKickoff kickoff, IReadOnlyList<WorkflowTurnImage> images) => Session.Submit(kickoff.Submission(images));
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
@@ -562,6 +567,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Session.DisposeAsync().ConfigureAwait(false);
+		await Registry.DisposeAsync().ConfigureAwait(false);
 		Workflow.Dispose();
 		await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
 		_keybindings.Dispose();
@@ -678,9 +684,9 @@ internal sealed class RecordingAgentEventSink : IAgentEventSink {
 			block.Enter();
 			block.WaitForRelease();
 		}
+		Status.Observe(value);
 		Values.Enqueue(value);
 		_events.Writer.TryWrite(value);
-		Status.Observe(value);
 		return AgentEventFeedback.None;
 	}
 
@@ -709,7 +715,7 @@ internal sealed class RecordingAgentEventBlock(Func<AgentEvent, bool> matches) {
 internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 	public ConcurrentQueue<WorkflowKickoff> Kickoffs { get; } = new();
 
-	public void Kickoff(WorkflowKickoff turn) => Kickoffs.Enqueue(turn);
+	public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) => Kickoffs.Enqueue(turn);
 
 	public void Notify(string message) {
 	}

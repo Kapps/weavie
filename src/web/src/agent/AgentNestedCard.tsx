@@ -1,6 +1,7 @@
 import { type JSX, onCleanup } from "solid-js";
 import type { ClientSession } from "../bridge";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { isPendingRequest } from "./AgentPendingRequests";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import { newestVisibleAgentElement } from "./AgentViewport";
 import { ForEachId } from "./ForEachId";
@@ -28,6 +29,7 @@ export function registerNestedToggle(card: HTMLElement, toggle: () => void): voi
 /** A nested conversation's transcript inside a BTW or subagent card. */
 export function NestedTranscript(props: {
   entries: readonly AgentTranscriptEntry[];
+  pendingOnly: boolean;
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
@@ -37,15 +39,23 @@ export function NestedTranscript(props: {
     <div class="agent-aside-transcript">
       <ForEachId each={props.entries}>
         {(entry) => (
-          <TranscriptEntry
-            expandedDetails={props.expandedDetails}
-            entry={entry()}
-            keyboardRequestKey={props.keyboardRequestKey}
-            latestPromptTurn={null}
-            onDetailsToggle={props.onDetailsToggle}
-            sectionLabel={null}
-            session={props.session}
-          />
+          <div
+            hidden={
+              props.pendingOnly &&
+              !isPendingRequest(entry()) &&
+              (entry().pendingEntries?.length ?? 0) === 0
+            }
+          >
+            <TranscriptEntry
+              expandedDetails={props.expandedDetails}
+              entry={entry()}
+              keyboardRequestKey={props.keyboardRequestKey}
+              latestPromptTurn={null}
+              onDetailsToggle={props.onDetailsToggle}
+              sectionLabel={null}
+              session={props.session}
+            />
+          </div>
         )}
       </ForEachId>
     </div>

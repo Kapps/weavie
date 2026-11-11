@@ -201,11 +201,13 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		if (primaryAdvancesBeforeOpening) fixture.Session.PaneMessage += message => {
-			// The anchor is captured before the child starts; primary persistence can advance in that gap.
-			if (message.Type == "side-conversation-started") AcpAgentSessionFixture.SeedSession(fixture.Sessions, "fake", fixture.Workspace, "fake-session", 1);
-		};
+		if (primaryAdvancesBeforeOpening) File.WriteAllText(Path.Combine(fixture.Workspace, "hold-open"), string.Empty);
 		fixture.AskAside("context");
+		if (primaryAdvancesBeforeOpening) {
+			await AcpLiveReplacementTests.WaitForFileAsync(fixture.Workspace, "open-started", string.Empty);
+			AcpAgentSessionFixture.SeedSession(fixture.Sessions, "fake", fixture.Workspace, "fake-session", 1);
+			File.WriteAllText(Path.Combine(fixture.Workspace, "release-open"), string.Empty);
+		}
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text?.StartsWith("context:", StringComparison.Ordinal) == true);
 

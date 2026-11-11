@@ -13,25 +13,26 @@ export function createAgentPaneLayout(
   shown: Accessor<AgentTranscriptSnapshot>,
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
   onEstimated: (id: string) => void,
+  cardChanges: Accessor<readonly { id: string; delta: number }[]>,
+  holding: Accessor<boolean>,
 ) {
-  const indexes = createMemo(
-    () => new Map(shown().entries.map((entry, index) => [entry.id, index])),
-  );
+  const entries = createMemo(() => shown().entries);
+  const indexes = () => shown().entryIndexes;
   const flip = (index: number): number => reverse(shown().entries.length, index);
   const rowAt = (index: number | null): VirtualItem | undefined =>
     index === null ? undefined : virtualizer().measurementsCache[flip(index)];
   const itemKey = createMemo(() => {
-    const { entries } = shown();
-    return (virtualIndex: number) => entries[reverse(entries.length, virtualIndex)]!.id;
+    const rows = entries();
+    return (virtualIndex: number) => rows[reverse(rows.length, virtualIndex)]!.id;
   });
 
   // A changed row that isn't mounted can't be measured again, so it returns to its estimate.
   createEffect(
     on(
-      shown,
+      entries,
       (next, previous) => {
-        const before = new Map(previous?.entries.map((entry) => [entry.id, entry]));
-        next.entries.forEach((entry, index) => {
+        const before = new Map(previous?.map((entry) => [entry.id, entry]));
+        next.forEach((entry, index) => {
           const old = before.get(entry.id);
           if (
             old !== undefined &&
@@ -46,6 +47,24 @@ export function createAgentPaneLayout(
       { defer: true },
     ),
   );
+
+  const dirtyCards = new Set<string>();
+  createEffect(() => {
+    for (const { id, delta } of cardChanges()) if (delta !== 0) dirtyCards.add(id);
+    if (holding()) return;
+    for (const id of dirtyCards) {
+      const index = indexes().get(id);
+      if (
+        index === undefined ||
+        virtualizer().elementsCache.get(id)?.isConnected === true ||
+        rowAt(index) === undefined
+      )
+        continue;
+      onEstimated(id);
+      virtualizer().resizeItem(flip(index), estimateEntrySize(shown().entries[index]));
+    }
+    dirtyCards.clear();
+  });
 
   return {
     count: () => shown().entries.length,

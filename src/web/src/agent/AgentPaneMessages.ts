@@ -9,13 +9,6 @@ import {
   type RequestResolution,
   requestResolutions,
 } from "./AgentPaneMessageFormat";
-import {
-  collectSideConversations,
-  isSubagentConversation,
-  sideConversationEntry,
-  subagentEntry,
-  subagentNames,
-} from "./AgentPaneSideConversations";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -33,14 +26,10 @@ export interface AgentTranscriptProjection {
   entries: AgentTranscriptEntry[];
 }
 
-export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
-  return projectAgentTranscript(messages).entries;
-}
-
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
+  cards: ReadonlyMap<AgentPaneUpdate, AgentTranscriptEntry>,
 ): AgentTranscriptProjection {
-  const updates = coalesceStreaming(messages);
   const resolved = requestResolutions(messages);
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {
@@ -52,11 +41,7 @@ export function projectAgentTranscript(
     }
   }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
-  const sideConversations = collectSideConversations(updates);
-  const names = subagentNames(sideConversations);
-  const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
-  const sideActivities = new Map<string, ProjectedAgentActivity>();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
   let previousWasUserInput = false;
@@ -71,23 +56,18 @@ export function projectAgentTranscript(
   let previousActivityKey = "";
   let hasPreviousActivity = false;
 
-  for (const message of updates) {
-    if (message.conversationId) {
-      if (!emittedSideConversations.has(message.conversationId)) {
-        emittedSideConversations.add(message.conversationId);
-        const conversation = sideConversations.get(message.conversationId) ?? [message];
-        const project = (childMessages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
-          const child = projectAgentTranscript(childMessages);
-          for (const [id, activity] of child.activities) sideActivities.set(id, activity);
-          return child.entries;
-        };
-        entries.push(
-          isSubagentConversation(conversation)
-            ? subagentEntry(conversation, names, project)
-            : sideConversationEntry(conversation, project),
-        );
-        sequence += 1;
-      }
+  for (const source of messages) {
+    const message = isAgentPaneDelta(source)
+      ? {
+          ...source,
+          status: "inProgress",
+          type: source.type === "agent-message-delta" ? "item-completed" : "item-started",
+        }
+      : source;
+    const card = cards.get(message);
+    if (card !== undefined) {
+      entries.push(card);
+      sequence += 1;
       continue;
     }
     const turnKey: string | null =
@@ -150,7 +130,6 @@ export function projectAgentTranscript(
 
   return {
     activities: new Map([
-      ...sideActivities,
       ...Array.from(activities.values(), (activity): [string, ProjectedAgentActivity] => [
         activity.id,
         activity.projection,
@@ -160,52 +139,6 @@ export function projectAgentTranscript(
       collapseEditLocations(entries.map((entry) => stripMutable(entry))),
     ),
   };
-}
-
-function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdate[] {
-  const output: AgentPaneUpdate[] = [];
-  const indexes = new Map<string, number>();
-  for (const message of messages) {
-    const key = paneItemIdentity(message);
-    if (message.type === "item-started" && key !== null) {
-      indexes.set(key, output.length);
-      output.push(message);
-      continue;
-    }
-    if (isAgentPaneDelta(message) && key !== null) {
-      let index = indexes.get(key);
-      if (index === undefined) {
-        index = output.length;
-        indexes.set(key, index);
-        output.push({
-          ...message,
-          type: message.type === "agent-message-delta" ? "item-completed" : "item-started",
-          summary: message.itemType === "plan" ? "plan" : null,
-          text: "",
-        });
-      }
-      const current = output[index]!;
-      output[index] = {
-        ...current,
-        text: `${current.text ?? ""}${message.text ?? ""}`,
-        status: "inProgress",
-      };
-      continue;
-    }
-    if (
-      (message.type === "item-completed" || message.type === "item-retracted") &&
-      key !== null &&
-      indexes.has(key)
-    ) {
-      output[indexes.get(key)!] = message;
-      continue;
-    }
-    if ((message.type === "item-completed" || message.type === "item-retracted") && key !== null) {
-      indexes.set(key, output.length);
-    }
-    output.push(message);
-  }
-  return output;
 }
 
 function durableEntry(
@@ -248,6 +181,7 @@ function durableEntry(
     }
     case "interrupted":
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
+    case "agent-message-delta":
     case "item-completed":
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
@@ -391,6 +325,7 @@ function activityFor(
 }
 
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
+  if (!("projection" in entry)) return entry;
   return {
     ...(entry.turnStart === true ? { turnStart: true as const } : {}),
     ...(entry.promptTurnId === undefined ? {} : { promptTurnId: entry.promptTurnId }),

@@ -74,7 +74,7 @@ public sealed record AgentPaneMessage {
 	/// <summary>Ordered rich content associated with a tool result.</summary>
 	public IReadOnlyList<AgentPaneContent>? Content { get; init; }
 
-	/// <summary>The parent tool call for a nested subagent update, when advertised.</summary>
+	/// <summary>The parent conversation of a subagent, or the parent tool call of a tool update.</summary>
 	public string? ParentItemId { get; init; }
 
 	/// <summary>Whether a tool handed its work to a background task, so its liveness never holds the turn.</summary>

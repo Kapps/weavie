@@ -85,10 +85,7 @@ public sealed class ClaudeAgentSession : ITerminalAgentSession {
 	public void ObserveProcessExit(AgentProcessExit exit) => _terminal.ObserveProcessExit(exit);
 
 	/// <inheritdoc/>
-	public async ValueTask DisposeAsync() {
-		await Ide.DisposeAsync().ConfigureAwait(false);
-		await Registry.DisposeAsync().ConfigureAwait(false);
-	}
+	public ValueTask DisposeAsync() => Ide.DisposeAsync();
 
 	private AgentEventFeedback ObserveHook(HookRequest request) {
 		try {

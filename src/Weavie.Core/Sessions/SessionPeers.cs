@@ -20,10 +20,11 @@ public interface ISessionPeers {
 
 	/// <summary>
 	/// Submits <paramref name="message"/> to <paramref name="sessionId"/>'s primary conversation, attributed to the
-	/// caller; the caller's own id is valid, because its side conversations call as the session.
+	/// caller. <paramref name="conversation"/> names the calling conversation, null for its session's main one; only
+	/// a named one may send to the caller's own id.
 	/// </summary>
 	/// <exception cref="SessionPeerException">The session can't receive messages; the message says why.</exception>
-	Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct);
+	Task<SessionPeerDelivery> SendAsync(string sessionId, string message, string? conversation, CancellationToken ct);
 }
 
 /// <summary>Whether a session can be sent a message now.</summary>
@@ -73,7 +74,7 @@ public sealed class NoSessionPeers : ISessionPeers {
 	public Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct) => throw Unbound();
 
 	/// <inheritdoc/>
-	public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct) => throw Unbound();
+	public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, string? conversation, CancellationToken ct) => throw Unbound();
 
 	private static ToolUnavailableException Unbound() => new("This server does not belong to a session.");
 }

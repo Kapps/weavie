@@ -11,17 +11,15 @@ public sealed class AgentConversationBindings(
 
 	/// <summary>Creates a new main incarnation's binding.</summary>
 	public AgentConversationBinding Main() => new() {
-		Title = "Main",
 		TurnContext = mainContext,
 		ControlHold = mainControls,
-		Tools = registry.CreateGrant(stageCall),
+		Tools = registry.CreateGrant(stageCall, conversation: null),
 	};
 
 	/// <summary>Creates an ordinary independent conversation without workflow completion authority.</summary>
 	public AgentConversationBinding Independent() => new() {
-		Title = "Conversation",
 		TurnContext = AgentTurnContext.None,
 		ControlHold = AgentControlHold.None,
-		Tools = registry.CreateGrant(() => null),
+		Tools = registry.CreateGrant(() => null, "BTW"),
 	};
 }

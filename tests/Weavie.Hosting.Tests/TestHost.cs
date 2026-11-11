@@ -42,16 +42,16 @@ internal sealed class TestHost : IAsyncDisposable {
 	public AcpSessionStore AcpSessions => _services.AcpSessions;
 	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
 
-	/// <summary>Registers the fake ACP agent as provider <paramref name="id"/>, in <paramref name="mode"/>, keeping its state under <paramref name="state"/>.</summary>
-	public void RegisterFakeAcp(string id, string mode, TempDirectory state) => AgentProviders.Register(new AcpAgentProvider(
+	/// <summary>Registers the fake ACP agent as provider <paramref name="id"/>, in <paramref name="mode"/>, keeping its state under <paramref name="root"/>.</summary>
+	public void RegisterFakeAcp(string id, string mode, string root) => AgentProviders.Register(new AcpAgentProvider(
 		new AcpAgentDefinition {
 			Id = id,
 			Name = id,
 			Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
 			Arguments = [],
-			Environment = new Dictionary<string, string> { ["WEAVIE_FAKE_ACP_MODE"] = mode, ["WEAVIE_ROOT"] = state.Path },
+			Environment = new Dictionary<string, string> { ["WEAVIE_FAKE_ACP_MODE"] = mode, ["WEAVIE_ROOT"] = root },
 		},
-		AcpSessions, new AcpControlStore(new LocalFileSystem(), state.Combine("acp-controls.json")), _ => { }));
+		AcpSessions, new AcpControlStore(new LocalFileSystem(), Path.Combine(root, "acp-controls.json")), _ => { }));
 
 	private readonly HostServices _services;
 

@@ -94,7 +94,7 @@ export interface AgentProviderInfo {
   surface: "terminal" | "structured";
 }
 
-/** The session whose agent sent a prompt; `sameSession` when it came from inside the receiving session. */
+/** The session whose agent sent a prompt; `sameSession` when another conversation of the receiving session did, which `title` then names. */
 export interface AgentMessageSender {
   id: string;
   title: string;

@@ -27,8 +27,10 @@ Each session's server is bound to that session's `(slot, incarnation)` address w
 construction, so the sender is never inferred from focus. A send still in flight from a sender incarnation that has
 since unloaded is refused.
 
-The binding identifies a session, not a conversation: a `/btw` side conversation calls with its session's one
-registry credential, so Weavie cannot tell it from the main conversation.
+Within a session, each conversation Weavie opens calls with its own registry grant
+([conversation-layer.md](conversation-layer.md)), which names it unless it is the main one. That is how a send to
+the session's own id is told apart: a `/btw` is **BTW**, a workflow stage's conversation is its stage id. A
+provider subagent calls with its parent's grant, so it sends as its parent.
 
 ```mermaid
 flowchart LR
@@ -74,20 +76,21 @@ message with **From &lt;session&gt;** instead of **Prompt**. `readSession` repor
 entry.
 
 A send is refused, with a tool error naming the cause, when the id is unknown, the target is not loaded, the target
-runs in a terminal, or Weavie is draining for a restart. The send runs under the target slot's lifecycle gate, so it
+runs in a terminal, a main conversation addresses its own session, or Weavie is draining for a restart. The send runs under the target slot's lifecycle gate, so it
 cannot race an unload or delete.
 
 ### A session's own id
 
-A session's own id is a valid target and reaches its main conversation, like every other send. This is how a `/btw`
-side conversation reports to the conversation it forked from, including while that one is mid-turn; the side
-instructions name the tool. The same call from the main conversation prompts itself, which Weavie allows because
-it cannot tell the two callers apart, and a refusal would take the side conversation's route away.
+A session's own id reaches its main conversation, like every other send. This is how a `/btw` side conversation
+reports to the conversation it forked from, including while that one is mid-turn; the side instructions name the
+tool. The main conversation is refused, since it would only prompt itself.
 
-Such a message is marked `SameSession` on its sender. The pane heads it **From this session**, never naming a side
-conversation Weavie can't identify, and the guidance block says it came from inside the session, has no reply
-address, and must not be answered with `messageSession` — the main conversation cannot address a side conversation,
-and answering its own id would prompt itself again. It is delivered only to the incarnation that sent it.
+Such a message is marked `SameSession` on its sender, whose title is the sending conversation's name. The pane heads
+it **From BTW**, and the guidance block names that conversation and says it has no reply address: the main
+conversation cannot address another one. It is delivered only to the incarnation that sent it.
+
+A conversation other than the main one that messages another session is attributed to its session, and a reply
+reaches that session's main conversation.
 
 **Sending to a terminal Claude session is refused.** Pasting text into Claude's terminal and pressing Enter would
 submit it joined to whatever the user has half-typed, and on an open permission prompt or menu Enter picks the
@@ -100,6 +103,5 @@ and every message is visible in the target's pane and status; there is no hop li
 ## Deferred
 
 - Delivery into terminal Claude through Claude Code channels.
-- Naming the sending conversation, and addressing one other than the primary. Both need a registry credential per
-  conversation.
+- Addressing a conversation other than the primary.
 - Sessions on other connected backends.

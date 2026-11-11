@@ -31,9 +31,8 @@ public static class EmbeddedAgentGuidance {
 
 	/// <summary>Tells the receiver of a session message who sent it and how to reply.</summary>
 	public static string SessionMessage(AgentMessageSender sender) => sender.SameSession
-		? $"This prompt is a message sent with mcp__weavie__messageSession from inside your own Weavie session (id \"{sender.Id}\"), "
-			+ "not typed by the user: by one of its /btw side conversations, or by this conversation itself. Weavie can't "
-			+ "tell which. It has no reply address, so act on it here and never answer it with mcp__weavie__messageSession."
+		? $"This prompt is a message from \"{sender.Title}\", another conversation in your own Weavie session, sent by its "
+			+ "agent, not typed by the user. It has no reply address, so act on it here."
 		: $"This prompt is a message from Weavie session \"{sender.Title}\" (id \"{sender.Id}\"), sent by that session's "
 			+ $"agent, not typed by the user. Reply with mcp__weavie__messageSession to id \"{sender.Id}\" only if it asks "
 			+ "you something or you have results to report; never reply to an acknowledgement.";

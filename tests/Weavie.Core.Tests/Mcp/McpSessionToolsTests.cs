@@ -101,18 +101,20 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		using var response = await CallAsync(_registry, "messageSession", """{"id":"feat/other","message":"ping"}""");
 
 		Assert.False(IsError(response));
-		Assert.Equal(("feat/other", "ping"), _peers.Sent);
+		Assert.Equal(("feat/other", "ping", null), _peers.Sent);
 		Assert.Contains("status: working", Text(response), StringComparison.Ordinal);
 	}
 
 	[Fact]
-	public async Task MessagingItsOwnSessionSaysTheMainConversationCantReply() {
-		using var response = await CallAsync(_registry, "messageSession", """{"id":"feat/self","message":"finding"}""");
+	public async Task AConversationsGrantNamesItAsTheSenderToItsOwnSession() {
+		await using var grant = _registry.CreateGrant(() => null, "BTW");
+
+		using var response = await PostAsync(_registry, Call("messageSession", """{"id":"feat/self","message":"finding"}"""), grant.Credential.Token);
 
 		Assert.False(IsError(response));
-		Assert.Equal(("feat/self", "finding"), _peers.Sent);
+		Assert.Equal(("feat/self", "finding", "BTW"), _peers.Sent);
 		Assert.Equal(
-			"Delivered to the main conversation of your own session 'feat/self' (status: working). It can't reply to a side conversation; don't wait for it.",
+			"Delivered to the main conversation of your own session 'feat/self' (status: working). It can't reply to this conversation; don't wait for it.",
 			Text(response));
 	}
 
@@ -127,18 +129,20 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	}
 
 	private async Task<string> ToolsAsync(McpServer server) {
-		using var response = await PostAsync(server, """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}""");
+		using var response = await PostAsync(server, """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}""", Token);
 		return response.RootElement.GetRawText();
 	}
 
-	private Task<JsonDocument> CallAsync(McpServer server, string tool, string arguments) =>
-		PostAsync(server, $$$"""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"{{{tool}}}","arguments":{{{arguments}}}}}""");
+	private Task<JsonDocument> CallAsync(McpServer server, string tool, string arguments) => PostAsync(server, Call(tool, arguments), Token);
 
-	private async Task<JsonDocument> PostAsync(McpServer server, string json) {
+	private static string Call(string tool, string arguments) =>
+		$$$"""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"{{{tool}}}","arguments":{{{arguments}}}}}""";
+
+	private async Task<JsonDocument> PostAsync(McpServer server, string json, string token) {
 		using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{server.Port}/mcp") {
 			Content = new StringContent(json, Encoding.UTF8, "application/json"),
 		};
-		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		using var response = await _client.SendAsync(request);
 		return await TestMcp.ReadResponseAsync(response);
 	}
@@ -152,7 +156,7 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 	private sealed class FakePeers : ISessionPeers {
 		public (string Id, int Count)? Read { get; private set; }
 
-		public (string Id, string Message)? Sent { get; private set; }
+		public (string Id, string Message, string? Conversation)? Sent { get; private set; }
 
 		public string? Refusal { get; set; }
 
@@ -173,9 +177,9 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 			]));
 		}
 
-		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct) {
+		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, string? conversation, CancellationToken ct) {
 			if (Refusal is { } refusal) throw new SessionPeerException(refusal);
-			Sent = (sessionId, message);
+			Sent = (sessionId, message, conversation);
 			return Task.FromResult(new SessionPeerDelivery(sessionId, "working"));
 		}
 	}

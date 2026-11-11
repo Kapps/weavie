@@ -29,8 +29,8 @@ public sealed partial class RegistryMcpTests {
 		var execution = runner.Execution!;
 		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: workflows);
 		server.Start();
-		await using var ordinary = server.CreateGrant(() => null);
-		await using var stage = server.CreateGrant(execution.Capture);
+		await using var ordinary = server.CreateGrant(() => null, "side");
+		await using var stage = server.CreateGrant(execution.Capture, "stage");
 
 		using (var refused = await CompleteWithGrantAsync(server, ordinary, http)) {
 			Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
@@ -99,7 +99,7 @@ public sealed partial class RegistryMcpTests {
 				runner.Jump(run.Id, "b");
 			}
 			return admitted;
-		});
+		}, "stage");
 
 		using var refused = await CompleteWithGrantAsync(server, stage, http: true);
 

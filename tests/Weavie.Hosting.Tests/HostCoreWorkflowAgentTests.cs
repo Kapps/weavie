@@ -100,7 +100,7 @@ public sealed class HostCoreWorkflowAgentTests {
 		using var state = new TempDirectory("weavie-workflow-open");
 		var (host, session, _) = await StartAsync();
 		await using var _ = host;
-		host.RegisterFakeAcp("effort-acp", "model-effort", state);
+		host.RegisterFakeAcp("effort-acp", "model-effort", state.Path);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "effort", Base = "main", AgentProviderId = "effort-acp" })).Ok);
 		var effort = host.Session("effort");
 		await Eventually(() => effort.Agent.Controls!.ControlState.Ready);

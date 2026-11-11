@@ -15,7 +15,6 @@ import type {
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
 import { isPendingRequest } from "./AgentPendingRequests";
-import { senderLabel } from "./AgentTranscriptLabels";
 import { planIdentity } from "./agent-plan";
 
 interface MutableActivity extends AgentTranscriptEntry {
@@ -257,7 +256,7 @@ function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): Ag
 }
 
 function promptLabel(message: AgentPaneUpdate, label: string): string {
-  return message.sender ? senderLabel(message.sender) : label;
+  return message.sender ? `From ${message.sender.title}` : label;
 }
 
 function entry(

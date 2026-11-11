@@ -44,6 +44,7 @@ public sealed partial class McpServer {
 		private TaskCompletionSource? _response;
 		public CancellationToken Token => source.Token;
 		public WorkflowStageCall? Stage => stage;
+		public string? Conversation => key.Item1.Conversation;
 		public void BeginCompletionResponse() => _response = key.Item1.BeginCompletionResponse();
 
 		public void Dispose() {

@@ -67,23 +67,8 @@ public sealed partial class HostCoreWorkflowConversationTests {
 			var state = new TempDirectory("weavie-workflow-conversation");
 			var host = await HostCoreWorkflowTests.StartAsync(new DecisionStub("yes", 0.9), prepare);
 			var fixture = new ConversationFixture(host, state);
-			fixture.Register("conversation-acp", mainMode);
+			host.RegisterFakeAcp("conversation-acp", mainMode, state.Combine("conversation-acp"));
 			return fixture;
-		}
-
-
-		private void Register(string id, string mode) {
-			Host.AgentProviders.Register(new AcpAgentProvider(
-				new AcpAgentDefinition {
-					Id = id,
-					Name = id,
-					Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
-					Arguments = [],
-					Environment = new Dictionary<string, string> {
-						["WEAVIE_FAKE_ACP_MODE"] = mode,
-						["WEAVIE_ROOT"] = state.Combine(id),
-					},
-				}, Host.AcpSessions, new AcpControlStore(new LocalFileSystem(), state.Combine(id + "-controls.json")), _ => { }));
 		}
 
 		public async Task<string> StartReviewAsync() {

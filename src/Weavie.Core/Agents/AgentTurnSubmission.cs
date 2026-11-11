@@ -25,8 +25,8 @@ public enum AgentTurnSubmissionKind {
 }
 
 /// <summary>
-/// The Weavie session whose agent sent a message. <paramref name="SameSession"/> marks one sent from inside the
-/// receiving session, whose conversations all share its identity.
+/// The Weavie session whose agent sent a message. <paramref name="SameSession"/> marks one from another conversation
+/// of the receiving session, which <paramref name="Title"/> then names.
 /// </summary>
 public sealed record AgentMessageSender(string Id, string Title, bool SameSession);
 

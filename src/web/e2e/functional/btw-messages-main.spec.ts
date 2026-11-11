@@ -19,13 +19,11 @@ test("BTW messages its session's busy main conversation through messageSession",
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("Delivered to the main conversation of your own session");
   const delivered = surface.locator(".agent-entry", {
-    has: page.locator(".agent-entry-label", { hasText: "From this session" }),
+    has: page.locator(".agent-entry-label", { hasText: "From BTW" }),
   });
   await expect(delivered).toHaveCount(1);
   await expect(delivered).toContainText("finding from the side");
-  await expect(aside.locator(".agent-entry-label", { hasText: "From this session" })).toHaveCount(
-    0,
-  );
+  await expect(aside.locator(".agent-entry-label", { hasText: "From BTW" })).toHaveCount(0);
   await expect(surface).toContainText("steered: finding from the side");
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });

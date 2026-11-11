@@ -92,7 +92,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
 		}
 
-		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall);
+		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, conversation: null);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
@@ -459,7 +459,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await HandleReadSessionAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "messageSession":
-				await HandleMessageSessionAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				await HandleMessageSessionAsync(responder, args, idRaw, call.Conversation, ct).ConfigureAwait(false);
 				break;
 			case "listSettings":
 				await HandleListSettingsAsync(responder, idRaw, ct).ConfigureAwait(false);

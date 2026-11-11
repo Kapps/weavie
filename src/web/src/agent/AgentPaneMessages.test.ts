@@ -51,20 +51,17 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
   });
 
-  it("heads a session message with its sender", () => {
+  it("heads a message from another session with its sender", () => {
     const sender = { id: "feat/auth", title: "auth refactor", sameSession: false };
-    const own = { id: "feat/docs", title: "docs", sameSession: true };
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "acp", turnId: "1", text: "ping", sender },
       { type: "user-steer", providerId: "acp", turnId: "1", text: "also", sender },
-      { type: "user-steer", providerId: "acp", turnId: "1", text: "finding", sender: own },
       { type: "user-message", providerId: "acp", turnId: "2", text: "mine" },
     ]);
 
     expect(transcript.map((entry) => [entry.label, entry.text])).toEqual([
       ["From auth refactor", "ping"],
       ["From auth refactor", "also"],
-      ["From this session", "finding"],
       ["You", "mine"],
     ]);
   });

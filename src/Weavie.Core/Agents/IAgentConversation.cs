@@ -37,8 +37,8 @@ public sealed record AgentConversationBinding {
 	/// <summary>The registry grant owned by this interactive conversation.</summary>
 	public required CapabilityRegistryGrant Tools { get; init; }
 
-	/// <summary>The title shown for the independently owned conversation.</summary>
-	public required string Title { get; init; }
+	/// <summary>The title shown for the conversation, which is its grant's name.</summary>
+	public string Title => Tools.Conversation ?? "Main";
 
 	/// <summary>The consumer's context attached to each delivered turn.</summary>
 	public required IAgentTurnContext TurnContext { get; init; }

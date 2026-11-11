@@ -33,15 +33,17 @@ public sealed partial class HostCore {
 
 	private async Task<SessionPeerDelivery> SendSessionPeerAsync(
 		SessionAddress source,
+		string? conversation,
 		string sessionId,
 		string message,
 		CancellationToken ct) {
 		var slot = RequirePeer(sessionId);
-		// A session's conversations share its address, so its own id reaches its main conversation.
-		bool sameSession = slot.Id == source.Slot;
-		var sender = sameSession ? slot : await CurrentSourceAsync(source, ct).ConfigureAwait(false) ?? throw SenderGone();
+		// Its own id reaches a session's main conversation, so only another of its conversations may send there.
+		string? side = slot.Id != source.Slot ? null
+			: conversation ?? throw new SessionPeerException("A session's main conversation can't message itself.");
+		var sender = side is null ? await CurrentSourceAsync(source, ct).ConfigureAwait(false) ?? throw SenderGone() : slot;
 		return await GatedAsync(slot.Lifecycle, () => _ui.InvokeAsync(() => {
-			if (sameSession && slot.Session?.Address != source) throw SenderGone();
+			if (side is not null && slot.Session?.Address != source) throw SenderGone();
 			if (!ReferenceEquals(_sessions?.Find(slot.Id), slot)) throw UnknownPeer(sessionId);
 			if (slot.Session is not { } target) {
 				throw new SessionPeerException(
@@ -53,7 +55,7 @@ public sealed partial class HostCore {
 			}
 			if (_drainInputFrozen) throw new SessionPeerException("Agent input is paused while Weavie restarts.");
 			structured.Submit(AgentTurnSubmission.Prompt(message) with {
-				Sender = new(sender.Id, SessionName.Title(sender.Label), sameSession),
+				Sender = new(sender.Id, side ?? SessionName.Title(sender.Label), side is not null),
 			});
 			return Task.FromResult(new SessionPeerDelivery(slot.Id, StatusName(target.Status.Status)));
 		}, ct), ct).ConfigureAwait(false);
@@ -75,7 +77,7 @@ public sealed partial class HostCore {
 		public Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct) =>
 			core.ReadSessionPeerAsync(sessionId, count, ct);
 
-		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, CancellationToken ct) =>
-			core.SendSessionPeerAsync(self, sessionId, message, ct);
+		public Task<SessionPeerDelivery> SendAsync(string sessionId, string message, string? conversation, CancellationToken ct) =>
+			core.SendSessionPeerAsync(self, conversation, sessionId, message, ct);
 	}
 }

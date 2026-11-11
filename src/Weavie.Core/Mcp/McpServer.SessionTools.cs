@@ -58,7 +58,7 @@ public sealed partial class McpServer {
 		}), ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleMessageSessionAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleMessageSessionAsync(IMcpResponder responder, JsonElement args, string? idRaw, string? conversation, CancellationToken ct) {
 		string id = args.GetStringOrEmpty("id");
 		string message = args.GetStringOrEmpty("message");
 		if (id.Length == 0 || message.Trim().Length == 0) {
@@ -68,14 +68,14 @@ public sealed partial class McpServer {
 
 		SessionPeerDelivery delivery;
 		try {
-			delivery = await _sessions.SendAsync(id, message, ct).ConfigureAwait(false);
+			delivery = await _sessions.SendAsync(id, message, conversation, ct).ConfigureAwait(false);
 		} catch (SessionPeerException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;
 		}
 		await SendToolTextAsync(responder, idRaw,
 			delivery.Id == _sessions.SelfId
-				? $"Delivered to the main conversation of your own session '{delivery.Id}' (status: {delivery.Status}). It can't reply to a side conversation; don't wait for it."
+				? $"Delivered to the main conversation of your own session '{delivery.Id}' (status: {delivery.Status}). It can't reply to this conversation; don't wait for it."
 				: $"Delivered to '{delivery.Id}' (status: {delivery.Status}). It replies with messageSession if it has something to report; don't wait for it.",
 			ct).ConfigureAwait(false);
 	}

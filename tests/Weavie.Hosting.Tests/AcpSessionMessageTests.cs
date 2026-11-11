@@ -24,11 +24,11 @@ public sealed class AcpSessionMessageTests {
 	}
 
 	[Fact]
-	public void AMessageFromInsideTheSessionHasNoReplyAddress() {
-		string own = EmbeddedAgentGuidance.SessionMessage(new("feat/docs", "Docs", SameSession: true));
+	public void AMessageFromAnotherConversationOfTheSessionHasNoReplyAddress() {
+		string own = EmbeddedAgentGuidance.SessionMessage(new("feat/docs", "BTW", SameSession: true));
 		string other = EmbeddedAgentGuidance.SessionMessage(new("feat/docs", "Docs", SameSession: false));
 
-		Assert.Contains("never answer it with mcp__weavie__messageSession", own, StringComparison.Ordinal);
+		Assert.Contains("""a message from "BTW", another conversation in your own Weavie session""", own, StringComparison.Ordinal);
 		Assert.DoesNotContain("Reply with", own, StringComparison.Ordinal);
 		Assert.Contains("""Reply with mcp__weavie__messageSession to id "feat/docs" only if""", other, StringComparison.Ordinal);
 	}

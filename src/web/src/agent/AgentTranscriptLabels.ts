@@ -1,12 +1,6 @@
-import type { AgentMessageSender } from "../bridge";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 type SectionLabel = "Updates" | "Results";
-
-/** Heads a prompt an agent sent with messageSession; one from inside the session itself can't name its conversation. */
-export function senderLabel(sender: AgentMessageSender): string {
-  return sender.sameSession ? "From this session" : `From ${sender.title}`;
-}
 
 /** Computes assistant-result section labels in one back-to-front pass, keyed by entry id.
  * Earlier results are omitted; the final result follows the later user message and active-turn state. */

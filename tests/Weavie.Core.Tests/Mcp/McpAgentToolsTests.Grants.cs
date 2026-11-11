@@ -11,8 +11,8 @@ public sealed partial class McpAgentToolsTests {
 	public async Task GrantsBindHttpAndWebSocketAdmissionAndRefuseCallsAfterRevocation() {
 		int firstAdmissions = 0;
 		int siblingAdmissions = 0;
-		await using var first = _server.CreateGrant(() => { Interlocked.Increment(ref firstAdmissions); return null; });
-		await using var sibling = _server.CreateGrant(() => { Interlocked.Increment(ref siblingAdmissions); return null; });
+		await using var first = _server.CreateGrant(() => { Interlocked.Increment(ref firstAdmissions); return null; }, "first");
+		await using var sibling = _server.CreateGrant(() => { Interlocked.Increment(ref siblingAdmissions); return null; }, "sibling");
 		Assert.NotEqual(first.Credential.Token, sibling.Credential.Token);
 		using var firstSocket = await ConnectAsync(first.Credential.Token);
 		using var siblingSocket = await ConnectAsync(sibling.Credential.Token);
@@ -47,8 +47,8 @@ public sealed partial class McpAgentToolsTests {
 
 	[Fact]
 	public async Task RevokingOneGrantCancelsItsConsultButTheSiblingCanFinish() {
-		await using var first = _server.CreateGrant(() => null);
-		await using var sibling = _server.CreateGrant(() => null);
+		await using var first = _server.CreateGrant(() => null, "side");
+		await using var sibling = _server.CreateGrant(() => null, "side");
 		var (firstStarted, siblingStarted, release) = BlockGrantConsults();
 		using var firstSocket = await ConnectAsync(first.Credential.Token);
 		using var siblingSocket = await ConnectAsync(sibling.Credential.Token);
@@ -69,8 +69,8 @@ public sealed partial class McpAgentToolsTests {
 
 	[Fact]
 	public async Task HttpCancellationCannotCrossGrantsWithTheSameSessionAndRequestId() {
-		await using var first = _server.CreateGrant(() => null);
-		await using var sibling = _server.CreateGrant(() => null);
+		await using var first = _server.CreateGrant(() => null, "side");
+		await using var sibling = _server.CreateGrant(() => null, "side");
 		var (firstStarted, siblingStarted, release) = BlockGrantConsults();
 		using var client = new HttpClient();
 		const string session = "shared-mcp-session";
@@ -96,7 +96,7 @@ public sealed partial class McpAgentToolsTests {
 
 	[Fact]
 	public async Task RevocationSealsCompletionReceiptsWithoutWaitingForOtherTools() {
-		await using var grant = _server.CreateGrant(() => null);
+		await using var grant = _server.CreateGrant(() => null, "side");
 		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_codex.Consult = async (request, ct) => {

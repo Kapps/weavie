@@ -16,7 +16,7 @@ public sealed class HostCoreSessionPeersTests {
 		var sender = await CreateStructuredAsync(host, "peer-sender");
 		var target = await CreateStructuredAsync(host, "peer-target");
 
-		var delivery = await sender.Peers.SendAsync(target.SlotId, "ping", CancellationToken.None);
+		var delivery = await sender.Peers.SendAsync(target.SlotId, "ping", conversation: null, CancellationToken.None);
 		await target.Agent.DrainPaneAsync(CancellationToken.None);
 
 		Assert.Equal("peer-target", delivery.Id);
@@ -56,19 +56,23 @@ public sealed class HostCoreSessionPeersTests {
 	}
 
 	[Fact]
-	public async Task ItsOwnIdReachesTheSessionsMainConversation() {
+	public async Task ItsOwnIdReachesASessionsMainConversationOnlyFromAnotherOfItsConversations() {
 		await using var host = await TestHost.StartAsync();
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
 		var session = await CreateStructuredAsync(host, "peer-own");
 
-		var delivery = await session.Peers.SendAsync(session.SlotId, "finding", CancellationToken.None);
+		var refused = await Assert.ThrowsAsync<SessionPeerException>(
+			() => session.Peers.SendAsync(session.SlotId, "finding", conversation: null, CancellationToken.None));
+		var delivery = await session.Peers.SendAsync(session.SlotId, "finding", "BTW", CancellationToken.None);
 		await session.Agent.DrainPaneAsync(CancellationToken.None);
+
+		Assert.Equal("A session's main conversation can't message itself.", refused.Message);
 
 		Assert.Equal("peer-own", delivery.Id);
 		var shown = Assert.Single(
 			host.Bridge.PostedEvents(session.Address, "agent", "pane"),
 			message => message.GetProperty("type").GetString() == "user-message");
-		Assert.Equal(("finding", ("peer-own", "peer own", true)), (shown.GetProperty("text").GetString(), Sender(shown)));
+		Assert.Equal(("finding", ("peer-own", "BTW", true)), (shown.GetProperty("text").GetString(), Sender(shown)));
 		var transcript = await session.Peers.ReadAsync(session.SlotId, 2, CancellationToken.None);
 		Assert.Equal(new AgentTranscriptEntry(AgentTranscriptRole.User, "finding", null, "peer-own"), transcript.Entries[0]);
 	}
@@ -86,7 +90,7 @@ public sealed class HostCoreSessionPeersTests {
 		var reloaded = host.Session("peer-reloaded");
 
 		foreach (string id in new[] { "peer-reloaded", "peer-target" }) {
-			var refused = await Assert.ThrowsAsync<SessionPeerException>(() => stale.SendAsync(id, "ping", CancellationToken.None));
+			var refused = await Assert.ThrowsAsync<SessionPeerException>(() => stale.SendAsync(id, "ping", "BTW", CancellationToken.None));
 			Assert.Equal("The sending session no longer exists.", refused.Message);
 		}
 		await reloaded.Agent.DrainPaneAsync(CancellationToken.None);
@@ -125,7 +129,7 @@ public sealed class HostCoreSessionPeersTests {
 
 	private static async Task AssertRefusedAsync(HostSession sender, string target, string reason) {
 		var refused = await Assert.ThrowsAsync<SessionPeerException>(
-			() => sender.Peers.SendAsync(target, "ping", CancellationToken.None));
+			() => sender.Peers.SendAsync(target, "ping", conversation: null, CancellationToken.None));
 		Assert.Contains(reason, refused.Message, StringComparison.Ordinal);
 	}
 

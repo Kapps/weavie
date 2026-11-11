@@ -151,7 +151,8 @@ this change. All supported conversations share the worktree; forking context nev
 ## Workflow and tool ownership
 
 Every Weavie-created interactive conversation gets its own grant on the session's MCP registry. This
-credential routes calls to its binding; it is not another registry or a sandbox. Ordinary services remain
+credential routes calls to its binding and names its conversation as the sender of a
+[session message](session-messaging.md); it is not another registry or a sandbox. Ordinary services remain
 session-wide. Main and BTW cannot complete a child-owned stage. For `continue`, main's grant captures its
 current stage visit at tool admission. The default registry entry uses the same admission rule.
 

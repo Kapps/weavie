@@ -8,8 +8,8 @@ export function createReadingAnchor(
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
   rowOf: (id: string) => VirtualItem | undefined,
 ) {
-  // `atTop`: the row was placed at the viewport top, so it stays there when the viewport resizes.
-  let anchor: { id: string; top: number; unsized: Map<string, number>; atTop: boolean } | null =
+  // `placed`: the row was placed on its start line, so it stays there when the viewport resizes.
+  let anchor: { id: string; top: number; unsized: Map<string, number>; placed: boolean } | null =
     null;
   // Rows whose size came from their resize observer, even where it matched the estimate.
   const sized = new Set<string>();
@@ -34,16 +34,16 @@ export function createReadingAnchor(
         const shown = virtualizer().elementsCache.get(key)?.isConnected === true;
         if (item.index < row.index && shown && !sized.has(key)) unsized.set(key, item.size);
       }
-      anchor = { id, top: row.end - position, unsized, atTop: false };
+      anchor = { id, top: row.end - position, unsized, placed: false };
     },
-    /** Anchors on a row just placed at the viewport top; every measurement moves the position toward it. */
+    /** Anchors on a row just placed on its start line; every measurement moves the position toward it. */
     reveal(row: VirtualItem, position: number): void {
-      anchor = { id: String(row.key), top: row.end - position, unsized: new Map(), atTop: true };
+      anchor = { id: String(row.key), top: row.end - position, unsized: new Map(), placed: true };
     },
-    /** Keeps a row placed at the viewport top there in a resized viewport; false when no row was placed. */
-    keepTop(viewport: number): boolean {
-      if (anchor?.atTop !== true) return false;
-      anchor.top = viewport;
+    /** Keeps a placed row `top` above the bottom of a resized viewport; false when no row was placed. */
+    keepStart(top: number): boolean {
+      if (anchor?.placed !== true) return false;
+      anchor.top = top;
       return true;
     },
     /** Whether every rendered row from the newest through virtual `index` has been measured. */

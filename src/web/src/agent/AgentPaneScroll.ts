@@ -117,14 +117,16 @@ export function createAgentPaneScroll(
   };
   const gesture = createAgentPaneGesture(body, syncHold);
 
-  const liveReply = (): number | null => (model.live() ? shown().latestResultIndex : null);
+  const liveReply = (): { index: number; id: string } | null => {
+    const index = model.live() ? shown().latestResultIndex : null;
+    return index === null ? null : { index, id: shown().entries[index]!.id };
+  };
 
   const setFollowing = (value: boolean): void => {
     if (value === following()) return;
     if (value) {
       // A reply already there when following begins pins only once its top has been back in view.
-      const index = untrack(liveReply);
-      watchedId = index === null ? null : untrack(shown).entries[index]!.id;
+      watchedId = untrack(liveReply)?.id ?? null;
       topSeen = false;
     }
     if (!value) pickAnchor();
@@ -138,13 +140,12 @@ export function createAgentPaneScroll(
   // A live reply whose top rises past its start line while following stops there, so it is read from its start. One
   // pushed past by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
   const pin = (shrunk: boolean): void => {
-    const index = liveReply();
-    const row = layout().rowAt(index);
-    // Decided on measured sizes, never on estimates.
-    if (index === null || row === undefined || !anchor.measuredThrough(row.index)) return;
-    const { id } = shown().entries[index]!;
-    if (watchedId !== id) {
-      watchedId = id;
+    const reply = liveReply();
+    const row = layout().rowAt(reply?.index ?? null);
+    // Decided on the reply's measured size, never on its estimate.
+    if (reply === null || row === undefined || !anchor.measuredThrough(row.index)) return;
+    if (watchedId !== reply.id) {
+      watchedId = reply.id;
       topSeen = true;
     }
     const start = startOf(row);

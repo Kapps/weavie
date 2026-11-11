@@ -5,7 +5,7 @@ namespace Weavie.Core.Tests;
 
 public sealed class AgentTranscriptTests {
 	[Fact]
-	public void FoldsTheJournalIntoPrimaryPromptsRepliesToolsAndErrors() {
+	public void FoldsTheScopedJournalWithoutDiscardingNestedConversations() {
 		var entries = AgentTranscript.FromPaneJournal([
 			Message("turn-started", null, null),
 			Message("user-message", "prompt-1", null) with { Text = "Fix it" },
@@ -25,6 +25,7 @@ public sealed class AgentTranscriptTests {
 			new(AgentTranscriptRole.Tool, "grep foo", "completed", null),
 			new(AgentTranscriptRole.Agent, "Fixed it.", null, null),
 			new(AgentTranscriptRole.User, "Also test", null, "feat/other"),
+			new(AgentTranscriptRole.Agent, "side", null, null),
 			new AgentTranscriptEntry(AgentTranscriptRole.Error, "Agent crashed", null, null),
 		], entries);
 	}

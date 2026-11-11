@@ -13,7 +13,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>listAgents/consultAgent on the registry server, and per-call cancellation of long tool calls.</summary>
 [Collection("Settings")]
-public sealed class McpAgentToolsTests : IAsyncLifetime {
+public sealed partial class McpAgentToolsTests : IAsyncLifetime {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-agent-tools-tests");
 	private readonly SettingsStore _settings;
@@ -275,9 +275,11 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 		await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 	}
 
-	private async Task<ClientWebSocket> ConnectAsync() {
+	private Task<ClientWebSocket> ConnectAsync() => ConnectAsync(Token);
+
+	private async Task<ClientWebSocket> ConnectAsync(string token) {
 		var client = new ClientWebSocket();
-		client.Options.SetRequestHeader("Authorization", $"Bearer {Token}");
+		client.Options.SetRequestHeader("Authorization", $"Bearer {token}");
 		await client.ConnectAsync(new Uri($"ws://127.0.0.1:{_server.Port}/"), CancellationToken.None);
 		return client;
 	}
@@ -305,11 +307,13 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 	private Task<HttpResponseMessage> PostAsync(HttpClient client, string json, string? session) =>
 		client.SendAsync(Post(json, session));
 
-	private HttpRequestMessage Post(string json, string? session) {
+	private HttpRequestMessage Post(string json, string? session) => Post(json, session, Token);
+
+	private HttpRequestMessage Post(string json, string? session, string token) {
 		var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{_server.Port}/mcp") {
 			Content = new StringContent(json, Encoding.UTF8, "application/json"),
 		};
-		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		if (session is not null) request.Headers.Add("Mcp-Session-Id", session);
 		return request;
 	}

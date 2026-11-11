@@ -47,6 +47,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	public Task TerminalFailure => _never.Task;
 
+	internal void BindFork(string sessionId) => _sessionId = sessionId;
+
 	internal void CopyConnectionState(FakeAcpAgent source) {
 		_authenticated = source._authenticated;
 		_supportsPlanUpdates = source._supportsPlanUpdates;
@@ -189,7 +191,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
-		else RequireMcp(parameters);
+		else _weavieMcp = RequireMcp(parameters);
 		_sessionId = sessionId;
 		if (replay) {
 			File.AppendAllText(
@@ -1393,7 +1395,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
-	private void RequireMcp(JsonElement parameters) {
+	private static (string Url, string Authorization) RequireMcp(JsonElement parameters) {
 		var servers = AcpJson.RequiredArray(parameters, "mcpServers", "session open");
 		foreach (var server in servers.EnumerateArray()) {
 			if (AcpJson.OptionalString(server, "name") != "weavie" || AcpJson.OptionalString(server, "type") != "http"
@@ -1402,8 +1404,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				if (AcpJson.OptionalString(header, "name") == "Authorization"
 					&& AcpJson.OptionalString(header, "value") is { } authorization
 					&& authorization.StartsWith("Bearer ", StringComparison.Ordinal)) {
-					_weavieMcp = (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
-					return;
+					return (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
 				}
 			}
 		}

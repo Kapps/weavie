@@ -102,6 +102,6 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 			context.Editor,
 			context.Runtime,
 			context.Events,
-			context.TurnContext);
+			context.Bindings.MainTurnContext);
 	}
 }

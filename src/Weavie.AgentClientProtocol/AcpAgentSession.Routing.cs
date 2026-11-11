@@ -25,7 +25,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private bool Restorable {
-		get { lock (_gate) return _features.Load || _features.Resume; }
+		get { lock (_turnTransitionGate) return _runtime.Features.Load || _runtime.Features.Resume; }
 	}
 
 	/// <inheritdoc/>
@@ -48,10 +48,13 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Interrupt() {
 		lock (_turnTransitionGate) {
-			var primary = _primary;
-			var activeSides = primary.Busy ? [] : Sides().Where(side => side.Conversation.HasWork).ToArray();
-			if (activeSides.Length == 0) primary.Interrupt();
-			foreach (var side in activeSides) side.Conversation.Interrupt();
+			if (_primary.Busy) {
+				_primary.Interrupt();
+				return;
+			}
+		}
+		lock (_turnTransitionGate) {
+			foreach (var conversation in Roots().Where(conversation => conversation.Live && conversation.HasWork)) conversation.Interrupt();
 		}
 	}
 

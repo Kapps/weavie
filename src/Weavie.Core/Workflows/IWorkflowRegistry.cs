@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Weavie.Core.Mcp;
 using Weavie.Workflows;
 
@@ -21,11 +20,9 @@ public interface IWorkflowRegistry {
 	/// <summary>The folder holding <paramref name="scope"/>'s workflow files, which may not exist yet.</summary>
 	string Folder(WorkflowScope scope);
 
-	/// <summary>Completes the session's open stage with <paramref name="outputs"/> and a <paramref name="summary"/>; returns the reply for the agent.</summary>
-	string CompleteStage(JsonElement outputs, string summary);
+	/// <summary>Captures the exact stage visit and round for a tool call admitted from main.</summary>
+	WorkflowStageCall? CaptureStageCall();
 
-	/// <summary>Reports that the agent can't finish the session's open stage.</summary>
-	void FailStage(string reason);
 }
 
 /// <summary>The registry for MCP servers without workflows.</summary>
@@ -44,9 +41,7 @@ public static class WorkflowRegistry {
 
 		public string Folder(WorkflowScope scope) => throw Error();
 
-		public string CompleteStage(JsonElement outputs, string summary) => throw Error();
-
-		public void FailStage(string reason) => throw Error();
+		public WorkflowStageCall? CaptureStageCall() => null;
 
 		private static ToolUnavailableException Error() => new("Workflows are not available.");
 	}
@@ -70,8 +65,5 @@ public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRun
 	public string Folder(WorkflowScope scope) => catalog.Folder(scope);
 
 	/// <inheritdoc/>
-	public string CompleteStage(JsonElement outputs, string summary) => runner.CompleteStage(outputs, summary);
-
-	/// <inheritdoc/>
-	public void FailStage(string reason) => runner.FailStage(reason);
+	public WorkflowStageCall? CaptureStageCall() => runner.CaptureStageCall();
 }

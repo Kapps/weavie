@@ -158,17 +158,4 @@ public sealed class WorkflowPromptTests : IDisposable {
 		Assert.Null(runner.Current);
 	}
 
-	[Fact]
-	public void ARunSavedBeforeRunsHadAPromptLoadsWithNone() {
-		using var runner = Runner();
-		var run = runner.Start(Catalog.Prepare("plain", Json("{}")));
-		using var saved = JsonDocument.Parse(WorkflowRunDocument.Write(run));
-		var before = saved.RootElement.GetProperty("run").EnumerateObject()
-			.Where(member => member.Name is not ("prompt" or "promptImagesSent"))
-			.ToDictionary(member => member.Name, member => member.Name == "kickoff" ? Json("""{"text":"go","command":"","opens":"a"}""") : member.Value);
-		var loaded = WorkflowRunDocument.Read(JsonSerializer.Serialize(new Dictionary<string, object> { ["run"] = before }))!;
-		Assert.Equal(WorkflowPrompt.None, loaded.Prompt);
-		Assert.False(loaded.PromptImagesSent);
-		Assert.False(loaded.Kickoff!.CarriesPromptImages);
-	}
 }

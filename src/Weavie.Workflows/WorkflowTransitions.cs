@@ -32,6 +32,7 @@ internal sealed partial class WorkflowTransitions(
 			Attempts = 0,
 			Outputs = [],
 			Summary = "",
+			Unreported = "",
 			Streaks = [],
 			Note = "",
 			PausedReason = null,
@@ -57,12 +58,14 @@ internal sealed partial class WorkflowTransitions(
 		run = run with {
 			Outputs = new(run.Outputs) { [stage.Id] = values },
 			Summary = summary,
+			Unreported = stage.Run.Context == WorkflowContext.Continue ? run.Unreported
+				: Join(run.Unreported, Report(stage, values, summary)),
 			Attempts = 0,
 			Kickoff = null,
 		};
-		// A question reached here rides the reply to this call, so the agent is owed no turn for it.
+		// A main-conversation caller receives its question in the completion reply; independent work reports to main.
 		var step = Advance(run, stage);
-		return new WorkflowCompletion(step.Run.Phase != WorkflowPhase.Asking ? step : new WorkflowStep(
+		return new WorkflowCompletion(stage.Run.Context != WorkflowContext.Continue || step.Run.Phase != WorkflowPhase.Asking ? step : new WorkflowStep(
 			step.Run with { Kickoff = null }, [.. step.Effects.Where(e => e is not WorkflowEffect.Kickoff)]), []);
 	}
 
@@ -77,6 +80,10 @@ internal sealed partial class WorkflowTransitions(
 		Require(run, WorkflowPhase.Open, "open");
 		return Pause(run, reason);
 	}
+
+	/// <summary>The current visit lost its conversation; its pending work or decision can resume.</summary>
+	public WorkflowStep ConversationEnded(WorkflowRun run, string reason) =>
+		Pause(run, $"Stage \"{run.Stage}\" lost its conversation: {reason}");
 
 	/// <summary>The user answers the question the run is asking, with <paramref name="feedback"/> (empty for none).</summary>
 	public WorkflowStep Answer(WorkflowRun run, string choice, string feedback) {
@@ -126,7 +133,7 @@ internal sealed partial class WorkflowTransitions(
 		var stage = StageOf(run.Stage);
 		run = run with { PausedReason = null, Attempts = 0 };
 		return run.Decision switch {
-			WorkflowDecisionKind.If => Enter(run, stage.Id),
+			WorkflowDecisionKind.If => Enter(run, stage.Id, startsExecution: false),
 			WorkflowDecisionKind.Then => Advance(run, stage),
 			_ => Open(run, stage),
 		};
@@ -138,7 +145,8 @@ internal sealed partial class WorkflowTransitions(
 			throw new WorkflowException($"Run {run.Id} has ended.");
 		}
 
-		return Open(run with { PausedReason = null }, StageOf(stageId));
+		var step = Open(run with { PausedReason = null }, StageOf(stageId));
+		return step with { Effects = [new WorkflowEffect.EnterStage(), .. step.Effects] };
 	}
 
 	/// <summary>The user cancels the run.</summary>
@@ -147,7 +155,9 @@ internal sealed partial class WorkflowTransitions(
 			throw new WorkflowException($"Run {run.Id} has ended.");
 		}
 
-		return new WorkflowStep(run with { Phase = WorkflowPhase.Cancelled, Decision = null, Asked = null, Note = "", Kickoff = null }, []);
+		run = run with { Phase = WorkflowPhase.Cancelled, Decision = null, Asked = null, Note = "", Kickoff = null };
+		return run.Unreported.Length == 0 ? new WorkflowStep(run, [])
+			: Send(run, WorkflowKickoff.Prompt($"Workflow {definition.Id} cancelled."));
 	}
 
 	// Where an answer leads. Back to the current stage reopens it with a short turn; anywhere else enters that stage.
@@ -171,14 +181,18 @@ internal sealed partial class WorkflowTransitions(
 			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
 			+ (run.Note.Length == 0 ? "" : $" Feedback: {run.Note}")
 			+ $" Revise the work accordingly, then call {words.CompleteStage} again.");
-		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
-			[new WorkflowEffect.Kickoff(kickoff)]);
+		var revised = Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" }, StageTurn(run, stage, kickoff));
+		return revised with { Effects = [new WorkflowEffect.ReviseStage(), .. revised.Effects] };
 	}
 
-	private WorkflowStep Enter(WorkflowRun run, string target) {
+	private WorkflowStep Enter(WorkflowRun run, string target) => Enter(run, target, startsExecution: true);
+
+	private WorkflowStep Enter(WorkflowRun run, string target, bool startsExecution) {
 		run = run with { Decision = null, Asked = null, PausedReason = null, Attempts = 0, Kickoff = null };
 		if (target == WorkflowSchema.Done) {
+			if (run.Unreported.Length > 0) return Send(run with { Phase = WorkflowPhase.Done, Note = "" },
+				WorkflowKickoff.Prompt($"Workflow {definition.Id} finished."
+					+ (run.Note.Length == 0 ? "" : $" User feedback: {run.Note}")));
 			return new WorkflowStep(
 				run with { Phase = WorkflowPhase.Done, Note = "" },
 				[new WorkflowEffect.Notify($"Workflow {definition.Id} finished."
@@ -187,9 +201,10 @@ internal sealed partial class WorkflowTransitions(
 
 		var stage = StageOf(target);
 		run = run with { Stage = stage.Id };
-		return stage.If is { } condition
+		var step = stage.If is { } condition
 			? Ask(run, WorkflowDecisionKind.If, condition, [new(Yes, null), new(No, null)], new Dictionary<string, string>())
 			: Open(run, stage);
+		return startsExecution ? step with { Effects = [new WorkflowEffect.EnterStage(), .. step.Effects] } : step;
 	}
 
 	private WorkflowStep Advance(WorkflowRun run, WorkflowStage stage) => stage.Then switch {
@@ -206,16 +221,18 @@ internal sealed partial class WorkflowTransitions(
 			return Pause(run with { Stage = stage.Id }, missing);
 		}
 
-		// A conversation keeps the prompt's images once it has them, so only the first turn to use the prompt carries them.
-		bool images = !run.PromptImagesSent && run.Prompt.Images.Count > 0
-			&& (stage.Run.Prompt ?? stage.Run.Args)?.References.Any(r => r.IsPrompt) == true;
-		var kickoff = (stage.Run.Skill is { } skill
-			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
-			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id }) with { CarriesPromptImages = images };
-		return new WorkflowStep(
-			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
-			[new WorkflowEffect.Kickoff(kickoff)]);
+		var kickoff = stage.Run.Skill is { } skill
+			? new WorkflowKickoff { Context = stage.Run.Context, Text = $"/{skill} {Join(rendered, run.Note)}".TrimEnd(), Command = skill, Opens = stage.Id }
+			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
+		return Send(run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" },
+			StageTurn(run, stage, kickoff));
 	}
+
+	private static WorkflowKickoff StageTurn(WorkflowRun run, WorkflowStage stage, WorkflowKickoff turn) => turn with {
+		Context = stage.Run.Context,
+		CarriesPromptImages = (stage.Run.Context != WorkflowContext.Continue || !run.PromptImagesSent)
+			&& run.Prompt.Images.Count > 0 && (stage.Run.Prompt ?? stage.Run.Args)?.References.Any(reference => reference.IsPrompt) == true,
+	};
 
 	private WorkflowStep Ask(
 		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<WorkflowDecisionOption> choices,
@@ -247,10 +264,20 @@ internal sealed partial class WorkflowTransitions(
 	private WorkflowStep AskUser(WorkflowRun run, string reason) {
 		var asked = run.Asked! with { Reason = reason };
 		var kickoff = WorkflowKickoff.Prompt(WorkflowStageBlock.PutToUser(asked, words, openReviewItem));
-		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Asking, Asked = asked, Kickoff = kickoff },
-			[new WorkflowEffect.Kickoff(kickoff)]);
+		return Send(run with { Phase = WorkflowPhase.Asking, Asked = asked }, kickoff);
 	}
+
+	private static WorkflowStep Send(WorkflowRun run, WorkflowKickoff kickoff) {
+		if (kickoff.Context == WorkflowContext.Continue && run.Unreported.Length > 0) {
+			kickoff = kickoff with { Text = kickoff.Command.Length == 0 ? Join(run.Unreported, kickoff.Text) : Join(kickoff.Text, run.Unreported) };
+		}
+		return new(run with { Kickoff = kickoff }, [new WorkflowEffect.Kickoff(kickoff)]);
+	}
+
+	private static string Report(WorkflowStage stage, Dictionary<string, WorkflowValue> outputs, string summary) =>
+		$"Stage \"{stage.Id}\" ran in its own conversation and completed.\nOutputs: "
+		+ (outputs.Count == 0 ? "{}" : string.Join("\n", outputs.Select(output => $"{output.Key} = {output.Value.Render()}")))
+		+ $"\nSummary: {summary}";
 
 	private static WorkflowStep Pause(WorkflowRun run, string reason) => new(
 		run with { Phase = WorkflowPhase.Paused, PausedReason = reason, Kickoff = null },

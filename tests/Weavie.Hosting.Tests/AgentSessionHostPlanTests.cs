@@ -22,7 +22,7 @@ public sealed partial class AgentSessionHostTests {
 			ItemType = "plan",
 			Text = "# Draft",
 		});
-		Assert.False(host.WithCompletedPlan(threadId, turnId, itemId, _ => Assert.Fail("Unexpected plan")));
+		Assert.False(host.WithCompletedPlan("structured", null, threadId, turnId, itemId, _ => Assert.Fail("Unexpected plan")));
 
 		session.Emit(new AgentPaneMessage {
 			Type = "item-completed",
@@ -33,13 +33,14 @@ public sealed partial class AgentSessionHostTests {
 			ItemType = "plan",
 			Text = "# Final plan",
 		});
-		Assert.True(host.WithCompletedPlan(threadId, turnId, itemId, plan => Assert.Equal("# Final plan", plan.Markdown)));
-		Assert.False(host.WithCompletedPlan("another-thread", turnId, itemId, _ => Assert.Fail("Unexpected plan")));
-		Assert.False(host.WithCompletedPlan(threadId, "another-turn", itemId, _ => Assert.Fail("Unexpected plan")));
-		Assert.False(host.WithCompletedPlan(threadId, turnId, "another-item", _ => Assert.Fail("Unexpected plan")));
+		Assert.True(host.WithCompletedPlan("structured", null, threadId, turnId, itemId, plan => Assert.Equal("# Final plan", plan.Markdown)));
+		Assert.False(host.WithCompletedPlan("structured", null, "another-thread", turnId, itemId, _ => Assert.Fail("Unexpected plan")));
+		Assert.False(host.WithCompletedPlan("structured", null, threadId, "another-turn", itemId, _ => Assert.Fail("Unexpected plan")));
+		Assert.False(host.WithCompletedPlan("structured", null, threadId, turnId, "another-item", _ => Assert.Fail("Unexpected plan")));
 
 		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
-		Assert.False(host.WithCompletedPlan(threadId, turnId, itemId, _ => Assert.Fail("Unexpected plan")));
+		await host.DrainPaneAsync(CancellationToken.None);
+		Assert.False(host.WithCompletedPlan("structured", null, threadId, turnId, itemId, _ => Assert.Fail("Unexpected plan")));
 	}
 
 	[Fact]
@@ -50,12 +51,15 @@ public sealed partial class AgentSessionHostTests {
 		host.PlansChanged += plans => snapshots.Add(plans.Documents);
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		session.Emit(plan);
+		await host.DrainPaneAsync(CancellationToken.None);
 		snapshots.Clear();
 
 		session.Replace([plan with { Text = "# Complete revised document" }]);
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Equal("# Complete revised document", Assert.Single(Assert.Single(snapshots)).Markdown);
 		snapshots.Clear();
 		session.Replace([Completed("answer", "No plan remains")]);
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Empty(Assert.Single(snapshots));
 	}
 
@@ -64,11 +68,13 @@ public sealed partial class AgentSessionHostTests {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		fixture.Session.Emit(plan);
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
 		var snapshots = new List<IReadOnlyList<AgentPlan>>();
 		fixture.Host.PlansChanged += plans => snapshots.Add(plans.Documents);
 		fixture.Session.Emit(plan with { Type = "item-retracted", ItemType = null, Text = null });
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
 		Assert.Empty(Assert.Single(snapshots));
-		Assert.False(fixture.Host.WithCompletedPlan(plan.ThreadId!, plan.TurnId!, plan.ItemId!,
+		Assert.False(fixture.Host.WithCompletedPlan("structured", null, plan.ThreadId!, plan.TurnId!, plan.ItemId!,
 			_ => Assert.Fail("Retracted plan must not open")));
 	}
 
@@ -80,19 +86,21 @@ public sealed partial class AgentSessionHostTests {
 		var (session, host) = (fixture.Session, fixture.Host);
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		session.Emit(plan);
+		await host.DrainPaneAsync(CancellationToken.None);
 		string? published = null;
 		host.PlansChanged += plans => published = plans.Documents.SingleOrDefault().Markdown;
 		using var ready = new Barrier(2);
 
 		var open = Task.Run(() => {
 			ready.SignalAndWait(TimeSpan.FromSeconds(10));
-			host.WithCompletedPlan(plan.ThreadId!, plan.TurnId!, plan.ItemId!, value => published = value.Markdown);
+			host.WithCompletedPlan("structured", null, plan.ThreadId!, plan.TurnId!, plan.ItemId!, value => published = value.Markdown);
 		});
 		var update = Task.Run(() => {
 			ready.SignalAndWait(TimeSpan.FromSeconds(10));
 			session.Emit(plan with { Type = removed ? "item-retracted" : "item-completed", Text = "# Revised" });
 		});
 		await Task.WhenAll(open, update).WaitAsync(TimeSpan.FromSeconds(10));
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Equal(removed ? null : "# Revised", published);
 	}
 
@@ -107,13 +115,16 @@ public sealed partial class AgentSessionHostTests {
 
 		session.Emit(first);
 		session.Emit(second);
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Equal([("first", "/plans/first.md"), ("second", "/plans/second.md")],
 			snapshots[^1].Reviews.Select(review => (review.RequestId, review.Path)));
 		Assert.Empty(snapshots[^1].Documents);
 
 		session.Emit(first with { Type = "approval-resolved", ItemType = null, PlanPath = null, Status = "allowed once" });
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Equal("second", Assert.Single(snapshots[^1].Reviews).RequestId);
 		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
+		await host.DrainPaneAsync(CancellationToken.None);
 		Assert.Empty(snapshots[^1].Reviews);
 	}
 

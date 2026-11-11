@@ -48,6 +48,7 @@ public sealed class LinuxWaylandIdentityTests {
 			appInfo.ArgumentList.Add("--");
 			appInfo.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "Weavie"));
 			appInfo.Environment["XDG_RUNTIME_DIR"] = runtime;
+			appInfo.Environment["TMPDIR"] = runtime;
 			appInfo.Environment["XDG_DATA_HOME"] = dataHome;
 			appInfo.Environment["WEAVIE_ROOT"] = root.Combine("weavie");
 			appInfo.Environment["WAYLAND_DISPLAY"] = socketName;

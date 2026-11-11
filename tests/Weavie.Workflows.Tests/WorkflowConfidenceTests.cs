@@ -21,7 +21,7 @@ public sealed class WorkflowConfidenceTests {
 		var machine = new WorkflowTransitions(read.Definition, 3, true, global, Path.GetTempPath(), TestWorkflows.Words);
 		var step = machine.Start("r", "source", [], Path.GetTempPath(), null, WorkflowPrompt.None);
 		if (!condition) step = machine.Complete(step.Run, JsonDocument.Parse("{}").RootElement, "Completed checks.").Step;
-		return (machine, step, Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Plan);
+		return (machine, step, Assert.Single(step.Effects.OfType<WorkflowEffect.Decide>()).Plan);
 	}
 
 	[Theory]

@@ -73,9 +73,10 @@ public sealed class WorkflowAdapterTests : IDisposable {
 	public void SessionRegistryRoutesToItsRunnerAndErrorsWithoutARun() {
 		using var runner = Runner();
 		var registry = new SessionWorkflowRegistry(Catalog(), runner);
-		Assert.Throws<WorkflowException>(() => registry.CompleteStage(Json("{}"), "s"));
+		Assert.Null(registry.CaptureStageCall());
 		runner.Start("flow", Json("{}"));
-		registry.FailStage("stuck");
+		var call = registry.CaptureStageCall();
+		call!.Fail("stuck");
 		Assert.Equal(WorkflowPhase.Paused, runner.Current!.Phase);
 	}
 
@@ -120,7 +121,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	[Fact]
 	public void AKickoffBecomesAnAgentTurnOfItsKind() {
-		var skill = new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" };
+		var skill = new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" };
 		var turn = skill.Submission([new WorkflowTurnImage("/documents/prompt/r-1/image-1.png", "image/png")]);
 		Assert.Equal(("/spec x", "spec", AgentTurnSubmissionKind.ProviderCommand), (turn.Text, turn.CommandName, turn.Kind));
 		Assert.Equal(("/documents/prompt/r-1/image-1.png", "image/png"), (turn.Attachments[0].Path, turn.Attachments[0].Mime));
@@ -132,7 +133,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		WorkflowTurnImage[] images = [new("/documents/prompt/r-1/image-1.png", "image/png")];
 
 		Assert.Equal(["/spec x", images[0].Path],
-			new WorkflowKickoff { Text = "/spec x", Command = "spec", Opens = "spec" }.Submission(images).TerminalParts());
+			new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" }.Submission(images).TerminalParts());
 		Assert.Equal([images[0].Path, "go"], WorkflowKickoff.Prompt("go").Submission(images).TerminalParts());
 	}
 

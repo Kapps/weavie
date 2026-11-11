@@ -1083,18 +1083,23 @@ public sealed partial class HostCore {
 			return false;
 		}
 
-		await session.DisposeAsync().ConfigureAwait(false);
-		return await _ui.InvokeAsync(() => {
-			if (ReferenceEquals(slot.Session, session)) {
-				slot.Session = null;
-				_fileRoutes.Unregister(session.Incarnation);
-				PushSessionList();
-				PersistSessionState();
-				return Task.FromResult(true);
-			}
+		bool detached;
+		try {
+			await session.DisposeAsync().ConfigureAwait(false);
+		} finally {
+			detached = await _ui.InvokeAsync(() => {
+				if (ReferenceEquals(slot.Session, session)) {
+					slot.Session = null;
+					_fileRoutes.Unregister(session.Incarnation);
+					PushSessionList();
+					PersistSessionState();
+					return Task.FromResult(true);
+				}
 
-			return Task.FromResult(false);
-		}, CancellationToken.None).ConfigureAwait(false);
+				return Task.FromResult(false);
+			}, CancellationToken.None).ConfigureAwait(false);
+		}
+		return detached;
 	}
 
 	/// <summary>The slot whose live backend is <paramref name="session"/>, or null (unloaded, or pre-rail during startup).</summary>

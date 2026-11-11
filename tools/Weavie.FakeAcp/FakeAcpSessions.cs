@@ -31,7 +31,14 @@ internal sealed class FakeAcpSessions : IAcpAgent {
 			_sessions[id] = session;
 			return result;
 		}
-		return await FindSession(parameters).HandleRequestAsync(requestId, method, parameters, ct).ConfigureAwait(false);
+		var response = await FindSession(parameters).HandleRequestAsync(requestId, method, parameters, ct).ConfigureAwait(false);
+		if (method == "session/fork") {
+			string id = response["sessionId"]!.GetValue<string>();
+			var fork = CreateSession();
+			fork.BindFork(id);
+			_sessions[id] = fork;
+		}
+		return response;
 	}
 
 	public Task HandleNotificationAsync(string method, JsonElement parameters, CancellationToken ct) =>

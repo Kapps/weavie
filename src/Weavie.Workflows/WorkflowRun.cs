@@ -66,10 +66,10 @@ public sealed record WorkflowRun {
 	/// <summary>The run's inputs by name.</summary>
 	public required Dictionary<string, WorkflowValue> Inputs { get; init; }
 
-	/// <summary>What the run was started with; a run saved before runs had a prompt reads <see cref="WorkflowPrompt.None"/>.</summary>
+	/// <summary>What the run was started with.</summary>
 	public WorkflowPrompt Prompt { get; set; } = WorkflowPrompt.None;
 
-	/// <summary>Whether the agent has been sent the prompt's images.</summary>
+	/// <summary>Whether the main conversation has been sent the prompt's images.</summary>
 	public bool PromptImagesSent { get; set; }
 
 	/// <summary>The current stage id.</summary>
@@ -92,6 +92,9 @@ public sealed record WorkflowRun {
 
 	/// <summary>The summary the agent gave when it last completed a stage; decisions read it.</summary>
 	public required string Summary { get; init; }
+
+	/// <summary>Completed independent stages' reports owed to the main conversation until its next turn is claimed.</summary>
+	public required string Unreported { get; init; }
 
 	/// <summary>
 	/// The model's consecutive answers to a <c>then</c> decision, by stage id; any user answer or another stage's
@@ -118,6 +121,9 @@ public sealed record WorkflowRun {
 
 /// <summary>A turn the host owes the agent: a prompt, or a provider command (a skill) with its arguments.</summary>
 public sealed record WorkflowKickoff {
+	/// <summary>The conversation receiving this turn; questions and completion reports always use main.</summary>
+	public required WorkflowContext Context { get; init; }
+
 	/// <summary>The turn's full text; a command's starts with <c>/</c> and its name.</summary>
 	public required string Text { get; init; }
 
@@ -131,7 +137,7 @@ public sealed record WorkflowKickoff {
 	public bool CarriesPromptImages { get; init; }
 
 	/// <summary>An ordinary prompt within the run's current stage.</summary>
-	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "", Opens = "" };
+	public static WorkflowKickoff Prompt(string text) => new() { Context = WorkflowContext.Continue, Text = text, Command = "", Opens = "" };
 }
 
 /// <summary>

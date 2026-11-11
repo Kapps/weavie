@@ -311,20 +311,23 @@ test("expanding details while reading keeps the toggled header still", async ({
   await expect(jumpToLatest(page)).toHaveCount(0);
   await summaries.last().click();
   await readAway(pane);
-  const visible = await body.evaluate((element) => {
+  const entryId = await body.evaluate((element) => {
     const viewport = element.getBoundingClientRect();
-    return [...element.querySelectorAll(".agent-activity-details > summary")].findIndex(
+    const summary = [...element.querySelectorAll(".agent-activity-details > summary")].find(
       (summary) => {
         const bounds = summary.getBoundingClientRect();
         return bounds.top > viewport.top && bounds.bottom < viewport.bottom;
       },
     );
+    return summary?.closest("[data-transcript-entry]")?.getAttribute("data-transcript-entry");
   });
-  const summary = summaries.nth(visible);
+  expect(entryId).toBeTruthy();
+  const entry = body.locator(`[data-transcript-entry=${JSON.stringify(entryId)}]`);
+  const summary = entry.locator(".agent-activity-details > summary");
   await expect(summary).toBeInViewport();
   const before = await summary.evaluate((element) => element.getBoundingClientRect().top);
   await summary.click();
-  await expect(body.locator(".agent-activity-step").first()).toBeVisible();
+  await expect(entry.locator(".agent-activity-step").first()).toBeVisible();
   await frames(page, 1);
   expect(
     Math.abs((await summary.evaluate((element) => element.getBoundingClientRect().top)) - before),

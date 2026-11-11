@@ -8,7 +8,7 @@ internal sealed class AcpSessionEndpoint(
 	AcpJsonRpcConnection connection, long generation,
 	Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
 	private readonly Lock _gate = new();
-	private Task<bool> _opening = Task.FromResult(true);
+	private Task<bool> _opening = Task.FromResult(false);
 	private volatile bool _retired;
 	private volatile bool _opened;
 	internal string? SessionId { get; private set; }
@@ -68,21 +68,24 @@ internal sealed class AcpSessionEndpoint(
 	// Registering an opening is atomic with retirement, so a close never misses a session still being opened.
 	private Task<JsonElement> Opening(Func<Task<JsonElement>> start) {
 		var settled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		Task<bool> previous;
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_retired, this);
+			previous = _opening;
 			_opening = settled.Task;
 		}
-		return Settle(start, settled);
+		return Settle(start, previous, settled);
 	}
 
-	private static async Task<JsonElement> Settle(Func<Task<JsonElement>> start, TaskCompletionSource<bool> settled) {
+	private static async Task<JsonElement> Settle(Func<Task<JsonElement>> start, Task<bool> previous, TaskCompletionSource<bool> settled) {
 		bool opened = false;
 		try {
 			var result = await start().ConfigureAwait(false);
 			opened = true;
 			return result;
 		} finally {
-			settled.SetResult(opened);
+			// A failed load does not surrender the provider session an earlier fork already created.
+			settled.SetResult(opened || await previous.ConfigureAwait(false));
 		}
 	}
 

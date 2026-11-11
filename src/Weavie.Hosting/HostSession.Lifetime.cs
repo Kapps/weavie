@@ -11,8 +11,11 @@ public sealed partial class HostSession {
 
 	private async Task DisposeCoreAsync() {
 		DiscardInitialInput();
-		DisposeWorkflow();
 		var failures = new List<Exception>();
+		await DisposeStepAsync(failures, "workflow", () => {
+			DisposeWorkflow();
+			return Task.CompletedTask;
+		}).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "message admission", () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file observation", FileActivity.StopObservingAsync).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "background tasks", () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
@@ -20,6 +23,7 @@ public sealed partial class HostSession {
 		// process still rooted there). Keep it off the calling UI thread.
 		await DisposeStepAsync(failures, "shell processes", () => Task.Run(() => Shells.Dispose())).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "agent", () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, "capability registry", () => _registry.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(
 			failures, "file activity drain",
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);

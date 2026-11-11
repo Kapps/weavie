@@ -26,7 +26,7 @@ export function AsideEntry(props: {
     props.session
       .feature("agent")
       .publish("setAsideCollapsed", { conversationId, collapsed: !collapsed() });
-  const toggleLabel = () => (collapsed() ? "Expand BTW" : "Collapse BTW");
+  const toggleLabel = () => `${collapsed() ? "Expand" : "Collapse"} ${props.entry.label}`;
   const toggleTitle = () => {
     const key = liveKeyLabel(CommandIds.toggleAgentAside);
     return key === "" ? toggleLabel() : `${toggleLabel()} (${key})`;
@@ -43,20 +43,23 @@ export function AsideEntry(props: {
         title={toggleTitle()}
         onClick={toggle}
       >
-        <span>{collapsed() ? "▸" : "▾"} BTW</span>
+        <span>
+          {collapsed() ? "▸" : "▾"} {props.entry.label}
+        </span>
         <Show when={props.entry.status !== null}>
           <small>{props.entry.status}</small>
         </Show>
       </button>
-      <div hidden={collapsed()}>
+      <div>
         <NestedTranscript
           entries={props.entry.asideEntries ?? []}
+          pendingOnly={collapsed()}
           expandedDetails={props.expandedDetails}
           keyboardRequestKey={props.keyboardRequestKey}
           onDetailsToggle={props.onDetailsToggle}
           session={props.session}
         />
-        <Show when={props.entry.asideReplyable !== false}>
+        <Show when={!collapsed() && props.entry.asideReplyable !== false}>
           <Show
             when={replying()}
             fallback={

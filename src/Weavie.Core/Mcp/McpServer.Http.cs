@@ -11,7 +11,7 @@ public sealed partial class McpServer {
 	internal TimeSpan ProgressInterval { get; set; } = TimeSpan.FromSeconds(30);
 
 	private async Task HandleHttpClientAsync(NetworkStream stream, HttpRequestHead request, CancellationToken ct) {
-		if (!IsAuthorized(request.Headers)) {
+		if (ResolveGrant(request.Headers) is not { } grant) {
 			Emit("rejected HTTP MCP request: missing/invalid auth token");
 			await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 			return;
@@ -40,7 +40,7 @@ public sealed partial class McpServer {
 					responder.ExpectNoReply();
 				}
 
-				await DispatchAsync(responder, root, connection.Token).ConfigureAwait(false);
+				await DispatchAsync(responder, root, grant, connection.Token).ConfigureAwait(false);
 			} catch (JsonException ex) {
 				await SendParseErrorAsync(responder, ex, connection.Token).ConfigureAwait(false);
 			} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {

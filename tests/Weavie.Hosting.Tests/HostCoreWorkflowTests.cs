@@ -85,7 +85,7 @@ public sealed class HostCoreWorkflowTests {
 		await using var host = await StartAsync(decisions);
 		var provider = Assert.IsType<FakeStructuredAgentProvider>(host.AgentProviders.RequireAvailable("structured"));
 		IAgentTurnContext? turnContext = null;
-		provider.CreatingSession = context => turnContext = context.TurnContext;
+		provider.CreatingSession = context => turnContext = context.Bindings.MainTurnContext;
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session("wf");
 

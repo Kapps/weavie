@@ -8,7 +8,7 @@ public sealed record WorkflowPrompt {
 	/// <summary>The prompt's saved images, in the order they were attached.</summary>
 	public required IReadOnlyList<WorkflowPromptImage> Images { get; init; }
 
-	/// <summary>No prompt: a run started without one, or saved before runs had one.</summary>
+	/// <summary>A run started without a prompt.</summary>
 	public static WorkflowPrompt None { get; } = new() { Text = "", Images = [] };
 }
 

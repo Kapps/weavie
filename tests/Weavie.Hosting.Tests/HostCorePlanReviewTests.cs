@@ -31,7 +31,7 @@ public sealed class HostCorePlanReviewTests {
 		Assert.Equal(second, Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile")).GetProperty("path").GetString());
 
 		host.Bridge.Clear();
-		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "request:review-1"));
+		Assert.True(session.OpenAgentPlan("structured", null, "thread-fake", "turn-1", "request:review-1"));
 		var reopened = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile"));
 		Assert.Equal((first, "navigation"), (reopened.GetProperty("path").GetString(), reopened.GetProperty("intent").GetString()));
 

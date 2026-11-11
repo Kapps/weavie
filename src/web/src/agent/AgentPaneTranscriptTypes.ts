@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import type { AgentConversationProjection } from "./AgentConversationProjection";
 
 export type AgentTranscriptTone =
   | "activity"
@@ -33,12 +34,14 @@ export interface AgentTranscriptEntry {
   tone: AgentTranscriptTone;
   turnStart?: true;
   promptTurnId?: string;
-  asideActive?: boolean;
-  asideCollapsed?: boolean;
-  asideEntries?: AgentTranscriptEntry[];
-  asideReplyable?: boolean;
+  conversation?: AgentConversationProjection;
+  asideActive?: boolean | undefined;
+  asideCollapsed?: boolean | undefined;
+  asideEntries?: readonly AgentTranscriptEntry[];
+  pendingEntries?: readonly AgentTranscriptEntry[];
+  asideReplyable?: boolean | undefined;
   conversationId?: string;
-  subagent?: AgentSubagentInfo;
+  subagent?: AgentSubagentInfo | undefined;
 }
 
 /** What a subagent card shows beyond its nested transcript. */
@@ -53,11 +56,12 @@ export interface AgentSubagentInfo {
 
 export type AgentSectionLabel = "Updates" | "Results";
 
-/** One immutable state of the transcript; unchanged entries keep their identity across snapshots. */
+/** One scoped snapshot; unchanged entries retain identity and nested cards link to their own live views. */
 export interface AgentTranscriptSnapshot {
   readonly agentTurnStartId: string | null;
   readonly agentTurnStartIndex: number | null;
   readonly entries: readonly AgentTranscriptEntry[];
+  readonly entryIndexes: ReadonlyMap<string, number>;
   readonly latestResultIndex: number | null;
   readonly pendingRowIndexes: readonly number[];
   readonly sectionLabels: ReadonlyMap<string, AgentSectionLabel>;

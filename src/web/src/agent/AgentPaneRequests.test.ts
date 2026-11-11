@@ -2,7 +2,7 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { paneItemIdentity } from "./AgentPaneIdentity";
-import { createAgentPaneModel } from "./AgentPaneModel";
+import { createTestAgentPaneModel as createAgentPaneModel } from "./AgentPaneTestModel";
 
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 

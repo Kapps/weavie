@@ -1,5 +1,6 @@
 import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
-import { isAgentPaneDelta } from "./AgentPaneDelta";
+import { AgentPaneConversationRows } from "./AgentPaneConversationRows";
+import { isAgentPaneDelta, retainPaneContent } from "./AgentPaneDelta";
 import {
   type AgentPaneHistoryState,
   createAgentPaneHistoryState,
@@ -23,11 +24,12 @@ interface SlotState {
   historyInitialized: boolean;
   indexes: Map<string, number>;
   messages: AgentPaneUpdate[];
+  conversations: AgentPaneConversationRows;
   revisions: Map<number, number>;
   scheduled: boolean;
 }
 
-type Publish = (messages: AgentPaneUpdate[], changes: AgentPaneUpdate[]) => void;
+type Publish = (rows: AgentPaneConversationRows, changes: AgentPaneUpdate[]) => void;
 
 export class AgentPaneAccumulator {
   private readonly slots = new Map<string, SlotState>();
@@ -143,7 +145,7 @@ export class AgentPaneAccumulator {
     }
     state.changedIndexes.clear();
     state.forceProject = false;
-    publish(state.messages, []);
+    publish(state.conversations, []);
   }
 
   private copyDeltaBuffer(
@@ -168,6 +170,7 @@ export class AgentPaneAccumulator {
     const index = target.messages.length;
     target.indexes.set(key, index);
     target.messages.push(message);
+    target.conversations.register(index);
     const copied = {
       baseRevision: buffer.baseRevision,
       baseText: buffer.baseText,
@@ -193,6 +196,7 @@ export class AgentPaneAccumulator {
         const next = state.messages.length;
         state.indexes.set(key, next);
         state.messages.push(message);
+        state.conversations.register(next);
         return next;
       }
       state.buffers.delete(key);
@@ -212,6 +216,7 @@ export class AgentPaneAccumulator {
         const next = state.messages.length;
         state.indexes.set(key, next);
         state.messages.push(message);
+        state.conversations.register(next);
         return next;
       }
       state.messages[index] = message;
@@ -221,6 +226,7 @@ export class AgentPaneAccumulator {
         state.indexes.set(key, state.messages.length);
       }
       state.messages.push(message);
+      state.conversations.register(state.messages.length - 1);
       return state.messages.length - 1;
     }
   }
@@ -229,7 +235,7 @@ export class AgentPaneAccumulator {
     // Delete first: a flush queued before this reset re-fetches state by slot, finds none, and no-ops (see flush),
     // so it can never republish the cleared transcript.
     this.slots.delete(slot);
-    publish([], []);
+    publish(new AgentPaneConversationRows([]), []);
   }
 
   private bufferDelta(
@@ -242,22 +248,25 @@ export class AgentPaneAccumulator {
     if (buffer === undefined) {
       const existing = state.indexes.get(key);
       const index = existing ?? state.messages.length;
+      const initial = existing === undefined ? message : state.messages[existing]!;
+      const text = initial.type === "item-started" ? (initial.text ?? "") : "";
       buffer = {
         baseRevision: null,
-        baseText: "",
+        baseText: text,
         index,
         chunks: [],
-        latest: message,
-        text: "",
+        latest: initial.type === "item-started" ? initial : message,
+        text,
       };
       state.buffers.set(key, buffer);
       state.buffersByIndex.set(index, buffer);
       state.indexes.set(key, index);
       if (existing === undefined) {
         state.messages.push({ ...message, text: "" });
+        state.conversations.register(index);
       }
     }
-    buffer.latest = message;
+    buffer.latest = retainPaneContent(buffer.latest, message);
     if (mode === "base") {
       buffer.baseRevision = isAgentPaneWireUpdate(message) ? message.revision : null;
       buffer.baseText = message.text ?? "";
@@ -288,13 +297,16 @@ export class AgentPaneAccumulator {
       return;
     }
     state.scheduled = false;
-    this.materializeIndexes(state, state.changedIndexes);
+    this.materializeIndexes(
+      state,
+      state.forceProject ? state.buffersByIndex.keys() : state.changedIndexes,
+    );
     const changes = state.forceProject
       ? []
       : [...state.changedIndexes].map((index) => state.messages[index]!);
     state.changedIndexes.clear();
     state.forceProject = false;
-    publish(state.messages, changes);
+    publish(state.conversations, changes);
   }
 
   private materialize(state: SlotState): void {
@@ -322,6 +334,7 @@ export class AgentPaneAccumulator {
   private state(slot: string): SlotState {
     let state = this.slots.get(slot);
     if (state === undefined) {
+      const messages: AgentPaneUpdate[] = [];
       state = {
         buffers: new Map<string, ItemBuffer>(),
         buffersByIndex: new Map<number, ItemBuffer>(),
@@ -331,7 +344,8 @@ export class AgentPaneAccumulator {
         history: createAgentPaneHistoryState(),
         historyInitialized: false,
         indexes: new Map<string, number>(),
-        messages: [],
+        messages,
+        conversations: new AgentPaneConversationRows(messages),
         revisions: new Map<number, number>(),
         scheduled: false,
       };

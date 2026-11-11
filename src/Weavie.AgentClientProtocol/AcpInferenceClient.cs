@@ -12,18 +12,6 @@ namespace Weavie.AgentClientProtocol;
 /// agent has no tools, filesystem, or MCP surface to reach for.
 /// </summary>
 internal sealed class AcpInferenceClient {
-	/// <summary>The initialize request of a tool-less transient client: only typed boolean configuration.</summary>
-	internal static JsonObject InitializeParameters() => new() {
-		["protocolVersion"] = 1,
-		["clientCapabilities"] = new JsonObject { ["session"] = SessionCapabilities() },
-		["clientInfo"] = ClientInfo("1"),
-	};
-
-	internal static JsonObject SessionCapabilities() =>
-		new() { ["configOptions"] = new JsonObject { ["boolean"] = new JsonObject() } };
-
-	internal static JsonObject ClientInfo(string version) =>
-		new() { ["name"] = "weavie", ["title"] = "Weavie", ["version"] = version };
 	private readonly AcpTransientConnection _connection;
 	private readonly StringBuilder _reply = new();
 	private readonly Lock _replyGate = new();
@@ -34,7 +22,7 @@ internal sealed class AcpInferenceClient {
 	private AcpInferenceClient(AcpTransientConnection connection) {
 		_connection = connection;
 		// Every agent request is refused: inference gets no tools, filesystem, terminal, or elicitation.
-		connection.Listen((id, method, _) => connection.RefuseAsync(id, method), Collect);
+		connection.ListenReply((id, method, _) => connection.RefuseAsync(id, method), Collect, static () => { });
 	}
 
 	/// <summary>Runs exactly one query. Never retries, restarts, or falls back to another agent.</summary>
@@ -60,7 +48,7 @@ internal sealed class AcpInferenceClient {
 		_maxReplyBytes = request.MaxOutputBytes;
 		try {
 			ArgumentNullException.ThrowIfNull(request.Profile);
-			var initialized = await _connection.RequestAsync("initialize", InitializeParameters(), ct).ConfigureAwait(false);
+			var initialized = await _connection.InitializeAsync(ct).ConfigureAwait(false);
 			var capabilities = AcpCapabilities.Read(initialized);
 			if (request.Images.Count > 0
 				&& !AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image")) {
@@ -70,21 +58,11 @@ internal sealed class AcpInferenceClient {
 					$"The ACP agent '{_connection.Definition.Name}' does not accept image prompts.");
 			}
 
-			var setup = await _connection.RequestAsync(
-				"session/new",
-				AcpContent.Session(Path.GetFullPath(request.Workspace), []),
-				ct).ConfigureAwait(false);
-
-			string sessionId = RequiredString(setup, "sessionId");
-			var configured = await AcpProfile.ApplyAsync(_connection, sessionId, setup, request.Profile, ct).ConfigureAwait(false);
+			await _connection.OpenSessionAsync(request.Workspace, ct).ConfigureAwait(false);
+			var configured = await _connection.ApplyProfileAsync(request.Profile, ct).ConfigureAwait(false);
 			model = CurrentModel(configured) ?? _connection.Definition.Id;
 
-			var turn = await _connection.RequestAsync(
-				"session/prompt",
-				new JsonObject { ["sessionId"] = sessionId, ["prompt"] = BuildPrompt(request) },
-				ct).ConfigureAwait(false);
-
-			string stopReason = RequiredString(turn, "stopReason");
+			var (stopReason, turn) = await _connection.PromptAsync(BuildPrompt(request), ct).ConfigureAwait(false);
 			if (stopReason == "refusal") {
 				return Failure(model, InferenceFailureKind.Refused, "The ACP agent refused the inference request.");
 			}
@@ -175,27 +153,7 @@ internal sealed class AcpInferenceClient {
 			Usage = usage,
 		};
 
-	internal static string RequiredString(JsonElement value, string property) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			&& result.GetString() is { Length: > 0 } text
-				? text
-				: throw new AcpProtocolException($"The ACP response is missing '{property}'.");
-
-	private void Collect(string method, JsonElement parameters) {
-		if (method != "session/update"
-			|| parameters.ValueKind != JsonValueKind.Object
-			|| !parameters.TryGetProperty("update", out var update)
-			|| !update.TryGetProperty("sessionUpdate", out var kind)
-			|| kind.ValueKind != JsonValueKind.String
-			|| kind.GetString() != "agent_message_chunk"
-			|| !update.TryGetProperty("content", out var content)
-			|| !content.TryGetProperty("text", out var text)
-			|| text.ValueKind != JsonValueKind.String) {
-			return;
-		}
-
-		string? chunk = text.GetString();
-		if (chunk is null) return;
+	private void Collect(string chunk) {
 		lock (_replyGate) {
 			// Bound accumulation so a runaway agent cannot balloon the host before the service's size check.
 			_replyBytes += Encoding.UTF8.GetByteCount(chunk);

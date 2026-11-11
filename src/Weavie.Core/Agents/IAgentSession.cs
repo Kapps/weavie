@@ -28,8 +28,8 @@ public interface ITerminalAgentSession : IAgentSession {
 
 /// <summary>A native structured agent session driven by host messages rather than terminal bytes.</summary>
 public interface IStructuredAgentSession : IAgentSession {
-	/// <summary>Returns the saved display journal; called once, before the session is addressable.</summary>
-	IReadOnlyList<AgentPaneMessage> Restore();
+	/// <summary>Restores the shared output ledger before the session is addressable.</summary>
+	void Restore();
 
 	/// <summary>Starts the structured runtime.</summary>
 	void Start();
@@ -70,14 +70,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>The accepted submissions still waiting for the provider, in delivery order.</summary>
 	IReadOnlyList<AgentTurnSubmission> QueuedSubmissions { get; }
 
-	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
-	event Action<AgentPaneMessage> PaneMessage;
-
 	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
 	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
-	/// <summary>Replaces the complete display journal, including all side conversations.</summary>
-	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
 }
 
 /// <summary>Context-preserving side conversations owned by one structured agent session.</summary>

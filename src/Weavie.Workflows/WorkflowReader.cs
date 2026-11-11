@@ -67,6 +67,12 @@ internal static class WorkflowReader {
 			Id = Text(stage["id"]),
 			If = stage["if"] is { } condition ? Question(condition, $"{path}.if", check) : null,
 			Run = new WorkflowWork {
+				Context = work["context"] is not { } context ? WorkflowContext.Continue : Text(context) switch {
+					"continue" => WorkflowContext.Continue,
+					"fork" => WorkflowContext.Fork,
+					"fresh" => WorkflowContext.Fresh,
+					_ => throw new InvalidOperationException("The workflow schema accepted an unknown conversation context."),
+				},
 				Prompt = Template(work["prompt"], $"{path}.run.prompt", check),
 				Skill = work["skill"] is null ? null : Text(work["skill"]),
 				Args = Template(work["args"], $"{path}.run.args", check),

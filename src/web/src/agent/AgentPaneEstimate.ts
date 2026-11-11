@@ -14,6 +14,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (entry === undefined) {
     return 48;
   }
+  if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {
     return cached;
@@ -22,7 +23,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (entry.kind === "aside" || entry.kind === "subagent") {
     const children =
       entry.kind === "subagent"
-        ? subagentCardEntries(entry.asideEntries ?? [])
+        ? subagentCardEntries(entry.asideEntries ?? [], false)
         : (entry.asideEntries ?? []);
     const size = 76 + children.reduce((sum, child) => sum + estimateEntrySize(child), 0);
     estimates.set(entry, size);

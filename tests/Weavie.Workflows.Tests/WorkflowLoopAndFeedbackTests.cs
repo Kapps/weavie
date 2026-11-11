@@ -55,7 +55,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 	private static WorkflowStep Done(WorkflowTransitions machine, WorkflowRun run, string outputs) =>
 		machine.Complete(run, JsonDocument.Parse(outputs).RootElement, "summary").Step;
 
-	private static T Single<T>(WorkflowStep step) where T : WorkflowEffect => Assert.IsType<T>(Assert.Single(step.Effects));
+	private static T Single<T>(WorkflowStep step) where T : WorkflowEffect => Assert.Single(step.Effects.OfType<T>());
 
 	[Fact]
 	public void AlternatingModelAnswersStillReachTheLimit() {

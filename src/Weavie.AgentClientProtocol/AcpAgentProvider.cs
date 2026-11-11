@@ -60,7 +60,7 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, 
 
 	/// <inheritdoc/>
 	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
-		AgentTranscript.FromPaneJournal(_sessions.ReadMessages(Info.Id, workspace));
+		AgentTranscript.FromPaneJournal([.. _sessions.ReadMessages(Info.Id, workspace).Where(message => message.ConversationId is null)]);
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) =>

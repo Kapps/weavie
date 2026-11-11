@@ -11,11 +11,11 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
-  `args`, `outputs`, `agent`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
+  `args`, `outputs`, `agent`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
   `confidence`). Every other field is rejected as an unknown key.
-- **Agents** — a `run` step's `agent` switches the session's conversation to that agent's model and options before the
-  stage's turn, in native ACP sessions of the agent's provider; a stage naming none and the run's end return it to the
-  session's own values. See [workflow-agent-selection.md](workflow-agent-selection.md).
+- **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation.
+  A stage's `agent` selects its model and options on the session's provider before prompting. Stage results and user questions return to main. See
+  [workflow-agent-selection.md](workflow-agent-selection.md) and [conversation-layer.md](conversation-layer.md).
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow`, a `prompt`, and `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
@@ -31,7 +31,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   decision provider and started with the prompt and its images. See
   [new-session-workflow-picker/design.md](new-session-workflow-picker/design.md).
 
-Not built yet: `check`, `context` (`fork` / `fresh`), another provider's steps, child runs (`workflow`, `foreach`, `in`,
+Not built yet: `check`, another provider's steps, child runs (`workflow`, `foreach`, `in`,
 `wait`, milestones), run history, suggestions, and model overrides on decisions.
 
 ## Purpose
@@ -223,9 +223,11 @@ Nothing defaults to `fresh`: a step missing context it needed fails invisibly, w
 history. `fresh` is for deliberate independence (a reviewer that must not inherit the author's assumptions).
 
 - `continue` runs in the session's conversation.
-- `fork` copies the conversation (ACP `session/fork`; Claude `--resume … --fork-session`); only its outputs, choice,
-  or summary return. Forked and fresh steps appear as background-work cards with Stop.
-- `fresh` starts a new conversation seeded only with the step's prompt and args.
+- `fork` copies the native ACP conversation with `session/fork`; its outputs and summary return to main.
+- `fresh` starts a conversation seeded with the step's prompt or skill, arguments, and stage context.
+- Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. The stage owns
+  the thread through revisions and pauses; leaving the stage closes it. Losing it pauses the run, and Resume
+  creates a new incarnation. Terminal Claude refuses both contexts.
 - All three share the worktree; files are never forked.
 
 #### Choosing context
@@ -238,8 +240,8 @@ Ask whether later steps — and the user — need *how* the step did its work, o
 | `fork` | the step needs everything so far, but only its result matters afterward | record videos, gather review findings, research, a check |
 | `fresh` | the step must not inherit the author's assumptions, or its inputs fully describe it | an independent review, one `foreach` item whose context is on disk |
 
-A forked step runs as a background-work card, which the user can watch but not talk to, so a step that expects
-conversation is always `continue`.
+The user can reply in an independent step's card. Prefer `continue` when that conversation's reasoning belongs
+in main's continuing context.
 
 A model decision runs with no tools. It sees its rendered `ask`, explicitly referenced file contents, the stage's
 output values, and the completion summary with user feedback. It receives no conversation transcript. The summary
@@ -258,8 +260,9 @@ and how a stage switches the model on the session's conversation, is designed in
 ## Starting a run
 
 Every run has a **prompt**: the text and images it was started with, read by templates as `{{run.prompt}}`. Its
-images are saved under `prompt/<run-id>/` in the run's [shared documents](#shared-documents) and sent to the agent
-once, with the first stage turn that reads the prompt. A workflow that reads the prompt refuses to start without one.
+images are saved under `prompt/<run-id>/` in the run's [shared documents](#shared-documents). Each conversation receives
+them with its first stage turn that reads the prompt; revisions reuse them, and a replacement child receives them again.
+A workflow that reads the prompt refuses to start without one.
 
 - The new-session composer has a **workflow field** after the branch field, listing the workflows a prompt alone can
   start: each valid one that declares no `inputs`, and each broken one as unavailable with its error.

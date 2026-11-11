@@ -13,6 +13,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession {
 	private readonly IdleTurnDelivery<OwedWorkflowTurn> _workflowTurns;
 	private int _runtimeActivated;
+	private WorkflowStageOwner? _workflowConversation;
 
 	internal string? InheritedWorkflowDocuments { get; set; }
 
@@ -48,6 +49,16 @@ public sealed partial class HostSession {
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(OwedWorkflowTurn owed) {
+		var kickoff = owed.Kickoff;
+		if (kickoff.Context != WorkflowContext.Continue && Workflow.Execution is { } execution) {
+			if (_workflowConversation?.Execution != execution) {
+				_workflowConversation = new WorkflowStageOwner(this, execution, Workflow.AgentOf(execution.Stage.Id));
+				_ = Background.Run(_workflowConversation.RunLifetimeAsync);
+			}
+			var conversation = _workflowConversation;
+			_ = Background.Run(ct => conversation.SendAsync(owed, ct));
+			return;
+		}
 		lock (_initialInputGate) {
 			if (Agent.TerminalSession is not null && Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
 				QueueInitialInput(owed.Submission());
@@ -61,8 +72,8 @@ public sealed partial class HostSession {
 
 	private async Task SendWorkflowTurn(OwedWorkflowTurn owed) {
 		if (owed.Kickoff.Opens.Length > 0 && !await OpenStageAsync(owed.Kickoff).ConfigureAwait(false)) return;
-		if (owed.Images.FirstOrDefault(image => !File.Exists(image.Path)) is { } missing) {
-			Workflow.RefuseOpen(owed.Kickoff, $"The prompt's image {missing.Path} is missing, so the stage's turn was not sent.");
+		if (owed.Refusal is { } refusal) {
+			Workflow.RefuseOpen(owed.Kickoff, refusal);
 			return;
 		}
 		if (Workflow.TryClaimKickoff(owed.Kickoff)) {
@@ -83,14 +94,22 @@ public sealed partial class HostSession {
 
 	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
-		Workflow.Dispose();
-		_workflowTurns.Dispose();
-		_workflowRelease.Dispose();
+		try {
+			if (_workflowConversation is { Execution: var execution } && Workflow.Execution == execution) {
+				execution.ConversationEnded("The stage conversation ended when the session unloaded. Resume to open a new conversation.");
+			}
+		} finally {
+			Workflow.Dispose();
+			_workflowTurns.Dispose();
+			_workflowRelease.Dispose();
+		}
 	}
 
 	// A turn the run owes, with the prompt images it carries.
 	private sealed record OwedWorkflowTurn(WorkflowKickoff Kickoff, IReadOnlyList<WorkflowTurnImage> Images) {
 		public AgentTurnSubmission Submission() => Kickoff.Submission(Images);
+		public string? Refusal => Images.FirstOrDefault(image => !File.Exists(image.Path)) is { } missing
+			? $"The prompt's image {missing.Path} is missing, so the stage's turn was not sent." : null;
 	}
 
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {

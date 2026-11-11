@@ -14,7 +14,7 @@ internal sealed partial class AcpConversation {
 			}
 			// The command stays the first block, which is how agents recognize it; images and context may follow it.
 			AddImages(submission, blocks, images);
-			if (submission.CarriesTurnContext && _context.TurnContext.Compose() is { Length: > 0 } stage) {
+			if (submission.CarriesTurnContext && _binding.TurnContext.Compose() is { Length: > 0 } stage) {
 				blocks.Add(AcpContent.AssistantText(stage));
 			}
 			return new([.. blocks], images);
@@ -54,9 +54,9 @@ internal sealed partial class AcpConversation {
 			lock (_gate) _guidanceSent = true;
 		}
 
-		if (_spec.Side) {
+		if (_spec.Role == AcpConversationRole.Side) {
 			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
-		} else if (_context.TurnContext.Compose() is { Length: > 0 } turnContext) {
+		} else if (_binding.TurnContext.Compose() is { Length: > 0 } turnContext) {
 			blocks.Add(AcpContent.AssistantText(turnContext));
 		}
 

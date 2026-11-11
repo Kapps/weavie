@@ -35,6 +35,8 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
 public sealed partial class HostSession : IAsyncDisposable {
+	private readonly CapabilityRegistryHost _registry;
+
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
@@ -234,7 +236,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_workflowTurns = CreateWorkflowTurns();
 		_workflowRelease = CreateWorkflowRelease();
 		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot, workflowDocumentsDirectory);
-		var registry = new CapabilityRegistryHost(
+		var registry = _registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
 			[workspaceRoot],
@@ -254,7 +256,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 		Agent = new AgentSessionHost(
 			agentProvider,
-			new AgentSessionContext {
+			output => new AgentSessionContext {
+				Output = output,
 				Settings = settings,
 				Workspace = workspaceRoot,
 				FileSystem = fileSystem,
@@ -265,8 +268,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
-				TurnContext = new WorkflowTurnContext(this),
-				ControlHold = new WorkflowControlHold(this),
+				Bindings = new AgentConversationBindings(registry, new WorkflowTurnContext(this), new WorkflowControlHold(this), Workflow.CaptureStageCall),
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),

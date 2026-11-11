@@ -27,6 +27,11 @@ public static class AuthorWorkflowPrompt {
 			   repository; never edit a built-in in place. A fork keeps its id; a variant under a new id is a new
 			   workflow, not a fork.
 			4. Prefer the user's existing skills as stage steps (`skill` + `args`) over restating them as prompts.
+			   Choose `run.context` deliberately: `continue` (default) works in the main conversation, `fork`
+			   gives a separate stage the main conversation's history, and `fresh` receives only its stage
+			   instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
+			   judgment; both keep main available and return outputs and a summary to it. They use the session's
+			   provider; a fresh stage is not a way to switch providers.
 			5. Route with `then`: a stage id or `done` to go there, or a decision (`ask` + `choices`, each answer
 			   naming the stage it leads to). Stages without `then` move to the following stage. Use `if` to run
 			   a stage only when a yes/no question says so; a skipped stage falls through to the following one.

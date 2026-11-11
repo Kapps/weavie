@@ -11,20 +11,12 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentSideConversations,
 	IStructuredAgentBackgroundWork {
 	private readonly AgentSessionContext _context;
-	private readonly Func<AcpAgentDefinition> _definitionSource;
-	private AcpAgentDefinition _definition;
+	private AcpAgentDefinition _definition => _runtime.Definition;
 	private readonly AcpSessionStore _sessions;
-	private readonly AcpControlStore _controlDefaults;
-	private readonly Action<string> _log;
-	private readonly AcpJsonRpcConnection _connection;
-	private readonly AcpConversationHost _host;
-	private readonly Lock _gate = new();
-	private readonly Lock _turnTransitionGate = new();
-	private readonly Dictionary<string, SideRuntime> _sides = new(StringComparer.Ordinal);
+	private readonly AcpRuntime _runtime;
+	private Lock _turnTransitionGate => _runtime.TransitionGate;
+	private readonly Dictionary<string, AcpConversationHandle> _sides = new(StringComparer.Ordinal);
 	private AcpConversation _primary;
-	private AcpAgentFeatures _features = AcpAgentFeatures.None;
-	private long _processGeneration;
-	private AcpProcess? _process;
 	private bool _started;
 	private bool _disposed;
 
@@ -48,47 +40,14 @@ public sealed partial class AcpAgentSession :
 		ArgumentNullException.ThrowIfNull(controlDefaults);
 		ArgumentNullException.ThrowIfNull(log);
 		_context = context;
-		_definitionSource = definition;
-		_definition = definition() ?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
 		_sessions = sessions;
-		_controlDefaults = controlDefaults;
-		_log = log;
-		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
-		_host = new AcpConversationHost(context, () => _definition, log, _turnTransitionGate);
+		_runtime = new AcpRuntime(context, definition, controlDefaults, log, QueueBackground);
 		_primary = CreatePrimary(AcpConversationHandoff.Fresh(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false)));
-		_connection.ProcessStarted += OnProcessStarted;
-		_connection.ProcessStateChanged += change => {
-			lock (_turnTransitionGate) _primary.Observe(new AgentProcessChanged(change));
-		};
-		_connection.NotificationReceived += (generation, root) => {
-			lock (_turnTransitionGate) {
-				if (generation == _processGeneration) _primary.HandleNotification(root);
-			}
-		};
-		_connection.RequestReceived += request => {
-			lock (_turnTransitionGate) {
-				if (request.Generation == _processGeneration) _primary.RegisterClientRequest(request);
-				else _connection.RejectClosedRequest(request);
-			}
-		};
-		_connection.ProtocolFaulted += OnProtocolFault;
+		_runtime.Select(_primary);
 	}
 
-	private AcpAgentDefinition ResolveDefinition() {
-		var definition = _definitionSource()
-			?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
-		if (!string.Equals(definition.Id, _definition.Id, StringComparison.Ordinal)) {
-			throw new InvalidOperationException("An ACP agent definition cannot change provider identity.");
-		}
-		_definition = definition;
-		return definition;
-	}
-
-	/// <inheritdoc/>
-	public event Action<AgentPaneMessage>? PaneMessage;
-
-	/// <inheritdoc/>
-	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
+	/// <summary>The session-owned shared output.</summary>
+	public ConversationOutput Output => _context.Output;
 
 	/// <inheritdoc/>
 	public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged;
@@ -121,21 +80,20 @@ public sealed partial class AcpAgentSession :
 	public AgentUsageSnapshot Snapshot => Primary.Usage;
 
 	private AcpConversation Primary {
-		get { lock (_gate) return _primary; }
+		get { lock (_turnTransitionGate) return _primary; }
 	}
 
 	private bool Forkable {
-		get { lock (_gate) return _features is { Fork: true, Load: true }; }
+		get { lock (_turnTransitionGate) return _runtime.Features is { Fork: true, Load: true }; }
 	}
 
-	private SideRuntime[] Sides() {
-		lock (_gate) return [.. _sides.Values];
+	private AcpConversationHandle[] Sides() {
+		lock (_turnTransitionGate) return [.. _sides.Values];
 	}
 
-	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => new(
-		_host,
+	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => _runtime.Create(
 		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, AcpConversationRole.Primary),
-		new PrimaryPort(this));
+		new PrimaryPort(this), _context.Bindings.Main());
 
 	// A primary with no turns has no conversation to resume; a side can inherit history before its first turn.
 	private static AcpConversationState Untouched(AcpConversationState continuation) =>
@@ -146,29 +104,24 @@ public sealed partial class AcpAgentSession :
 	// that may never return.
 	private AcpProcess? ReplaceableProcess(AcpConversation predecessor) {
 		bool background = BackgroundWork.Any(item => item.Running);
-		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening && !background ? _process : null;
+		lock (_turnTransitionGate) return _runtime.Features.Close && !predecessor.Failed && !predecessor.Opening && !background ? _runtime.Process : null;
 	}
 
 	/// <summary>Retires the predecessor and installs its successor; without a process it waits for <see cref="Launch"/> to restart.</summary>
-	private AcpConversation Succeed(AcpConversation predecessor, AcpProcess? process, Func<AcpConversationHandoff, AcpConversation> successor) {
-		var next = successor(process is null ? predecessor.Retire() : predecessor.RetireClosing());
-		lock (_gate) {
+	private AcpConversation Succeed(AcpConversation predecessor, Func<AcpConversationHandoff, AcpConversation> successor) {
+		var next = successor(predecessor.Retire());
+		lock (_turnTransitionGate) {
 			_primary = next;
-			if (process is null) (_processGeneration, _process) = (0, null);
+			_runtime.Select(next);
 		}
-		PublishBackground();
+		QueueBackground();
 		return next;
 	}
 
 	/// <summary>Opens the installed <paramref name="primary"/> on <paramref name="process"/>, or restarts the process, which attaches it.</summary>
 	private void Launch(AcpConversation primary, AcpProcess? process) {
-		if (process is null) _connection.Restart();
-		else Open(primary, process);
-	}
-
-	private void Open(AcpConversation conversation, AcpProcess process) {
-		conversation.Attach(process);
-		conversation.RunRuntime(() => conversation.OpenAsync(Features));
+		if (process is null) _runtime.Restart(primary);
+		else _runtime.Open(primary, process);
 	}
 
 	private static AcpConversationState NewContinuation(

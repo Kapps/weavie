@@ -8,7 +8,7 @@ public sealed class AcpPromptLifecycleTests {
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public async Task CompletionCallbackQueuesASuccessorWhoseCompletedToolKeepsTheTurnWorking(bool fromStatus) {
+	public async Task CompletionQueuesASuccessorWhoseCompletedToolKeepsTheTurnWorking(bool fromStatus) {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		File.WriteAllText(Path.Combine(fixture.Workspace, "hold-after-tool"), string.Empty);
@@ -21,11 +21,13 @@ public sealed class AcpPromptLifecycleTests {
 			statuses.Enqueue(status);
 			if (fromStatus && status == SessionStatus.Idle) SubmitSuccessor();
 		};
-		fixture.Session.PaneMessage += message => {
-			if (!fromStatus && message.Type == "turn-completed" && message.TurnId == "1") SubmitSuccessor();
-		};
+
 
 		fixture.Submit("first turn");
+		if (!fromStatus) {
+			await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");
+			SubmitSuccessor();
+		}
 		await fixture.WaitForMessageAsync(message => message.Text == "Thinking after command");
 
 		Assert.Equal(SessionStatus.Working, fixture.Events.Status.Status);

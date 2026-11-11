@@ -15,6 +15,7 @@ public sealed class WorkflowStartTests : IDisposable {
 	private readonly TempDirectory _dir = new("weavie-workflow-start");
 	private readonly SettingsStore _settings;
 	private readonly WorkflowDecisionHistory _history;
+	private readonly Weavie.Core.Tests.Workflows.TestRoles _roles = new();
 
 	public WorkflowStartTests() {
 		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
@@ -28,6 +29,7 @@ public sealed class WorkflowStartTests : IDisposable {
 	}
 
 	public void Dispose() {
+		_roles.Dispose();
 		_settings.Dispose();
 		_dir.Dispose();
 	}
@@ -46,12 +48,13 @@ public sealed class WorkflowStartTests : IDisposable {
 
 	[Fact]
 	public void APromptOffersWinnersThatDeclareNoInputsAndBrokenOnesWithTheirError() {
-		var options = WorkflowStartOptions.From(Catalog, "");
+		var options = WorkflowStartOptions.From(Catalog, "", _roles.Resolver());
 
-		Assert.Equal(["broken", "quick-fix", "small", "spec-driven"], options.Offered.Select(entry => entry.Id));
-		Assert.Equal(WorkflowScope.Repository, options.Offered.Single(entry => entry.Id == "small").Scope);
-		Assert.Contains("run needs exactly one of prompt or skill", options.Offered[0].Error, StringComparison.Ordinal);
+		Assert.Equal(["broken", "quick-fix", "small", "spec-driven"], options.Offered.Select(option => option.Entry.Id));
+		Assert.Equal(WorkflowScope.Repository, options.Offered.Single(option => option.Entry.Id == "small").Entry.Scope);
+		Assert.Contains("run needs exactly one of prompt or skill", options.Offered[0].Problem, StringComparison.Ordinal);
 		Assert.Equal(["quick-fix", "small", "spec-driven"], options.Startable.Select(workflow => workflow.Id));
+		Assert.Equal(["planner", "builder"], options.Offered.Single(option => option.Entry.Id == "spec-driven").Roles!.Unfilled.Select(gap => gap.Role));
 		Assert.Equal((null, null), (options.Default, options.DefaultProblem));
 	}
 
@@ -61,7 +64,7 @@ public sealed class WorkflowStartTests : IDisposable {
 	[InlineData("typed", null, "The default workflow \"typed\" declares inputs, so a prompt alone can't start it.")]
 	[InlineData("broken", null, "The default workflow \"broken\" is invalid: ")]
 	public void TheConfiguredDefaultIsPreselectedOnlyWhenItCanStart(string configured, string? preselected, string? problem) {
-		var options = WorkflowStartOptions.From(Catalog, configured);
+		var options = WorkflowStartOptions.From(Catalog, configured, _roles.Resolver());
 
 		Assert.Equal(preselected, options.Default);
 		if (problem is null) Assert.Null(options.DefaultProblem);
@@ -72,7 +75,7 @@ public sealed class WorkflowStartTests : IDisposable {
 	public async Task TheSuggestionIsOneAutomaticDecisionOverTheStartableWorkflowsAndNone() {
 		var provider = Answering(none: 0.1, small: 0.9);
 
-		var suggestion = await Suggest(provider, WorkflowStartOptions.From(Catalog, "").Startable);
+		var suggestion = await Suggest(provider, WorkflowStartOptions.From(Catalog, "", _roles.Resolver()).Startable);
 
 		Assert.Equal(new WorkflowSuggestion.Chosen("small"), suggestion);
 		var request = provider.LastRequest!;
@@ -88,9 +91,9 @@ public sealed class WorkflowStartTests : IDisposable {
 	[InlineData(0.2, 0.8, true, "small")]
 	[InlineData(0.21, 0.79, false, null)]
 	public async Task AnAnswerAppliesOnlyAtTheConfidenceItWasAskedFor(double none, double small, bool applies, string? workflow) {
-		var suggestion = await Suggest(Answering(none, small), WorkflowStartOptions.From(Catalog, "").Startable);
+		var suggestion = await Suggest(Answering(none, small), WorkflowStartOptions.From(Catalog, "", _roles.Resolver()).Startable);
 
-		Assert.Equal(applies ? new WorkflowSuggestion.Chosen(workflow) : new WorkflowSuggestion.Unchanged(), suggestion);
+		Assert.Equal(applies ? new WorkflowSuggestion.Chosen(workflow) : (WorkflowSuggestion)new WorkflowSuggestion.Unchanged(), suggestion);
 	}
 
 	[Fact]
@@ -99,7 +102,7 @@ public sealed class WorkflowStartTests : IDisposable {
 		Assert.Equal(new WorkflowSuggestion.Unchanged(), await Suggest(unasked, []));
 		Assert.Equal(0, unasked.Calls);
 
-		var startable = WorkflowStartOptions.From(Catalog, "").Startable;
+		var startable = WorkflowStartOptions.From(Catalog, "", _roles.Resolver()).Startable;
 		Assert.Equal(new WorkflowSuggestion.Failed("safe detail"), await Suggest(FakeDecisionProvider.Failing(InferenceFailureKind.TimedOut), startable));
 
 		_settings.Set(InferenceSettings.AllowAutomatic, JsonSerializer.SerializeToElement(false));
@@ -107,6 +110,41 @@ public sealed class WorkflowStartTests : IDisposable {
 		_settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(false));
 		Assert.Equal(new WorkflowSuggestion.Unchanged(), await Suggest(unasked, startable));
 		Assert.Equal(0, unasked.Calls);
+	}
+
+	[Fact]
+	public void TheChosenProviderDecidesWhatCanStartAndWhichRolesNeedAModel() {
+		_roles.Offer("alpha", "beta");
+		_roles.Save("planner", "alpha");
+		_roles.Save("builder", "gone");
+
+		var spec = WorkflowStartOptions.From(Catalog, "spec-driven", _roles.Resolver()).Offered.Single(option => option.Entry.Id == "spec-driven");
+
+		Assert.Null(spec.Problem);
+		Assert.Equal([new WorkflowRoleGap("builder", "gone")], spec.Roles!.Unfilled);
+		var terminal = _roles.Provider.Info with { Name = "Claude Code", Capabilities = Weavie.Core.Agents.AgentProviderCapabilities.Terminal };
+		var options = WorkflowStartOptions.From(Catalog, "spec-driven", _roles.Resolver(terminal));
+		Assert.Null(options.Default);
+		Assert.StartsWith("The default workflow \"spec-driven\" can't run here: Stage \"requirements\" runs on role \"planner\", but Claude Code runs in a terminal", options.DefaultProblem, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task ARoleSuggestionIsOneDecisionOverTheProvidersModelsWithItsStagesAsEvidence() {
+		var definition = Catalog.List().Single(entry => entry.Id == "spec-driven").Definition!;
+		var provider = new FakeDecisionProvider(DecisionProviderIds.Agent, new Dictionary<string, double> { ["alpha"] = 0.9, ["beta"] = 0.1 });
+		var suggester = new WorkflowSuggester(new DecisionService(_settings, [provider]), _history);
+		IReadOnlyList<Weavie.Core.Agents.AgentControlOption> models = [
+			new() { Id = "alpha", Label = "Alpha", Description = "For hard work" }, new() { Id = "beta", Label = "Beta" }];
+
+		var suggestion = await suggester.SuggestRoleAsync(definition, "builder", models, _dir.Path, 0.8, CancellationToken.None);
+
+		Assert.Equal(new WorkflowSuggestion.Chosen("alpha"), suggestion);
+		var request = provider.LastRequest!;
+		Assert.Equal(("builder", 1), (request.Evidence.GetProperty("role").GetString(), request.Evidence.GetProperty("prompts").GetArrayLength()));
+		Assert.Equal(["Alpha: For hard work", "Beta"], request.Question.Choices.Select(choice => choice.Description));
+		Assert.Equal(new WorkflowSuggestion.Unchanged(), await suggester.SuggestRoleAsync(definition, "builder", [models[0]], _dir.Path, 0.8, CancellationToken.None));
+		Assert.Equal(new WorkflowSuggestion.Unchanged(), await suggester.SuggestRoleAsync(definition, "builder", null, _dir.Path, 0.8, CancellationToken.None));
+		Assert.Equal(1, provider.Calls);
 	}
 
 	[Fact]

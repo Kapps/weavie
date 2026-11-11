@@ -556,6 +556,8 @@ public sealed partial class HostCore {
 				_corrections,
 				_inference,
 				new ModelWorkflowDecider(_decisions, cwd, _decisionHistory),
+				_workflowRoles,
+				RoleResolver(provider.Info),
 				_agentConsultation,
 				new BoundSessionPeers(this, address, side: null),
 				_platform.PtyLauncher,
@@ -696,16 +698,16 @@ public sealed partial class HostCore {
 				return SourceGone();
 			}
 			using var documents = _workflowDocuments.Acquire(source?.WorktreePath);
+			if (request.Workflow is null && request.Roles is not null) {
+				return CommandResult.Failure("'roles' needs a 'workflow'.");
+			}
 			if (request.Workflow is { } workflow) {
+				// The session's controls don't exist yet, so only its provider and saved roles can refuse before a worktree does.
 				try {
-					var launch = WeavieWorkflows.Catalog(LaunchRoot(source)).Prepare(
-						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input));
-					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
-					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");
-					if (WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
-						return CommandResult.Failure(refusal);
-					}
-					input = InitialSessionInput.ForWorkflow(launch);
+					var picks = RoleResolver(RequireProvider(provider)).Picking(WorkflowRolePick.Read(request.Roles));
+					input = InitialSessionInput.ForWorkflow(WeavieWorkflows.Catalog(LaunchRoot(source)).Prepare(
+						workflow, request.Inputs ?? EmptyInputs, documents.Directory, InitialSessionInput.WorkflowPrompt(input), picks));
+					picks.Save();
 				} catch (WorkflowException ex) {
 					return CommandResult.Failure(ex.Message);
 				}

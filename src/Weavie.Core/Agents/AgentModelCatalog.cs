@@ -52,6 +52,8 @@ public sealed class AgentModelCatalog : IDisposable {
 	private readonly Dictionary<string, Slot> _slots = new(StringComparer.Ordinal);
 	private long _sequence;
 	private bool _disposed;
+	// Replaced on every change, so a waiter re-reads the snapshot that changed it.
+	private TaskCompletionSource _changed = NewSignal();
 
 	/// <summary>Creates the catalog over <paramref name="providers"/>; call <see cref="Start"/> to begin probing.</summary>
 	public AgentModelCatalog(AgentProviderRegistry providers) {
@@ -70,6 +72,22 @@ public sealed class AgentModelCatalog : IDisposable {
 		lock (_gate) return _slots.TryGetValue(providerId, out var slot) ? slot.Entry : null;
 	}
 
+	/// <summary>
+	/// <paramref name="providerId"/>'s snapshot once it isn't probing, or <c>null</c> when it isn't consultable. A probe
+	/// has no deadline, so this waits as long as a hung probe stays visibly probing.
+	/// </summary>
+	public async Task<AgentModelEntry?> SettledAsync(string providerId, CancellationToken ct) {
+		while (true) {
+			Task changed;
+			lock (_gate) {
+				var entry = _slots.TryGetValue(providerId, out var slot) ? slot.Entry : null;
+				if (entry is not { Status: AgentModelStatus.Probing }) return entry;
+				changed = _changed.Task;
+			}
+			await changed.WaitAsync(ct).ConfigureAwait(false);
+		}
+	}
+
 	/// <summary>Replaces <paramref name="providerId"/>'s snapshot with controls a live session advertised.</summary>
 	public void Observe(string providerId, IReadOnlyList<AgentControlAxis> controls, AgentModelSource source) {
 		ArgumentNullException.ThrowIfNull(controls);
@@ -77,6 +95,7 @@ public sealed class AgentModelCatalog : IDisposable {
 			if (!_slots.TryGetValue(providerId, out var slot)) return;
 			slot.Version = ++_sequence;
 			slot.Entry = Ready(controls, source);
+			SignalLocked();
 		}
 	}
 
@@ -95,6 +114,7 @@ public sealed class AgentModelCatalog : IDisposable {
 				_slots[provider.Info.Id] = slot;
 				probes.Add((provider, slot, slot.Version, slot.Probe));
 			}
+			SignalLocked();
 		}
 		foreach (var probe in superseded) probe.Cancel();
 		foreach (var (provider, slot, version, probe) in probes) _ = ProbeAsync(provider, slot, version, probe);
@@ -119,8 +139,19 @@ public sealed class AgentModelCatalog : IDisposable {
 		lock (_gate) {
 			slot.Probe = null;
 			// A newer observation or a refresh supersedes this probe's result.
-			if (entry is not null && slot.Version == version && _slots.ContainsValue(slot)) slot.Entry = entry;
+			if (entry is not null && slot.Version == version && _slots.ContainsValue(slot)) {
+				slot.Entry = entry;
+				SignalLocked();
+			}
 		}
+	}
+
+	private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+	private void SignalLocked() {
+		var changed = _changed;
+		_changed = NewSignal();
+		changed.SetResult();
 	}
 
 	private static AgentModelEntry Ready(IReadOnlyList<AgentControlAxis> controls, AgentModelSource source) =>
@@ -138,6 +169,7 @@ public sealed class AgentModelCatalog : IDisposable {
 		lock (_gate) {
 			_disposed = true;
 			probes = TakeProbes();
+			SignalLocked();
 		}
 		foreach (var probe in probes) probe.Cancel();
 	}

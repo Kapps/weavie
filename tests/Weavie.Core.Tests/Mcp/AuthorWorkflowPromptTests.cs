@@ -19,6 +19,7 @@ public sealed class AuthorWorkflowPromptTests {
 	[InlineData("current text as separate evidence")]
 	[InlineData("without a model call")]
 	[InlineData("commands or conversation history")]
+	[InlineData("Pin an `agents` entry only when the user names a model")]
 	public void TeachesTheEditingRules(string rule) =>
 		Assert.Contains(rule, Normalized(AuthorWorkflowPrompt.Prompt.Text), StringComparison.Ordinal);
 

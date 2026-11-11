@@ -57,6 +57,9 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>The app-global model catalog this host's sessions report into.</summary>
 	internal AgentModelCatalog AgentModels => _services.AgentModels;
+
+	/// <summary>The user's workflow roles.</summary>
+	internal Weavie.Core.Workflows.WorkflowRoleStore WorkflowRoles => _services.WorkflowRoles;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
@@ -647,6 +650,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AgentModels = agentModels,
+			WorkflowRoles = new Weavie.Core.Workflows.WorkflowRoleStore(new LocalFileSystem(), Path.Combine(tempRoot, "workflow-roles.json")),
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),

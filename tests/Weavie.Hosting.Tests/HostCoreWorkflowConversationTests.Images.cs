@@ -81,7 +81,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await using var fixture = await ConversationFixture.StartAsync(ImageFlow("fresh").Replace(
 			"prompt: \"{{run.prompt}}\"", "skill: review, args: \"{{run.prompt}}\"", StringComparison.Ordinal));
 		var session = fixture.Session;
-		session.Workflow.Start(session.WorkflowCatalog.Prepare("conversation", Json("{}"), null, ImagePrompt));
+		session.Workflow.Start(session.Workflow.Prepare("conversation", Json("{}"), null, ImagePrompt));
 		var started = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "review");
 		var reply = await fixture.ReplyAsync(Conversation(started), "review command: review the change [1 image(s)]");
 		using var wire = JsonDocument.Parse(File.ReadLines(Path.Combine(fixture.State("conversation-acp"), "wire-prompts.jsonl"))

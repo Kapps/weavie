@@ -33,6 +33,10 @@ internal static class WorkflowSemantics {
 			check.Add($"{path}.run.args", "args applies only to a skill");
 		}
 
+		if (work.Agent is not null && work.Role is not null) {
+			check.Add($"{path}.run.role", "a step takes agent or role, not both");
+		}
+
 		if (work.Agent is { } agent && definition.Agents.All(a => a.Name != agent)) {
 			check.Add($"{path}.run.agent", definition.Agents.Count == 0
 				? $"\"{agent}\" names no agent; this workflow defines no agents"

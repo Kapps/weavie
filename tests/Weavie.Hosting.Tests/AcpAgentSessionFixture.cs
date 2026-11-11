@@ -417,7 +417,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		var workflowCatalog = new WorkflowCatalog(workspace, directory.Combine("personal-workflows"), Core.WeaviePaths.RepositoryWorkflowsDir(workspace));
 		var workflowPort = new RecordingWorkflowPort();
 		var workflow = new WorkflowRunner(
-			workflowCatalog, new WorkflowRunStore(fileSystem, directory.Combine("workflow-run.json")),
+			workflowCatalog, NoWorkflowRoles.Instance, new WorkflowRunStore(fileSystem, directory.Combine("workflow-run.json")),
 			new UnusedWorkflowDecider(), new WorkflowFileReader(fileSystem), workflowPort,
 			WeavieWorkflows.Environment(settings, workspace, id => Path.Combine(workspace, "documents", id)));
 		var reviewHints = new ReviewHintStore(fileSystem, workspace, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
@@ -437,7 +437,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			NoSessionPeers.Instance,
 			AgentConsultation.None,
 			reviewHints,
-			new SessionWorkflowRegistry(workflowCatalog, workflow));
+			new SessionWorkflowRegistry(workflowCatalog, workflow, new WorkflowRoleStore(fileSystem, directory.Combine("workflow-roles.json"))));
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
@@ -723,7 +723,14 @@ internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
 	public void Notify(string message) {
 	}
 
-	public string? Refusal(WorkflowDefinition definition) => null;
+	public string? Refusal(WorkflowLaunch launch) => null;
+}
+
+internal sealed class NoWorkflowRoles : IWorkflowRoleResolver {
+	public static NoWorkflowRoles Instance { get; } = new();
+
+	public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) =>
+		definition.Roles.Count == 0 ? [] : throw new WorkflowException("This test fills no roles.");
 }
 
 internal sealed class UnusedWorkflowDecider : IWorkflowDecider {

@@ -11,8 +11,8 @@ public interface IWorkflowRunPort {
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
 
-	/// <summary>Why this session can't run <paramref name="definition"/>, or <see langword="null"/>; called outside the runner's lock.</summary>
-	string? Refusal(WorkflowDefinition definition);
+	/// <summary>Why this session can't run <paramref name="launch"/>, or <see langword="null"/>; called outside the runner's lock.</summary>
+	string? Refusal(WorkflowLaunch launch);
 }
 
 /// <summary>
@@ -27,6 +27,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	private readonly IWorkflowDecider _decider;
 	private readonly IWorkflowFileReader _files;
 	private readonly IWorkflowRunPort _port;
+	private readonly IWorkflowRoleResolver _roles;
 	private readonly WorkflowEnvironment _environment;
 	private WorkflowRun? _run;
 	private WorkflowDefinition? _definition;
@@ -35,9 +36,10 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
-		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowFileReader files, IWorkflowRunPort port,
+		WorkflowCatalog catalog, IWorkflowRoleResolver roles, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowFileReader files, IWorkflowRunPort port,
 		WorkflowEnvironment environment) {
 		_catalog = catalog;
+		_roles = roles;
 		_store = store;
 		_decider = decider;
 		_files = files;
@@ -105,12 +107,17 @@ public sealed partial class WorkflowRunner : IDisposable {
 		}
 	}
 
+	/// <summary>Prepares <paramref name="workflowId"/> for this session, filling its roles for the session's provider.</summary>
+	public WorkflowLaunch Prepare(string workflowId, JsonElement inputs, string? documentsDirectory, WorkflowStartPrompt prompt) =>
+		_catalog.Prepare(workflowId, inputs, documentsDirectory, prompt, _roles);
+
 	/// <summary>Starts <paramref name="workflowId"/> with <paramref name="inputs"/>; refuses while another run is live.</summary>
-	public WorkflowRun Start(string workflowId, JsonElement inputs) => Start(_catalog.Prepare(workflowId, inputs));
+	public WorkflowRun Start(string workflowId, JsonElement inputs) => Start(Prepare(workflowId, inputs, null, WorkflowStartPrompt.None));
 
 	/// <summary>Starts the resolved <paramref name="launch"/>; refuses while another run is live.</summary>
 	public WorkflowRun Start(WorkflowLaunch launch) {
-		if (_port.Refusal(launch.Definition) is { } refusal) {
+		ArgumentNullException.ThrowIfNull(launch);
+		if (_port.Refusal(launch) is { } refusal) {
 			throw new WorkflowException(refusal);
 		}
 
@@ -139,6 +146,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				DocumentsDirectory = documents,
 				Hold = _run?.Hold,
 				Prompt = SavePrompt(launch.Prompt, documents, id),
+				Roles = launch.Roles,
 			}));
 			return _run!;
 		}
@@ -226,11 +234,18 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The user cancels run <paramref name="runId"/>.</summary>
 	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
 
-	/// <summary>The agent that runs stage <paramref name="stage"/> of the run's definition, or <see langword="null"/> for the session's own.</summary>
+	/// <summary>
+	/// The agent that runs stage <paramref name="stage"/> of the run's definition: its pinned agent or its role's, or
+	/// <see langword="null"/> for the session's own. A role never runs on the session's own model.
+	/// </summary>
 	public WorkflowAgent? AgentOf(string stage) {
 		lock (_gate) {
 			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
-			return definition.AgentOf(definition.Stages.First(s => s.Id == stage));
+			var run = _run ?? throw new WorkflowException("This session has no workflow run.");
+			var open = definition.Stages.First(s => s.Id == stage);
+			return definition.AgentOf(open, run.Roles) ?? (open.Run.Role is { } role
+				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
+				: null);
 		}
 	}
 

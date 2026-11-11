@@ -9,14 +9,14 @@ import {
 
 const DRAFT = "the WebM video in the review pane fails to load whenever the diff is reopened twice";
 const SHORT = "WebM fails to load";
-const LOCAL: WorkflowTarget = { backendId: "local", sourceId: null };
-const REMOTE: WorkflowTarget = { backendId: "remote", sourceId: null };
+const LOCAL: WorkflowTarget = { backendId: "local", sourceId: null, providerId: "codex" };
+const REMOTE: WorkflowTarget = { backendId: "remote", sourceId: null, providerId: "codex" };
 
 const catalog = (overrides: Partial<WorkflowStartCatalog>): WorkflowStartCatalog => ({
   workflows: [
-    { id: "broken", description: "", error: "run needs exactly one of prompt or skill" },
-    { id: "quick-fix", description: "A small change.", error: null },
-    { id: "spec-driven", description: "Requirements first.", error: null },
+    { id: "broken", description: "", error: "run needs exactly one of prompt or skill", roles: [] },
+    { id: "quick-fix", description: "A small change.", error: null, roles: [] },
+    { id: "spec-driven", description: "Requirements first.", error: null, roles: [] },
   ],
   default: null,
   defaultProblem: null,
@@ -43,10 +43,16 @@ const harness = (): Harness => {
   const answers: ((result: WorkflowSuggestion) => void)[] = [];
   const catalogs = new Map([
     ["local", catalog({})],
-    ["remote", catalog({ workflows: [{ id: "remote-only", description: "", error: null }] })],
+    [
+      "remote",
+      catalog({ workflows: [{ id: "remote-only", description: "", error: null, roles: [] }] }),
+    ],
   ]);
   const choice = new NewSessionWorkflowChoice(
-    async (target) => catalogs.get(target.backendId) ?? Promise.reject(new Error("offline")),
+    async (target) =>
+      catalogs.get(`${target.backendId}/${target.providerId}`) ??
+      catalogs.get(target.backendId) ??
+      Promise.reject(new Error("offline")),
     (target, prompt, signal) => {
       suggestions.push({ target, prompt, signal });
       return new Promise((resolve) => answers.push(resolve));
@@ -92,7 +98,7 @@ describe("NewSessionWorkflowChoice", () => {
       problem: 'The default workflow "x" is invalid.',
     });
 
-    choice.retarget({ backendId: "gone", sourceId: null });
+    choice.retarget({ backendId: "gone", sourceId: null, providerId: "codex" });
     await vi.advanceTimersByTimeAsync(0);
     expect(state()).toMatchObject({ options: [], problem: "Couldn't list workflows: offline" });
   });
@@ -230,7 +236,7 @@ describe("NewSessionWorkflowChoice", () => {
     choice.pick("remote-only");
     catalogs.set(
       "local",
-      catalog({ workflows: [{ id: "remote-only", description: "", error: null }] }),
+      catalog({ workflows: [{ id: "remote-only", description: "", error: null, roles: [] }] }),
     );
     choice.retarget(LOCAL);
     await vi.advanceTimersByTimeAsync(0);
@@ -266,6 +272,25 @@ describe("NewSessionWorkflowChoice", () => {
 
     await settle();
     expect(suggestions).toMatchObject([{ prompt: `${DRAFT} after a reconnect` }]);
+  });
+
+  it("re-reads for another provider and drops a workflow that provider can't run", async () => {
+    const { choice, state, catalogs } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.pick("spec-driven");
+    catalogs.set(
+      "local/claude",
+      catalog({
+        workflows: [{ id: "spec-driven", description: "", error: "runs in a terminal", roles: [] }],
+      }),
+    );
+
+    choice.retarget({ ...LOCAL, providerId: "claude" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state().options.map((option) => option.error)).toEqual(["runs in a terminal"]);
+    expect(state().workflow).toBeNull();
   });
 
   it("keeps what it read, and the pick, when a re-read fails", async () => {

@@ -27,7 +27,7 @@ public sealed class WorkflowDocumentsTests {
 		var catalog = TestWorkflows.Catalog(worktree, dir.Combine("personal"));
 		var inputs = JsonSerializer.SerializeToElement(new { docs = new[] { path } });
 		Assert.Throws<WorkflowException>(() => catalog.Prepare("shared", inputs));
-		var launch = catalog.Prepare("shared", inputs, documents, WorkflowStartPrompt.None);
+		var launch = catalog.Prepare("shared", inputs, documents, WorkflowStartPrompt.None, TestWorkflows.NoRoles);
 		var machine = TestWorkflows.Machine(launch.Definition, worktree);
 		var start = machine.Start(TestWorkflows.Start with { Inputs = launch.Inputs, DocumentsDirectory = documents });
 		Assert.Equal($"Write {documents}/design.md", start.Run.Kickoff!.Text);

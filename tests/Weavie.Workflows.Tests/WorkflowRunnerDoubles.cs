@@ -16,7 +16,7 @@ internal sealed class RunnerPort : IWorkflowRunPort {
 
 	public string? Refuses { get; set; }
 
-	public string? Refusal(WorkflowDefinition definition) => Refuses;
+	public string? Refusal(WorkflowLaunch launch) => Refuses;
 }
 
 internal sealed class MemoryRunStore : IWorkflowRunStore {

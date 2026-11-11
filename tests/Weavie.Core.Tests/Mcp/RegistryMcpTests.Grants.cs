@@ -131,6 +131,6 @@ public sealed partial class RegistryMcpTests {
 	private sealed class GrantPort : IWorkflowRunPort {
 		public void Kickoff(WorkflowKickoff turn, IReadOnlyList<WorkflowTurnImage> images) { }
 		public void Notify(string message) { }
-		public string? Refusal(WorkflowDefinition definition) => null;
+		public string? Refusal(WorkflowLaunch launch) => null;
 	}
 }

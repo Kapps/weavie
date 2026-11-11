@@ -5,15 +5,11 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// Persists opaque ACP control defaults by provider. Unlike the config stores, an unusable file is never reset
-/// or backed up: the failure is held and rethrown from the first use, so a provider never silently loses the
-/// controls the user accepted.
+/// Persists opaque ACP control defaults by provider. An unusable file is never reset or backed up, so a provider never
+/// silently loses the controls the user accepted.
 /// </summary>
-public sealed partial class AcpControlStore : JsonDocumentStore {
+public sealed partial class AcpControlStore : StrictJsonDocumentStore<Dictionary<string, Dictionary<string, string>>> {
 	private const int Version = 1;
-
-	private AcpControlStoreException? _loadFailure;
-	private Dictionary<string, Dictionary<string, string>> _providers = new(StringComparer.Ordinal);
 
 	/// <summary>Creates and loads the store at <paramref name="path"/>.</summary>
 	/// <param name="fileSystem">The filesystem the defaults persist through.</param>
@@ -22,12 +18,14 @@ public sealed partial class AcpControlStore : JsonDocumentStore {
 		Load();
 	}
 
+	/// <inheritdoc/>
+	protected override string Subject => "ACP control defaults";
+
 	/// <summary>Returns one provider's remembered opaque control values.</summary>
 	public IReadOnlyDictionary<string, string> Resolve(string providerId) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		lock (Gate) {
-			EnsureAvailable();
-			return _providers.TryGetValue(providerId, out var values)
+			return Current.TryGetValue(providerId, out var values)
 				? new Dictionary<string, string>(values, StringComparer.Ordinal)
 				: new Dictionary<string, string>(StringComparer.Ordinal);
 		}
@@ -39,7 +37,6 @@ public sealed partial class AcpControlStore : JsonDocumentStore {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
 		lock (Gate) {
-			EnsureAvailable();
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var values)) next.Add(providerId, values = new(StringComparer.Ordinal));
 			if (values.TryGetValue(axis, out string? current) && current == value) return;
@@ -54,7 +51,6 @@ public sealed partial class AcpControlStore : JsonDocumentStore {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(expectedValue);
 		lock (Gate) {
-			EnsureAvailable();
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var values)
 				|| !values.TryGetValue(axis, out string? current)
@@ -66,14 +62,16 @@ public sealed partial class AcpControlStore : JsonDocumentStore {
 	}
 
 	/// <inheritdoc/>
-	protected override void Restore(string? text) {
-		_providers = new(StringComparer.Ordinal);
-		if (text is null) return;
+	protected override Dictionary<string, Dictionary<string, string>> Empty() => new(StringComparer.Ordinal);
+
+	/// <inheritdoc/>
+	protected override Dictionary<string, Dictionary<string, string>> Read(string text) {
+		var providers = Empty();
 		using var probe = JsonDocument.Parse(text);
 		if (!probe.RootElement.TryGetProperty("version", out var format) || !format.TryGetInt32(out int version)) {
 			throw new JsonException("The ACP control document requires a numeric version.");
 		}
-		if (version != Version) return;
+		if (version != Version) return providers;
 		var document = JsonSerializer.Deserialize(probe.RootElement.GetRawText(), AcpControlStoreJson.Default.Document)
 			?? throw new JsonException("The ACP control document is empty.");
 		foreach (var provider in document.Providers ?? throw new JsonException("The ACP control document requires providers.")) {
@@ -81,47 +79,22 @@ public sealed partial class AcpControlStore : JsonDocumentStore {
 				|| provider.Value.Any(entry => string.IsNullOrEmpty(entry.Key) || string.IsNullOrEmpty(entry.Value))) {
 				throw new JsonException("ACP control providers, axes, and values must be non-empty.");
 			}
-			_providers.Add(provider.Key, new Dictionary<string, string>(provider.Value, StringComparer.Ordinal));
+			providers.Add(provider.Key, new Dictionary<string, string>(provider.Value, StringComparer.Ordinal));
 		}
+		return providers;
 	}
 
 	/// <inheritdoc/>
-	protected override string Render() =>
-		JsonSerializer.Serialize(new Document { Version = Version, Providers = _providers }, AcpControlStoreJson.Default.Document);
+	protected override string Write(Dictionary<string, Dictionary<string, string>> state) =>
+		JsonSerializer.Serialize(new Document { Version = Version, Providers = state }, AcpControlStoreJson.Default.Document);
 
 	/// <inheritdoc/>
-	protected override void OnUnusable(string? text, Exception cause) {
-		ArgumentNullException.ThrowIfNull(cause);
-		Restore(null);
-		_loadFailure = new AcpControlStoreException($"ACP control defaults could not be loaded from '{FilePath}': {cause.Message}", cause);
-	}
+	protected override Exception Failure(string message, Exception cause) => new AcpControlStoreException(message, cause);
 
-	/// <inheritdoc/>
-	protected override void OnPersistFailed(Exception cause) {
-		ArgumentNullException.ThrowIfNull(cause);
-		throw new AcpControlStoreException($"ACP control defaults could not be persisted to '{FilePath}': {cause.Message}", cause);
-	}
-
-	// The store only adopts state a write already accepted, so a failed persist leaves memory and disk agreeing.
-	private void Commit(Dictionary<string, Dictionary<string, string>> next) {
-		var previous = _providers;
-		_providers = next;
-		try {
-			PersistLocked();
-		} catch (AcpControlStoreException) {
-			_providers = previous;
-			throw;
-		}
-	}
-
-	private Dictionary<string, Dictionary<string, string>> Clone() => _providers.ToDictionary(
+	private Dictionary<string, Dictionary<string, string>> Clone() => Current.ToDictionary(
 		entry => entry.Key,
 		entry => new Dictionary<string, string>(entry.Value, StringComparer.Ordinal),
 		StringComparer.Ordinal);
-
-	private void EnsureAvailable() {
-		if (_loadFailure is not null) throw _loadFailure;
-	}
 
 	private sealed class Document {
 		[JsonPropertyName("version")]

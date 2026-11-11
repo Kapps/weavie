@@ -37,6 +37,9 @@ internal sealed record WorkflowRunStart {
 
 	/// <summary>What the run was started with.</summary>
 	public required WorkflowPrompt Prompt { get; init; }
+
+	/// <summary>The agent filling each of the definition's roles, named for it.</summary>
+	public required IReadOnlyList<WorkflowAgent> Roles { get; init; }
 }
 
 /// <summary>A run after a transition, and what its owner must do next.</summary>

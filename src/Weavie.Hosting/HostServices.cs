@@ -15,6 +15,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 using Weavie.Hosting.Agents;
 using Weavie.Hosting.Agents.Claude;
 using Weavie.Hosting.Inference;
@@ -47,6 +48,9 @@ public sealed record HostServices : IDisposable {
 
 	/// <summary>The advertised models of every consultable provider, refreshed from probes and live sessions.</summary>
 	public required AgentModelCatalog AgentModels { get; init; }
+
+	/// <summary>The user's workflow roles, shared by every window.</summary>
+	public required WorkflowRoleStore WorkflowRoles { get; init; }
 
 	/// <summary>Resolves embedded agents' requests to consult another configured agent.</summary>
 	public required AgentConsultation AgentConsultation { get; init; }
@@ -159,6 +163,7 @@ public sealed record HostServices : IDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AgentModels = agentModels,
+			WorkflowRoles = new WorkflowRoleStore(new LocalFileSystem(), WeaviePaths.WorkflowRolesFile),
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = acpSessions,

@@ -14,14 +14,27 @@ export interface ControlMenuOption extends AgentControlOption {
   unavailable?: boolean;
 }
 
-/** Fixed below the anchor, or above it when the viewport has no room underneath. */
+const MENU_MIN_WIDTH = 200;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * Fixed below the anchor, or above it when the viewport has no room underneath; from the anchor's left edge, or
+ * its right edge when the menu's least width wouldn't fit before the viewport's.
+ */
 export function controlMenuPlacement(anchor: DOMRect): JSX.CSSProperties {
   const below = window.innerHeight - anchor.bottom;
   const above = below < 180 && anchor.top > below;
+  const width = Math.max(anchor.width, MENU_MIN_WIDTH);
+  const fromRight = anchor.left + width > window.innerWidth - VIEWPORT_MARGIN;
   return {
     position: "fixed",
-    left: `${anchor.left}px`,
-    "min-width": `${Math.max(anchor.width, 200)}px`,
+    ...(fromRight
+      ? {
+          right: `${window.innerWidth - anchor.right}px`,
+          "max-width": `${anchor.right - VIEWPORT_MARGIN}px`,
+        }
+      : { left: `${anchor.left}px` }),
+    "min-width": `${Math.min(width, anchor.right - VIEWPORT_MARGIN)}px`,
     "max-height": `${Math.min((above ? anchor.top : below) - 12, window.innerHeight * 0.45)}px`,
     ...(above
       ? { bottom: `${window.innerHeight - anchor.top + 4}px` }

@@ -40,6 +40,7 @@ import {
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
   launchSource,
+  type RolePick,
   registerViewFeature,
   selectedSession,
   type TermSession,
@@ -907,6 +908,7 @@ export default function App(): JSX.Element {
       prompt?: string;
       attachments?: { id: string; mime: string; dataB64: string }[];
       workflow?: string;
+      roles?: Record<string, RolePick>;
       agentProviderId: string;
     },
   ): Promise<boolean> => {
@@ -2019,7 +2021,7 @@ export default function App(): JSX.Element {
                 existing: seed.existing,
                 prompt: seed.prompt,
                 attachments: seed.attachments,
-                ...(seed.workflow === null ? {} : { workflow: seed.workflow }),
+                ...(seed.workflow === null ? {} : { workflow: seed.workflow, roles: seed.roles }),
                 agentProviderId: providerId,
               });
             })

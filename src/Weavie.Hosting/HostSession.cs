@@ -87,6 +87,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		CorrectionCorpus corrections,
 		IInferenceService inference,
 		IWorkflowDecider decider,
+		WorkflowRoleStore workflowRoles,
+		IWorkflowRoleResolver roleResolver,
 		AgentConsultation agentConsultation,
 		ISessionPeers peers,
 		IPtyLauncher ptyLauncher,
@@ -235,7 +237,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
 		_workflowRelease = CreateWorkflowRelease();
-		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot, workflowDocumentsDirectory);
+		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, roleResolver, workspaceRoot, workflowDocumentsDirectory);
 		var registry = _registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
@@ -252,7 +254,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			peers,
 			agentConsultation,
 			ReviewHints,
-			new SessionWorkflowRegistry(WorkflowCatalog, Workflow));
+			new SessionWorkflowRegistry(WorkflowCatalog, Workflow, workflowRoles));
 
 		Agent = new AgentSessionHost(
 			agentProvider,

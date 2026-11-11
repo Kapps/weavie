@@ -145,7 +145,7 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
     "Change it anytime with Configure Suggestions",
   );
   // The pickers follow the agent chosen on the previous step, with options asked of that agent itself.
-  const segment = (caption: string) => setup.locator(".gs-pick", { hasText: caption });
+  const segment = (caption: string) => setup.locator(".control-bar-pick", { hasText: caption });
   const menu = page.locator(".gs-menu");
   await expect(segment("Agent")).toContainText("Fake ACP");
   // A real-size control, not one squeezed by another style.
@@ -335,6 +335,8 @@ test.describe("after setup", () => {
     await runCommand(page, "Configure Suggestions…");
     const setup = page.locator(".getting-started-dialog");
     await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Smart suggestions");
-    await expect(setup.locator(".gs-pick", { hasText: "Model" })).toContainText("Fake Haiku");
+    await expect(setup.locator(".control-bar-pick", { hasText: "Model" })).toContainText(
+      "Fake Haiku",
+    );
   });
 });

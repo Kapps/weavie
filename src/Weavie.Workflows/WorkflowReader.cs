@@ -83,6 +83,7 @@ internal static class WorkflowReader {
 					})]
 					: [],
 				Agent = work["agent"] is { } agent ? Text(agent) : null,
+				Role = work["role"] is { } role ? Text(role) : null,
 			},
 			Then = stage["then"] switch {
 				null => new WorkflowThen.Sequential(),

@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Commands;
 using Weavie.Workflows;
 
 namespace Weavie.Core.Workflows;
@@ -12,33 +13,70 @@ public static class WorkflowAgentControls {
 	private const string ModeCategory = "mode";
 
 	/// <summary>
-	/// Why a session of <paramref name="provider"/> can't run <paramref name="definition"/>, or <see langword="null"/>.
-	/// With <paramref name="axes"/> (null while the controls aren't ready) it also checks the model, and the options
-	/// whose model is the current one; the rest are checked when their stage opens.
+	/// Why a session of <paramref name="provider"/> can't run <paramref name="definition"/> with its roles filled by
+	/// <paramref name="roles"/>, or <see langword="null"/>; a role <paramref name="roles"/> doesn't fill is the resolver's
+	/// to word. With <paramref name="axes"/> (null while the controls aren't ready) it also checks the model, and the
+	/// options whose model is the current one; the rest are checked when their stage opens.
 	/// </summary>
-	public static string? Refusal(WorkflowDefinition definition, AgentProviderInfo provider, IReadOnlyList<AgentControlAxis>? axes) {
+	public static string? Refusal(
+		WorkflowDefinition definition, IReadOnlyList<WorkflowAgent> roles, AgentProviderInfo provider, IReadOnlyList<AgentControlAxis>? axes) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(provider);
+		bool structured = provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
 		foreach (var stage in definition.Stages) {
-			if (stage.Run.Context != WorkflowContext.Continue && !provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)) {
+			if (stage.Run.Context != WorkflowContext.Continue && !structured) {
 				return $"Stage \"{stage.Id}\" requires its own conversation; {provider.Name} runs in a terminal.";
 			}
-			if (definition.AgentOf(stage) is not { } agent) continue;
-			string name = agent.Name;
-			string? problem = !provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)
-				? $"Stage \"{stage.Id}\" runs on agent \"{name}\", but {provider.Name} runs in a terminal, where a stage can't "
-					+ "choose its model; run the workflow in a native agent session."
-				: agent.Provider != provider.Id
-					? $"Stage \"{stage.Id}\" runs on agent \"{name}\" of provider {agent.Provider}, so workflow {definition.Id} runs "
-						+ $"only in {agent.Provider} sessions; this session runs {provider.Id}."
-					: axes is null ? null
-					: ModelProblem(stage.Id, agent, axes)
-						?? OptionsProblem(stage.Id, agent, axes, agent.Model is null || agent.Model == ModelAxis(axes)?.Value);
+			if (Asks(stage) is not { } asks) continue;
+			if (!structured) {
+				return $"Stage \"{stage.Id}\" runs on {asks}, but {provider.Name} runs in a terminal, where a stage can't "
+					+ "choose its model; run the workflow in a native agent session.";
+			}
+			if (definition.AgentOf(stage, roles) is not { } agent) continue;
+			string? problem = agent.Provider != provider.Id
+				? $"Stage \"{stage.Id}\" runs on {asks} of provider {agent.Provider}, so workflow {definition.Id} runs "
+					+ $"only in {agent.Provider} sessions; this session runs {provider.Id}."
+				: axes is null ? null
+				: ModelProblem(stage.Id, agent, axes)
+					?? OptionsProblem(stage.Id, agent, axes, agent.Model is null || agent.Model == ModelAxis(axes)?.Value);
 			if (problem is not null) return problem;
 		}
 
 		return null;
 	}
+
+	/// <summary>Why a role <paramref name="provider"/> can't fill names the first stage that asks for it.</summary>
+	public static string NoModelChoice(WorkflowDefinition definition, string role, AgentProviderInfo provider) {
+		ArgumentNullException.ThrowIfNull(definition);
+		ArgumentNullException.ThrowIfNull(provider);
+		var stage = definition.Stages.First(s => s.Run.Role == role);
+		return $"Stage \"{stage.Id}\" runs on role \"{role}\", but {provider.Name} offers no model to choose.";
+	}
+
+	/// <summary>
+	/// Why <paramref name="definition"/> can't start: each of its <paramref name="gaps"/> in a session of
+	/// <paramref name="provider"/>, and what the agent reading it does next: ask the user, never choose for them.
+	/// </summary>
+	public static string Unfilled(
+		WorkflowDefinition definition, IReadOnlyList<WorkflowRoleGap> gaps, AgentProviderInfo provider, IReadOnlyList<AgentControlOption>? offered) {
+		ArgumentNullException.ThrowIfNull(definition);
+		ArgumentNullException.ThrowIfNull(gaps);
+		ArgumentNullException.ThrowIfNull(provider);
+		var each = gaps.Select(gap => gap.MissingModel is { } missing
+			? $"role \"{gap.Role}\" is saved as model \"{missing}\", which {provider.Name} no longer offers"
+			: $"role \"{gap.Role}\" has no agent for {provider.Id} sessions");
+		string offers = offered is null ? "" : $" {provider.Name} offers {Ids(offered.Select(o => o.Id))}.";
+		return $"Workflow {definition.Id} can't start: {string.Join("; ", each)}. Ask the user which model and options each of these "
+			+ $"roles should use; never choose for them.{offers} Then save each with {CoreCommands.WorkflowSetRole} (role, provider "
+			+ $"\"{provider.Id}\", agent) and start the workflow again.";
+	}
+
+	/// <summary>The line by a role's picker when its saved model is gone.</summary>
+	public static string Stale(string missingModel) => $"The saved model \"{missingModel}\" is no longer offered.";
+
+	// What a stage asks to run on, for refusals: its pinned agent or its role.
+	private static string? Asks(WorkflowStage stage) =>
+		stage.Run.Agent is { } agent ? $"agent \"{agent}\"" : stage.Run.Role is { } role ? $"role \"{role}\"" : null;
 
 	/// <summary>The model <paramref name="agent"/> sets for stage <paramref name="stage"/>, or <see langword="null"/> when it names none.</summary>
 	public static AgentControlValue? Model(string stage, WorkflowAgent agent, IReadOnlyList<AgentControlAxis> axes) {

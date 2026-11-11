@@ -27,6 +27,7 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 	private readonly MemoryRunStore _store = new();
 	private bool _openReviewItem = true;
 	private double _confidence = 0.8;
+	private IWorkflowRoleResolver _roles = TestWorkflows.NoRoles;
 
 	public WorkflowRunnerTests() {
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow);
@@ -37,7 +38,7 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, new UnusedFileReader(), _port,
+			_roles, _store, _decider, new UnusedFileReader(), _port,
 			TestWorkflows.Environment(_dir.Combine("worktree"), _dir.Combine("documents")) with { OpenReviewItem = () => _openReviewItem, DecisionConfidence = () => _confidence });
 		runner.Activate();
 		return runner;
@@ -129,6 +130,58 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		Assert.Equal("not here", Assert.Throws<WorkflowException>(() => runner.Start("flow", Json("{}"))).Message);
 		Assert.Null(runner.Current);
 		Assert.Empty(_port.Kickoffs);
+	}
+
+	private static WorkflowAgent Agent(string name, string model) =>
+		new() { Name = name, Provider = "fake-acp", Model = model, Options = new Dictionary<string, string>() };
+
+	private void WriteRoles() => _dir.WriteFile("worktree/.weavie/workflows/roles.yaml", """
+		id: roles
+		description: d
+		stages:
+		  - id: a
+		    run: { prompt: "do a", role: planner }
+		  - id: b
+		    run: { prompt: "do b", role: builder }
+		  - id: c
+		    run: { prompt: "do c" }
+		""");
+
+	[Fact]
+	public void ARunKeepsTheAgentsItsRolesResolvedToThroughAReload() {
+		WriteRoles();
+		_roles = new FixedRoles([Agent("planner", "alpha"), Agent("builder", "beta")]);
+		using (var runner = Runner()) {
+			runner.Start("roles", Json("{}"));
+			Assert.Equal("alpha", runner.AgentOf("a")!.Model);
+			Assert.Equal("beta", runner.AgentOf("b")!.Model);
+			Assert.Null(runner.AgentOf("c"));
+		}
+
+		_roles = new FixedRoles([Agent("planner", "gamma"), Agent("builder", "gamma")]);
+		using var reloaded = Runner();
+		Assert.Equal("alpha", reloaded.AgentOf("a")!.Model);
+		Assert.Equal(["planner", "builder"], WorkflowRunDocument.Read(_store.Text)!.Roles.Select(agent => agent.Name));
+	}
+
+	[Fact]
+	public void AnUnfilledRoleRefusesTheStartAndLeavesNoRun() {
+		WriteRoles();
+		_roles = new FixedRoles([Agent("planner", "alpha")]);
+		using var runner = Runner();
+		Assert.Contains("builder", Assert.Throws<WorkflowException>(() => runner.Start("roles", Json("{}"))).Message, StringComparison.Ordinal);
+		Assert.Null(runner.Current);
+		Assert.Empty(_port.Kickoffs);
+	}
+
+	[Fact]
+	public void ARunMissingARolesAgentNeverFallsBackToTheSessionsModel() {
+		WriteRoles();
+		_roles = new FixedRoles([Agent("planner", "alpha"), Agent("builder", "beta")]);
+		using (var runner = Runner()) runner.Start("roles", Json("{}"));
+		_store.Text = _store.Text.Replace("\"builder\"", "\"other\"", StringComparison.Ordinal);
+		using var reloaded = Runner();
+		Assert.Contains("no agent saved for role \"builder\"", Assert.Throws<WorkflowException>(() => reloaded.AgentOf("b")).Message, StringComparison.Ordinal);
 	}
 
 	[Fact]

@@ -1,8 +1,7 @@
-import { AlertTriangle, ChevronDown } from "lucide-solid";
-import { createSignal, For, type JSX, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
-import type { AgentControlAxis, InferenceChoices } from "../bridge";
-import { ControlMenu, controlMenuPlacement } from "../chrome/ControlMenu";
+import { AlertTriangle } from "lucide-solid";
+import { createSignal, type JSX, onMount, Show } from "solid-js";
+import type { InferenceChoices } from "../bridge";
+import { ControlBar } from "../chrome/ControlBar";
 import { localFeature, writeSetting } from "./state";
 import type { SetupRun } from "./steps";
 
@@ -13,7 +12,6 @@ export function SuggestionProfile(props: {
 }): JSX.Element {
   const [choices, setChoices] = createSignal<InferenceChoices>();
   const [loading, setLoading] = createSignal(true);
-  const [open, setOpen] = createSignal<{ axis: AgentControlAxis; anchor: DOMRect } | null>(null);
   let asked = 0;
   const ask = async () => {
     const turn = ++asked;
@@ -27,7 +25,6 @@ export function SuggestionProfile(props: {
   };
   onMount(() => props.attempt(ask));
   const pick = (key: string, value: string) => {
-    setOpen(null);
     props.attempt(async () => {
       await writeSetting(key, value);
       await ask();
@@ -39,47 +36,15 @@ export function SuggestionProfile(props: {
         <strong>Suggestion model</strong>
         <small>Choose the agent and model for suggestions.</small>
       </div>
-      <fieldset class="gs-bar" aria-label="Suggestion agent and model" disabled={props.disabled}>
-        <For each={choices()?.axes}>
-          {(axis) => (
-            <button
-              type="button"
-              class="gs-pick"
-              disabled={loading()}
-              aria-haspopup="listbox"
-              aria-expanded={open()?.axis.id === axis.id}
-              title={`${axis.label}: ${axis.valueLabel}`}
-              onClick={(event) => toggle(axis, event.currentTarget)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown" && open() === null) {
-                  event.preventDefault();
-                  toggle(axis, event.currentTarget);
-                }
-              }}
-            >
-              <small class="ui-section-label">{axis.label}</small>
-              <span>
-                {axis.valueLabel}
-                <ChevronDown size="0.95em" aria-hidden="true" />
-              </span>
-            </button>
-          )}
-        </For>
-        <Show when={choices() === undefined}>
-          <For each={["Agent", "Model", "Effort"]}>
-            {(label) => (
-              <span
-                class="gs-pick gs-placeholder"
-                aria-busy="true"
-                title={`${label}: asking the agent…`}
-              >
-                <small class="ui-section-label">{label}</small>
-                <i />
-              </span>
-            )}
-          </For>
-        </Show>
-      </fieldset>
+      <ControlBar
+        label="Suggestion agent and model"
+        axes={choices()?.axes}
+        placeholders={["Agent", "Model", "Effort"]}
+        disabled={props.disabled}
+        busy={loading()}
+        menuClass="gs-menu"
+        onPick={pick}
+      />
       <Show when={choices()?.error ?? choices()?.warning}>
         {(problem) => (
           <p class="gs-profile-problem" role="alert">
@@ -93,26 +58,6 @@ export function SuggestionProfile(props: {
           </p>
         )}
       </Show>
-      <Show when={open()} keyed>
-        {(menu) => (
-          <Portal>
-            <ControlMenu
-              axis={menu.axis}
-              class="gs-menu"
-              style={controlMenuPlacement(menu.anchor)}
-              inside=".gs-menu, .gs-pick"
-              onPick={(value) => pick(menu.axis.id, value)}
-              onClose={() => setOpen(null)}
-            />
-          </Portal>
-        )}
-      </Show>
     </section>
   );
-
-  function toggle(axis: AgentControlAxis, segment: HTMLElement): void {
-    setOpen((current) =>
-      current?.axis.id === axis.id ? null : { axis, anchor: segment.getBoundingClientRect() },
-    );
-  }
 }

@@ -42,7 +42,7 @@ public static class InferenceSettings {
 			Key = AllowAutomatic,
 			Kind = SettingKind.Bool,
 			Description = "Allow Weavie to spend inference tokens without a directly-triggering user action, such as "
-				+ "branch-name preview, the new-session workflow suggestion, or continuous review after an edit. Explicit actions such as reviewing a plan or "
+				+ "branch-name preview, the new-session workflow and role-model suggestions, or continuous review after an edit. Explicit actions such as reviewing a plan or "
 				+ "diagnosing a test failure do not require this. Off by default. Takes effect on the next query.",
 			Aliases = ["automatic inference", "background ai suggestions", "continuous ai review"],
 			Apply = ApplyMode.Live,

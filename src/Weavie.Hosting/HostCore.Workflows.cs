@@ -17,17 +17,19 @@ public sealed partial class HostCore {
 	private void WireWorkflow(HostSession session) {
 		var runner = session.Workflow;
 		session.Commands.RegisterHandler(CoreCommands.WorkflowRun, (argsJson, _) => RunWorkflowCommand(args => {
-			var run = runner.Start(session.WorkflowCatalog.Prepare(
-				Required(args, "workflow"), args.TryGetProperty("inputs", out var inputs) ? inputs : EmptyInputs,
+			var run = runner.Start(runner.Prepare(
+				WeavieWorkflows.Required(args, "workflow"), args.TryGetProperty("inputs", out var inputs) ? inputs : EmptyInputs,
 				session.InheritedWorkflowDocuments, new WorkflowStartPrompt(args.GetStringOrEmpty("prompt").Trim(), [])));
 			return $"Started run {run.Id} of workflow {run.WorkflowId} at stage {run.Stage}.";
 		}, argsJson));
 		RegisterRunCommand(session, CoreCommands.WorkflowAnswer,
-			(run, args) => runner.Answer(run, Required(args, "choice"), args.GetStringOrEmpty("feedback")), "Answered; the run continues.");
+			(run, args) => runner.Answer(run, WeavieWorkflows.Required(args, "choice"), args.GetStringOrEmpty("feedback")), "Answered; the run continues.");
 		RegisterRunCommand(session, CoreCommands.WorkflowResume, (run, _) => runner.Resume(run), "Resumed the run.");
 		RegisterRunCommand(session, CoreCommands.WorkflowJumpToStage,
-			(run, args) => runner.Jump(run, Required(args, "stage")), "Moved the run.");
+			(run, args) => runner.Jump(run, WeavieWorkflows.Required(args, "stage")), "Moved the run.");
 		RegisterRunCommand(session, CoreCommands.WorkflowCancel, (run, _) => runner.Cancel(run), "Cancelled the run.");
+		session.Commands.RegisterHandler(CoreCommands.WorkflowSetRole, (argsJson, _) => RunWorkflowCommand(
+			args => WorkflowRoleCommand.Run(args, _workflowRoles, _agentProviders), argsJson));
 
 		SessionRunChanged? published = null;
 		void Publish() => PostForSession(session, () => {
@@ -44,7 +46,7 @@ public sealed partial class HostCore {
 	private static void RegisterRunCommand(
 		HostSession session, string command, Action<string, JsonElement> act, string success) =>
 		session.Commands.RegisterHandler(command, (argsJson, _) => RunWorkflowCommand(args => {
-			act(Required(args, "run"), args);
+			act(WeavieWorkflows.Required(args, "run"), args);
 			return success;
 		}, argsJson));
 
@@ -56,12 +58,6 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(ex.Message));
 		}
 	}
-
-	private static string Required(JsonElement args, string name) =>
-		args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var value)
-			&& value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
-			? text
-			: throw new WorkflowException($"'{name}' is required.");
 
 	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
 	private static void ForgetWorkflowRun(string worktreePath) {

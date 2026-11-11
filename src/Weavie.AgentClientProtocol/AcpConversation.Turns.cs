@@ -91,6 +91,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private async Task DeliverSteeringAsync(AgentTurnSubmission submission) {
+		bool retryAsPrompt = false;
 		try {
 			Task<JsonElement> request;
 			PreparedPrompt prompt;
@@ -114,8 +115,12 @@ internal sealed partial class AcpConversation {
 					case "injected":
 						EmitSubmitted(submission, "user-steer", prompt.Images);
 						break;
-					case "promptRequired" or "failed":
-						KeepForOwnTurn(submission);
+					case "promptRequired":
+						lock (_gate) _pendingSubmissions.Requeue(submission);
+						retryAsPrompt = true;
+						break;
+					case "failed":
+						RefuseSteering(submission);
 						break;
 					case "startedNewTurn":
 						throw new AcpProtocolException(
@@ -128,7 +133,7 @@ internal sealed partial class AcpConversation {
 			lock (_turnTransitionGate) {
 				if (!Live) return;
 				_log($"[acp:{Definition.Id}] {ex.Message}");
-				KeepForOwnTurn(submission);
+				RefuseSteering(submission);
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -137,15 +142,19 @@ internal sealed partial class AcpConversation {
 				else EmitFailure(ex);
 			}
 		} finally {
-			lock (_gate) if (Live) _steering = false;
-			if (Live) DispatchPendingSubmission();
+			bool dispatch;
+			lock (_gate) {
+				if (Live) _steering = false;
+				dispatch = Live && (!retryAsPrompt || !_promptActive);
+			}
+			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
 	}
 
-	// A steer the agent did not inject (an idle race, or a turn such as Codex's /compact that takes none)
-	// leads the queue, and nothing else steers into that turn.
-	private void KeepForOwnTurn(AgentTurnSubmission submission) {
+	// A turn that takes no steer, such as Codex's /compact: the submission leads the queue for its own
+	// turn and nothing else steers into this one.
+	private void RefuseSteering(AgentTurnSubmission submission) {
 		lock (_gate) {
 			_pendingSubmissions.Requeue(submission);
 			_steeringRefused = true;

@@ -218,9 +218,10 @@ public sealed class AcpSubagentTests {
 		await using var fixture = await StartedAsync(allowAllPermissions: true);
 		fixture.Submit("alpha");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: alpha");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is null && message.TurnId == "1");
 		fixture.Submit("subagent");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "subagent turn done");
-		await fixture.WaitForControlsAsync(state => state.Rewindable);
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is null && message.TurnId == "2");
 
 		await fixture.Session.RewindBeforeAsync("2");
 

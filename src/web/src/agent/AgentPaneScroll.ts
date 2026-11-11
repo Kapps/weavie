@@ -63,7 +63,7 @@ export function createAgentPaneScroll(
   let viewport = 0;
   let lineHeight = 0;
   let pinned = false;
-  // The live reply the pin watches; one that appears while following starts with its top seen.
+  // The latest reply the pin watches; one that arrives live while following starts with its top seen.
   let watchedId = saved?.watchedId ?? null;
   let topSeen = saved?.topSeen ?? false;
   let notifyOffset = (): void => {};
@@ -117,8 +117,8 @@ export function createAgentPaneScroll(
   };
   const gesture = createAgentPaneGesture(body, syncHold);
 
-  const liveReply = (): { index: number; id: string } | null => {
-    const index = model.live() ? shown().latestResultIndex : null;
+  const latestReply = (): { index: number; id: string } | null => {
+    const index = shown().latestResultIndex;
     return index === null ? null : { index, id: shown().entries[index]!.id };
   };
 
@@ -126,7 +126,7 @@ export function createAgentPaneScroll(
     if (value === following()) return;
     if (value) {
       // A reply already there when following begins pins only once its top has been back in view.
-      watchedId = untrack(liveReply)?.id ?? null;
+      watchedId = untrack(latestReply)?.id ?? null;
       topSeen = false;
     }
     if (!value) pickAnchor();
@@ -140,14 +140,16 @@ export function createAgentPaneScroll(
   // A live reply whose top rises past its start line while following stops there, so it is read from its start. One
   // pushed past by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
   const pin = (shrunk: boolean): void => {
-    const reply = liveReply();
+    const reply = latestReply();
     const row = layout().rowAt(reply?.index ?? null);
     // Decided on the reply's measured size, never on its estimate.
     if (reply === null || row === undefined || !anchor.measuredThrough(row.index)) return;
     if (watchedId !== reply.id) {
       watchedId = reply.id;
-      topSeen = true;
+      // One loaded with the history was never followed from its start, so it never pins.
+      topSeen = model.live();
     }
+    if (!model.live()) return;
     const start = startOf(row);
     if (start <= position) {
       if (row.end > position) topSeen = true;

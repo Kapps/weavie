@@ -289,6 +289,32 @@ test("the transcript is never shorter while its rows update than once they have"
   expect(await fromBottom(body)).toBeGreaterThan(2000);
 });
 
+test("a long reply loaded with the history is not pinned once the session goes live", async ({
+  page,
+  openPanes,
+}) => {
+  const long = Array.from({ length: 40 }, (_, line) => `Paragraph ${line} of the reply.`);
+  const pane = await openPanes({
+    "loaded-reply": history.map((message) =>
+      message.itemId === "a-29" ? { ...message, text: long.join("\n\n") } : message,
+    ),
+  });
+  const { body } = pane;
+  await expect(page.getByText("Paragraph 39 of the reply.", { exact: true })).toBeVisible();
+  expect(await scrollTop(body)).toBe(0);
+  // The first live message after loading, then a taller pane as a sent prompt's composer collapses.
+  pane.host.publishAgentPane(pane.session.address, {
+    providerId: "acp",
+    type: "session-info",
+    summary: "Loaded reply",
+  });
+  await frames(page, 2);
+  await page.setViewportSize({ width: 1280, height: 760 });
+  await frames(page, 3);
+  expect(await scrollTop(body)).toBe(0);
+  await expect(jumpToLatest(page)).toHaveCount(0);
+});
+
 test("following the latest output stays at the bottom and keyboard keys scroll the pane", async ({
   page,
   openPanes,

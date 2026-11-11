@@ -32,7 +32,9 @@ test("BTW and its session message each other through messageSession", async ({ p
   );
 
   // The transcript is virtualized and the card sits at the turn it was asked in.
-  await surface.locator(".agent-transcript-scroller").evaluate((el) => el.scrollTo(0, -el.scrollHeight));
+  await surface
+    .locator(".agent-transcript-scroller")
+    .evaluate((el) => el.scrollTo(0, -el.scrollHeight));
   const answered = aside.locator(".agent-entry", {
     has: page.locator(".agent-entry-label", { hasText: /^From (?!.* BTW$)/ }),
   });

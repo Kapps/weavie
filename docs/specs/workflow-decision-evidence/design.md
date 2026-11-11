@@ -15,7 +15,7 @@ mutable run dictionaries. Public contracts have XML summaries and no optional co
 | --- | --- |
 | Definition | `WorkflowQuestion` adds required nullable `double? Confidence`; `WorkflowChoice` adds nullable `Description`. Absence is explicit, not a deserialization default. |
 | Transition → runner | `WorkflowEffect.Decide(WorkflowDecisionPlan Plan)` carries rendered question, described options, outputs, summary, explicit file paths, and captured minimum confidence. |
-| Engine → filesystem | `IWorkflowFileReader.Read(string relativePath)` returns `WorkflowFileRead.Text` or `Unreadable`. The Core instance is bound to the session worktree. |
+| Engine → filesystem | `IWorkflowFileReader.Read(WorkflowFileScope files, string path)` returns `WorkflowFileRead.Text` or `Unreadable`. The scope names the session worktree and the run's documents directory. |
 | Engine → model | Existing `IWorkflowDecider.DecideAsync(WorkflowDecisionRequest, CancellationToken)` accepts only prepared evidence. No unresolved-file field, threshold, or routing target. |
 | Model → engine | `Answered(string Choice, double Confidence)`, `Refused(string Reason)`, or `Failed(string Reason)`. These are in-memory variants, not a new wire/persistence format. |
 | Settings → runner | Required `Func<double>` accessor, alongside existing attempt/open-review accessors; sampled when a model decision plan is created. |
@@ -75,14 +75,14 @@ An absent optional input contributes no paths. An unavailable stage output retai
 for a missing value; that differs from an accepted file subsequently disappearing. Empty file lists
 contribute no bodies. Plain-text references still render their values but never cause reads.
 
-Extract the lexical worktree path rule from `WorkflowValues` into `WorkflowFilePaths`, used by initial
+Extract the lexical worktree path rule from `WorkflowValues` into `WorkflowFileScope`, used by initial
 validation, planning, and the Core reader. Reject rooted paths and traversal outside the root; normalize
 with the platform path APIs and deduplicate normalized relative paths using the existing ordinal policy.
 Keep existence/non-empty checks in initial value validation. Path normalization does not read the disk.
 Invalid paths during decision preparation become a named user escalation, not an unhandled exception.
 
-`WorkflowFileReader`, constructed with required `IFileSystem` and worktree dependencies, resolves the
-path through that helper and calls `TryReadAllText`. Reuse the existing decoder, including its BOM
+`WorkflowFileReader`, constructed with a required `IFileSystem`, resolves the
+path through the scope it is given and calls `TryReadAllText`. Reuse the existing decoder, including its BOM
 handling and rejection of invalid text/NULs; do not add an extension list or another decoder. Expected
 I/O/access failures return `Unreadable` with a concise reason. The engine supplies the relative path in
 the escalation. A file emptied after initial validation contributes its current empty text.

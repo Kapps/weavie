@@ -22,6 +22,9 @@ public sealed class WorkflowFileScopeTests {
 		Assert.False(TestWorkflows.Files(Path.GetTempPath()).TryResolve(path, out _, out _));
 
 	[Fact]
-	public void AbsolutePathsAreRejectedEvenInsideTheWorktree() =>
-		Assert.False(TestWorkflows.Files(Path.GetTempPath()).TryResolve(Path.Combine(Path.GetTempPath(), "file.md"), out _, out _));
+	public void AbsolutePathsAreRejectedEvenInsideTheWorktree() {
+		string inWorktree = Path.Combine(Path.GetTempPath(), "file.md");
+		Assert.False(TestWorkflows.Files(Path.GetTempPath()).TryResolve(inWorktree, out _, out _));
+		Assert.False(new WorkflowFileScope(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "documents")).TryResolve(inWorktree, out _, out _));
+	}
 }

@@ -89,9 +89,10 @@ internal sealed partial class WorkflowTransitions {
 		var selected = new List<string>();
 		var seen = new HashSet<string>(StringComparer.Ordinal);
 		paths = selected;
+		var files = Files(run);
 		foreach (var reference in template.References.Where(r => WorkflowReferences.TypeOf(definition, r) == WorkflowValueType.Files)) {
 			foreach (string path in ResolveValue(run, reference).Items ?? []) {
-				if (!Files(run).TryResolve(path, out string relative, out string full)) {
+				if (!files.TryResolve(path, out string relative, out string full)) {
 					error = $"\"{path}\" isn't a file path inside the worktree or run documents directory";
 					return false;
 				}

@@ -1,4 +1,3 @@
-import { Ban } from "lucide-solid";
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { AgentControlAxis, AgentControlOption } from "../bridge";
 import { createListNavigation } from "../list-navigation";
@@ -110,14 +109,7 @@ export function ControlMenu(props: {
               }}
             >
               <span class="ui-row-text">
-                <span class="control-menu-option-label">
-                  {option.label}
-                  <Show when={option.unavailable === true}>
-                    <span class="control-menu-option-unavailable ui-icon">
-                      <Ban aria-label="Unavailable" />
-                    </span>
-                  </Show>
-                </span>
+                <span class="control-menu-option-label">{option.label}</span>
                 <Show when={option.description !== null}>
                   <span class="control-menu-option-desc ui-row-desc">{option.description}</span>
                 </Show>

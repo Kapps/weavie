@@ -33,8 +33,8 @@ field, suggested from the prompt, with the prompt (and its images) handed to the
   suggestion, and Start share that one resolver.
 - A workflow that **declares inputs** is not a starting workflow and is not listed.
 - Every entry is a name and one line under it: a workflow's description, and for *No workflow* a pointer to asking
-  the agent to create one. An **invalid** workflow is listed greyed out with an unavailable mark and its error as
-  that line. It cannot be selected.
+  the agent to create one. **Invalid** workflows are listed last under an *Unavailable* heading, greyed out, with
+  the error as that line. They cannot be selected.
 - Reached by Tab between the branch field and Start. No new command, shortcut, or "suggest again" control.
 
 ### Suggestion

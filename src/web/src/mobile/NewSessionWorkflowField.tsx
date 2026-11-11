@@ -70,6 +70,8 @@ export function NewSessionWorkflowField(props: {
   createEffect(() => choice.draft(props.prompt.trim()));
   onCleanup(() => choice.cancel());
 
+  const startable = () => state().options.filter((option) => option.error === null);
+  const broken = () => state().options.filter((option) => option.error !== null);
   const label = (): string => state().workflow ?? "No workflow";
 
   return (
@@ -115,12 +117,18 @@ export function NewSessionWorkflowField(props: {
                 value: state().workflow ?? NONE,
                 options: [
                   { id: NONE, label: "No workflow", description: NONE_HINT, group: null },
-                  ...state().options.map((option) => ({
+                  ...startable().map((option) => ({
                     id: option.id,
                     label: option.id,
-                    description: option.error ?? option.description,
+                    description: option.description,
                     group: null,
-                    unavailable: option.error !== null,
+                  })),
+                  ...broken().map((option) => ({
+                    id: option.id,
+                    label: option.id,
+                    description: option.error,
+                    group: "Unavailable",
+                    unavailable: true,
                   })),
                 ],
               }}

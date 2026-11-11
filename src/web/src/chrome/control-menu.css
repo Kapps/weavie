@@ -44,11 +44,6 @@
   color: var(--dim);
 }
 
-.control-menu-option-unavailable {
-  margin-left: 6px;
-  color: var(--bad);
-}
-
 .control-menu-option-group {
   padding: 6px 8px 2px;
 }

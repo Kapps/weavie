@@ -13,8 +13,8 @@ documents, #1173, and workflow agent selection, #1168, are in).
 - Once the prompt has 16 words and pauses or loses focus, a decision model suggests a workflow once. It fills the
   field only when confident, and never after the user has picked.
 - Starting with a workflow hands it the prompt and pasted images as written. Workflows read them as `{{run.prompt}}`.
-- Every entry reads as a name and one line under it. A broken workflow is greyed with an unavailable mark and its
-  error as that line; a workflow that declares inputs is not listed.
+- Every entry reads as a name and one line under it. Broken workflows come last under an
+  *Unavailable* heading, greyed, with the error as that line; a workflow that declares inputs is not listed.
 
 **Main pieces**
 
@@ -455,8 +455,8 @@ a draft of any length, the workflow owner asks only for one worth judging.
 while asking) that opens a `ControlMenu`, positioned as `SuggestionProfile.tsx:45-108` does (its `placement` helper
 moves into `ControlMenu.tsx` instead of being copied).
 
-- `ControlMenu` options gain `unavailable?: boolean`: the row is `aria-disabled` and greyed, with a lucide `Ban`
-  mark after its name; its description says why. Accepting it does nothing. *No workflow* carries a description
+- `ControlMenu` options gain `unavailable?: boolean`: the row is `aria-disabled` and greyed, and its
+  description says why. Accepting it does nothing. The field lists them last, in an *Unavailable* group. *No workflow* carries a description
   too, so every row has the same two lines.
 - Keys: Enter, Space, or ArrowDown opens; arrows move; Enter or Tab picks; Escape closes the menu only.
 - `SessionInboxSurface.onKeyDown` (`SessionInboxSurface.tsx:29-55`) must return early while `controlMenuOpen()`,

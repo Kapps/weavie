@@ -72,10 +72,11 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     const menu = page.getByRole("listbox", { name: "Workflow" });
     await expect(menu.getByRole("option")).toHaveText([
       /^No workflow.*ask it to create a workflow around it\.$/,
-      /^broken.*run needs exactly one of prompt or skill$/,
       /^quick-fix.*A small, well-understood change\.$/,
       /^spec-driven/,
+      /^broken.*run needs exactly one of prompt or skill$/,
     ]);
+    await expect(menu.locator(".control-menu-option-group")).toHaveText("Unavailable");
     await expect(menu.getByRole("option", { name: /quick-fix/ })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -86,13 +87,13 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await expect(menu).toBeHidden();
     await expect(modal).toBeVisible();
 
-    // An unavailable workflow can't be picked; the next one can.
+    // An unavailable workflow can't be picked; the one above it can.
     await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
     await expect(menu).toBeHidden();
     await expect(workflow).toHaveText("spec-driven");

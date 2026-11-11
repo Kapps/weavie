@@ -59,6 +59,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IInferenceService _inference;
 	private readonly IDecisionService _decisions;
 	private readonly AgentModelCatalog _agentModels;
+	private readonly WorkflowRoleStore _workflowRoles;
 	private readonly AgentConsultation _agentConsultation;
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
 	// connections, this owns persistence — see remote-agents.ts).
@@ -198,6 +199,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_inference = services.Inference;
 		_decisions = services.Decisions;
 		_agentModels = services.AgentModels;
+		_workflowRoles = services.WorkflowRoles;
 		_agentConsultation = services.AgentConsultation;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;

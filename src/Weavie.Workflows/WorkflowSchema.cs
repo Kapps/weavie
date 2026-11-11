@@ -17,6 +17,9 @@ public static partial class WorkflowSchema {
 	[GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
 	internal static partial Regex IdPattern();
 
+	/// <summary>Whether <paramref name="text"/> is a name a step's <c>role</c> can ask for.</summary>
+	public static bool IsRoleName(string text) => IdPattern().IsMatch(text);
+
 	[GeneratedRegex("^[A-Za-z][A-Za-z0-9]*$")]
 	private static partial Regex NamePattern();
 
@@ -39,7 +42,10 @@ public static partial class WorkflowSchema {
 			new("args", new TextShape("Text passed after the skill name; may use {{…}} references."), false),
 			new("outputs", outputs, false),
 			new("agent", new TextShape(
-				"The name of an agents entry that runs this step; omit to run on the session's own model.", IdPattern(), idHint), false),
+				"The name of an agents entry that runs this step; omit agent and role to run on the session's own model.", IdPattern(), idHint), false),
+			new("role", new TextShape(
+				"A role the user fills with a model for the session's provider (planner, builder, reviewer by convention); a step "
+				+ "takes agent or role, not both.", IdPattern(), idHint), false),
 		]);
 		var agent = new ObjectShape("An agent steps refer to by name; every id is the provider's own, never inferred.", [
 			new("provider", new TextShape(

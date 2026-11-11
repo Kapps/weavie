@@ -6,6 +6,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
+using Weavie.Core.Tests.Workflows;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
@@ -37,10 +38,10 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	private SessionWorkflowRegistry NewWorkflows(string personal, IWorkflowRunPort port) {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
-			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
+			catalog, NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
 			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), port, () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		_runners.Add(runner);
-		return new SessionWorkflowRegistry(catalog, runner);
+		return new SessionWorkflowRegistry(catalog, runner, new WorkflowRoleStore(new InMemoryFileSystem(), "/config/workflow-roles.json"));
 	}
 
 	[Fact]
@@ -577,7 +578,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 
 		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
 
-		public string? Refusal(WorkflowDefinition definition) => null;
+		public string? Refusal(WorkflowLaunch launch) => null;
 	}
 
 	private sealed class FixedTurnContext(string text) : Weavie.Core.Agents.IAgentTurnContext {

@@ -92,7 +92,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		}
 
 		public async Task<string> StartReviewAsync(Weavie.Workflows.WorkflowStartPrompt prompt) {
-			Session.Workflow.Start(Session.WorkflowCatalog.Prepare("conversation", Json("{}"), null, prompt));
+			Session.Workflow.Start(Session.Workflow.Prepare("conversation", Json("{}"), null, prompt));
 			return await WaitForReviewAsync();
 		}
 

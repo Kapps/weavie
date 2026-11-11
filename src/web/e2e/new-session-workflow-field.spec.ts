@@ -11,9 +11,17 @@ const DRAFT =
   "the WebM video in the review pane fails to load whenever the diff is reopened twice in a row";
 const CATALOG = {
   workflows: [
-    { id: "broken", description: "", error: "run needs exactly one of prompt or skill" },
-    { id: "quick-fix", description: "A small, well-understood change.", error: null },
-    { id: "spec-driven", description: "Requirements, design, and a task list.", error: null },
+    { id: "broken", description: "", error: "run needs exactly one of prompt or skill", roles: [] },
+    { id: "quick-fix", description: "A small, well-understood change.", error: null, roles: [] },
+    {
+      id: "spec-driven",
+      description: "Requirements, design, and a task list.",
+      error: null,
+      roles: [
+        { role: "planner", problem: null },
+        { role: "builder", problem: 'The saved model "nova" is no longer offered.' },
+      ],
+    },
   ],
   default: null,
   defaultProblem: null,
@@ -59,7 +67,11 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     const suggestion = host.waitForHost("request", "sessionCreation", "suggestWorkflow");
     await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(DRAFT);
     const asked = await suggestion;
-    expect(asked.payload).toEqual({ sourceId: null, prompt: DRAFT });
+    expect(asked.payload).toEqual({
+      sourceId: null,
+      providerId: expect.any(String),
+      prompt: DRAFT,
+    });
     await expect(workflow).toContainText("Suggesting…");
     host.respond(asked, { applies: true, workflow: "quick-fix", error: null });
     await expect(workflow).toHaveText("quick-fix");
@@ -93,6 +105,8 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
+    const roleModels = host.waitForHost("request", "sessionCreation", "roleModels");
+    const roleSuggestion = host.waitForHost("request", "sessionCreation", "suggestRole");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
     await expect(menu).toBeHidden();
@@ -100,8 +114,38 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await expect(workflow).toBeFocused();
     expect(host.received.filter((message) => message.name === "suggestWorkflow")).toHaveLength(1);
 
+    // Each role spec-driven still needs gets a picker, and Start waits until each has a model.
+    const planner = inbox.getByRole("button", { name: /^planner/ });
+    const builder = inbox.getByRole("button", { name: /^builder/ });
+    const start = inbox.getByRole("button", { name: "Start", exact: true });
+    await expect(planner).toHaveText("Loading models…");
+    await expect(start).toBeDisabled();
+    host.respond(await roleModels, {
+      models: [
+        { id: "astra", label: "Astra", description: "Frontier intelligence.", group: null },
+        { id: "sol", label: "Sol", description: "Workhorse.", group: null },
+      ],
+      error: null,
+    });
+    // Only the role with nothing saved is suggested; the gone model is the user's to replace.
+    const askedRole = await roleSuggestion;
+    expect(askedRole.payload).toMatchObject({ workflow: "spec-driven", role: "planner" });
+    await expect(planner).toContainText("Suggesting…");
+    host.respond(askedRole, { applies: true, model: "astra", error: null });
+    await expect(planner).toHaveText("Astra");
+    await expect(inbox.getByText('The saved model "nova" is no longer offered.')).toBeVisible();
+    await expect(start).toBeDisabled();
+    await builder.click();
+    await page
+      .getByRole("listbox", { name: "builder" })
+      .getByRole("option", { name: /^Sol/ })
+      .click();
+    await expect(builder).toHaveText("Sol");
+    await expect(start).toBeEnabled();
+    expect(host.received.filter((message) => message.name === "suggestRole")).toHaveLength(1);
+
     const invocation = host.waitForHost("request", "sessions", "invoke");
-    await inbox.getByRole("button", { name: "Start", exact: true }).click();
+    await start.click();
     expect((await invocation).payload).toMatchObject({
       id: CommandIds.newSession,
       args: {
@@ -111,6 +155,7 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
         prompt: DRAFT,
         attachments: [],
         workflow: "spec-driven",
+        roles: { planner: "astra", builder: "sol" },
       },
     });
   } finally {

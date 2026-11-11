@@ -45,7 +45,7 @@ public sealed class WorkflowAgentControlsTests {
 		Stages = [
 			new WorkflowStage {
 				Id = "build", If = null, Then = new WorkflowThen.Sequential(),
-				Run = new WorkflowWork { Context = WorkflowContext.Continue, Prompt = WorkflowTemplate.Empty, Skill = null, Args = null, Outputs = [], Agent = "builder" },
+				Run = new WorkflowWork { Context = WorkflowContext.Continue, Prompt = WorkflowTemplate.Empty, Skill = null, Args = null, Outputs = [], Agent = "builder", Role = null },
 			},
 		],
 	};
@@ -59,13 +59,13 @@ public sealed class WorkflowAgentControlsTests {
 	[InlineData(null, "fast:maybe", "Stage \"build\" sets option \"fast\" to \"maybe\"; the agent advertises true, false for it.")]
 	public void RunStartRefusesWhatTheCurrentAxesRuleOut(string? model, string option, string refusal) {
 		string[] pair = option.Split(':');
-		Assert.Equal(refusal, WorkflowAgentControls.Refusal(Definition(Agent(model, (pair[0], pair[1]))), Acp, Axes));
+		Assert.Equal(refusal, WorkflowAgentControls.Refusal(Definition(Agent(model, (pair[0], pair[1]))), [], Acp, Axes));
 	}
 
 	[Fact]
 	public void OptionsOfAnotherModelWaitForTheStageToOpen() {
 		var agent = Agent("beta", ("effort", "high"));
-		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent), Acp, Axes));
+		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent), [], Acp, Axes));
 		var error = Assert.Throws<AgentControlException>(() => WorkflowAgentControls.CheckOptions("build", agent, Axes));
 		Assert.Contains("\"effort\", which the agent doesn't advertise", error.Message, StringComparison.Ordinal);
 	}
@@ -73,15 +73,36 @@ public sealed class WorkflowAgentControlsTests {
 	[Fact]
 	public void UnreadyControlsLeaveOnlyTheProviderChecks() {
 		var agent = Agent("gamma", ("mode", "auto"));
-		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent), Acp, null));
+		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent), [], Acp, null));
 		Assert.Contains(
 			"of provider fake-acp, so workflow flow runs only in fake-acp sessions; this session runs other",
-			WorkflowAgentControls.Refusal(Definition(agent), Acp with { Id = "other" }, null), StringComparison.Ordinal);
+			WorkflowAgentControls.Refusal(Definition(agent), [], Acp with { Id = "other" }, null), StringComparison.Ordinal);
 		Assert.Contains(
 			"but Fake ACP runs in a terminal",
-			WorkflowAgentControls.Refusal(Definition(agent), Acp with { Capabilities = AgentProviderCapabilities.Terminal }, null),
+			WorkflowAgentControls.Refusal(Definition(agent), [], Acp with { Capabilities = AgentProviderCapabilities.Terminal }, null),
 			StringComparison.Ordinal);
-		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent) with { Stages = [] }, Acp with { Id = "other" }, null));
+		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent) with { Stages = [] }, [], Acp with { Id = "other" }, null));
+	}
+
+	private static WorkflowDefinition RoleDefinition() {
+		var pinned = Definition(Agent(null));
+		var stage = pinned.Stages[0];
+		return pinned with { Agents = [], Stages = [stage with { Run = stage.Run with { Agent = null, Role = "builder" } }] };
+	}
+
+	[Fact]
+	public void ARoleFilledStageMeetsThePinnedAgentsRefusalsAndAnUnfilledOneIsLeftToTheResolver() {
+		var definition = RoleDefinition();
+		Assert.Equal(
+			"Stage \"build\" asks for model \"gamma\"; the agent advertises alpha, beta.",
+			WorkflowAgentControls.Refusal(definition, [Agent("gamma")], Acp, Axes));
+		Assert.Contains(
+			"runs on role \"builder\" of provider fake-acp",
+			WorkflowAgentControls.Refusal(definition, [Agent("beta")], Acp with { Id = "other" }, null), StringComparison.Ordinal);
+		Assert.Null(WorkflowAgentControls.Refusal(definition, [], Acp, Axes));
+		Assert.Equal(
+			"Stage \"build\" runs on role \"builder\", but Fake ACP runs in a terminal, where a stage can't choose its model; run the workflow in a native agent session.",
+			WorkflowAgentControls.Refusal(definition, [], Acp with { Capabilities = AgentProviderCapabilities.Terminal }, null));
 	}
 
 	[Fact]

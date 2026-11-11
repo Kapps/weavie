@@ -27,6 +27,45 @@ stages:
     run: { prompt: review it, agent: reviewer }
 `;
 
+const ROLES = `id: roles
+description: Implement as the builder.
+stages:
+  - id: implement
+    run: { prompt: implement it, role: builder }
+`;
+
+test("a role runs on the model saved for the session's provider and refuses to start without one", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "roles");
+  await writeWorkflowSource(sessionWorktrees(weavie.workspace)[0]!, "roles", ROLES);
+  const run = { id: "weavie.workflow.run", args: { workflow: "roles", inputs: {} } };
+
+  await submitAcpDraft(surface, `mcp:runCommand:${JSON.stringify(run)}`);
+  await expect(
+    surface.getByText(/runCommand failed:.*role .builder. has no agent for fake-acp sessions/),
+  ).toBeVisible();
+  await workflowTool(surface, "runCommand", {
+    id: "weavie.workflow.setRole",
+    args: { role: "builder", provider: "fake-acp", agent: { provider: "fake-acp", model: "beta" } },
+  });
+  // The pane renders quotes typographically, so the saved role is matched quote-agnostic.
+  expect(await workflowTool(surface, "listWorkflows", {})).toMatch(
+    /.role.:.builder.,.provider.:.fake-acp./,
+  );
+
+  await workflowTool(surface, "runCommand", run);
+  await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
+  await expect(
+    surface.locator(".agent-entry-notice").filter({ hasText: "Workflow: implement runs on Beta" }),
+  ).toHaveCount(1);
+  await expect(surface.locator(".pane-head .pane-run")).toHaveAttribute(
+    "title",
+    /^roles · implement on builder · /,
+  );
+});
+
 test("a stage runs on its agent's model and the next stage returns to the session's own", async ({
   page,
   weavie,

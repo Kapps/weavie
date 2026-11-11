@@ -23,6 +23,9 @@ public interface IWorkflowRegistry {
 	/// <summary>Captures the exact stage visit and round for a tool call admitted from main.</summary>
 	WorkflowStageCall? CaptureStageCall();
 
+	/// <summary>The user's saved workflow roles.</summary>
+	IReadOnlyList<WorkflowRoleAssignment> Roles();
+
 }
 
 /// <summary>The registry for MCP servers without workflows.</summary>
@@ -43,12 +46,14 @@ public static class WorkflowRegistry {
 
 		public WorkflowStageCall? CaptureStageCall() => null;
 
+		public IReadOnlyList<WorkflowRoleAssignment> Roles() => throw Error();
+
 		private static ToolUnavailableException Error() => new("Workflows are not available.");
 	}
 }
 
-/// <summary>A session's registry: its catalog plus its live run.</summary>
-public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRunner runner) : IWorkflowRegistry {
+/// <summary>A session's registry: its catalog, its live run, and the user's roles.</summary>
+public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRunner runner, WorkflowRoleStore roles) : IWorkflowRegistry {
 	/// <inheritdoc/>
 	public IReadOnlyList<WorkflowCatalogEntry> List() => catalog.List();
 
@@ -66,4 +71,7 @@ public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRun
 
 	/// <inheritdoc/>
 	public WorkflowStageCall? CaptureStageCall() => runner.CaptureStageCall();
+
+	/// <inheritdoc/>
+	public IReadOnlyList<WorkflowRoleAssignment> Roles() => roles.All();
 }

@@ -1,21 +1,33 @@
-import { ChevronDown } from "lucide-solid";
-import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup } from "solid-js";
 import {
   backendPhase,
   launchSource,
+  requestRoleModels,
+  requestRoleSuggestion,
   requestWorkflowCatalog,
   requestWorkflowSuggestion,
 } from "../bridge";
-import { ControlMenu, controlMenuPlacement } from "../chrome/ControlMenu";
+import {
+  NewSessionRoleChoice,
+  type RoleChoiceState,
+  rolesReady,
+} from "../chrome/new-session-role-choice";
 import {
   NewSessionWorkflowChoice,
   type WorkflowChoiceState,
+  type WorkflowTarget,
 } from "../chrome/new-session-workflow-choice";
+import { NewSessionPicker } from "./NewSessionPicker";
+
+/** What a start runs: the workflow (null for none) and the model to save for each role it still needs. */
+export interface NewSessionWorkflowStart {
+  workflow: string | null;
+  roles: Record<string, string>;
+}
 
 export interface NewSessionWorkflowActions {
-  /** The workflow to start with, as shown now. */
-  capture: () => string | null;
+  /** The workflow and role models to start with, as shown now. */
+  capture: () => NewSessionWorkflowStart;
   flush: () => void;
   reset: () => void;
 }
@@ -23,13 +35,17 @@ export interface NewSessionWorkflowActions {
 const NONE = "";
 const NONE_HINT = "Tell your agent how you like to work and ask it to create a workflow around it.";
 
-/** The workflow a new session starts in: suggested once from the prompt, and the user's to change. */
+/**
+ * The workflow a new session starts in, suggested once from the prompt and the user's to change, and a model
+ * picker for each role it needs that the chosen provider can't yet fill.
+ */
 export function NewSessionWorkflowField(props: {
   active: boolean;
   backendId: string;
   base: "source" | "main";
+  providerId: string;
   prompt: string;
-  /** Whether the field has read what it can offer, so a start would run what it shows. */
+  /** Whether a start would run what the field shows: its catalog is read and every role has a model. */
   onReady: (ready: boolean) => void;
   register: (actions: NewSessionWorkflowActions) => void;
 }): JSX.Element {
@@ -39,18 +55,29 @@ export function NewSessionWorkflowField(props: {
     problem: null,
     status: "loading",
   });
-  const [anchor, setAnchor] = createSignal<DOMRect | null>(null);
+  const [roles, setRoles] = createSignal<RoleChoiceState>({ rows: [], models: [], error: null });
+  let target: WorkflowTarget | null = null;
   const choice = new NewSessionWorkflowChoice(
-    (target, signal) => requestWorkflowCatalog(target.backendId, target.sourceId, signal),
-    (target, prompt, signal) =>
-      requestWorkflowSuggestion(target.backendId, target.sourceId, prompt, signal),
-    (next) => {
-      setState(next);
-      props.onReady(next.status !== "loading");
-    },
+    (to, signal) => requestWorkflowCatalog(to.backendId, to.sourceId, to.providerId, signal),
+    (to, prompt, signal) =>
+      requestWorkflowSuggestion(to.backendId, to.sourceId, to.providerId, prompt, signal),
+    setState,
+  );
+  const roleChoice = new NewSessionRoleChoice(
+    (to, signal) => requestRoleModels(to.backendId, to.providerId, signal),
+    (pair, role, signal) =>
+      requestRoleSuggestion(
+        pair.target.backendId,
+        pair.target.sourceId,
+        pair.target.providerId,
+        pair.workflow,
+        role,
+        signal,
+      ),
+    setRoles,
   );
   props.register({
-    capture: () => choice.capture(),
+    capture: () => ({ workflow: choice.capture(), roles: roleChoice.capture() }),
     flush: () => choice.flush(),
     reset: () => choice.reset(),
   });
@@ -62,89 +89,85 @@ export function NewSessionWorkflowField(props: {
   // Opening Sessions re-reads the catalog, so a workflow written since the last visit is offered.
   createEffect(() => {
     if (props.active) {
-      choice.retarget(online() ? { backendId: props.backendId, sourceId: sourceId() } : null);
-    } else {
-      setAnchor(null);
+      target = online()
+        ? { backendId: props.backendId, sourceId: sourceId(), providerId: props.providerId }
+        : null;
+      choice.retarget(target);
     }
   });
   createEffect(() => choice.draft(props.prompt.trim()));
-  onCleanup(() => choice.cancel());
+  createEffect(() => {
+    const shown = state().options.find((option) => option.id === state().workflow);
+    roleChoice.show(
+      shown === undefined || target === null
+        ? null
+        : { target, workflow: shown.id, roles: shown.roles },
+    );
+  });
+  createEffect(() => props.onReady(state().status !== "loading" && rolesReady(roles())));
+  onCleanup(() => {
+    choice.cancel();
+    roleChoice.cancel();
+  });
 
   const startable = () => state().options.filter((option) => option.error === null);
   const broken = () => state().options.filter((option) => option.error !== null);
-  const label = (): string => state().workflow ?? "No workflow";
 
   return (
-    <div class="session-composer-workflow">
-      <span id="new-session-workflow-label">Workflow</span>
-      <button
-        type="button"
-        class="session-composer-workflow-toggle ui-field"
-        aria-labelledby="new-session-workflow-label new-session-workflow-value"
-        aria-haspopup="listbox"
-        aria-expanded={anchor() !== null}
-        aria-busy={state().status === "suggesting"}
+    <>
+      <NewSessionPicker
+        id="new-session-workflow"
+        label="Workflow"
+        value={state().workflow ?? "No workflow"}
+        selected={state().workflow ?? NONE}
+        options={[
+          { id: NONE, label: "No workflow", description: NONE_HINT, group: null },
+          ...startable().map((option) => ({
+            id: option.id,
+            label: option.id,
+            description: option.description,
+            group: null,
+          })),
+          ...broken().map((option) => ({
+            id: option.id,
+            label: option.id,
+            description: option.error,
+            group: "Unavailable",
+            unavailable: true,
+          })),
+        ]}
+        busy={state().status === "suggesting" ? "Suggesting…" : null}
         disabled={state().status === "loading"}
+        problem={state().problem}
+        open={props.active}
         onFocus={() => choice.claim()}
         onBlur={() => choice.release()}
-        onClick={(event) =>
-          setAnchor((open) => (open === null ? event.currentTarget.getBoundingClientRect() : null))
-        }
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" && anchor() === null) {
-            event.preventDefault();
-            setAnchor(event.currentTarget.getBoundingClientRect());
-          }
-        }}
-      >
-        <span id="new-session-workflow-value" class="session-composer-workflow-value">
-          {label()}
-        </span>
-        <Show when={state().status === "suggesting"}>
-          <span class="ui-row-desc">Suggesting…</span>
-        </Show>
-        <span class="ui-icon" aria-hidden="true">
-          <ChevronDown />
-        </span>
-      </button>
-      <Show when={state().problem}>{(problem) => <small role="alert">{problem()}</small>}</Show>
-      <Show when={anchor()} keyed>
-        {(rect) => (
-          <Portal>
-            <ControlMenu
-              axis={{
-                label: "Workflow",
-                value: state().workflow ?? NONE,
-                options: [
-                  { id: NONE, label: "No workflow", description: NONE_HINT, group: null },
-                  ...startable().map((option) => ({
-                    id: option.id,
-                    label: option.id,
-                    description: option.description,
-                    group: null,
-                  })),
-                  ...broken().map((option) => ({
-                    id: option.id,
-                    label: option.id,
-                    description: option.error,
-                    group: "Unavailable",
-                    unavailable: true,
-                  })),
-                ],
-              }}
-              class="session-composer-workflow-menu"
-              // As wide as the field, so a long description wraps instead of running off a phone.
-              style={{ ...controlMenuPlacement(rect), "max-width": `${rect.width}px` }}
-              inside=".session-composer-workflow-menu, .session-composer-workflow-toggle"
-              onPick={(id) => {
-                setAnchor(null);
-                choice.pick(id === NONE ? null : id);
-              }}
-              onClose={() => setAnchor(null)}
-            />
-          </Portal>
+        onPick={(id) => choice.pick(id === NONE ? null : id)}
+      />
+      <Index each={roles().rows}>
+        {(row) => (
+          <NewSessionPicker
+            id={`new-session-role-${row().role}`}
+            label={row().role}
+            value={
+              row().model === null
+                ? roles().models === null
+                  ? "Loading models…"
+                  : "No model"
+                : (roles().models?.find((model) => model.id === row().model)?.label ?? row().model!)
+            }
+            selected={row().model ?? ""}
+            options={roles().models ?? []}
+            busy={row().suggesting ? "Suggesting…" : null}
+            disabled={(roles().models?.length ?? 0) === 0}
+            problem={row().problem ?? roles().error}
+            open={props.active}
+            onFocus={() => {}}
+            onBlur={() => {}}
+            onPick={(model) => roleChoice.pick(row().role, model)}
+          />
         )}
-      </Show>
-    </div>
+      </Index>
+    </>
   );
 }

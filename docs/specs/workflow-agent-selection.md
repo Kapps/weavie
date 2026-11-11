@@ -1,7 +1,7 @@
 # Workflow agent selection
 
-Status: partially built. `agents`, a `run` step's `agent`, and `continue`, `fork`, and `fresh` on the session's own provider run end to end
-in native ACP sessions; another provider's steps, `check`, and run history are not built.
+Status: partially built. `agents`, a `run` step's `agent` or `role`, and `continue`, `fork`, and `fresh` on the session's own
+provider run end to end in native ACP sessions; another provider's steps, `check`, and run history are not built.
 Extends [workflows.md](workflows.md).
 
 ## Purpose
@@ -54,6 +54,28 @@ stages:
       outputs: { findings: list }
 ```
 
+## Roles
+
+A step can ask for a role instead of an agent: `run: { role: planner, prompt: … }`. A role is a name the user owns, with
+one agent per session provider, saved user-wide in `~/.weavie/workflow-roles.json`; `planner` can be Fable in Claude
+sessions and Astra in Codex sessions. Workflows carry no description of a role and Weavie ships none; `planner`,
+`builder`, and `reviewer` are a convention. A step takes `agent` or `role`, not both, so a role never overrides a pinned
+agent and an undefined `agent` still fails at load.
+
+- **Filling one.** The agent saves a role with `weavie.workflow.setRole` (role, session provider, and an agent of
+  provider, model, and options) and reads them from `listWorkflows`. The new-session composer shows a model picker for
+  each role the chosen workflow needs on the chosen provider, prefilled by the decision provider when it is confident
+  (evidence: the role's name and the prompts of the stages that use it; choices: the provider's models), and saves
+  the picks at Start.
+- **Resolving.** Preparing a run resolves every role for the session's provider, so a launch never holds an unfilled
+  role; the run keeps the resolved agents, and a later change to a role affects the next run. From then on a role's
+  stage is a pinned agent's: the same hold, step open, and refusals.
+- **Nothing is substituted.** A role with nothing saved, a saved model the provider no longer offers, a provider that
+  offers no model choice, and terminal Claude all refuse the start. While the provider's models are still being
+  listed, a saved role is trusted until its stage opens.
+
+See [workflow-roles/design.md](workflow-roles/design.md).
+
 ## Where a step runs
 
 Each conversation keeps its provider. Main stays usable while a same-provider stage runs in its own
@@ -102,7 +124,7 @@ Nothing is substituted. Each refusal names the step, what it asked for, and what
 | When | Refused |
 | --- | --- |
 | Load (`validateWorkflow`) | an `agents` entry that isn't `provider`, `model`, `options`, or that omits `provider`; a step `agent` that names no entry |
-| Run start | any step with an `agent` on a terminal Claude session (use the Claude ACP agent); a step whose agent's provider differs from the session's, which covers an unknown or unavailable provider; a model the session's provider doesn't advertise; an option in the `mode` category; an unknown option or value on a step whose model is the one in effect |
+| Run start | a role with no agent for the session's provider, or saved with a model it no longer offers; any step with an `agent` or `role` on a terminal Claude session (use the Claude ACP agent); a step whose agent's provider differs from the session's, which covers an unknown or unavailable provider; a model the session's provider doesn't advertise; an option in the `mode` category; an unknown option or value on a step whose model is the one in effect |
 | Step open | a model, option, or value the conversation doesn't advertise at that moment |
 
 A refusal at run start leaves no run. A step opens all or nothing: when it can't, the conversation returns to the
@@ -192,9 +214,6 @@ What a switch costs:
 
 ## Deferred
 
-- **Roles**: a user setting that fills or overrides an agent name per provider, so built-in and repository
-  workflows can ask for a `planner` without naming a model. Until then built-in workflows define no agents and
-  run on the session's own model.
 - A foreground step on another provider.
 - Per-step models on terminal Claude.
 - A model override on a decision.

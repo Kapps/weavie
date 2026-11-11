@@ -109,6 +109,8 @@ public sealed class WorkflowReaderTests {
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{a.out}}\" } }]", "names no output declared")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{ oops }}\" } }]", "must be {{run.prompt}}")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.x\" } }]", "no closing")]
+	[InlineData("agents: { b: { provider: p } }\nstages: [{ id: a, run: { prompt: p, agent: b, role: planner } }]", "a step takes agent or role, not both")]
+	[InlineData("stages: [{ id: a, run: { prompt: p, role: Planner } }]", "lowercase words joined by hyphens")]
 	public void SemanticErrorsAreReported(string stages, string message) {
 		string fileId = message.Contains("file name", StringComparison.Ordinal) ? "other" : "x";
 		var result = WorkflowReader.Read($"id: x\ndescription: d\n{stages}", fileId);
@@ -153,6 +155,28 @@ public sealed class WorkflowReaderTests {
 		Assert.Equal([new("fast", "true"), new KeyValuePair<string, string>("effort", "high")], builder.Options);
 		Assert.Equal(("plain", null, 0), (definition.Agents[1].Name, definition.Agents[1].Model, definition.Agents[1].Options.Count));
 		Assert.Equal(["builder", null], definition.Stages.Select(s => s.Run.Agent));
+	}
+
+	[Fact]
+	public void ReadsRolesInFirstUseOrder() {
+		var definition = WorkflowReader.Read("""
+			id: x
+			description: d
+			stages:
+			  - id: a
+			    run: { prompt: p, role: builder }
+			  - id: b
+			    run: { prompt: p, role: planner }
+			  - id: c
+			    run: { prompt: p, role: builder }
+			  - id: d
+			    run: { prompt: p }
+			""", "x").Definition!;
+		Assert.Equal(["builder", "planner"], definition.Roles);
+		Assert.Equal(["builder", "planner", "builder", null], definition.Stages.Select(s => s.Run.Role));
+		Assert.True(WorkflowSchema.IsRoleName("security-reviewer"));
+		Assert.False(WorkflowSchema.IsRoleName("Planner"));
+		Assert.Contains("\"role\"", WorkflowSchema.Json, StringComparison.Ordinal);
 	}
 
 	[Fact]

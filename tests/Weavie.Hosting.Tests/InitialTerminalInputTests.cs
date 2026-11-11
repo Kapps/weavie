@@ -165,6 +165,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			new CorrectionCorpus(new LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
 			new UnusedWorkflowDecider(),
+			new Weavie.Core.Workflows.WorkflowRoleStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("workflow-roles.json")),
+			NoWorkflowRoles.Instance,
 			AgentConsultation.None,
 			NoSessionPeers.Instance,
 			_launcher,

@@ -6,6 +6,13 @@ namespace Weavie.Core.Workflows;
 
 /// <summary>How Weavie hosts the workflow engine: the names it writes for agents and where workflow files live.</summary>
 public static class WeavieWorkflows {
+	/// <summary>The non-empty text argument <paramref name="name"/> of a workflow command; throws <see cref="WorkflowException"/> otherwise.</summary>
+	public static string Required(System.Text.Json.JsonElement args, string name) =>
+		args.ValueKind == System.Text.Json.JsonValueKind.Object && args.TryGetProperty(name, out var value)
+			&& value.ValueKind == System.Text.Json.JsonValueKind.String && value.GetString() is { Length: > 0 } text
+			? text
+			: throw new WorkflowException($"'{name}' is required.");
+
 	/// <summary>Weavie's tool and command names, from their one definition.</summary>
 	public static WorkflowVocabulary Vocabulary { get; } = new() {
 		Host = "Weavie",

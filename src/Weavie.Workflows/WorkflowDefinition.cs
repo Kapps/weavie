@@ -27,10 +27,19 @@ public sealed record WorkflowDefinition {
 		.SelectMany(stage => new[] { stage.Run.Prompt, stage.Run.Args, stage.If?.Ask, (stage.Then as WorkflowThen.Decide)?.Question.Ask })
 		.Any(template => template?.References.Any(reference => reference.IsPrompt) == true);
 
-	/// <summary>The agent that runs <paramref name="stage"/>, or <see langword="null"/> for the session's own.</summary>
-	public WorkflowAgent? AgentOf(WorkflowStage stage) {
+	/// <summary>The roles steps ask for, in first-use order.</summary>
+	public IReadOnlyList<string> Roles => [.. Stages.Select(stage => stage.Run.Role).OfType<string>().Distinct(StringComparer.Ordinal)];
+
+	/// <summary>
+	/// The agent that runs <paramref name="stage"/>: its pinned agent, or its role's agent in <paramref name="roles"/>;
+	/// <see langword="null"/> for the session's own model or a role <paramref name="roles"/> doesn't fill.
+	/// </summary>
+	public WorkflowAgent? AgentOf(WorkflowStage stage, IReadOnlyList<WorkflowAgent> roles) {
 		ArgumentNullException.ThrowIfNull(stage);
-		return stage.Run.Agent is { } name ? Agents.First(a => a.Name == name) : null;
+		ArgumentNullException.ThrowIfNull(roles);
+		return stage.Run.Agent is { } name ? Agents.First(a => a.Name == name)
+			: stage.Run.Role is { } role ? roles.FirstOrDefault(a => a.Name == role)
+			: null;
 	}
 }
 
@@ -120,8 +129,11 @@ public sealed record WorkflowWork {
 	/// <summary>The typed values the stage must report.</summary>
 	public required IReadOnlyList<WorkflowOutputSpec> Outputs { get; init; }
 
-	/// <summary>The name of the agent that runs the step, or <see langword="null"/> for the session's own.</summary>
+	/// <summary>The name of the agent that runs the step, or <see langword="null"/>.</summary>
 	public required string? Agent { get; init; }
+
+	/// <summary>The role the user fills for the step, or <see langword="null"/>; with no agent either, the session's own model runs it.</summary>
+	public required string? Role { get; init; }
 }
 
 /// <summary>How a stage obtains its conversation.</summary>

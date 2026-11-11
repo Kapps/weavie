@@ -26,6 +26,24 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.Equal(["quick-fix", "spec-driven"], builtIns.Select(e => e.Id));
 		Assert.All(builtIns, entry => Assert.True(entry.Definition is not null, string.Join("\n", entry.Diagnostics)));
 		Assert.All(builtIns, entry => Assert.Equal($"built-in:{entry.Id}.yaml", entry.Path));
+		Assert.Equal([[], ["planner", "builder"]], builtIns.Select(entry => entry.Definition!.Roles));
+	}
+
+	[Fact]
+	public void PrepareFillsEachRoleThroughTheResolverOrLeavesNoLaunch() {
+		_dir.WriteFile("worktree/.weavie/workflows/roles.yaml",
+			"id: roles\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go, role: planner }\n  - id: b\n    run: { prompt: go, role: builder }\n");
+		static WorkflowAgent Agent(string name) => new() { Name = name, Provider = "p", Model = "m", Options = new Dictionary<string, string>() };
+
+		var launch = Catalog().Prepare("roles", NoInputs, null, WorkflowStartPrompt.None, new FixedRoles([Agent("builder"), Agent("planner")]));
+
+		Assert.Equal(["planner", "builder"], launch.Roles.Select(agent => agent.Name));
+		Assert.Contains("planner", Assert.Throws<WorkflowException>(() => Catalog().Prepare("roles", NoInputs)).Message, StringComparison.Ordinal);
+		Assert.Throws<InvalidOperationException>(() => Catalog().Prepare("roles", NoInputs, null, WorkflowStartPrompt.None, new Skipping()));
+	}
+
+	private sealed class Skipping : IWorkflowRoleResolver {
+		public IReadOnlyList<WorkflowAgent> Resolve(WorkflowDefinition definition) => [];
 	}
 
 	[Fact]
@@ -161,7 +179,7 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
 		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
-		Assert.Equal(["context", "prompt", "skill", "args", "outputs", "agent"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal(["context", "prompt", "skill", "args", "outputs", "agent", "role"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
 		var agent = schema["properties"]!["agents"]!["additionalProperties"]!;
 		Assert.Equal(["provider", "model", "options"], agent["properties"]!.AsObject().Select(p => p.Key));
 		Assert.Equal(["provider"], agent["required"]!.AsArray().Select(n => n!.GetValue<string>()));

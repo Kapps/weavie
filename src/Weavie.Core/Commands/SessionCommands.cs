@@ -110,14 +110,15 @@ public static class SessionCommands {
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "With 'workflow' (an id from listWorkflows) the new session starts that workflow instead, its first stage as the first input: "
-				+ "'prompt' and 'attachments' become the run's {{run.prompt}}, and 'inputs' maps each input the workflow declares to its value. "
+				+ "'prompt' and 'attachments' become the run's {{run.prompt}}, 'inputs' maps each input the workflow declares to its value, and "
+				+ "'roles' maps a role the workflow asks for to a model id of the new session's provider, saved for every workspace before it starts. "
 				+ "'agentProviderId' is any provider advertised by the current host; "
 				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions surface.",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
 			// Hidden from the palette: the human-facing entry is the Sessions surface. Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"},\"roles\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -518,7 +519,18 @@ public static class SessionCommands {
 			Existing = GetBool(args, "existing"),
 			Workflow = GetString(args, "workflow"),
 			Inputs = args.TryGetProperty("inputs", out var inputs) && inputs.ValueKind != JsonValueKind.Null ? inputs.Clone() : null,
+			Roles = GetRoles(args),
 		};
+	}
+
+	private static Dictionary<string, string> GetRoles(JsonElement args) {
+		var roles = new Dictionary<string, string>(StringComparer.Ordinal);
+		if (!args.TryGetProperty("roles", out var given) || given.ValueKind == JsonValueKind.Null) return roles;
+		if (given.ValueKind != JsonValueKind.Object) throw new JsonException("'roles' must be an object of role names to model ids.");
+		foreach (var role in given.EnumerateObject()) {
+			roles[role.Name] = role.Value.ValueKind == JsonValueKind.String && role.Value.GetString() is { Length: > 0 } model ? model : throw new JsonException($"Role '{role.Name}' needs a model id.");
+		}
+		return roles;
 	}
 
 	private static string? GetString(JsonElement args, string name) {

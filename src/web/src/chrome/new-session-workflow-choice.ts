@@ -1,10 +1,11 @@
 import type { WorkflowStartCatalog, WorkflowStartOption, WorkflowSuggestion } from "../bridge";
 import { DraftSettleTimer, draftWorthQuerying } from "./new-session-draft-settle";
 
-/** Where a new session would start: the host, and the session it branches from (null for the workspace). */
+/** Where a new session would start: the host, the session it branches from (null for the workspace), and its provider. */
 export interface WorkflowTarget {
   backendId: string;
   sourceId: string | null;
+  providerId: string;
 }
 
 export interface WorkflowChoiceState {
@@ -31,7 +32,8 @@ const sameTarget = (left: WorkflowTarget | null, right: WorkflowTarget | null): 
   (left !== null &&
     right !== null &&
     left.backendId === right.backendId &&
-    left.sourceId === right.sourceId);
+    left.sourceId === right.sourceId &&
+    left.providerId === right.providerId);
 
 const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

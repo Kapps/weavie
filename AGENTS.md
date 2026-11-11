@@ -97,7 +97,8 @@ load it only when you need it.
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
 - **Workflows** — user-defined, agent-authored YAML processes (stages that run a prompt or skill, typed outputs,
   `if`/`then` decisions answered by a model or the user) that a session runs, started from the new-session composer
-  or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
+  or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. A
+  stage can run on a role (`planner`) the user fills with a model per provider, so workflows name no model. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
   [docs/specs/workflows.md](docs/specs/workflows.md).
 - **Design system** — fixed-px chrome type roles, content and prose roles that follow the editor font, and
   layered primitives (row, button, field, section label, key hint, icon box, `ModalShell`) that make

@@ -32,9 +32,11 @@ public sealed partial class HostSession {
 		FailWorkflowTurn);
 
 	private WorkflowRunner CreateWorkflowRunner(
-		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, string workspaceRoot, Func<string, string> documentsDirectory) =>
+		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, IWorkflowRoleResolver roles, string workspaceRoot,
+		Func<string, string> documentsDirectory) =>
 		new(
 			WorkflowCatalog,
+			roles,
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
 			decider,
 			new WorkflowFileReader(fileSystem, workspaceRoot),
@@ -117,8 +119,8 @@ public sealed partial class HostSession {
 
 		public void Notify(string message) => session.Notify("warn", message);
 
-		public string? Refusal(WorkflowDefinition definition) => WorkflowAgentControls.Refusal(
-			definition, session.Agent.Provider, session.Agent.Controls?.ControlState is { Ready: true } state ? state.Axes : null);
+		public string? Refusal(WorkflowLaunch launch) => WorkflowAgentControls.Refusal(
+			launch.Definition, launch.Roles, session.Agent.Provider, session.Agent.Controls?.ControlState is { Ready: true } state ? state.Axes : null);
 	}
 
 	private sealed class WorkflowTurnContext(HostSession session) : IAgentTurnContext {

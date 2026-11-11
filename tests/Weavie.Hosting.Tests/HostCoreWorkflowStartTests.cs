@@ -25,11 +25,11 @@ public sealed class HostCoreWorkflowStartTests {
 	}
 
 	private static Task<JsonElement> CatalogAsync(TestHost host, string? sourceId) =>
-		host.HostRequestAsync<JsonElement>("sessionCreation", "workflows", new { sourceId });
+		host.HostRequestAsync<JsonElement>("sessionCreation", "workflows", new { sourceId, providerId = "structured" });
 
 	private static async Task<(bool Applies, string? Workflow, string? Error)> SuggestAsync(TestHost host) {
 		var result = await host.HostRequestAsync<JsonElement>(
-			"sessionCreation", "suggestWorkflow", new { sourceId = (string?)null, prompt = "tidy the draft and polish it" });
+			"sessionCreation", "suggestWorkflow", new { sourceId = (string?)null, providerId = "structured", prompt = "tidy the draft and polish it" });
 		return (result.GetProperty("applies").GetBoolean(), result.GetProperty("workflow").GetString(), result.GetProperty("error").GetString());
 	}
 
@@ -82,7 +82,7 @@ public sealed class HostCoreWorkflowStartTests {
 		host.Bridge.Receive(peer, Request("held-preview", "previewBranch",
 			new { sourceId = (string?)null, prompt = "tidy the draft", attachments = Array.Empty<object>(), userInitiated = false }));
 		await inference.BranchAsked.Task.WaitAsync(TimeSpan.FromSeconds(10));
-		host.Bridge.Receive(peer, Request("suggestion", "suggestWorkflow", new { sourceId = (string?)null, prompt = "tidy the draft" }));
+		host.Bridge.Receive(peer, Request("suggestion", "suggestWorkflow", new { sourceId = (string?)null, providerId = "structured", prompt = "tidy the draft" }));
 
 		MessageEnvelope? Response(string id) => host.Bridge.Posted
 			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)

@@ -5,7 +5,12 @@ import { ChunkedMessageReceiver } from "./messaging/chunked-message";
 import { type ClientSession, HostConnection, type HostHello } from "./messaging/host-connection";
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
-import type { BackendEndpoint, BackendInfo, PullRequestInfo } from "./messaging/protocol-types";
+import type {
+  AgentControlOption,
+  BackendEndpoint,
+  BackendInfo,
+  PullRequestInfo,
+} from "./messaging/protocol-types";
 import { SelectionSequencer } from "./messaging/selection-sequencer";
 import {
   decodeWebSocketMessage,
@@ -568,11 +573,20 @@ export function requestBranchPreview(
   );
 }
 
+/** A role the workflow asks for that the chosen provider has no usable model for. */
+export interface WorkflowRoleNeed {
+  role: string;
+  /** Why its saved model can't be used; null when nothing is saved. */
+  problem: string | null;
+}
+
 export interface WorkflowStartOption {
   id: string;
   description: string;
-  /** Why the workflow can't run; null when it can. */
+  /** Why the workflow can't run with the chosen provider; null when it can. */
   error: string | null;
+  /** The roles that need a model before it can start. */
+  roles: WorkflowRoleNeed[];
 }
 
 export interface WorkflowStartCatalog {
@@ -586,6 +600,19 @@ export interface WorkflowSuggestion {
   /** Whether `workflow` (null for no workflow) should replace the composer's value. */
   applies: boolean;
   workflow: string | null;
+  error: string | null;
+}
+
+export interface RoleModels {
+  models: AgentControlOption[];
+  /** Why the provider's models can't be listed; null when they are. */
+  error: string | null;
+}
+
+export interface RoleSuggestion {
+  /** Whether `model` should fill the role's picker. */
+  applies: boolean;
+  model: string | null;
   error: string | null;
 }
 
@@ -609,21 +636,48 @@ function requestSessionCreation<T>(
     : connection.host.feature("sessionCreation").request(name, payload, signal);
 }
 
-/** The workflows a session started from `sourceId` (null for the workspace) can run from a prompt alone. */
+/**
+ * The workflows a `providerId` session started from `sourceId` (null for the workspace) can run from a prompt
+ * alone, with the roles each still needs a model for.
+ */
 export const requestWorkflowCatalog = (
   backendId: string,
   sourceId: string | null,
+  providerId: string,
   signal: AbortSignal,
 ): Promise<WorkflowStartCatalog> =>
-  requestSessionCreation(backendId, "workflows", { sourceId }, signal);
+  requestSessionCreation(backendId, "workflows", { sourceId, providerId }, signal);
 
 export const requestWorkflowSuggestion = (
   backendId: string,
   sourceId: string | null,
+  providerId: string,
   prompt: string,
   signal: AbortSignal,
 ): Promise<WorkflowSuggestion> =>
-  requestSessionCreation(backendId, "suggestWorkflow", { sourceId, prompt }, signal);
+  requestSessionCreation(backendId, "suggestWorkflow", { sourceId, providerId, prompt }, signal);
+
+/** The models `providerId` offers a role; answers once they aren't being probed. */
+export const requestRoleModels = (
+  backendId: string,
+  providerId: string,
+  signal: AbortSignal,
+): Promise<RoleModels> => requestSessionCreation(backendId, "roleModels", { providerId }, signal);
+
+export const requestRoleSuggestion = (
+  backendId: string,
+  sourceId: string | null,
+  providerId: string,
+  workflow: string,
+  role: string,
+  signal: AbortSignal,
+): Promise<RoleSuggestion> =>
+  requestSessionCreation(
+    backendId,
+    "suggestRole",
+    { sourceId, providerId, workflow, role },
+    signal,
+  );
 
 export function requestDiffRefs(
   session: ClientSession,

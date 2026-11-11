@@ -71,3 +71,50 @@ test("a default an agent sets from its own session is the one the composer prese
   const workflow = page.locator(".session-inbox").getByRole("button", { name: "Workflow" });
   await expect(workflow).toHaveText("quick-fix");
 });
+
+test("the composer asks for each role a workflow needs, suggests a model, and saves it at Start", async ({
+  page,
+  weavie,
+}) => {
+  await writeFile(
+    join(weavie.workspace, "inference-answer.json"),
+    JSON.stringify({ alpha: 0.05, beta: 0.95 }),
+  );
+  await page.locator(".session-rail-add").click();
+  const inbox = page.locator(".session-inbox");
+  const provider = inbox.getByRole("combobox", { name: "Agent provider" });
+  await provider.selectOption("fake-acp");
+  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("add a picker");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("roles");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await page
+    .getByRole("listbox", { name: "Workflow" })
+    .getByRole("option", { name: /^spec-driven/ })
+    .click();
+
+  const planner = inbox.getByRole("button", { name: /^planner/ });
+  await expect(planner).toHaveText("Beta");
+  await expect(inbox.getByRole("button", { name: /^builder/ })).toHaveText("Beta");
+  await inbox.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(inbox).toBeHidden();
+  const surface = page.locator('[data-surface="structured-agent"]');
+  await expect(surface.locator(".pane-head .pane-run")).toHaveText("spec-driven · requirements");
+  await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
+
+  // Saved for every later start in this provider's sessions; a terminal session can't run the workflow at all.
+  await page.locator(".session-rail-add").click();
+  await provider.selectOption("fake-acp");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await page
+    .getByRole("listbox", { name: "Workflow" })
+    .getByRole("option", { name: /^spec-driven/ })
+    .click();
+  await expect(planner).toHaveCount(0);
+  await provider.selectOption("claude");
+  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await expect(
+    page
+      .getByRole("listbox", { name: "Workflow" })
+      .getByRole("option", { name: /^spec-driven.*runs in a terminal/ }),
+  ).toHaveAttribute("aria-disabled", "true");
+});

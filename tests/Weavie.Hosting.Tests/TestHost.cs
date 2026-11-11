@@ -635,6 +635,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AgentModels = agentModels,
+			WorkflowRoles = new Weavie.Core.Workflows.WorkflowRoleStore(new LocalFileSystem(), Path.Combine(tempRoot, "workflow-roles.json")),
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),

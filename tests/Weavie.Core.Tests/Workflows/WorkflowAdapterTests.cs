@@ -31,7 +31,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
+			Catalog(), NoWorkflowRoles.Instance, new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary, id => _dir.Combine("documents", id));
 		runner.Activate();
 		return runner;
 	}
@@ -72,7 +72,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 	[Fact]
 	public void SessionRegistryRoutesToItsRunnerAndErrorsWithoutARun() {
 		using var runner = Runner();
-		var registry = new SessionWorkflowRegistry(Catalog(), runner);
+		var registry = new SessionWorkflowRegistry(Catalog(), runner, new WorkflowRoleStore(new InMemoryFileSystem(), "/config/workflow-roles.json"));
 		Assert.Null(registry.CaptureStageCall());
 		runner.Start("flow", Json("{}"));
 		var call = registry.CaptureStageCall();
@@ -149,6 +149,6 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		public void Notify(string message) {
 		}
 
-		public string? Refusal(WorkflowDefinition definition) => null;
+		public string? Refusal(WorkflowLaunch launch) => null;
 	}
 }

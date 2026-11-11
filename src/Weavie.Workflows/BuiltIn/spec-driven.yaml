@@ -3,6 +3,7 @@ description: Requirements, design, and a task list, each approved by you, then t
 stages:
   - id: requirements
     run:
+      role: planner
       prompt: >
         Interview me as needed about the feature described below, then choose a short kebab-case slug for
         it and write EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md.
@@ -20,6 +21,7 @@ stages:
 
   - id: design
     run:
+      role: planner
       prompt: Write {{requirements.dir}}/design.md from the approved requirements.
     then:
       ask: Approve the design in {{requirements.dir}}/design.md?
@@ -30,6 +32,7 @@ stages:
 
   - id: tasks
     run:
+      role: planner
       prompt: >
         Break the approved design into small, independently testable tasks, written as a checklist in
         {{requirements.dir}}/tasks.md. Report them in order as the tasks output.
@@ -44,6 +47,7 @@ stages:
 
   - id: implement
     run:
+      role: builder
       prompt: >
         Implement these tasks in order, following {{requirements.dir}}/design.md, ticking each one off in
         {{requirements.dir}}/tasks.md as it lands:

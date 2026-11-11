@@ -1,11 +1,13 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 
-// Starting a workflow from the new-session composer: the workflows it offers and the one a prompt suggests, both
-// read from the same catalog a start resolves. See docs/specs/new-session-workflow-picker/design.md.
+// Starting a workflow from the new-session composer: the workflows it offers in the chosen provider's sessions, the
+// roles they still need a model for, and the suggestions, all read from the same catalog a start resolves. See
+// docs/specs/new-session-workflow-picker/design.md and docs/specs/workflow-roles/design.md.
 public sealed partial class HostCore {
 	private const string SourceGoneMessage = "The source session no longer exists.";
 
@@ -20,43 +22,94 @@ public sealed partial class HostCore {
 		return source is not null || string.IsNullOrWhiteSpace(sourceId);
 	}
 
-	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(string root, CancellationToken ct) {
+	// The one rule for a workflow's roles in sessions of the provider described by info.
+	private WorkflowRoleResolver RoleResolver(AgentProviderInfo info) => new(_workflowRoles, info, _agentModels);
+
+	private AgentProviderInfo RequireProvider(string providerId) =>
+		_agentProviders.FindInfo(providerId) ?? throw new WorkflowException($"Agent provider '{providerId}' is not registered.");
+
+	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(string root, string providerId, CancellationToken ct) {
 		string configured = _settings.RequireString(WorkflowSettings.Default, WorkspaceRoot);
-		return Task.Run(() => WorkflowStartOptions.From(WeavieWorkflows.Catalog(root), configured), ct);
+		var roles = RoleResolver(RequireProvider(providerId));
+		return Task.Run(() => WorkflowStartOptions.From(WeavieWorkflows.Catalog(root), configured, roles), ct);
 	}
 
 	private string RequireLaunchRoot(string? sourceId) =>
 		TryLaunchRoot(sourceId, out string root) ? root : throw new InvalidOperationException(SourceGoneMessage);
 
 	private async Task<WorkflowStartCatalog> WorkflowStartCatalogAsync(WorkflowStartTarget target, CancellationToken ct) {
-		var options = await WorkflowStartOptionsAsync(RequireLaunchRoot(target.SourceId), ct).ConfigureAwait(false);
+		var options = await WorkflowStartOptionsAsync(RequireLaunchRoot(target.SourceId), target.ProviderId, ct).ConfigureAwait(false);
 		return new(
-			[.. options.Offered.Select(entry => new WorkflowOptionWire(
-				entry.Id, entry.Definition?.Description ?? "", entry.Definition is null ? entry.Error : null))],
+			[.. options.Offered.Select(option => new WorkflowOptionWire(
+				option.Entry.Id,
+				option.Entry.Definition?.Description ?? "",
+				option.Problem,
+				option.Problem is null
+					? [.. option.Roles!.Unfilled.Select(gap => new WorkflowRoleNeedWire(
+						gap.Role, gap.MissingModel is { } missing ? WorkflowAgentControls.Stale(missing) : null))]
+					: []))],
 			options.Default,
 			options.DefaultProblem);
 	}
 
 	private async Task<WorkflowSuggestionResult> SuggestWorkflowAsync(WorkflowSuggestionRequest request, CancellationToken ct) {
-		double confidence = _settings.RequireNumber(WorkflowSettings.DecisionConfidence);
 		string root = RequireLaunchRoot(request.SourceId);
-		var options = await WorkflowStartOptionsAsync(root, ct).ConfigureAwait(false);
+		var options = await WorkflowStartOptionsAsync(root, request.ProviderId, ct).ConfigureAwait(false);
 		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory)
-			.SuggestAsync(options.Startable, request.Prompt, root, confidence, ct).ConfigureAwait(false);
-		return suggestion switch {
-			WorkflowSuggestion.Chosen chosen => new(true, chosen.WorkflowId, null),
-			WorkflowSuggestion.Failed failed => new(false, null, failed.Reason),
-			_ => new(false, null, null),
+			.SuggestAsync(options.Startable, request.Prompt, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence), ct)
+			.ConfigureAwait(false);
+		return Reply(suggestion, static (applies, workflow, error) => new WorkflowSuggestionResult(applies, workflow, error));
+	}
+
+	// The composer's reply to a suggestion: whether it applies, its choice, and why it failed.
+	private static T Reply<T>(WorkflowSuggestion suggestion, Func<bool, string?, string?, T> reply) => suggestion switch {
+		WorkflowSuggestion.Chosen chosen => reply(true, chosen.Choice, null),
+		WorkflowSuggestion.Failed failed => reply(false, null, failed.Reason),
+		_ => reply(false, null, null),
+	};
+
+	// Answers once the provider's models aren't being probed, so the composer waits on the request itself.
+	private async Task<RoleModelsResult> RoleModelsAsync(RoleModelsRequest request, CancellationToken ct) {
+		var info = RequireProvider(request.ProviderId);
+		return await _agentModels.SettledAsync(info.Id, ct).ConfigureAwait(false) switch {
+			{ Status: AgentModelStatus.Ready, Models: var models } => new(models, null),
+			{ Error: var error } => new([], error),
+			null => new([], $"{info.Name} offers no model to choose."),
 		};
 	}
 
-	internal sealed record WorkflowStartTarget(string? SourceId);
+	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
+		string root = RequireLaunchRoot(request.SourceId);
+		var resolver = RoleResolver(RequireProvider(request.ProviderId));
+		var options = await WorkflowStartOptionsAsync(root, request.ProviderId, ct).ConfigureAwait(false);
+		// Only a role with nothing saved is suggested; a saved model that has gone is the user's to replace.
+		if (options.Offered.FirstOrDefault(option => option.Entry.Id == request.Workflow && option.Problem is null) is not { } offered
+			|| offered.Roles!.Unfilled.FirstOrDefault(gap => gap.Role == request.Role) is not { MissingModel: null }) {
+			return new(false, null, null);
+		}
+		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory).SuggestRoleAsync(
+			offered.Entry.Definition!, request.Role, resolver.Offered, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence), ct)
+			.ConfigureAwait(false);
+		return Reply(suggestion, static (applies, model, error) => new RoleSuggestionResult(applies, model, error));
+	}
 
-	internal sealed record WorkflowSuggestionRequest(string? SourceId, string Prompt);
+	internal sealed record WorkflowStartTarget(string? SourceId, string ProviderId);
 
-	internal sealed record WorkflowOptionWire(string Id, string Description, string? Error);
+	internal sealed record WorkflowSuggestionRequest(string? SourceId, string ProviderId, string Prompt);
+
+	internal sealed record WorkflowRoleNeedWire(string Role, string? Problem);
+
+	internal sealed record WorkflowOptionWire(string Id, string Description, string? Error, IReadOnlyList<WorkflowRoleNeedWire> Roles);
 
 	internal sealed record WorkflowStartCatalog(IReadOnlyList<WorkflowOptionWire> Workflows, string? Default, string? DefaultProblem);
 
 	internal sealed record WorkflowSuggestionResult(bool Applies, string? Workflow, string? Error);
+
+	internal sealed record RoleModelsRequest(string ProviderId);
+
+	internal sealed record RoleModelsResult(IReadOnlyList<AgentControlOption> Models, string? Error);
+
+	internal sealed record RoleSuggestionRequest(string? SourceId, string ProviderId, string Workflow, string Role);
+
+	internal sealed record RoleSuggestionResult(bool Applies, string? Model, string? Error);
 }

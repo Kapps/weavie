@@ -17,6 +17,9 @@ public static partial class CoreCommands {
 	/// <summary>Cancels a run.</summary>
 	public const string WorkflowCancel = "weavie.workflow.cancel";
 
+	/// <summary>Sets or clears what fills a workflow role in one provider's sessions.</summary>
+	public const string WorkflowSetRole = "weavie.workflow.setRole";
+
 	private const string RunArg = "\"run\":{\"type\":\"string\",\"description\":\"The run id from the workflow stage block\"}";
 
 	private static void RegisterWorkflows(CommandRegistry registry) {
@@ -31,6 +34,15 @@ public static partial class CoreCommands {
 			(WorkflowJumpToStage, "Jump to Workflow Stage", "Move a workflow run to a stage, which opens regardless of its if.",
 				RunArg + ",\"stage\":{\"type\":\"string\"}"),
 			(WorkflowCancel, "Cancel Workflow", "Cancel a workflow run.", RunArg),
+			(WorkflowSetRole, "Set Workflow Role", "Set or clear, for every workspace, which model fills a workflow role (a step's 'role', e.g. planner) "
+				+ "in one provider's sessions. listWorkflowRoles shows what is saved; listAgents gives the provider and model ids. Pass exactly one "
+				+ "of 'agent' or 'clear'.",
+				"\"role\":{\"type\":\"string\",\"description\":\"The role name: lowercase words joined by hyphens\"},"
+				+ "\"provider\":{\"type\":\"string\",\"description\":\"The session provider id this applies to, e.g. claude-acp\"},"
+				+ "\"agent\":{\"type\":\"object\",\"description\":\"What fills the role: provider (the session provider), model (a model id it advertises), "
+				+ "and optional options (config option id to value id)\",\"properties\":{\"provider\":{\"type\":\"string\"},\"model\":{\"type\":\"string\"},"
+				+ "\"options\":{\"type\":\"object\"}},\"required\":[\"provider\",\"model\"]},"
+				+ "\"clear\":{\"type\":\"boolean\",\"description\":\"true to remove the saved role\"}"),
 		}) {
 			registry.Register(new CommandDefinition {
 				Id = id,

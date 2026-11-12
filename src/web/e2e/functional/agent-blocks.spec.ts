@@ -134,6 +134,11 @@ test("an agent's table sorts, filters, and attaches dragged cells", async ({ pag
   await expect(messages).toHaveText(["upstream timed out", "retrying"]);
   // Picking a value leaves focus in the panel, where Escape and Enter are the panel's and not the prompt's.
   await expect(byLevel.getByRole("searchbox")).toBeFocused();
+  // A press on a picked value's check mark removes the mark it landed on, and is still the panel's.
+  await byLevel.locator(".agent-table-filter-check svg").first().click();
+  await expect(messages).toHaveText(["retrying"]);
+  await expect(byLevel.getByRole("searchbox")).toBeFocused();
+  await byLevel.getByRole("button", { name: "error" }).click();
   await expect(block.getByRole("button", { name: "Filter level" })).toHaveAttribute(
     "aria-pressed",
     "true",

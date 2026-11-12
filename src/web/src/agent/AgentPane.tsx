@@ -1,4 +1,4 @@
-import { type JSX, lazy, Show } from "solid-js";
+import { type JSX, lazy, onCleanup, onMount, Show } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
 import { hasTextSelection } from "../commands/context";
 import { AgentStatusLine } from "./AgentStatusLine";
@@ -34,8 +34,16 @@ export function AgentPane(props: {
     }
   };
 
-  // WebKit reports a tap's click as pointerType "mouse" (bug 282988); only its pointerdown names the device.
+  // Whether the press in progress began on this surface with a mouse. Decided at the press: a portaled panel's
+  // clicks arrive here unpressed, and WebKit's click calls a tap a "mouse" (bug 282988).
   let pressedWithMouse = false;
+  onMount(() => {
+    const reset = (): void => {
+      pressedWithMouse = false;
+    };
+    window.addEventListener("pointerdown", reset, true);
+    onCleanup(() => window.removeEventListener("pointerdown", reset, true));
+  });
 
   const focusPrompt = (event: MouseEvent): void => {
     if (!pressedWithMouse || event.button !== 0 || event.detail === 0) {
@@ -43,11 +51,6 @@ export function AgentPane(props: {
     }
 
     const target = event.target;
-    // A panel portaled out of the surface still delivers its clicks here; they are not presses on the surface.
-    const surface = event.currentTarget;
-    if (!(target instanceof Node) || !(surface instanceof Node) || !surface.contains(target)) {
-      return;
-    }
     if (
       target instanceof Element &&
       target.closest(

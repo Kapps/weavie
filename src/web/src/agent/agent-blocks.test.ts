@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentChart } from "../bridge";
 import { estimateEntrySize } from "./AgentPaneEstimate";
+import { blockKey } from "./AgentPaneIdentity";
 import { toAgentTranscript } from "./AgentPaneTestModel";
 import { blockHeight } from "./agent-block-layout";
 import { chartOption, chartRangeText } from "./agent-charts";
-import { blockKey } from "./block-store";
 
 const chart: AgentChart = {
   kind: "area",

@@ -2,7 +2,7 @@ import type { AgentPaneUpdate } from "../bridge";
 import { AgentActivitySegments } from "./AgentActivitySegments";
 import { isAgentActivity } from "./AgentPaneActivitySummary";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
-import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { blockKey, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -16,7 +16,6 @@ import type {
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
 import { planIdentity } from "./agent-plan";
-import { blockKey } from "./block-store";
 
 export interface AgentTranscriptProjection {
   currentThought: string | null;

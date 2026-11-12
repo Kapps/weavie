@@ -65,14 +65,15 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   expect(order[shown - 1]).toContain("block call starting");
   expect(order[shown + 1]).toContain("block call done");
 
-  for (const value of [371, 389, 402]) {
-    const append = {
+  // Several small appends in one turn, their results reported out of order.
+  const appends = [371, 389, 402].map((value) =>
+    JSON.stringify({
       id: "p95",
       append: { series: [{ name: "now", points: [[1794490800000 + value, value]] }] },
       keep: 60,
-    };
-    await submitAcpDraft(surface, `block:codex:updateBlock:${JSON.stringify(append)}`);
-  }
+    }),
+  );
+  await submitAcpDraft(surface, `block-parallel:codex:updateBlock:${appends.join("\n")}`);
 
   await expect(block.locator(".agent-entry-status")).toContainText("updated");
   await expect(surface.locator(".agent-entry-block")).toHaveCount(1);
@@ -82,9 +83,22 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   const restored = page.locator('[data-surface="structured-agent"] .agent-entry-block');
   await expect(restored.locator(".agent-chart canvas")).toBeVisible();
   await expect(restored.locator(".agent-entry-status")).toContainText("updated");
+
+  // Dragging across the chart attaches that range to the next prompt.
+  await restored.scrollIntoViewIfNeeded();
+  const plot = (await restored.locator(".agent-chart").boundingBox())!;
+  await page.mouse.move(plot.x + plot.width * 0.2, plot.y + plot.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(plot.x + plot.width * 0.95, plot.y + plot.height * 0.5, { steps: 6 });
+  await page.mouse.up();
+  const chip = page.locator(
+    '[data-surface="structured-agent"] [data-agent-composer] .agent-attachment-selection',
+  );
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText("p95 latency ·");
 });
 
-test("an agent's table sorts and filters", async ({ page }) => {
+test("an agent's table sorts, filters, and attaches dragged cells", async ({ page }) => {
   const surface = await createAcpSession(page, "agent-blocks-table");
 
   await submitAcpDraft(surface, `block:codex:showBlock:${JSON.stringify(table)}`);
@@ -99,6 +113,17 @@ test("an agent's table sorts and filters", async ({ page }) => {
 
   await block.getByRole("searchbox", { name: "Filter Recent errors" }).fill("retry");
   await expect(messages).toHaveText(["retrying"]);
+  await block.getByRole("searchbox", { name: "Filter Recent errors" }).fill("");
+
+  const first = block.locator('[data-cell="0:1"]');
+  const last = block.locator('[data-cell="1:2"]');
+  await first.hover();
+  await page.mouse.down();
+  await last.hover();
+  await page.mouse.up();
+  const chip = surface.locator("[data-agent-composer] .agent-attachment-selection");
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText("Recent errors · rows 1-2");
 });
 
 test("an agent that can't report a block's result says it wasn't shown", async ({ page }) => {

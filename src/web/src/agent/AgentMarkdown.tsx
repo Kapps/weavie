@@ -9,7 +9,9 @@ import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { hydrateAgentImages } from "./agent-images";
 import { installAgentMermaid } from "./agent-mermaid";
+import { installRegionSelect } from "./agent-region-select";
 import { installReplySelection } from "./agent-reply-selection";
+import { uploadAgentImage } from "./composer-store";
 import { hydrateGithubMedia } from "./github-media";
 
 /**
@@ -105,8 +107,10 @@ export function AgentMarkdown(props: {
         ),
       );
       onCleanup(installAgentCodeCopy(host));
-      if (props.flavor === "agent" && props.session !== null) {
-        onCleanup(installReplySelection(host, props.session));
+      const session = props.session;
+      if (props.flavor === "agent" && session !== null) {
+        onCleanup(installReplySelection(host, session));
+        onCleanup(installRegionSelect(host, (png) => uploadAgentImage(session, png)));
       }
     }
   });

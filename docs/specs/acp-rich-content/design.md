@@ -609,23 +609,23 @@ agent exercise the whole path.
 
 **Phase 1**
 
-1. Capture raw ACP frames from real Claude and Codex calling a Weavie tool, singly and in parallel; record
+- [x] 1. Capture raw ACP frames from real Claude and Codex calling a Weavie tool, singly and in parallel; record
    them under `temp/` and correct this design if they differ from the journal evidence.
-2. `AgentBlock` types, `AgentBlockJson`, validator, ops, limits, with Core tests.
-3. `AcpSessionStore.Blocks`: table, upsert, delete, prune in `Replace`, `ClearWorkspace`.
-4. `ConversationOutput`, `ConversationView`, ledger revision, `AgentPaneMessage.BlockId`.
-5. `AgentBlockClaims`, grant and `InflightCall` wiring, the two handlers (unlisted).
-6. `AcpConversation.Blocks`, the `Claimed` guards, port `CommitBlock`, restore and rewind with blocks.
-7. Fake agent narration matrix, turn-end drain and notice, `AcpBlockTests`.
-8. Wire contracts, history `blocks`, live `block`, `block-store.ts`.
-9. Real Claude and Codex run; `dotnet format`, `biome check --write`; reviewer; PR.
+- [x] 2. `AgentBlock` types, `AgentBlockJson`, validator, ops, limits, with Core tests.
+- [x] 3. `AcpSessionStore.Blocks`: table, upsert, delete, prune in `Replace`, `ClearWorkspace`.
+- [x] 4. `ConversationOutput`, `ConversationView`, ledger revision, `AgentPaneMessage.BlockId`.
+- [x] 5. `AgentBlockClaims`, grant and `InflightCall` wiring, the two handlers (unlisted).
+- [x] 6. `AcpConversation.Blocks`, the `Claimed` guards, port `CommitBlock`, restore and rewind with blocks.
+- [x] 7. Fake agent narration matrix, turn-end drain and notice, `AcpBlockTests`.
+- [x] 8. Wire contracts, history `blocks`, live `block`, `block-store.ts`.
+- [x] 9. Real Claude and Codex run through `AcpAgentSession` (both show and update in place); `dotnet format`, `biome check --write`. Phase 1 ships in the same PR as Phase 2, as separate commits.
 
 **Phase 2**
 
-10. List the tools per grant; guidance.
-11. Block entry kind, fixed frame, estimate, mount retention.
-12. ECharts chart view, palette tokens, theme re-apply.
-13. Table view.
-14. Attachment union end to end; selection gestures; command and setting.
-15. Image mode, hydration, remote route, CORS helper, setting.
-16. e2e specs, `pnpm e2e:perf`, the remote crop test, real-agent run, docs, reviewer, tester video, PR.
+- [x] 10. List the tools per grant; guidance.
+- [x] 11. Block entry kind, fixed frame, estimate, mount retention.
+- [x] 12. ECharts chart view, palette tokens, theme re-apply.
+- [x] 13. Table view.
+- [x] 14. Attachment union end to end; selection gestures; command and setting.
+- [x] 15. Image mode, hydration, remote route, CORS helper, setting.
+- [x] 16. e2e specs, `pnpm e2e:perf`, the remote crop test, real-agent run, docs, PR. Review and the tester video are the next stages.

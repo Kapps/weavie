@@ -1,15 +1,7 @@
 import { type Accessor, createRoot, createSignal, type Setter } from "solid-js";
 import type { AgentBlockRecord, ClientSession } from "../bridge";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
-
-/** The key of block `blockId` in one provider conversation. */
-export function blockKey(
-  providerId: string,
-  conversationId: string | null | undefined,
-  blockId: string,
-): string {
-  return `${providerId}\u0000${conversationId ?? ""}\u0000${blockId}`;
-}
+import { blockKey } from "./AgentPaneIdentity";
 
 interface BlockSignals {
   blocks: Map<

@@ -28,13 +28,12 @@ public sealed class HostCoreStructuredAttachmentTests {
 
 		Assert.True(result.Ok, result.Error);
 		var session = host.Session("new-session-image");
-		await session.Agent.DrainPaneAsync(CancellationToken.None);
+		// The first prompt is delivered once the new session turns idle, after creation returns.
+		await HostCoreWorkflowTests.Eventually(() => host.Bridge.PostedEvents(session.Address, "agent", "pane").Any(
+			message => message.GetProperty("type").GetString() == "user-message"
+				&& message.GetProperty("text").GetString() == "describe this"));
 		string file = Assert.Single(Directory.GetFiles(session.PastedImages.Directory));
 		Assert.Equal(PngBytes, File.ReadAllBytes(file));
-		Assert.Contains(
-			host.Bridge.PostedEvents(session.Address, "agent", "pane"),
-			message => message.GetProperty("type").GetString() == "user-message"
-				&& message.GetProperty("text").GetString() == "describe this");
 	}
 
 	[Fact]

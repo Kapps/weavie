@@ -31,3 +31,12 @@ export function paneActivityIdentity(message: AgentPaneUpdate, fallbackTurnId: s
     message.turnId ?? fallbackTurnId,
   ]);
 }
+
+/** The key of block `blockId` in one provider conversation. */
+export function blockKey(
+  providerId: string,
+  conversationId: string | null | undefined,
+  blockId: string,
+): string {
+  return `${providerId}\u0000${conversationId ?? ""}\u0000${blockId}`;
+}

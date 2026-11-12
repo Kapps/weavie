@@ -10,7 +10,7 @@ const PNG = Buffer.from(
   "base64",
 );
 
-test("an agent reply shows a workspace image in a fixed frame, from a same-origin blob", async ({
+test("an agent reply shows a workspace image in a fixed frame, from a same-origin blob, and a boxed region attaches @cross", async ({
   page,
   weavie,
 }) => {
@@ -28,6 +28,21 @@ test("an agent reply shows a workspace image in a fixed frame, from a same-origi
   expect(await surface.locator(".agent-image").evaluate((element) => element.clientHeight)).toBe(
     240,
   );
+  // A reply that finishes rendering reinserts its loaded image, so measure the one that stays.
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect(async () => {
+    await image.scrollIntoViewIfNeeded();
+    box = await image.boundingBox();
+    expect(box).not.toBeNull();
+  }).toPass();
+  box = box!;
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.1);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9, { steps: 4 });
+  await page.mouse.up();
+  await expect(
+    surface.locator("[data-agent-composer] .agent-attachment:not(.agent-attachment-selection)"),
+  ).toHaveCount(1);
 });
 
 test("a remote image says why it didn't load when remote images are off", async ({ page }) => {

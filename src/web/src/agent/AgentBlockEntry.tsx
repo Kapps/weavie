@@ -20,7 +20,8 @@ export function AgentBlockEntry(props: {
   session: ClientSession;
 }): JSX.Element {
   const record = () => agentBlock(props.session, props.entry.block.key);
-  const view = tableView(props.session, props.entry.block.key);
+  const view =
+    props.entry.block.kind === "table" ? tableView(props.session, props.entry.id) : undefined;
   const title = () => record()?.block.title ?? props.entry.summary ?? "";
   const select = (selection: AgentSelection): void =>
     attachAgentSelection(props.session, selection);

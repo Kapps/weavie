@@ -55,6 +55,7 @@ describe("agent blocks", () => {
       animationDuration: number;
       animationDurationUpdate: number;
       series: {
+        id: string;
         name?: string;
         color?: string;
         yAxisIndex: number;
@@ -72,6 +73,14 @@ describe("agent blocks", () => {
       ["now", "c1", 0],
       ["24h ago", "dim", 0],
       ["errors", "c2", 1],
+    ]);
+    // Stable ids, so an update animates each series in place instead of rebuilding it.
+    expect(option.series.map((series) => series.id)).toEqual([
+      "series:now",
+      "series:24h ago",
+      "series:errors",
+      "marks:y",
+      "marks:y2",
     ]);
     expect(option.series[1]!.lineStyle!.type).toEqual([4, 3]);
     expect(option.yAxis).toHaveLength(2);

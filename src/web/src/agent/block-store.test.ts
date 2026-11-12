@@ -39,14 +39,11 @@ describe("block store", () => {
     expect(agentBlock(session, key)?.block.title).toBe("after clear");
   });
 
-  it("keeps a table's view with its block until a new generation voids the block", () => {
+  it("keeps one table view per transcript row", () => {
     const session = {} as ClientSession;
-    const key = blockKey("fake", null, "p95");
-    putBlocks(session, [record(1, 1, "first")]);
-    tableView(session, key)!.setSort({ column: 1, descending: true });
+    tableView(session, "row-1")!.setSort({ column: 1, descending: true });
 
-    expect(tableView(session, key)!.sort()).toEqual({ column: 1, descending: true });
-    putBlocks(session, [record(2, 1, "next")]);
-    expect(tableView(session, key)!.sort()).toBeNull();
+    expect(tableView(session, "row-1")!.sort()).toEqual({ column: 1, descending: true });
+    expect(tableView(session, "row-2")!.sort()).toBeNull();
   });
 });

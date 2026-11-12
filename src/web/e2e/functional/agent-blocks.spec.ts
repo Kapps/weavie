@@ -206,10 +206,12 @@ test("a table scrolled out of the transcript and back keeps its sort and filters
   await submitAcpDraft(surface, `block:codex:showBlock:${JSON.stringify(table)}`);
   const block = surface.locator(".agent-entry-block");
   const messages = block.locator(".agent-table-row .agent-table-cell:nth-of-type(4)");
+  // Newest first, which the rows are not in without the sort.
+  await block.getByRole("button", { name: "time", exact: true }).click();
   await block.getByRole("button", { name: "time", exact: true }).click();
   await block.getByRole("button", { name: "Filter level" }).click();
   await page.keyboard.type("r");
-  await expect(messages).toHaveText(["upstream timed out", "retrying"]);
+  await expect(messages).toHaveText(["retrying", "upstream timed out"]);
   await page.keyboard.press("Escape");
 
   // Enough replies to push the table's row out of the mounted part of the transcript.
@@ -225,7 +227,7 @@ test("a table scrolled out of the transcript and back keeps its sort and filters
     await page.mouse.wheel(0, -2000);
     await expect(block).toBeVisible({ timeout: 500 });
   }).toPass();
-  await expect(messages).toHaveText(["upstream timed out", "retrying"]);
+  await expect(messages).toHaveText(["retrying", "upstream timed out"]);
   await expect(block.getByRole("button", { name: "Filter level" })).toHaveAttribute(
     "aria-pressed",
     "true",

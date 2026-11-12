@@ -24,11 +24,6 @@ export function AgentChart(props: {
     chart.setOption(chartOption(props.chart, chartPalette(host)), {
       replaceMerge: ["series", "yAxis"],
     });
-    chart.dispatchAction({
-      type: "takeGlobalCursor",
-      key: "brush",
-      brushOption: { brushType: "lineX", brushMode: "single" },
-    });
   };
 
   onMount(() => {
@@ -37,10 +32,14 @@ export function AgentChart(props: {
     loadECharts()
       .then((echarts) => {
         if (disposed || host === undefined) return;
-        // Canvas: WebKit can leave an SVG chart's lines unpainted while its elements are all in place.
         const mounted = echarts.init(host, null, { renderer: "canvas" });
         chart = mounted;
         draw();
+        mounted.dispatchAction({
+          type: "takeGlobalCursor",
+          key: "brush",
+          brushOption: { brushType: "lineX", brushMode: "single" },
+        });
         resize.observe(host);
         mounted.getZr().on("mousedown", () => props.onSelecting(true));
         mounted.getZr().on("mouseup", () => props.onSelecting(false));

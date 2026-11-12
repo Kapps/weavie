@@ -66,21 +66,21 @@ export function clearBlocks(session: ClientSession): void {
 
 function clear(store: BlockSignals): void {
   for (const [, write] of store.blocks.values()) write(undefined);
-  store.views.clear();
 }
 
-/** The table view of the block `key` names, held with the block so a row that leaves the transcript keeps it. */
-export function tableView(session: ClientSession, key: string): TableView | undefined {
+/**
+ * The view of the table on transcript row `entryId`, held for the session so a row the transcript unmounts when it
+ * scrolls away comes back as the user left it. A block shown again is a new row, and so a new view.
+ */
+export function tableView(session: ClientSession, entryId: string): TableView | undefined {
   const store = stores.get(session);
   if (store === undefined) return undefined;
-  let view = store.views.get(key);
+  let view = store.views.get(entryId);
   if (view === undefined) {
-    view = createRoot(() => {
-      const [sort, setSort] = createSignal<TableSort>(null);
-      const [filters, setFilters] = createSignal<ReadonlyMap<string, ColumnFilter>>(new Map());
-      return { sort, setSort, filters, setFilters };
-    });
-    store.views.set(key, view);
+    const [sort, setSort] = createSignal<TableSort>(null);
+    const [filters, setFilters] = createSignal<ReadonlyMap<string, ColumnFilter>>(new Map());
+    view = { sort, setSort, filters, setFilters };
+    store.views.set(entryId, view);
   }
   return view;
 }

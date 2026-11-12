@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
@@ -20,6 +21,8 @@ public sealed class AcpBackgroundTaskTests {
 			initialize["clientCapabilities"]!.ToJsonString());
 	}
 
+	// FLAKE 2026-11-12 02:59 UTC https://github.com/Kapps/weavie/actions/runs/43144606711: status read Working, not Idle.
+	// The backgrounded tool's late completion drove Working and a spurious turn stop; its events now move no status.
 	[Fact]
 	public async Task ShellTaskIsATrayItemWhoseBackgroundedToolNeverHoldsTheTurn() {
 		await using var fixture = await StartedAsync();
@@ -29,11 +32,13 @@ public sealed class AcpBackgroundTaskTests {
 		Assert.Equal("tool:" + item.Id["task:".Length..], item.TranscriptItemId);
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "backgroundTask");
+		var statuses = new ConcurrentQueue<SessionStatus>();
+		fixture.Events.Status.Changed += statuses.Enqueue;
 		Signal(fixture, "release-task");
 
-		await Wait.UntilAsync(() => fixture.Session.BackgroundWork.Single().State == AgentBackgroundState.Completed);
-		await fixture.Events.WaitForAsync(value => value is AgentBackgroundChanged { Running: false });
-		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+		await fixture.WaitForMessageAsync(message => message.ItemId == item.TranscriptItemId && message.Type == "item-completed");
+		Assert.Equal(AgentBackgroundState.Completed, fixture.Session.BackgroundWork.Single().State);
+		Assert.Equal([SessionStatus.Idle], statuses);
 		fixture.Submit("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: hello");
 		Assert.Empty(fixture.Session.BackgroundWork);

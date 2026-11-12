@@ -10,9 +10,10 @@ fixed in the review itself; see [Resolution](#resolution).
 
 ## Verdict
 
-Four bugs and nine warnings are open. The engine half (reader, schema, diagnostics, `Opener`, the stage-block
-sentence) conforms to the design. The defects are in the conversation owner's error and hand-over paths, in how a
-kept conversation is forgotten, and in test coverage.
+After the recheck of `7c2c01ed`, one bug and two warnings are open: B5 and W10, which the fixes introduced, and
+W8, reopened for one missing test. The first review's four bugs and the other warnings are fixed or rejected; see
+[Recheck](#recheck). The engine half (reader, schema, diagnostics, `Opener`, the stage-block sentence) conforms to the
+design.
 
 ## Findings
 
@@ -29,8 +30,10 @@ kept conversation is forgotten, and in test coverage.
 | W5 | warn | fixed | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:145` | Restoring on a provider with neither `session/load` nor `session/resume` fails the whole agent |
 | W6 | warn | fixed | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:74` | The fork-support check no longer runs when main has no turns |
 | W7 | warn | fixed | `tests/Weavie.Hosting.Tests/AcpOwnedConversationTests.cs:211` | The tests for "only the owner restores" pass with the guard removed |
-| W8 | warn | fixed | `tests/` | Eleven tests the design lists are missing |
+| W8 | warn | open | `tests/` | Eleven tests the design lists are missing; one still is (recheck) |
 | W9 | warn | rejected | CI | `.NET tests` failed on `83117465`, so the hosting tests never ran in CI |
+| B5 | bug | open | `src/Weavie.Hosting/HostSession.Workflow.cs:125` | Unload takes the owners lock, then the runner lock, the reverse of every run transition: a deadlock |
+| W10 | warn | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:135` | Unloading while a restored conversation's agent is being applied forgets the conversation |
 | N1 | nit | open | `src/Weavie.Workflows/WorkflowRunner.cs:93` | Pause and diagnostic texts differ from the design's |
 | N2 | nit | fixed | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:121` | A `fork` whose second fork failed posts "its earlier one ended" on Resume |
 | N3 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:45` | A store failure while forgetting skips the archive-failure path |
@@ -40,6 +43,10 @@ kept conversation is forgotten, and in test coverage.
 | N7 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:136` | `IndependentPort.Store` repeats `SidePort.Store` |
 | N8 | nit | open | `src/Weavie.Workflows/WorkflowReader.cs:65` | Stage lookup by id is written three more times, and the valid-reuse rule twice |
 | N9 | nit | fixed | `tests/Weavie.Hosting.Tests/HostCoreWorkflowConversationTests.Reuse.cs:37` | Repeated test scaffolding |
+| N10 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:132` | After a failed agent apply, Resume posts "its earlier one ended" |
+| N11 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:90` | A restore cancelled by the run ending leaves its record until the next sweep |
+| N12 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:29` | The refusal says "in its current process" for a provider that can't restore at all |
+| N13 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:116` | Any restored conversation is treated as having taken a stage turn |
 | R1 | bug | rejected | `src/Weavie.Hosting/HostSession.Workflow.cs:87` | Lock inversion between the owner dictionary and the runner |
 | R2 | bug | rejected | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:105` | Closing a suspended conversation before restoring deletes its record |
 | R3 | nit | rejected | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:17` | The owner never disposes `_lifetime` |
@@ -68,6 +75,58 @@ Fixed on the branch after `318d1744`. Each fix has a test unless the entry says 
 | N5 | Removed the unreachable end-of-run check in `ConversationOwner`. |
 | N6 | The owner disposes its grant and conversation in one place (`CloseAsync`). The linked-token scaffold stays: each of its three loops waits on a different event. |
 | N9 | `JsonElementThread` is gone and `Fixed` is now `FixedAsync`. The other repeated scaffolding is left open. |
+
+## Recheck
+
+Recheck of `7c2c01ed`, the fix commit, from its diff alone. Line numbers in this section are at `7c2c01ed`.
+
+**Fixes that hold**
+
+| Id | Confirmed by |
+| --- | --- |
+| B1 | Read. The sweep's lambda awaits `Task.Yield()` before `Forget`, so it leaves the caller's thread and the runner lock. Still no test. |
+| B2 | Read and run. `EnsureAsync` closes the conversation when `ApplyAgentAsync` throws; `AStageWhoseAgentCannotApplyClosesItsConversationAndSendsNothing` passes. See W10 and N10 for what the fix cost. |
+| B3 | Read and run. Unload pauses only a lent visit; `UnloadingWhileAStageAsksWhetherToRunLeavesTheQuestionOpen` passes. See B5. |
+| B4 | Run. The hand-over releases the previous visit; the Jump test fails 3 of 3 runs with that line removed. |
+| W1 | Read and run, both cases of `ACancelledRestoreKeepsTheConversationForTheNextProcess`. See N11. |
+| W2 | Read. `RestoreAsync` disposes the binding's grant on both paths that open nothing. |
+| W4 | Read and run, `ClearAndRewindForgetKeptConversationsWhetherLiveOrNot`. |
+| W5 | Read. See N12. |
+| W6 | Read. `NewChild` checks fork support for every fork. |
+| W7 | Run. With the `{ Owner: null }` guard removed the test now fails. |
+| N5 | Read. `WorkflowRunner.Start` refuses while a run is live, so the removed branch was unreachable. |
+| N2, N6, N9 | Read. |
+
+W3 and W9 stay rejected for the reasons in [Resolution](#resolution).
+
+**New findings**
+
+- **B5, bug.** `DisposeWorkflow` (`HostSession.Workflow.cs:125`) reads `Workflow.Execution`, which takes the runner
+  lock, while it holds the `_workflowConversations` lock. Every run transition takes them the other way:
+  `ConversationOwner` and the `Changed` handler lock the dictionary from inside `WorkflowRunner.Commit` (R1 relied on
+  that order). An unload that races a stage completing or a decision resolving can deadlock the session's disposal
+  and its runner. Line 128 then reads `Workflow.Execution!` a second time, which is null if the run ended in between.
+  The B3 fix introduced both. Confirmed by read; not reproduced.
+- **W10, warn.** `EnsureAsync`'s new `catch` (`HostSession.WorkflowConversation.cs:136-139`) has no filter, so a
+  cancellation during `ApplyAgentAsync` also closes the conversation, and closing forgets it. Unload cancels
+  background work before it disposes the agent (`HostSession.Lifetime.cs`), so unloading in that window deletes a
+  conversation that was just restored. It is the loss W1 fixed, by a second path, for stages that name an agent. The
+  window is the two control round trips. Confirmed by read.
+- **W8, warn, reopened.** The rejection of "mode follows main on the second visit" rests on a false statement. The
+  fake agent keeps one `FakeAcpAgent` per session (`tools/Weavie.FakeAcp/FakeAcpSessions.cs:9`, `:53`), each with its
+  own mode, and session modes become a control axis (`AcpConversation.Controls.cs:60`). The test can be written, and
+  `MainMode` (`HostSession.WorkflowConversation.cs:162`) has none. The other W8 items hold. The claim that a row
+  without `owner` is covered is argued, not tested: existing rows are written with `owner` null, not absent.
+- **N10, nit.** `_held` and `_refork` are set before `ApplyAgentAsync` (lines 132-133). After an apply failure, Resume
+  opens a new conversation and posts "its earlier one ended", for a `fresh` stage's first open and for a fork.
+- **N11, nit.** When a run ends while a restore is in flight, the cancelled restore is suspended, not closed. The
+  end-of-run sweep skips it while it is live, so its record and open card remain until a later sweep.
+- **N12, nit.** One message serves both refusals in `RestoreAsync`, so a provider with neither restore method is told
+  the conversation can't be restored "in its current process".
+- **N13, nit.** `_turned` is set for any restored conversation. One that was opened and never took a stage turn gets
+  "has opened again; your earlier work on it is above" over nothing.
+
+**CI.** `.NET tests` and the builds were still pending on `7c2c01ed` when this was written.
 
 ## Bugs
 

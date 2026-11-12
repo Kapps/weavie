@@ -4,8 +4,11 @@ namespace Weavie.Workflows;
 
 /// <summary>The short block each agent turn carries while a run is live, so the stage survives compaction.</summary>
 internal static class WorkflowStageBlock {
-	/// <summary>The block for <paramref name="run"/>, or empty when no run is live.</summary>
-	public static string Compose(WorkflowRun? run, WorkflowDefinition? definition, WorkflowVocabulary words, bool ownsStage) {
+	/// <summary>
+	/// The block for <paramref name="run"/>, or empty when no run is live; <paramref name="continued"/> names the stage
+	/// whose conversation, holding its earlier work, the turn continues.
+	/// </summary>
+	public static string Compose(WorkflowRun? run, WorkflowDefinition? definition, WorkflowVocabulary words, bool ownsStage, WorkflowStage? continued) {
 		if (run is null || run.IsFinished || definition is null) {
 			return "";
 		}
@@ -15,6 +18,9 @@ internal static class WorkflowStageBlock {
 		var text = new StringBuilder()
 			.Append($"[{words.Host} workflow] Run {run.Id} of workflow \"{run.WorkflowId}\" is at stage \"{run.Stage}\" ")
 			.Append($"({definition.Stages.ToList().IndexOf(stage) + 1} of {definition.Stages.Count}). ");
+		if (continued is not null && run.Phase == WorkflowPhase.Open) text.Append(continued == stage
+			? $"Stage \"{stage.Id}\" has opened again; your earlier work on it is above. "
+			: $"Stage \"{stage.Id}\" continues the conversation of stage \"{continued.Id}\"; that work is above. ");
 		if (independent && !ownsStage) text.Append($"The stage runs in its own conversation; only that conversation can call {words.CompleteStage} or {words.FailStage} for it. ");
 		text.Append(run.Phase switch {
 			WorkflowPhase.Open when independent && !ownsStage => $"Keep helping the user; {words.Host} will send its result here.",

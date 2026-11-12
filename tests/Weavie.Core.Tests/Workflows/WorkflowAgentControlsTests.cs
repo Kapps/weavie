@@ -45,7 +45,7 @@ public sealed class WorkflowAgentControlsTests {
 		Stages = [
 			new WorkflowStage {
 				Id = "build", If = null, Then = new WorkflowThen.Sequential(),
-				Run = new WorkflowWork { Context = WorkflowContext.Continue, Prompt = WorkflowTemplate.Empty, Skill = null, Args = null, Outputs = [], Agent = "builder", Role = null },
+				Run = new WorkflowWork { Context = WorkflowContext.Continue, Reuse = null, Prompt = WorkflowTemplate.Empty, Skill = null, Args = null, Outputs = [], Agent = "builder", Role = null },
 			},
 		],
 	};

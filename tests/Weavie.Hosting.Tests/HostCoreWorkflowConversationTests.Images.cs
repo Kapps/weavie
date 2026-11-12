@@ -41,15 +41,18 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) is null);
 		Assert.True(workflow.Current.PromptImagesSent);
 
+		// A fresh stage continues its conversation, which already has the images; a fork copies main again and sends them anew.
 		workflow.Jump(runId, "review");
-		var reopened = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "review" && Conversation(message) != child);
-		await fixture.ReplyAsync(Conversation(reopened), "echo: review the change");
-		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) == Conversation(reopened));
+		string? visited = context == "fresh" ? child
+			: Conversation(await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Conversation(message) != child));
+		await Eventually(() => fixture.Messages.Count(message => Conversation(message) == visited
+			&& Type(message) == "item-completed" && Text(message) == "echo: review the change") == (context == "fresh" ? 3 : 1));
+		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) == visited);
 		Assert.True(workflow.Current.PromptImagesSent);
 	}
 
 	[Fact]
-	public async Task AReplacementChildOwesImagesWhenARevisionFollowsALostDecision() {
+	public async Task ARestoredChildKeepsTheImagesItReceivedBeforeAnAgentRestart() {
 		await using var fixture = await ConversationFixture.StartAsync(ImageFlow("fresh"));
 		string child = await fixture.StartReviewAsync(ImagePrompt);
 		var workflow = fixture.Session.Workflow;
@@ -63,17 +66,12 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		workflow.Resume(run.Id);
 		await Eventually(() => workflow.Current!.Phase == WorkflowPhase.Asking);
 
-		string image = Path.Combine(run.DocumentsDirectory, run.Prompt.Images[0].File);
-		File.Delete(image);
+		File.Delete(Path.Combine(run.DocumentsDirectory, run.Prompt.Images[0].File));
 		workflow.Answer(run.Id, "revise", "Use the image");
-		await Eventually(() => workflow.Current!.Phase == WorkflowPhase.Paused);
-		Assert.Contains("is missing", workflow.Current!.PausedReason, StringComparison.Ordinal);
-		Assert.False(workflow.Current.PromptImagesSent);
-		File.WriteAllBytes(image, ImagePrompt.Images[0].Bytes);
-		workflow.Resume(run.Id);
-		var replacement = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "review" && Conversation(message) != child);
-		await fixture.ReplyAsync(Conversation(replacement), "echo: review the change");
-		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) == Conversation(replacement));
+		await fixture.ReplyAsync(child, "Feedback:");
+		Assert.Equal(WorkflowPhase.Open, workflow.Current!.Phase);
+		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) == child);
+		Assert.Single(fixture.Messages, message => Type(message) == "side-conversation-started" && Text(message) == "review");
 	}
 
 	[Fact]
@@ -89,6 +87,6 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var blocks = wire.RootElement.GetProperty("parameters").GetProperty("prompt").EnumerateArray().ToArray();
 		Assert.Equal("/review review the change", blocks[0].GetProperty("text").GetString());
 		Assert.Equal("image", blocks[1].GetProperty("type").GetString());
-		Assert.Equal(session.Workflow.Execution!.Compose(), blocks[2].GetProperty("text").GetString());
+		Assert.Equal(session.Workflow.Execution!.Compose(false), blocks[2].GetProperty("text").GetString());
 	}
 }

@@ -246,6 +246,10 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   [docs/specs/native-aot.md](docs/specs/native-aot.md).
 - **No nullable injected dependencies.** Don't accept `IFoo? = null`. Provide a `Noop`/`Headless`
   implementation and require the real thing.
+- **Past six parameters, look for the missing abstraction.** A constructor or method that takes more than six is
+  usually threading values that belong together. Group them into the thing they describe (an environment, a request,
+  a services record) and give tests one factory for it, so a new dependency is added in one place and not at every
+  call site. Keep a longer list only when the values are unrelated, and say why in the PR.
 - **No optional / default-valued parameters.** Banned repo-wide by the `WV0001` analyzer (only
   carve-outs: `CancellationToken` and `Caller*`). Use overloads or the test factory.
 - **Enforce, don't suppress.** Strict enforcement is the default; never silence an analyzer or

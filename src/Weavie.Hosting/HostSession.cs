@@ -63,63 +63,25 @@ public sealed partial class HostSession : IAsyncDisposable {
 		WireJson.Default.LspServerWireArray);
 
 	/// <summary>
-	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
-	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
-	/// Workspace-scoped settings its agent changes live in <paramref name="settingsWorkspaceRoot"/>'s overlay.
-	/// <paramref name="endpoint"/> is this session's exact message-bus incarnation;
-	/// <paramref name="corrections"/> is the workspace's shared correction ring this session records into.
+	/// Builds and starts the session's backend rooted at <paramref name="paths"/>' workspace root: its
+	/// <paramref name="shellTerminals"/>, the IDE-MCP + registry servers, and the LSP multiplexer.
+	/// <paramref name="endpoint"/> is this session's exact message-bus incarnation.
 	/// </summary>
 	internal HostSession(
 		SessionEndpoint endpoint,
-		SettingsStore settings,
-		LayoutStore layout,
-		string workspaceRoot,
-		string settingsWorkspaceRoot,
-		string scratchDir,
-		Func<string, string> workflowDocumentsDirectory,
-		string pastedImagesDir,
-		string authenticationTerminalLogPath,
-		IReadOnlyList<string> shellTerminals,
-		Func<string, string> shellScrollbackPath,
-		CommandRegistry commandRegistry,
-		KeybindingStore keybindings,
-		ThemeOverridesStore themeOverrides,
-		CorrectionCorpus corrections,
-		IInferenceService inference,
-		IWorkflowDecider decider,
-		WorkflowRoleStore workflowRoles,
-		IWorkflowRoleResolver roleResolver,
-		AgentConsultation agentConsultation,
-		ISessionPeers peers,
-		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
-		HostRuntimeInfo runtime,
-		Func<bool> inputFrozen,
-		Action<bool, Action> acceptTerminalInput,
-		Action<int, int> shellResized) {
+		IReadOnlyList<string> shellTerminals,
+		SessionPaths paths,
+		SessionServices services,
+		SessionOwner owner) {
 		ArgumentNullException.ThrowIfNull(endpoint);
-		ArgumentNullException.ThrowIfNull(settings);
-		ArgumentNullException.ThrowIfNull(layout);
-		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
-		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
-		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
-		ArgumentException.ThrowIfNullOrEmpty(authenticationTerminalLogPath);
-		ArgumentNullException.ThrowIfNull(shellTerminals);
-		ArgumentNullException.ThrowIfNull(shellScrollbackPath);
-		ArgumentNullException.ThrowIfNull(commandRegistry);
-		ArgumentNullException.ThrowIfNull(keybindings);
-		ArgumentNullException.ThrowIfNull(themeOverrides);
-		ArgumentNullException.ThrowIfNull(corrections);
-		ArgumentNullException.ThrowIfNull(peers);
-		ArgumentNullException.ThrowIfNull(inference);
-		ArgumentNullException.ThrowIfNull(decider);
-		ArgumentNullException.ThrowIfNull(agentConsultation);
-		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
-		ArgumentNullException.ThrowIfNull(runtime);
-		ArgumentNullException.ThrowIfNull(inputFrozen);
-		ArgumentNullException.ThrowIfNull(acceptTerminalInput);
-		ArgumentNullException.ThrowIfNull(shellResized);
+		ArgumentNullException.ThrowIfNull(shellTerminals);
+		ArgumentNullException.ThrowIfNull(paths);
+		ArgumentNullException.ThrowIfNull(services);
+		ArgumentNullException.ThrowIfNull(owner);
+		var settings = services.Settings;
+		string workspaceRoot = paths.WorkspaceRoot;
 
 		var fileSystem = new LocalFileSystem();
 		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
@@ -136,17 +98,17 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_editorMessages = Bus.Feature("editor");
 		_notificationMessages = Bus.Feature("notifications");
 
-		Peers = peers;
+		Peers = owner.Peers;
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and this bus's
 		// commands.invoke requests both route here. Core wires the WebInvoker + Core handlers once the session exists.
-		Commands = new CommandDispatcher(commandRegistry);
+		Commands = new CommandDispatcher(services.CommandRegistry);
 
 		FileSystem = fileSystem;
 		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(Inventory, Tagged("[files]"), watcherDebounceMs: 250);
 		try {
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
-				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
+				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(paths.ScratchDir, path),
 				new IgnoredPathCache(FindIgnored, TimeProvider.System).IgnoredAmong,
 				reviewPersistence);
 			ReviewHints = new ReviewHintStore(
@@ -164,10 +126,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// Scratch (untitled) buffers live in a per-workspace dir outside the workspace, so they never reach the
 		// file tree/index/git/agent. The file provider gets that dir as a second allowed root so the editor can
 		// read/write them as ordinary working copies.
-		Scratch = new ScratchStore(fileSystem, scratchDir);
+		Scratch = new ScratchStore(fileSystem, paths.ScratchDir);
 		// Images pasted into the agent land here (a scratch dir outside the workspace) and their path is injected into
 		// the prompt; wiped on unload so they never linger or reach the tree/git.
-		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
+		PastedImages = new PastedImageStore(fileSystem, paths.PastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem);
 		// Explicit file and directory observation follows open tabs and cached listings, never a workspace walk.
@@ -183,12 +145,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Shells = new ShellTerminalSet(
 			Bus,
 			settings,
-			ptyLauncher,
+			services.PtyLauncher,
 			workspaceRoot,
 			shellTerminals,
-			shellScrollbackPath,
-			acceptTerminalInput,
-			shellResized);
+			paths.ShellScrollback,
+			owner.AcceptTerminalInput,
+			owner.ShellResized);
 		FileOpener = new FileOpener(
 			View.Feature("view"),
 			_notificationMessages,
@@ -215,12 +177,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// Appends the user's corrections (editor saves over an agent hunk, and review-UI reverts) into the
 		// workspace's shared ring, one entry per action — captured at the moment they act, not at a boundary.
 		// See docs/specs/learn-from-corrections.md.
-		Corrections = new CorrectionRecorder(corrections);
+		Corrections = new CorrectionRecorder(services.Corrections);
 		Changes.Corrected += edits => {
 			if (settings.RequireBool(CorrectionsSettings.Enabled)) Corrections.Record(edits);
 		};
 		// Isolated in-place revision of a bounded region, published as in-flight on this session's bus.
-		Revise = new ReviseService(inference, Changes, new SessionReviseSurface(this));
+		Revise = new ReviseService(services.Inference, Changes, new SessionReviseSurface(this));
 		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, Activity, ReviewHints);
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
@@ -230,31 +192,31 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
 				settings,
-				ptyLauncher,
+				services.PtyLauncher,
 				workspaceRoot,
-				authenticationTerminalLogPath)
+				paths.AuthenticationTerminalLog)
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
 		_workflowRelease = CreateWorkflowRelease();
-		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, roleResolver, workspaceRoot, workflowDocumentsDirectory);
+		Workflow = CreateWorkflowRunner(fileSystem, settings, services.Workflow, agentProvider.Info, workspaceRoot);
 		var registry = _registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
 			[workspaceRoot],
 			"weavie",
 			settings,
-			settingsWorkspaceRoot,
-			layout,
+			paths.SettingsWorkspaceRoot,
+			services.Layout,
 			Editor,
 			exposeRegistryIdeTools,
 			Commands,
-			keybindings,
-			themeOverrides,
-			peers,
-			agentConsultation,
+			services.Keybindings,
+			services.ThemeOverrides,
+			owner.Peers,
+			services.AgentConsultation,
 			ReviewHints,
-			new SessionWorkflowRegistry(WorkflowCatalog, Workflow, workflowRoles));
+			new SessionWorkflowRegistry(WorkflowCatalog, Workflow, services.Workflow.Roles));
 
 		Agent = new AgentSessionHost(
 			agentProvider,
@@ -266,7 +228,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Registry = registry,
 				DiffPresenter = agentDiffPresenter,
 				Editor = Editor,
-				Runtime = runtime,
+				Runtime = services.Runtime,
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
@@ -275,7 +237,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
 				settings,
-			ptyLauncher);
+			services.PtyLauncher);
 		Agent.PlansChanged += plans => UpdateAgentPlans(plans, settings.RequireBool(AgentSettings.PlanReviewAutoOpen));
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
@@ -304,8 +266,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 			LanguageServerCatalog.Resolve,
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
-		WireMessages(inputFrozen, acceptTerminalInput);
+		WireMessages(owner.InputFrozen, owner.AcceptTerminalInput);
 		WireWorkflowHold();
+		WireWorkflowConversations();
 		Workflow.Activate();
 	}
 

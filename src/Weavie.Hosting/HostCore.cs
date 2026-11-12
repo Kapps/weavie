@@ -237,6 +237,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_decisionHistory = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(Id));
 		_decisionHistory.Log += Log;
 		_decisionHistory.Changed += () => _suggestions?.Evaluate();
+		_sessionServices = CreateSessionServices();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;

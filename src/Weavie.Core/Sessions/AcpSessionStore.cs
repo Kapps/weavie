@@ -54,6 +54,16 @@ public sealed partial class AcpSessionStore(string path) {
 		});
 	}
 
+	/// <summary>Deletes one continuation identity, keeping its display events.</summary>
+	public void Forget(string providerId, string workspace, string conversationId) => Execute(connection => {
+		using var command = connection.CreateCommand();
+		command.CommandText = "DELETE FROM conversations WHERE owner = $owner AND id = $id";
+		command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
+		command.Parameters.AddWithValue("$id", conversationId);
+		command.ExecuteNonQuery();
+		return true;
+	});
+
 	/// <summary>Commits display events owned by no persisted continuation, such as a subagent's.</summary>
 	public void Append(string providerId, string workspace, IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);

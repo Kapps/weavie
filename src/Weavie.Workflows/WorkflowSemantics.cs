@@ -37,6 +37,10 @@ internal static class WorkflowSemantics {
 			check.Add($"{path}.run.role", "a step takes agent or role, not both");
 		}
 
+		if (work.Reuse is { } reused) {
+			CheckReuse(definition, stage, reused, path, check);
+		}
+
 		if (work.Agent is { } agent && definition.Agents.All(a => a.Name != agent)) {
 			check.Add($"{path}.run.agent", definition.Agents.Count == 0
 				? $"\"{agent}\" names no agent; this workflow defines no agents"
@@ -71,6 +75,21 @@ internal static class WorkflowSemantics {
 
 		CheckReferences(definition, work.Prompt, $"{path}.run.prompt", check);
 		CheckReferences(definition, work.Args, $"{path}.run.args", check);
+	}
+
+	private static void CheckReuse(WorkflowDefinition definition, WorkflowStage stage, string reused, string path, WorkflowCheck check) {
+		string? problem = definition.Stages.FirstOrDefault(s => s.Id == reused) switch {
+			null => $"\"{reused}\" names no stage",
+			{ Id: var id } when id == stage.Id => "a stage can't reuse its own conversation; fresh already keeps one for the run",
+			{ Run.Reuse: { } further } => $"stage \"{reused}\" reuses \"{further}\"; name \"{further}\"",
+			{ Run.Context: WorkflowContext.Continue } => $"stage \"{reused}\" runs in the main conversation; reuse names a fork or fresh stage",
+			_ => null,
+		};
+		if (problem is not null) check.Add($"{path}.run.context.reuse", problem);
+		if (stage.Run.Agent is not null || stage.Run.Role is not null) {
+			check.Add($"{path}.run.{(stage.Run.Agent is null ? "role" : "agent")}",
+				$"a stage that reuses a conversation runs on that conversation's agent; set it on \"{reused}\"");
+		}
 	}
 
 	private static void CheckQuestion(

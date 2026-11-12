@@ -63,6 +63,8 @@ Then Weavie's hard rules (these override generic "best practice"):
   user meets.
 - **No optional / default-valued parameters.** Banned by the `WV0001` analyzer; only `CancellationToken`
   and `Caller*` are exempt. Overloads or the test factory instead.
+- **Past six parameters, look for the missing abstraction.** Flag a constructor or method the change set adds or
+  grows beyond six; values that travel together belong in one object, with one test factory.
 - **No nullable injected dependencies** (`IFoo? = null`). A `Noop`/`Headless` impl is required instead.
 - **No suppression.** Analyzers and warnings are never silenced to make a problem disappear.
 - **Core, not per-OS.** Host-facing behavior belongs in `HostCore`/Core with the platform shells as

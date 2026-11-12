@@ -92,7 +92,9 @@ replyable card. Another-provider rows below describe the deferred extension.
   after the agent confirms every change.
 - **`fork` and `fresh`** steps own their conversation, so the session's conversation is untouched. Weavie copies main's
   controls, including permission mode, then applies the step's model and options before prompting. A stage
-  naming no agent keeps those captured controls; the workflow cannot change permission mode.
+  naming no agent keeps those captured controls; the workflow cannot change permission mode. A conversation kept
+  for later visits takes main's permission mode again at each visit; a `{ reuse: <stage> }` step names no agent and
+  runs on that stage's.
 - **Another provider** runs only as a `fresh` background step, written explicitly. It receives what the workflow
   owns: its rendered prompt and args, the outputs it references, and the files in the shared worktree. There is no
   generated handoff summary.

@@ -191,44 +191,38 @@ export function SessionInbox(props: {
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
-      <label class="session-composer-destination">
-        <span>Location</span>
-        <select
-          class="ui-field"
-          aria-label={locationLabel}
-          value={backendId()}
-          onChange={(event) => selectBackend(event.currentTarget.value)}
-        >
-          <For each={connectedBackends()}>
-            {(backend) => (
-              <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
-            )}
-          </For>
-        </select>
-      </label>
-      <label class="session-composer-destination">
-        <span>Agent</span>
-        <select
-          class="ui-field"
-          aria-label={providerLabel}
-          disabled={savingProvider()}
-          onChange={(event) => selectProvider(event.currentTarget.value)}
-        >
-          <For each={agentProviders(backendId())}>
-            {(provider) => (
-              <option
-                value={provider.id}
-                selected={provider.id === providerId()}
-                disabled={!provider.available}
-                title={provider.unavailableReason ?? provider.name}
-              >
-                {provider.name}
-                {provider.available ? "" : " (Unavailable)"}
-              </option>
-            )}
-          </For>
-        </select>
-      </label>
+      <select
+        class="ui-field"
+        aria-label={locationLabel}
+        value={backendId()}
+        onChange={(event) => selectBackend(event.currentTarget.value)}
+      >
+        <For each={connectedBackends()}>
+          {(backend) => (
+            <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
+          )}
+        </For>
+      </select>
+      <select
+        class="ui-field"
+        aria-label={providerLabel}
+        disabled={savingProvider()}
+        onChange={(event) => selectProvider(event.currentTarget.value)}
+      >
+        <For each={agentProviders(backendId())}>
+          {(provider) => (
+            <option
+              value={provider.id}
+              selected={provider.id === providerId()}
+              disabled={!provider.available}
+              title={provider.unavailableReason ?? provider.name}
+            >
+              {provider.name}
+              {provider.available ? "" : " (Unavailable)"}
+            </option>
+          )}
+        </For>
+      </select>
       <Show
         when={
           agentProviders(backendId()).find((provider) => provider.id === providerId())

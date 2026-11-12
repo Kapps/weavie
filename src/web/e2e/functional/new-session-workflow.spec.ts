@@ -175,9 +175,7 @@ test("workflow refresh reconsiders the current prompt after a suggestion or manu
   await expect(refresh).toBeDisabled();
 });
 
-test("session fields have aligned labels and matching suggestion controls on desktop and phone", async ({
-  page,
-}) => {
+test("session fields and compact footers align on desktop and phone", async ({ page }) => {
   await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
   for (const viewport of [
@@ -186,13 +184,6 @@ test("session fields have aligned labels and matching suggestion controls on des
   ]) {
     await page.setViewportSize(viewport);
     await expect(inbox).toBeVisible();
-    for (const form of [
-      inbox.locator(".session-composer"),
-      inbox.locator(".session-open-branch"),
-    ]) {
-      await expect(form.getByText("Location", { exact: true })).toBeVisible();
-      await expect(form.getByText("Agent", { exact: true })).toBeVisible();
-    }
     const geometry = await inbox.evaluate((element) => {
       const rect = (node: Element) => {
         const { x, y, width, height } = node.getBoundingClientRect();

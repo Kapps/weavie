@@ -1,12 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
-using Weavie.Core.Layout;
-using Weavie.Core.Mcp;
-using Weavie.Core.Sessions;
-using Weavie.Core.Shell;
-using Weavie.Core.Theming;
-using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -96,46 +90,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Attachments = attachments,
 		};
 
-	private HostSession CreateSession(
-		RecordingStructuredSession structured,
-		SettingsStore settings,
-		CommandRegistry commandRegistry) {
-		var endpoint = new HostMessageRouter(
-			new FakeHostBridge(),
-			new InlineUiDispatcher(),
-			_ => { }).OpenSession(
-			new SessionAddress("slot-1", Guid.NewGuid().ToString("n")));
-		var session = new HostSession(
-			endpoint,
-			settings,
-			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
-			_dir.Path,
-			_dir.Path,
-			_dir.Combine("scratch"),
-			id => _dir.Combine("documents", id),
-			_dir.Combine("pasted"),
-			_dir.Combine("agent-pane.json"),
-			[ShellTerminalId.New()],
-			id => _dir.Combine($"shell-{id}.json"),
-			commandRegistry,
-			new KeybindingStore(commandRegistry, _dir.Combine("keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("theme-overrides.json")),
-			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("corrections.jsonl")),
-			UnusedInferenceService.Instance,
-			new UnusedWorkflowDecider(),
-			new Weavie.Core.Workflows.WorkflowRoleStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("workflow-roles.json")),
-			NoWorkflowRoles.Instance,
-			AgentConsultation.None,
-			NoSessionPeers.Instance,
-			new NoopPtyLauncher(),
-			new FakeStructuredProvider(structured),
-			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-			() => false,
-			(_, accept) => accept(),
-			(_, _) => { });
-		session.ActivateOwnedRuntimeAndMessages();
-		return session;
-	}
+	private HostSession CreateSession(RecordingStructuredSession structured, SettingsStore settings, CommandRegistry commandRegistry) =>
+		TestSessions.Create(_dir, settings, commandRegistry, new NoopPtyLauncher(), new FakeStructuredProvider(structured));
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {

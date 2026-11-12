@@ -225,19 +225,6 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
-	public void RegistryMode_RequiresStore() {
-		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings: null, registryMode: true));
-	}
-
-	[Fact]
-	public void RegistryMode_WithIdeTools_RequiresEditorStore() {
-		using var store = NewStore();
-		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, exposeIdeTools: true));
-	}
-
-	[Fact]
 	public async Task ClaudeIntegration_AttachesTheTurnContextToSubmittedPrompts() {
 		using var store = NewStore();
 		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);

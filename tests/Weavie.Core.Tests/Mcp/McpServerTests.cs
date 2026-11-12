@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Xunit;
 
@@ -264,11 +265,10 @@ public sealed class McpServerTests {
 				});
 				return Task.FromResult(CommandResult.Success());
 			});
+		using var dir = new TempDirectory("weavie-mcp-run-command");
+		using var settings = CoreSettings.CreateStore(dir.Combine("settings.toml"), enableWatcher: false);
 		await using var server = TestMcp.Server(
-			Token,
-			FakeDiffPresenter.AlwaysKeep(),
-			["/workspace"],
-			commands: dispatcher);
+			Token, FakeDiffPresenter.AlwaysKeep(), [dir.Path], settings: settings, registryMode: true, commands: dispatcher);
 
 		await Assert.ThrowsAsync<IOException>(() =>
 			server.HandleRunCommandAsync(

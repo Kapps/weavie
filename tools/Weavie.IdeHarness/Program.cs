@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Weavie.Core.Editor;
 using Weavie.Core.Mcp;
 using Weavie.Core.Terminal;
 
@@ -23,8 +24,7 @@ Console.WriteLine($"[harness] workspace: {workspace}");
 var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
 var credential = AgentSessionCredential.Create();
-await using var server = new McpServer(
-	credential.Token, presenter, [workspace], "weavie", registryMode: false, McpCapabilities.Ide(null));
+await using var server = McpServer.Ide(credential.Token, presenter, [workspace], "weavie", new EditorStore());
 int port = server.Start();
 IdeLockFile.Write(port, [workspace], "weavie", credential.Token);
 using var lockCleanup = new LockCleanup(port);

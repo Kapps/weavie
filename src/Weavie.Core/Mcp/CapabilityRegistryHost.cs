@@ -6,8 +6,8 @@ namespace Weavie.Core.Mcp;
 /// <summary>The provider-neutral, model-facing Weavie capability registry for one loaded session.</summary>
 public sealed class CapabilityRegistryHost : IAsyncDisposable {
 	/// <summary>
-	/// Starts the standard MCP capability server with <paramref name="credential"/>; a session's registry offers
-	/// every store in <paramref name="capabilities"/>.
+	/// Starts the standard MCP capability server with <paramref name="credential"/>, offering
+	/// <paramref name="capabilities"/>.
 	/// </summary>
 	public CapabilityRegistryHost(
 		AgentSessionCredential credential,
@@ -19,13 +19,8 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(ideName);
 		ArgumentNullException.ThrowIfNull(capabilities);
 		ArgumentException.ThrowIfNullOrEmpty(capabilities.SettingsWorkspaceRoot);
-		ArgumentNullException.ThrowIfNull(capabilities.Layout);
-		ArgumentNullException.ThrowIfNull(capabilities.Editor);
-		ArgumentNullException.ThrowIfNull(capabilities.Commands);
-		ArgumentNullException.ThrowIfNull(capabilities.Keybindings);
-		ArgumentNullException.ThrowIfNull(capabilities.ThemeOverrides);
 		Credential = credential;
-		Server = new McpServer(credential.Token, presenter, workspaceFolders, ideName, registryMode: true, capabilities);
+		Server = new McpServer(credential.Token, presenter, workspaceFolders, ideName, capabilities);
 		Port = Server.Start();
 	}
 

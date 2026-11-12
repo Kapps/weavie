@@ -33,7 +33,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly string _settingsWorkspaceRoot;
 	private readonly SettingsStore? _settings;
 	private readonly LayoutStore? _layout;
-	private readonly EditorStore? _editor;
+	private readonly EditorStore _editor;
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
 	private readonly ThemeOverridesStore? _themeOverrides;
@@ -54,81 +54,63 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private volatile WebSocket? _activeWebSocket;
 
 	/// <summary>
-	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter handling inbound
-	/// tool calls, the advertised workspace folders, and the <paramref name="capabilities"/> it offers.
-	/// <paramref name="registryMode"/> makes it the model-facing registry; otherwise it is the IDE server.
+	/// Creates the model-facing registry server: the auth token enforced on the WebSocket upgrade, the presenter
+	/// handling inbound tool calls, the advertised workspace folders, and the capabilities behind its tools.
 	/// Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
+		string authToken, IDiffPresenter presenter, IReadOnlyList<string> workspaceFolders, string ideName, McpCapabilities registry)
+		: this(authToken, presenter, workspaceFolders, ideName, registry, (registry ?? throw new ArgumentNullException(nameof(registry))).Editor) {
+	}
+
+	/// <summary>Creates the IDE server, which offers only the IDE RPC tools over <paramref name="editor"/>.</summary>
+	public static McpServer Ide(
+		string authToken, IDiffPresenter presenter, IReadOnlyList<string> workspaceFolders, string ideName, EditorStore editor) =>
+		new(authToken, presenter, workspaceFolders, ideName, null, editor);
+
+	// A null registry is the IDE server: it has no stores, and its sinks refuse.
+	private McpServer(
 		string authToken,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
-		bool registryMode,
-		McpCapabilities capabilities) {
+		McpCapabilities? registry,
+		EditorStore editor) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
-		ArgumentNullException.ThrowIfNull(capabilities);
-		if (registryMode && capabilities.Settings is null) {
-			throw new ArgumentNullException(nameof(capabilities), "Registry-mode server requires a settings store.");
-		}
-		if (registryMode && capabilities.ExposeIdeTools && capabilities.Editor is null) {
-			throw new ArgumentNullException(nameof(capabilities), "A registry exposing IDE tools requires an editor store.");
-		}
+		ArgumentNullException.ThrowIfNull(editor);
 
-		AddGrant(new AgentSessionCredential { Token = authToken }, capabilities.Workflows.CaptureStageCall, capabilities.Sessions);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
-		_settings = capabilities.Settings;
-		_settingsWorkspaceRoot = capabilities.SettingsWorkspaceRoot;
-		_layout = capabilities.Layout;
-		_editor = capabilities.Editor;
-		_commands = capabilities.Commands;
-		_keybindings = capabilities.Keybindings;
-		_themeOverrides = capabilities.ThemeOverrides;
-		_sessions = capabilities.Sessions;
-		_agents = capabilities.Agents;
-		_reviewHints = capabilities.ReviewHints;
-		_workflows = capabilities.Workflows;
+		_editor = editor;
+		_settings = registry?.Settings;
+		_settingsWorkspaceRoot = registry?.SettingsWorkspaceRoot ?? "";
+		_layout = registry?.Layout;
+		_commands = registry?.Commands;
+		_keybindings = registry?.Keybindings;
+		_themeOverrides = registry?.ThemeOverrides;
+		_sessions = registry?.Sessions ?? NoSessionPeers.Instance;
+		_agents = registry?.Agents ?? AgentConsultation.None;
+		_reviewHints = registry?.ReviewHints ?? ReviewHintSink.None;
+		_workflows = registry?.Workflows ?? WorkflowRegistry.None;
+		AddGrant(new AgentSessionCredential { Token = authToken }, _workflows.CaptureStageCall, _sessions);
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude knows what they're looking at.
-		_editor?.Changed += OnActiveEditorChanged;
+		_editor.Changed += OnActiveEditorChanged;
 
-		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
-		_prompts = registryMode ? McpPromptCatalog.All : [];
+		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry capability.
+		_prompts = registry is null ? [] : McpPromptCatalog.All;
 
-		// Registry mode advertises the capability tools and openFile (the model-facing .mcp.json server), kept separate
-		// from the IDE server whose openDiff-style tools Claude Code filters before they reach the model. IDE
-		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
-		string entries;
-		if (registryMode) {
-			var parts = new List<string> {
+		// The registry advertises the capability tools and openFile (the model-facing .mcp.json server), kept separate
+		// from the IDE server whose openDiff-style tools Claude Code filters before they reach the model.
+		string entries = registry is null
+			? OpenFileToolEntry + "," + IdeToolEntries
+			: string.Join(",", [
 				OpenFileToolEntry, SettingsToolEntries, SessionToolEntries, AgentToolEntries, ReviewHintToolEntries, WorkflowToolEntries,
-				BuildPromptToolEntry(),
-			};
-			if (capabilities.ExposeIdeTools) {
-				parts.Add(IdeToolEntries);
-			}
-
-			if (_layout is not null) {
-				parts.Add(LayoutToolEntries);
-			}
-
-			if (_commands is not null) {
-				parts.Add(CommandToolEntries);
-			}
-
-			if (_themeOverrides is not null) {
-				parts.Add(ThemeToolEntries);
-			}
-
-			entries = string.Join(",", parts);
-		} else {
-			string ide = OpenFileToolEntry + "," + IdeToolEntries;
-			entries = _settings is null ? ide : ide + "," + SettingsToolEntries;
-		}
-
+				BuildPromptToolEntry(), .. registry.ExposeIdeTools ? [IdeToolEntries] : Array.Empty<string>(),
+				LayoutToolEntries, CommandToolEntries, ThemeToolEntries,
+			]);
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
 		IdeName = ideName;
 	}
@@ -409,12 +391,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "getOpenEditors":
 				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). The page reports the
 				// open-tab set via open-editors-changed; empty until it does.
-				await SendToolTextAsync(responder, idRaw, BuildOpenEditorsResult(_editor?.OpenEditors, _editor?.Active), ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, BuildOpenEditorsResult(_editor.OpenEditors, _editor.Active), ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
 			case "getLatestSelection":
 				// Stringified {success, text, filePath, selection} in the text item (the shape claude parses).
-				await SendToolTextAsync(responder, idRaw, BuildSelectionResult(_editor?.Active), ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, BuildSelectionResult(_editor.Active), ct).ConfigureAwait(false);
 				break;
 			case "getDiagnostics":
 				await responder.SendResultAsync(idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
@@ -423,7 +405,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				// Resolve the tab name (label or path) against the reported open set, then ask the page to
 				// close it. Acknowledge "OK" regardless (an unknown tab is a no-op, not an error).
 				string? closeName = args.TryGetProperty("tab_name", out var tnEl) ? tnEl.GetString() : null;
-				string? closePath = ResolveTabPath(closeName, _editor?.OpenEditors);
+				string? closePath = ResolveTabPath(closeName, _editor.OpenEditors);
 				if (closePath is not null) {
 					await _presenter.CloseTabAsync(closePath, ct).ConfigureAwait(false);
 				}
@@ -939,7 +921,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			return;
 		}
 
-		_editor?.Changed -= OnActiveEditorChanged;
+		_editor.Changed -= OnActiveEditorChanged;
 
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);

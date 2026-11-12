@@ -25,7 +25,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	private SettingsStore NewStore() => CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
 	private McpServer NewServer(SettingsStore store) =>
-		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store);
+		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, exposeIdeTools: true);
 
 	// A shell that validates on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {
@@ -159,7 +159,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		using var store = NewStore();
 		string worktree = _dir.Combine("worktree");
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [worktree], "weavie", store, settingsWorkspaceRoot: _dir.Path);
+			Token, FakeDiffPresenter.AlwaysKeep(), [worktree], "weavie", store, settingsWorkspaceRoot: _dir.Path, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 

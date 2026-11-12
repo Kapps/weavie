@@ -37,8 +37,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(decided);
 		_registry = registry;
 		_runtime = runtime;
-		Server = new McpServer(
-			registry.Credential.Token, presenter, workspaceFolders, ideName, registryMode: false, McpCapabilities.Ide(editor));
+		Server = McpServer.Ide(registry.Credential.Token, presenter, workspaceFolders, ideName, editor);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, registry.Credential.Token);
 		HookBridge = new HookBridgeServer(

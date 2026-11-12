@@ -5,6 +5,7 @@ import { CommandIds } from "../commands/types";
 import { ChoiceRequestActions } from "./AgentChoiceRequest";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
 import { AgentQuestionControl } from "./AgentQuestionControl";
+import { QuestionFooter, QuestionHeading } from "./AgentQuestionPresentation";
 import { inputQuestions, singleChoiceQuestion } from "./input-questions";
 import {
   DismissButtons,
@@ -85,8 +86,9 @@ function InputForm(props: InputRequestProps): JSX.Element {
       <For each={questions()}>
         {(question) => (
           <fieldset class="agent-input-question">
-            <legend>{question.header.length > 0 ? question.header : question.question}</legend>
-            <small>{question.question}</small>
+            <legend>
+              <QuestionHeading question={question} message={props.message} />
+            </legend>
             <AgentQuestionControl
               question={question}
               values={draft.answers()[question.id] ?? []}
@@ -97,7 +99,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
           </fieldset>
         )}
       </For>
-      <div class="agent-approval-actions">
+      <QuestionFooter {...props}>
         <button
           type="submit"
           class="default ui-button"
@@ -105,8 +107,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
         >
           Submit answers
         </button>
-        <DismissButtons {...props} buttonClass="ui-button" />
-      </div>
+      </QuestionFooter>
     </form>
   );
 }

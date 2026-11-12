@@ -1,11 +1,13 @@
 import { For, type JSX, Show } from "solid-js";
-import type { AgentInputQuestion, AgentPaneUpdate } from "../bridge";
+import type { AgentInputQuestion, AgentPaneUpdate, ClientSession } from "../bridge";
 import { Disclosure } from "./AgentDisclosure";
+import { InputRequestContext, QuestionHeading } from "./AgentQuestionPresentation";
 import { inputQuestions } from "./input-questions";
 
 /** A resolved input request reopened: the prompt exactly as asked, every option, and what was answered. */
 export function ResolvedInputSummary(props: {
   expanded: boolean;
+  session: ClientSession;
   message: AgentPaneUpdate;
   onToggle: (open: boolean) => void;
 }): JSX.Element {
@@ -27,7 +29,9 @@ export function ResolvedInputSummary(props: {
         <For each={inputQuestions(props.message)}>
           {(question) => (
             <div class="agent-input-reviewed-question">
-              <span class="agent-input-reviewed-prompt">{question.question}</span>
+              <div>
+                <QuestionHeading question={question} message={props.message} />
+              </div>
               <Show when={question.options.length > 0}>
                 <div class="agent-input-choices">
                   <For each={question.options}>
@@ -61,6 +65,7 @@ export function ResolvedInputSummary(props: {
             </div>
           )}
         </For>
+        <InputRequestContext message={props.message} session={props.session} />
       </div>
     </Disclosure>
   );

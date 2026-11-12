@@ -510,6 +510,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			throw new AcpAdapterException(-32000, "Fake credentials expired.", null);
 		} else if (text == "permission") await PermissionAsync(ct).ConfigureAwait(false);
 		else if (text == "input") await InputAsync(ct).ConfigureAwait(false);
+		else if (text == "input-question") await QuestionAsync(ct).ConfigureAwait(false);
 		else if (text == "input-cancel") await InputActionAsync(ct).ConfigureAwait(false);
 		else if (text == "input-cancel-race") await InputCancelRaceAsync().ConfigureAwait(false);
 		else if (text == "input-null-options") await NullOptionalsInputAsync(ct).ConfigureAwait(false);

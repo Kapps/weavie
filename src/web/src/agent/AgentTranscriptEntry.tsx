@@ -22,8 +22,7 @@ import { AgentThoughtEntry } from "./AgentThoughtEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
-import { singleChoiceQuestion } from "./input-questions";
-import { DismissButtons } from "./input-request";
+import { inputQuestions, isStructuredInput } from "./input-questions";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -70,7 +69,7 @@ export function TranscriptEntry(props: {
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
         "agent-entry-waiting": isPendingRequest(props.entry),
-        "agent-entry-question": props.entry.actionMessage?.type === "input-requested",
+        "agent-entry-question": isStructuredInput(props.entry.actionMessage),
       }}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
@@ -80,24 +79,8 @@ export function TranscriptEntry(props: {
               ? `${props.sectionLabel} · Plan`
               : (props.sectionLabel ?? entryLabel(props.entry))}
           </span>
-          <Show
-            when={pendingChoice(props.entry)}
-            fallback={
-              <Show when={props.entry.status !== null}>
-                <small class="agent-entry-status">{props.entry.status}</small>
-              </Show>
-            }
-          >
-            {(message) => (
-              <div class="agent-choice-dismiss">
-                <DismissButtons
-                  buttonClass=""
-                  session={props.session}
-                  message={message()}
-                  answersToKeys={props.entry.id === props.keyboardRequestKey}
-                />
-              </div>
-            )}
+          <Show when={props.entry.status !== null}>
+            <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
           <Show when={agentControlState(props.session).rewindable && props.entry.promptTurnId}>
             {(turnId) => (
@@ -107,7 +90,7 @@ export function TranscriptEntry(props: {
         </div>
       </Show>
       <div class="agent-entry-main">
-        <Show when={props.entry.summary !== null}>
+        <Show when={props.entry.summary !== null && !isStructuredInput(props.entry.actionMessage)}>
           <div
             class="agent-entry-summary"
             title={props.entry.kind === "activity" ? (props.entry.summary ?? undefined) : undefined}
@@ -190,27 +173,13 @@ function entryText(props: {
   session: ClientSession;
 }): ConciseToolInput | null {
   const message = props.entry.actionMessage;
-  // A one-choice question shows its own prompt, so request text that only repeats it is dropped.
-  if (
-    message?.type === "input-requested" &&
-    singleChoiceQuestion(message)?.question === props.entry.text
-  )
-    return null;
+  if (isStructuredInput(message)) return null;
   if (message?.type !== "approval-requested")
     return props.entry.text ? { text: props.entry.text, path: null } : null;
   const { root, home } = fileIndexFor(props.session);
   return conciseToolInput(props.entry.text, props.entry.summary, (path) =>
     displayPath(path, root, home),
   );
-}
-
-function pendingChoice(entry: AgentTranscriptEntry): AgentPaneUpdate | null {
-  const message = entry.actionMessage;
-  return isPendingRequest(entry) &&
-    message?.type === "input-requested" &&
-    singleChoiceQuestion(message) !== null
-    ? message
-    : null;
 }
 
 function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
@@ -231,6 +200,12 @@ function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {
+  if (
+    isPendingRequest(entry) &&
+    isStructuredInput(entry.actionMessage) &&
+    inputQuestions(entry.actionMessage).length > 0
+  )
+    return false;
   return entry.kind !== "message" || entry.tone !== "assistant";
 }
 
@@ -272,10 +247,9 @@ function EntryActions(props: {
               answersToKeys={props.entry.id === props.keyboardRequestKey}
             />
           </Match>
-          <Match
-            when={message().type === "input-requested" && (message().questions?.length ?? 0) > 0}
-          >
+          <Match when={isStructuredInput(message())}>
             <ResolvedInputSummary
+              session={props.session}
               expanded={props.detailsExpanded}
               message={message()}
               onToggle={props.onDetailsToggle}

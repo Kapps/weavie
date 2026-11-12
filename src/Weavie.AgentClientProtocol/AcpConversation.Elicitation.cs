@@ -46,7 +46,7 @@ internal sealed partial class AcpConversation {
 		if (mode != "form" || !request.Parameters.TryGetProperty("requestedSchema", out var schema)) {
 			throw new AcpProtocolException($"Unsupported ACP elicitation mode '{mode}'.");
 		}
-		var questions = AcpElicitationSchema.ReadQuestions(schema, OptionalString(request.Parameters, "message"));
+		var questions = AcpElicitationSchema.ReadQuestions(schema);
 		var pending = new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId(), $"request:{request.Id}");
 		if (!_pendingRequests.TryAdd(request.Id, pending)) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");

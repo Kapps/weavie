@@ -123,7 +123,11 @@ export function AgentTableFilter(props: {
             type="button"
             class="ui-row"
             onPointerDown={(event) => event.preventDefault()}
-            onClick={() => props.onChange(noFilter)}
+            onClick={() => {
+              // The button leaves with the filter; from the keyboard, focus would leave the panel with it.
+              field?.focus();
+              props.onChange(noFilter);
+            }}
           >
             Clear Filter
           </button>

@@ -122,7 +122,8 @@ test("an agent's table sorts, filters, and attaches dragged cells", async ({ pag
   await page.keyboard.type("retry");
   await expect(messages).toHaveText(["retrying"]);
   expect((await block.boundingBox())!.height).toBe(height);
-  await byMessage.getByRole("button", { name: "Clear Filter" }).click();
+  await byMessage.getByRole("button", { name: "Clear Filter" }).press("Enter");
+  await expect(byMessage.getByRole("searchbox")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(byMessage).toBeHidden();
   await expect(block.getByRole("button", { name: "Filter message" })).toBeFocused();

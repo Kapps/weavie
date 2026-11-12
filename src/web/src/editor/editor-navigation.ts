@@ -1,10 +1,19 @@
 import type { ClientSession } from "../bridge";
-import { createNavHistory, type NavHistory, type NavLocation } from "./nav-history";
+import {
+  createNavHistory,
+  type NavDestination,
+  type NavHistory,
+  type NavLocation,
+} from "./nav-history";
 
 /** History and in-flight restoration belong to one exact session, including when its view detaches. */
 export function createEditorNavigation(options: {
+  /** The pane on screen in place of the session's editor tab; it is the session's location while it is up. */
+  pane(session: ClientSession): string | null;
+  /** Whether restoring `location` would put the session there. */
+  reachable(session: ClientSession, location: NavDestination): boolean;
   capture(session: ClientSession): NavLocation | undefined;
-  restore(session: ClientSession, location: NavLocation, signal: AbortSignal): Promise<void>;
+  restore(session: ClientSession, location: NavDestination, signal: AbortSignal): Promise<void>;
   changed(): void;
   failed(session: ClientSession, error: unknown): void;
 }) {
@@ -27,45 +36,56 @@ export function createEditorNavigation(options: {
   const history = (session: ClientSession): NavHistory => {
     let value = histories.get(session);
     if (value === undefined) {
-      value = createNavHistory(async (location) => {
-        pending.get(session)?.lifetime.abort();
-        operationFor(session).abort();
-        const lifetime = new AbortController();
-        operations.set(session, lifetime);
-        const signal = AbortSignal.any([session.signal, lifetime.signal]);
-        const promise = options.restore(session, location, signal);
-        const operation = { lifetime, promise };
-        pending.set(session, operation);
-        try {
-          await promise;
-        } catch (error) {
-          if (!signal.aborted) options.failed(session, error);
-          throw error;
-        } finally {
-          if (pending.get(session) === operation) pending.delete(session);
-          options.changed();
-        }
-      }, options.changed);
+      value = createNavHistory(
+        async (location) => {
+          pending.get(session)?.lifetime.abort();
+          operationFor(session).abort();
+          const lifetime = new AbortController();
+          operations.set(session, lifetime);
+          const signal = AbortSignal.any([session.signal, lifetime.signal]);
+          const promise = options.restore(session, location, signal);
+          const operation = { lifetime, promise };
+          pending.set(session, operation);
+          try {
+            await promise;
+          } catch (error) {
+            if (!signal.aborted) options.failed(session, error);
+            throw error;
+          } finally {
+            if (pending.get(session) === operation) pending.delete(session);
+            options.changed();
+          }
+        },
+        options.changed,
+        (location) => options.reachable(session, location),
+      );
       histories.set(session, value);
     }
     return value;
   };
   const commit = (
     session: ClientSession,
-    location: NavLocation,
+    location: NavDestination,
     method: "record" | "push",
   ): void => {
     cancelRecord(session);
     history(session)[method](location);
     options.changed();
   };
+  // An editor behind a fullscreen pane moves without the user visiting it.
+  const visit = (
+    session: ClientSession,
+    location: NavLocation,
+    method: "record" | "push",
+  ): void => {
+    if (options.pane(session) === null) commit(session, location, method);
+  };
   const record = (session: ClientSession, location: NavLocation): void =>
-    commit(session, location, "record");
+    visit(session, location, "record");
   return {
     history,
     record,
-    push: (session: ClientSession, location: NavLocation): void =>
-      commit(session, location, "push"),
+    push: (session: ClientSession, location: NavLocation): void => visit(session, location, "push"),
     signal: (session: ClientSession): AbortSignal =>
       AbortSignal.any([session.signal, operationFor(session).signal]),
     schedule(session: ClientSession, location: NavLocation, signal: AbortSignal): void {
@@ -90,8 +110,9 @@ export function createEditorNavigation(options: {
     },
     capture(session: ClientSession): void {
       cancelRecord(session);
-      const location = options.capture(session);
-      if (location !== undefined) record(session, location);
+      const pane = options.pane(session);
+      const location = pane === null ? options.capture(session) : { pane };
+      if (location !== undefined) commit(session, location, "record");
     },
     detach(session: ClientSession): void {
       cancelRecord(session);

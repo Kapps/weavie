@@ -106,6 +106,10 @@ export interface EditorControllerDeps {
   onCurrentFileChanged: (path: string | null) => void;
   /** Reveal an accepted foreground editor destination in the app's active presentation. */
   onDestinationActivated: () => void;
+  /** The pane fullscreen shows alone; null outside fullscreen. */
+  fullscreenPane: () => string | null;
+  /** Show and focus a pane that Back/Forward returned to. */
+  showPane: (kind: string) => void;
   /** Present a menu for the exact editor connection that received the context-menu event. */
   onEditorContextMenu: TextEditorMenuHandler;
   /** Confirm discarding unsaved scratch buffers about to be closed (`names`); the single close-path guard. */
@@ -138,8 +142,10 @@ interface SessionProposal extends DiffProposal {
   priorActive: string | null;
 }
 
-/** Back/forward navigation through visited editor locations, exposed to the Go Back / Go Forward commands. */
+/** Back/forward navigation through visited locations, exposed to the Go Back / Go Forward commands. */
 export interface NavActions {
+  /** Record where the selected session is now. */
+  capture(): void;
   /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
   back(session: ClientSession): boolean;
   /** Go to the next location; false when there's nothing ahead. */
@@ -595,7 +601,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const [navRevision, setNavRevision] = createSignal(0);
+  // Fullscreen shows `pane` in place of an editor tab; a tab in the fullscreen editor is its own location.
+  const standsIn = (session: ClientSession, pane: string): boolean =>
+    deps.fullscreenPane() !== null && (pane !== "editor" || activeTabFor(session) === undefined);
   const navigation = createEditorNavigation({
+    pane: (session) => {
+      const pane = selectedSession() === session ? deps.fullscreenPane() : null;
+      return pane !== null && standsIn(session, pane) ? pane : null;
+    },
+    reachable: (session, location) => !("pane" in location) || standsIn(session, location.pane),
     capture: (session) => {
       const tab = activeTabFor(session);
       return selectedSession() !== session || tab === undefined ? undefined : captureLocation(tab);
@@ -604,6 +618,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       signal.throwIfAborted();
       if (selectedSession() !== session)
         throw new DOMException("Editor view detached", "AbortError");
+      if ("pane" in location) {
+        deps.showPane(location.pane);
+        return;
+      }
       activateDestinationFor(session, "restore");
       const result = openTabFor(session, location.tab.path, { kind: tabKind(location.tab) });
       result.placement = { viewState: location.view.state };
@@ -1761,6 +1779,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     tabs,
     nav: {
+      capture: () => {
+        const session = selectedSession();
+        if (session !== null) navigation.capture(session);
+      },
       back: (session) => {
         if (selectedSession() !== session) return false;
         navigation.capture(session);

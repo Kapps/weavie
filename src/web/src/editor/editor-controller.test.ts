@@ -128,6 +128,8 @@ function dependencies(confirm: EditorControllerDeps["confirm"]): EditorControlle
     onEditorContextMenu: () => {},
     onCurrentFileChanged: () => {},
     onDestinationActivated: () => {},
+    fullscreenPane: () => null,
+    showPane: () => {},
     onOpenError: () => {},
     onSaveError: () => {},
     promptRevision: () => Promise.resolve(null),

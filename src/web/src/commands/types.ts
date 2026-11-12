@@ -227,6 +227,7 @@ export const CommandIds = {
   pinSessionPanel: "weavie.session.panelPin",
   toggleParkedSessions: "weavie.session.toggleParked",
   pasteNewSession: "weavie.session.pasteNew",
+  resuggestWorkflow: "weavie.session.resuggestWorkflow",
   resuggestBranch: "weavie.session.resuggestBranch",
   submitNewSession: "weavie.session.submitNew",
   openPr: "weavie.pr.open",

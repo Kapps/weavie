@@ -41,7 +41,7 @@ public sealed class WorkflowStartTests : IDisposable {
 
 	private Task<WorkflowSuggestion> Suggest(FakeDecisionProvider provider, IReadOnlyList<WorkflowDefinition> startable) =>
 		new WorkflowSuggester(new DecisionService(_settings, [provider]), _history)
-			.SuggestAsync(startable, "fix the typo in the header", _dir.Path, 0.8, CancellationToken.None);
+			.SuggestAsync(startable, "fix the typo in the header", _dir.Path, 0.8, InferenceInvocationOrigin.Automatic, CancellationToken.None);
 
 	private static FakeDecisionProvider Answering(double none, double small) => new(DecisionProviderIds.Agent,
 		new Dictionary<string, double> { [WorkflowSuggester.NoWorkflow] = none, ["small"] = small, ["quick-fix"] = 0, ["spec-driven"] = 0 });
@@ -84,6 +84,24 @@ public sealed class WorkflowStartTests : IDisposable {
 		Assert.Equal([WorkflowSuggester.NoWorkflow, "quick-fix", "small", "spec-driven"], request.Question.Choices.Select(choice => choice.Label));
 		Assert.Equal("A small fix.", request.Question.Choices[2].Description);
 		Assert.Equal(1, _history.Summary().AgentAnswered);
+	}
+
+	[Fact]
+	public async Task ExplicitSuggestionWorksWithoutAutomaticInferenceAndReportsDisabledInference() {
+		_settings.Set(InferenceSettings.AllowAutomatic, JsonSerializer.SerializeToElement(false));
+		var provider = Answering(none: 0.1, small: 0.9);
+		var suggester = new WorkflowSuggester(new DecisionService(_settings, [provider]), _history);
+		var startable = WorkflowStartOptions.From(Catalog, "", _roles.Resolver()).Startable;
+
+		var result = await suggester.SuggestAsync(startable, "fix the typo", _dir.Path, 0.8,
+			InferenceInvocationOrigin.UserInitiated, CancellationToken.None);
+
+		Assert.Equal(new WorkflowSuggestion.Chosen("small"), result);
+		Assert.Equal(InferenceInvocationOrigin.UserInitiated, provider.LastRequest!.Origin);
+		_settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(false));
+		Assert.IsType<WorkflowSuggestion.Failed>(await suggester.SuggestAsync(startable, "fix the typo", _dir.Path, 0.8,
+			InferenceInvocationOrigin.UserInitiated, CancellationToken.None));
+		Assert.Equal(1, provider.Calls);
 	}
 
 	[Theory]

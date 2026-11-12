@@ -12,6 +12,7 @@ export function NewSessionPicker(props: {
   /** The picked option's id, highlighted in the menu. */
   selected: string;
   options: readonly ControlMenuOption[];
+  action: JSX.Element;
   busy: string | null;
   disabled: boolean;
   problem: string | null;
@@ -26,7 +27,7 @@ export function NewSessionPicker(props: {
   });
 
   return (
-    <div class="session-composer-workflow">
+    <div class="session-composer-field session-composer-workflow">
       <span id={`${props.id}-label`}>{props.label}</span>
       <button
         type="button"
@@ -56,6 +57,7 @@ export function NewSessionPicker(props: {
           <ChevronDown />
         </span>
       </button>
+      {props.action}
       <Show when={props.problem}>{(problem) => <small role="alert">{problem()}</small>}</Show>
       <Show when={anchor()} keyed>
         {(rect) => (

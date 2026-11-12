@@ -23,7 +23,7 @@ test("the composer suggests a workflow from the prompt and starts the session in
   await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
   await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
-  const workflow = inbox.getByRole("button", { name: "Workflow" });
+  const workflow = inbox.getByRole("button", { name: /^Workflow / });
   await expect(workflow).toHaveText("No workflow");
 
   const prompt = inbox.getByRole("textbox", { name: "Prompt for a new session" });
@@ -68,7 +68,7 @@ test("a default an agent sets from its own session is the one the composer prese
   await workflowTool(surface, "setSetting", { key: "workflow.default", value: "quick-fix" });
 
   await page.locator(".session-rail-add").click();
-  const workflow = page.locator(".session-inbox").getByRole("button", { name: "Workflow" });
+  const workflow = page.locator(".session-inbox").getByRole("button", { name: /^Workflow / });
   await expect(workflow).toHaveText("quick-fix");
 });
 
@@ -86,7 +86,7 @@ test("the composer asks for each role a workflow needs, suggests a model, and sa
   await provider.selectOption("fake-acp");
   await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("add a picker");
   await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("roles");
-  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await inbox.getByRole("button", { name: /^Workflow / }).click();
   await page
     .getByRole("listbox", { name: "Workflow" })
     .getByRole("option", { name: /^spec-driven/ })
@@ -118,17 +118,136 @@ test("the composer asks for each role a workflow needs, suggests a model, and sa
   // Saved for every later start in this provider's sessions; a terminal session can't run the workflow at all.
   await page.locator(".session-rail-add").click();
   await provider.selectOption("fake-acp");
-  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await inbox.getByRole("button", { name: /^Workflow / }).click();
   await page
     .getByRole("listbox", { name: "Workflow" })
     .getByRole("option", { name: /^spec-driven/ })
     .click();
   await expect(inbox.getByText("Roles for spec-driven")).toHaveCount(0);
   await provider.selectOption("claude");
-  await inbox.getByRole("button", { name: "Workflow" }).click();
+  await inbox.getByRole("button", { name: /^Workflow / }).click();
   await expect(
     page
       .getByRole("listbox", { name: "Workflow" })
       .getByRole("option", { name: /^spec-driven.*runs in a terminal/ }),
   ).toHaveAttribute("aria-disabled", "true");
+});
+
+test("workflow refresh reconsiders the current prompt after a suggestion or manual choice", async ({
+  page,
+  weavie,
+}) => {
+  const answerPath = join(weavie.workspace, "inference-answer.json");
+  await writeFile(
+    answerPath,
+    JSON.stringify({ no_workflow: 0.05, "quick-fix": 0.9, "spec-driven": 0.05 }),
+  );
+  await page.locator(".session-rail-add").click();
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+  const workflow = inbox.getByRole("button", { name: /^Workflow / });
+  const refresh = inbox.getByRole("button", { name: "Suggest a workflow again" });
+  const prompt = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+  await expect(refresh).toBeDisabled();
+  await prompt.fill(DRAFT);
+  await expect(workflow).toHaveText("quick-fix");
+
+  await workflow.click();
+  await page
+    .getByRole("listbox", { name: "Workflow" })
+    .getByRole("option", { name: /^No workflow/ })
+    .click();
+  await prompt.fill("Fix video playback");
+  await expect(workflow).toHaveText("No workflow");
+  await refresh.click();
+  await expect(workflow).toHaveText("quick-fix");
+  expect((await workflowReceipt(weavie.workspace)).evidence).toEqual({
+    prompt: "Fix video playback",
+  });
+
+  await writeFile(
+    answerPath,
+    JSON.stringify({ no_workflow: 0.95, "quick-fix": 0.025, "spec-driven": 0.025 }),
+  );
+  await refresh.click();
+  await expect(workflow).toHaveText("No workflow");
+  await prompt.fill("");
+  await expect(refresh).toBeDisabled();
+});
+
+test("session fields have aligned labels and matching suggestion controls on desktop and phone", async ({
+  page,
+}) => {
+  await page.locator(".session-rail-add").click();
+  const inbox = page.locator(".session-inbox");
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(inbox).toBeVisible();
+    for (const form of [
+      inbox.locator(".session-composer"),
+      inbox.locator(".session-open-branch"),
+    ]) {
+      await expect(form.getByText("Location", { exact: true })).toBeVisible();
+      await expect(form.getByText("Agent", { exact: true })).toBeVisible();
+    }
+    const geometry = await inbox.evaluate((element) => {
+      const rect = (node: Element) => {
+        const { x, width, height } = node.getBoundingClientRect();
+        return { x, width, height };
+      };
+      return {
+        fields: [...element.querySelectorAll(".session-composer-field > .ui-field")].map(rect),
+        suggestions: [...element.querySelectorAll(".session-composer-resuggest")].map((button) => ({
+          button: rect(button),
+          field: rect(button.parentElement!.querySelector(".ui-field")!),
+        })),
+        width: element.scrollWidth,
+        visibleWidth: element.clientWidth,
+      };
+    });
+    expect(geometry.fields.length).toBe(8);
+    expect(new Set(geometry.fields.map((field) => field.x)).size).toBe(1);
+    expect(geometry.suggestions).toHaveLength(2);
+    for (const { button, field } of geometry.suggestions) {
+      expect(button.height).toBe(field.height);
+      expect(button.width).toBe(button.height);
+    }
+    expect(geometry.width).toBe(geometry.visibleWidth);
+  }
+});
+
+test.describe("manual workflow suggestions", () => {
+  test.use({ automaticInference: false });
+
+  test("an explicit refresh works with automatic inference disabled and a short prompt", async ({
+    page,
+    weavie,
+  }) => {
+    await writeFile(
+      join(weavie.workspace, "inference-answer.json"),
+      JSON.stringify({ no_workflow: 0.05, "quick-fix": 0.9, "spec-driven": 0.05 }),
+    );
+    const surface = await createAcpSession(page, "manual-inference");
+    await workflowTool(surface, "setSetting", { key: "inference.enabled", value: true });
+    await page.locator(".session-rail-add").click();
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+    const prompt = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+    const refresh = inbox.getByRole("button", { name: "Suggest a workflow again" });
+    const workflow = inbox.getByRole("button", { name: /^Workflow / });
+    await expect(refresh).toBeDisabled();
+    await prompt.fill("Fix video playback");
+    await expect(refresh).toBeEnabled();
+    await prompt.fill("");
+    await expect(refresh).toBeDisabled();
+    await prompt.fill("Fix video playback");
+    await refresh.click();
+    await expect(workflow).toHaveText("quick-fix");
+    expect((await workflowReceipt(weavie.workspace)).evidence).toEqual({
+      prompt: "Fix video playback",
+    });
+  });
 });

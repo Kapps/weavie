@@ -6,7 +6,7 @@ import {
   NewSessionBranchPreview,
 } from "../chrome/new-session-branch-preview";
 import { keyHint } from "../commands/key-hint";
-import { registerCommand } from "../commands/registry";
+import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
 export interface NewSessionBranchActions {
@@ -55,7 +55,7 @@ export function NewSessionBranchField(props: {
   onMount(() =>
     onCleanup(
       registerCommand(CommandIds.resuggestBranch, () => {
-        if (!props.active || !props.inputReady || !online()) {
+        if (!props.active || !props.inputReady || !online() || state().status === "loading") {
           return false;
         }
         preview.refresh();
@@ -94,10 +94,10 @@ export function NewSessionBranchField(props: {
   };
 
   return (
-    <div class="session-composer-branch">
+    <div class="session-composer-field session-composer-branch">
       <label for="new-session-branch">Branch</label>
       <input
-        class="ui-field ui-field-content"
+        class="ui-field ui-field-mono"
         id="new-session-branch"
         type="text"
         aria-label="Branch for the new session"
@@ -114,9 +114,9 @@ export function NewSessionBranchField(props: {
         type="button"
         class="session-composer-resuggest ui-icon-button"
         aria-label="Suggest a branch name again"
-        title={`Suggest again${keyHint(CommandIds.resuggestBranch)}`}
+        title={`Suggest Branch Name Again${keyHint(CommandIds.resuggestBranch)}`}
         disabled={!props.inputReady || !online() || state().status === "loading"}
-        onClick={() => preview.refresh()}
+        onClick={() => void runCommandWithFeedback(CommandIds.resuggestBranch)}
       >
         <RefreshCw aria-hidden="true" />
       </button>

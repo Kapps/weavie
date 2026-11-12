@@ -14,7 +14,6 @@ import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
-import { MobileActionLabel } from "./MobileActionLabel";
 import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
 import { SessionInboxRow } from "./SessionInboxRow";
 
@@ -191,46 +190,52 @@ export function SessionInbox(props: {
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
-      <select
-        class="ui-field"
-        aria-label={locationLabel}
-        value={backendId()}
-        onChange={(event) => selectBackend(event.currentTarget.value)}
-      >
-        <For each={connectedBackends()}>
-          {(backend) => (
-            <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
-          )}
-        </For>
-      </select>
-      <select
-        class="ui-field"
-        aria-label={providerLabel}
-        disabled={savingProvider()}
-        onChange={(event) => selectProvider(event.currentTarget.value)}
-      >
-        <For each={agentProviders(backendId())}>
-          {(provider) => (
-            <option
-              value={provider.id}
-              selected={provider.id === providerId()}
-              disabled={!provider.available}
-              title={provider.unavailableReason ?? provider.name}
-            >
-              {provider.name}
-              {provider.available ? "" : " (Unavailable)"}
-            </option>
-          )}
-        </For>
-      </select>
-      <Show
-        when={
-          agentProviders(backendId()).find((provider) => provider.id === providerId())
-            ?.unavailableReason
-        }
-      >
-        {(reason) => <small role="alert">{reason()}</small>}
-      </Show>
+      <label class="session-composer-field">
+        <span>Location</span>
+        <select
+          class="ui-field"
+          aria-label={locationLabel}
+          value={backendId()}
+          onChange={(event) => selectBackend(event.currentTarget.value)}
+        >
+          <For each={connectedBackends()}>
+            {(backend) => (
+              <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
+            )}
+          </For>
+        </select>
+      </label>
+      <label class="session-composer-field">
+        <span>Agent</span>
+        <select
+          class="ui-field"
+          aria-label={providerLabel}
+          disabled={savingProvider()}
+          onChange={(event) => selectProvider(event.currentTarget.value)}
+        >
+          <For each={agentProviders(backendId())}>
+            {(provider) => (
+              <option
+                value={provider.id}
+                selected={provider.id === providerId()}
+                disabled={!provider.available}
+                title={provider.unavailableReason ?? provider.name}
+              >
+                {provider.name}
+                {provider.available ? "" : " (Unavailable)"}
+              </option>
+            )}
+          </For>
+        </select>
+        <Show
+          when={
+            agentProviders(backendId()).find((provider) => provider.id === providerId())
+              ?.unavailableReason
+          }
+        >
+          {(reason) => <small role="alert">{reason()}</small>}
+        </Show>
+      </label>
     </>
   );
 
@@ -288,10 +293,10 @@ export function SessionInbox(props: {
               void openExisting();
             }}
           >
-            <label class="session-composer-branch">
+            <label class="session-composer-field session-composer-branch">
               <span>Branch</span>
               <input
-                class="ui-field ui-field-content"
+                class="ui-field ui-field-mono"
                 type="text"
                 list="session-existing-branches"
                 aria-label="Existing branch for the session"
@@ -312,17 +317,18 @@ export function SessionInbox(props: {
                 <small role="alert">{branchListError()}</small>
               </Show>
             </label>
+            {destinationFields("Open on", "Open with")}
             <div class="session-composer-options">
-              {destinationFields("Open on", "Open with")}
               <button
                 type="submit"
                 class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
                 disabled={submitting() !== null || existingBranch().trim().length === 0}
               >
-                <MobileActionLabel icon={<ArrowUp />}>
-                  {submitting() === "existing" ? "Opening…" : "Open"}
-                </MobileActionLabel>
+                <span class="ui-icon" aria-hidden="true">
+                  <ArrowUp />
+                </span>
+                {submitting() === "existing" ? "Opening…" : "Open"}
               </button>
             </div>
           </form>

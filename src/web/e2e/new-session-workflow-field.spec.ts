@@ -116,7 +116,7 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     await page.locator(".session-rail-add").click();
     const modal = page.getByRole("dialog", { name: "Sessions" });
     const inbox = page.locator(".session-inbox");
-    const workflow = inbox.getByRole("button", { name: "Workflow" });
+    const workflow = inbox.getByRole("button", { name: /^Workflow / });
     await expect(workflow).toHaveText("No workflow");
     await expect(workflow).toBeEnabled();
 
@@ -128,6 +128,7 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
       sourceId: null,
       providerId: expect.any(String),
       prompt: DRAFT,
+      userInitiated: false,
     });
     await expect(workflow).toContainText("Suggesting…");
     host.respond(asked, { applies: true, workflow: "quick-fix", error: null });

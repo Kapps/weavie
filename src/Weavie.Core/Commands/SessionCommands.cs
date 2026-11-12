@@ -33,6 +33,9 @@ public static class SessionCommands {
 	/// <summary>Pastes the local clipboard into the focused new-session composer; <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
 	public const string PasteNewSession = "weavie.session.pasteNew";
 
+	/// <summary>Reconsider the workflow suggested for the new-session prompt.</summary>
+	public const string ResuggestWorkflow = "weavie.session.resuggestWorkflow";
+
 	/// <summary>Re-runs the new-session composer's branch suggestion against the prompt as it now reads. Unbound.</summary>
 	public const string ResuggestBranch = "weavie.session.resuggestBranch";
 
@@ -185,7 +188,19 @@ public static class SessionCommands {
 				+ "replacing the current suggested or typed name. The composer suggests once on its own; this is how "
 				+ "the user asks for another.",
 			Aliases = ["resuggest branch", "rename branch suggestion", "suggest branch again", "new branch name"],
-			ShowInPalette = false,
+			KeybindingsActiveInModal = true,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ResuggestWorkflow,
+			SharedExecutionLane = NewSessionInputExecutionLane,
+			Title = "Suggest Workflow Again",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Session",
+			Description = "Reconsider the new-session workflow using the current prompt, replacing the previous suggestion or manual selection.",
+			Aliases = ["resuggest workflow", "suggest workflow again"],
+			KeybindingsActiveInModal = true,
 		});
 
 		registry.Register(new CommandDefinition {

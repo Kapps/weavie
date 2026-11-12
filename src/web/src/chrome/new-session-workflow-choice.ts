@@ -16,6 +16,17 @@ export interface WorkflowChoiceState {
   status: "loading" | "ready" | "suggesting";
 }
 
+/** Whether a workflow can be suggested on demand from the current composer inputs. */
+export const canRefreshWorkflow = (
+  state: WorkflowChoiceState,
+  prompt: string,
+  online: boolean,
+): boolean =>
+  online &&
+  state.status === "ready" &&
+  prompt.trim().length > 0 &&
+  state.options.some((option) => option.error === null);
+
 type CatalogRequest = (
   target: WorkflowTarget,
   signal: AbortSignal,
@@ -24,6 +35,7 @@ type CatalogRequest = (
 type SuggestionRequest = (
   target: WorkflowTarget,
   prompt: string,
+  userInitiated: boolean,
   signal: AbortSignal,
 ) => Promise<WorkflowSuggestion>;
 
@@ -41,8 +53,8 @@ export const errorMessage = (error: unknown): string =>
 
 /**
  * Owns the workflow a new session starts with: the configured default, until one suggestion for the composed
- * prompt or the user's own pick replaces it. The suggestion is asked once per draft, never for one too short
- * to judge, never once the user has picked, and never lands over a value a start has already taken.
+ * prompt or the user's own pick replaces it. Automatic suggestions run once per substantial draft;
+ * explicit refreshes use the current prompt. Neither lands over a later pick or a captured start.
  */
 export class NewSessionWorkflowChoice {
   private target: WorkflowTarget | null = null;
@@ -117,6 +129,22 @@ export class NewSessionWorkflowChoice {
     if (draftWorthQuerying(this.prompt)) {
       this.settled();
     }
+  }
+
+  /** Whether the current prompt can be explicitly reconsidered. */
+  get canRefresh(): boolean {
+    return canRefreshWorkflow(this.state, this.prompt, this.online);
+  }
+
+  /** Explicitly reconsider the current prompt, including a previous suggestion or manual pick. */
+  refresh(): void {
+    if (!this.canRefresh) return;
+    this.settle.clear();
+    this.asked = false;
+    this.picked = false;
+    this.claimed = false;
+    this.due = true;
+    this.ask(true);
   }
 
   /** The user moved onto the field: it is theirs to set, so nothing is asked or applied until they leave it. */
@@ -195,7 +223,7 @@ export class NewSessionWorkflowChoice {
       this.state = { ...this.state, workflow: catalog.default };
     }
     this.publish({ status: this.suggestion === null ? "ready" : "suggesting" });
-    this.ask();
+    this.ask(false);
   }
 
   // What was read before still stands; only the reason is new.
@@ -211,10 +239,10 @@ export class NewSessionWorkflowChoice {
 
   private settled(): void {
     this.due = true;
-    this.ask();
+    this.ask(false);
   }
 
-  private ask(): void {
+  private ask(userInitiated: boolean): void {
     const target = this.target;
     if (!this.due || !this.mayAsk || !this.loaded || !this.online || target === null) {
       return;
@@ -230,7 +258,7 @@ export class NewSessionWorkflowChoice {
     this.suggestion = suggestion;
     this.suggestionError = null;
     this.publish({ status: "suggesting" });
-    this.requestSuggestion(target, this.prompt, suggestion.signal).then(
+    this.requestSuggestion(target, this.prompt, userInitiated, suggestion.signal).then(
       (result) => this.suggestionLanded(suggestion, result),
       (error: unknown) =>
         this.suggestionLanded(suggestion, {

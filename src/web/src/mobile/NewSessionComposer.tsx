@@ -9,7 +9,6 @@ import { keyHint } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
-import { MobileActionLabel } from "./MobileActionLabel";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import { type NewSessionWorkflowActions, NewSessionWorkflowField } from "./NewSessionWorkflowField";
 import {
@@ -213,22 +212,20 @@ export function NewSessionComposer(props: {
           </div>
         )}
       </Show>
-      <div class="session-composer-source">
-        <label>
-          <span>From</span>
-          <select
-            class="ui-field"
-            aria-label="Branch starting point"
-            value={props.base}
-            onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
-          >
-            <option value="main">Main branch</option>
-            <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
-              Current session
-            </option>
-          </select>
-        </label>
-      </div>
+      <label class="session-composer-field session-composer-source">
+        <span>From</span>
+        <select
+          class="ui-field"
+          aria-label="Branch starting point"
+          value={props.base}
+          onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
+        >
+          <option value="main">Main branch</option>
+          <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
+            Current session
+          </option>
+        </select>
+      </label>
       <NewSessionBranchField
         active={props.active}
         backendId={props.backendId}
@@ -254,8 +251,8 @@ export function NewSessionComposer(props: {
           workflowActions = actions;
         }}
       />
+      {props.destination}
       <div class="session-composer-options">
-        {props.destination}
         <button
           type="submit"
           class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
@@ -263,9 +260,10 @@ export function NewSessionComposer(props: {
           title={`Start${keyHint(CommandIds.submitNewSession)}`}
           disabled={!canStart()}
         >
-          <MobileActionLabel icon={<ArrowUp />}>
-            {props.starting ? "Starting…" : "Start"}
-          </MobileActionLabel>
+          <span class="ui-icon" aria-hidden="true">
+            <ArrowUp />
+          </span>
+          {props.starting ? "Starting…" : "Start"}
         </button>
       </div>
     </form>

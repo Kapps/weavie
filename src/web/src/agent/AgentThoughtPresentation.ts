@@ -3,7 +3,7 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 export type ThoughtDisplay = AgentDefaults["thoughtDisplay"];
 
-/** Folds only earlier exchanges; tools and ordinary replies keep their own transcript rows. */
+/** Only reasoning changes presentation; tools and ordinary replies retain their transcript rows. */
 export function presentThoughts(
   entries: AgentTranscriptEntry[],
   display: ThoughtDisplay,
@@ -17,32 +17,5 @@ export function presentThoughts(
         : entry,
     );
 
-  const latest = entries.findLastIndex((entry) => entry.exchangeStart);
-  const output: AgentTranscriptEntry[] = [];
-  let group: AgentTranscriptEntry | null = null;
-  let thoughts: AgentTranscriptEntry[] = [];
-  for (const [index, entry] of entries.entries()) {
-    if (entry.exchangeStart) group = null;
-    if (entry.kind !== "thought" || index > latest) {
-      output.push(entry);
-      continue;
-    }
-    if (group === null) {
-      thoughts = [];
-      const id = `thought-history:${entry.id}`;
-      group = {
-        ...entry,
-        id,
-        kind: "thought-history",
-        label: "Earlier thinking",
-        text: null,
-        streaming: false,
-        thoughts,
-        thoughtOpen: expanded.has(id),
-      };
-      output.push(group);
-    }
-    thoughts.push(entry);
-  }
-  return output;
+  return entries.filter((entry) => entry.kind !== "thought");
 }

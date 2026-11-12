@@ -815,9 +815,23 @@ a:has(> .agent-path-dir) {
   content: "v";
 }
 
-.agent-entry-thought,
-.agent-entry-thought-history {
+.agent-entry-thought {
   padding: 0 8px;
+}
+
+.agent-current-thought {
+  flex: 0 0 auto;
+  min-width: 0;
+  color: var(--dim);
+  padding-inline: 12px;
+  cursor: default;
+}
+
+.agent-current-thought-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-thought {
@@ -1569,8 +1583,4 @@ label.agent-input-choice:hover {
 
 .agent-code-copy.copied {
   color: var(--accent);
-}
-
-.agent-thought-history .agent-markdown + .agent-markdown {
-  margin-top: 8px;
 }

@@ -4,6 +4,7 @@ import { isResult } from "./AgentTranscriptLabels";
 export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartId: null,
   agentTurnStartIndex: null,
+  currentThought: null,
   entries: [],
   entryIndexes: new Map(),
   latestResultIndex: null,
@@ -50,6 +51,7 @@ export function shareTranscript(
     next.agentTurnStartIndex === previous.agentTurnStartIndex &&
     next.latestResultIndex === previous.latestResultIndex &&
     next.turnActive === previous.turnActive &&
+    next.currentThought === previous.currentThought &&
     sameItems(next.pendingRowIndexes, previous.pendingRowIndexes) &&
     next.sectionLabels.size === previous.sectionLabels.size &&
     [...next.sectionLabels].every(([id, label]) => previous.sectionLabels.get(id) === label);
@@ -127,6 +129,7 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
       const held = holdTranscript(view.transcript());
       return {
         ...entry,
+        currentThought: held.currentThought,
         get asideEntries() {
           return withLivePending(held, view.transcript()).entries as AgentTranscriptEntry[];
         },

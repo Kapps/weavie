@@ -5,7 +5,6 @@ import { Disclosure } from "./AgentDisclosure";
 import { AgentMarkdown } from "./AgentMarkdown";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { thoughtPreview } from "./AgentThoughtPreview";
-import { ForEachId } from "./ForEachId";
 
 export function AgentThoughtEntry(props: {
   entry: AgentTranscriptEntry;
@@ -13,14 +12,13 @@ export function AgentThoughtEntry(props: {
   onDetailsToggle: (entryId: string, open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
-  const history = () => props.entry.kind === "thought-history";
   const preview = createMemo(() =>
     props.entry.thoughtCollapsed ? thoughtPreview(props.entry.text ?? "") : "",
   );
   const text = () => <ThoughtText entry={props.entry} session={props.session} />;
   return (
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-system`}>
-      <Show when={history() || props.entry.thoughtCollapsed} fallback={text()}>
+      <Show when={props.entry.thoughtCollapsed} fallback={text()}>
         <Disclosure
           class="agent-thought"
           label={
@@ -28,26 +26,14 @@ export function AgentThoughtEntry(props: {
               <span class="ui-icon">
                 <ChevronRight aria-hidden="true" />
               </span>
-              <span class="agent-thought-label">
-                {history() ? `Earlier thinking · ${props.entry.thoughts!.length}` : "Thinking"}
-              </span>
-              <Show when={!history()}>
-                <span class="agent-thought-preview">{preview()}</span>
-              </Show>
+              <span class="agent-thought-label">Thinking</span>
+              <span class="agent-thought-preview">{preview()}</span>
             </span>
           }
           open={props.expandedDetails.has(props.entry.id)}
           onToggle={(open) => props.onDetailsToggle(props.entry.id, open)}
         >
-          <div class="agent-thought-body">
-            <Show when={history()} fallback={text()}>
-              <div class="agent-thought-history">
-                <ForEachId each={props.entry.thoughts!}>
-                  {(entry) => <ThoughtText entry={entry()} session={props.session} />}
-                </ForEachId>
-              </div>
-            </Show>
-          </div>
+          <div class="agent-thought-body">{text()}</div>
         </Disclosure>
       </Show>
     </article>

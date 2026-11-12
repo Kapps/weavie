@@ -30,7 +30,6 @@ export interface AgentTranscriptEntry {
     | "aside"
     | "message"
     | "thought"
-    | "thought-history"
     | "notice"
     | "plan"
     | "request"
@@ -42,15 +41,14 @@ export interface AgentTranscriptEntry {
   summary: string | null;
   text: string | null;
   tone: AgentTranscriptTone;
-  exchangeStart?: true;
   thoughtCollapsed?: true;
-  thoughts?: readonly AgentTranscriptEntry[];
   thoughtOpen?: boolean;
   turnStart?: true;
   promptTurnId?: string;
   conversation?: AgentConversationProjection;
   asideActive?: boolean | undefined;
   asideCollapsed?: boolean | undefined;
+  currentThought?: string | null;
   asideEntries?: readonly AgentTranscriptEntry[];
   pendingEntries?: readonly AgentTranscriptEntry[];
   asideReplyable?: boolean | undefined;
@@ -74,6 +72,7 @@ export type AgentSectionLabel = "Updates" | "Results";
 export interface AgentTranscriptSnapshot {
   readonly agentTurnStartId: string | null;
   readonly agentTurnStartIndex: number | null;
+  readonly currentThought: string | null;
   readonly entries: readonly AgentTranscriptEntry[];
   readonly entryIndexes: ReadonlyMap<string, number>;
   readonly latestResultIndex: number | null;

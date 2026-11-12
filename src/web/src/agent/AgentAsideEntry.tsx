@@ -52,6 +52,7 @@ export function AsideEntry(props: {
       </button>
       <div>
         <NestedTranscript
+          currentThought={props.entry.currentThought ?? null}
           entries={props.entry.asideEntries ?? []}
           pendingOnly={collapsed()}
           expandedDetails={props.expandedDetails}

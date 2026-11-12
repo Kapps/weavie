@@ -35,7 +35,7 @@ export function TranscriptEntry(props: {
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
-  if (props.entry.kind === "thought" || props.entry.kind === "thought-history") {
+  if (props.entry.kind === "thought") {
     return <AgentThoughtEntry {...props} />;
   }
   if (props.entry.kind === "workflow") {

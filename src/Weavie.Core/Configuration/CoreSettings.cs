@@ -176,7 +176,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
-			Description = "Show all agent thinking, current thinking since your latest message (folding earlier exchanges), or individual collapsed Thinking rows. Ordinary agent replies remain visible.",
+			Description = "Show all agent thinking, the latest reasoning summary in a compact status row, or individual collapsed Thinking rows. Ordinary agent replies remain visible.",
 			Aliases = ["show thinking", "collapse thinking", "thought display"],
 			Apply = ApplyMode.Live,
 			Default = "current",

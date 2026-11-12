@@ -18,6 +18,7 @@ import type {
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
+  currentThought: string | null;
   segments: AgentActivitySegments;
   entries: AgentTranscriptEntry[];
 }
@@ -40,6 +41,7 @@ export function projectAgentTranscript(
   const segments = new AgentActivitySegments();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
+  let currentThought: string | null = null;
   let previousWasUserInput = false;
   let sequence = 0;
   let previousThreadId: string | null | undefined;
@@ -62,6 +64,14 @@ export function projectAgentTranscript(
       sequence += 1;
       continue;
     }
+    if (
+      message.type === "turn-started" ||
+      message.type === "turn-completed" ||
+      message.type === "side-conversation-closed" ||
+      message.type === "side-conversation-failed" ||
+      (isUserInput(message) && !message.sender && message.status !== "attached")
+    )
+      currentThought = null;
     const turnKey: string | null =
       hasPreviousTurn && message.threadId === previousThreadId && message.turnId === previousTurnId
         ? previousTurnKey
@@ -81,9 +91,7 @@ export function projectAgentTranscript(
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
-      if (isUserInput(message) && !message.sender && message.status !== "attached") {
-        durable.exchangeStart = true;
-      }
+      if (durable.kind === "thought") currentThought = durable.text;
       if (startsTurn) {
         durable.turnStart = true;
       }
@@ -110,7 +118,7 @@ export function projectAgentTranscript(
     Object.assign(entry, projection.summary(), { detailCount: projection.count });
   }
 
-  return { segments, entries: collapseEditLocations(entries) };
+  return { currentThought, segments, entries: collapseEditLocations(entries) };
 }
 
 function durableEntry(

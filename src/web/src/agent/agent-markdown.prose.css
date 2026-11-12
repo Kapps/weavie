@@ -192,15 +192,13 @@
   font-weight: 700;
 }
 
-:is(.agent-entry-thought, .agent-entry-thought-history) .agent-markdown {
+.agent-entry-thought .agent-markdown {
   color: color-mix(in srgb, var(--fg) 75%, var(--dim));
   font-size: var(--font-content-secondary-size);
   overflow-wrap: anywhere;
 }
 
-:is(.agent-entry-thought, .agent-entry-thought-history)
-  .agent-markdown
-  :is(h1, h2, h3, h4, h5, h6) {
+.agent-entry-thought .agent-markdown :is(h1, h2, h3, h4, h5, h6) {
   font: inherit;
   color: inherit;
   margin: 0.5em 0;
@@ -208,6 +206,6 @@
   border: 0;
 }
 
-:is(.agent-entry-thought, .agent-entry-thought-history) .agent-markdown :is(strong, b, th) {
+.agent-entry-thought .agent-markdown :is(strong, b, th) {
   font-weight: inherit;
 }

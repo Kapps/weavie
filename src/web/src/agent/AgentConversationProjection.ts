@@ -90,6 +90,9 @@ export class AgentConversationProjection {
       get subagent() {
         return view.card()?.subagent;
       },
+      get currentThought() {
+        return view.transcript().currentThought;
+      },
       get asideEntries() {
         return view.transcript().entries;
       },
@@ -147,6 +150,7 @@ export class AgentConversationProjection {
           agentTurnStartId: turnStartId,
           agentTurnStartIndex:
             turnStartId === null ? null : (this.entryIndexes.get(turnStartId) ?? null),
+          currentThought: this.thoughtDisplay() === "current" ? projection.currentThought : null,
           entries: ordered.entries,
           entryIndexes: this.entryIndexes,
           latestResultIndex: latestResultIndex(ordered.entries),
@@ -179,7 +183,12 @@ export class AgentConversationProjection {
           ? snapshot.pendingRowIndexes.map((index) => snapshot.entries[index]!)
           : snapshot.entries;
     this.estimatedHeight =
-      76 + entries.reduce((height, entry) => height + estimateEntrySize(entry), 0);
+      76 +
+      (snapshot.currentThought !== null &&
+      (card?.kind === "subagent" ? this.expanded.has(card.id) : !card?.asideCollapsed)
+        ? 24
+        : 0) +
+      entries.reduce((height, entry) => height + estimateEntrySize(entry), 0);
   }
 
   childResized(id: string, delta: number): void {
@@ -218,9 +227,7 @@ export class AgentConversationProjection {
     const activity = this.activities.get(id);
     const index = this.entryIndexes.get(id);
     const thought =
-      index !== undefined &&
-      (this.transcript().entries[index]?.kind === "thought-history" ||
-        this.transcript().entries[index]?.thoughtCollapsed === true);
+      index !== undefined && this.transcript().entries[index]?.thoughtCollapsed === true;
     if (activity === undefined && this.card()?.id !== id && !thought) return false;
     if (expanded) this.expanded.add(id);
     else this.expanded.delete(id);

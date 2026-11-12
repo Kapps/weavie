@@ -143,6 +143,7 @@ export const MOCK_AGENT_DEFAULTS: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
   thoughtDisplay: "current",
+  attachOnSelect: true,
   providers: [
     {
       id: "claude",

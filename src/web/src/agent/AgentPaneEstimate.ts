@@ -43,7 +43,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
       : prose
         ? markdownHeight(entry.text)
         : preformattedHeight(entry.text)) +
-    (entry.detailCount > 0 ? monoLineHeight : 0);
+    (entry.detailCount > 0 || entry.actionMessage?.type === "user-selection" ? monoLineHeight : 0);
   estimates.set(entry, size);
   return size;
 }

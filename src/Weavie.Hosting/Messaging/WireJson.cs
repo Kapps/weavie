@@ -138,6 +138,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostSession.AgentSideReplyMessage))]
 [JsonSerializable(typeof(HostSession.AgentAsideCollapsedMessage))]
 [JsonSerializable(typeof(HostSession.AgentSubmitMessage))]
+[JsonSerializable(typeof(HostSession.AgentSelectionWire))]
 [JsonSerializable(typeof(ApplicationMenuState))]
 [JsonSerializable(typeof(HostSession.AttachmentMessage))]
 [JsonSerializable(typeof(HostSession.AttachmentUploadMessage))]

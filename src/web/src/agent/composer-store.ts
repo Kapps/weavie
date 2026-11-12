@@ -7,10 +7,11 @@ export type {
   AgentComposerAttachment,
   AgentComposerState,
   AgentInvocation,
+  AgentSelection,
 } from "./composer-state";
 export { clearReplyComposer, clearReplyComposers } from "./composer-state";
 
-import type { AgentInvocation } from "./composer-state";
+import type { AgentInvocation, AgentSelection } from "./composer-state";
 
 const main = (session: ClientSession): state.ComposerOwner =>
   state.composerOwner(session, state.MAIN_COMPOSER);
@@ -26,6 +27,8 @@ export const removeComposerAttachment = (session: ClientSession, id: string): vo
   state.removeComposerAttachment(main(session), id);
 export const uploadAgentImage = (session: ClientSession, blob: Blob): void =>
   state.uploadAgentImage(main(session), blob);
+export const attachAgentSelection = (session: ClientSession, selection: AgentSelection): void =>
+  state.attachSelection(main(session), selection);
 
 export function replyComposer(session: ClientSession, conversationId: string) {
   const owner = state.composerOwner(session, conversationId);
@@ -34,6 +37,7 @@ export function replyComposer(session: ClientSession, conversationId: string) {
     setDraft: (draft: string) => state.setComposerDraft(owner, draft),
     setError: (error: string) => state.setComposerError(owner, error),
     uploadImage: (blob: Blob) => state.uploadAgentImage(owner, blob),
+    attachSelection: (selection: AgentSelection) => state.attachSelection(owner, selection),
     captureImagePaste: (event: ClipboardEvent) => state.captureAgentImagePaste(event, owner),
     removeAttachment: (id: string) => state.removeComposerAttachment(owner, id),
     setOpen: (open: boolean) => state.setReplyOpen(owner, open),
@@ -77,10 +81,13 @@ export function submitAgentAside(
     kind: submission.kind,
     commandName: submission.commandName,
     attachmentIds: submission.attachmentIds,
+    selections: submission.selections,
   }).then((result) =>
     state.settleSubmission(main(session), {
       id: submission.id,
-      attachmentIds: result.ok ? submission.attachmentIds : [],
+      attachmentIds: result.ok
+        ? [...submission.attachmentIds, ...submission.selections.map((selection) => selection.id)]
+        : [],
       status: result.ok ? "accepted" : "rejected",
       error: result.error ?? "",
     }),

@@ -144,6 +144,24 @@ export function TranscriptEntry(props: {
             </Disclosure>
           )}
         </Show>
+        <Show
+          when={props.entry.actionMessage?.type === "user-selection" && props.entry.actionMessage}
+        >
+          {(selection) => (
+            <Disclosure
+              class="agent-request-details"
+              label={
+                props.expandedDetails.has(`${props.entry.id}:selection`)
+                  ? "hide selection"
+                  : "show selection"
+              }
+              open={props.expandedDetails.has(`${props.entry.id}:selection`)}
+              onToggle={(open) => props.onDetailsToggle(`${props.entry.id}:selection`, open)}
+            >
+              <pre class="agent-entry-text">{selection().text}</pre>
+            </Disclosure>
+          )}
+        </Show>
         <AgentMedia message={props.entry.actionMessage} session={props.session} />
         <AgentRichContent message={props.entry.actionMessage} session={props.session} />
         <Show when={props.entry.detailCount > 0}>

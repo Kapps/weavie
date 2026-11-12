@@ -8,6 +8,7 @@ import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { installAgentMermaid } from "./agent-mermaid";
+import { installReplySelection } from "./agent-reply-selection";
 import { hydrateGithubMedia } from "./github-media";
 
 /** `agent` is model output; `github` is GitHub-authored prose, with GitHub's allowlisted HTML and https images. */
@@ -98,6 +99,9 @@ export function AgentMarkdown(props: {
         ),
       );
       onCleanup(installAgentCodeCopy(host));
+      if (props.flavor === "agent" && props.session !== null) {
+        onCleanup(installReplySelection(host, props.session));
+      }
     }
   });
 

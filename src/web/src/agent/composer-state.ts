@@ -5,12 +5,31 @@ import { encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
 
-export interface AgentComposerAttachment {
+export interface AgentImageAttachment {
+  kind: "image";
   id: string;
   mime: string;
   previewUrl: string;
   status: AgentAttachmentStatus;
   error: string | null;
+}
+
+/** Values the user selected in the pane; they ride the submission as text and need no upload. */
+export interface AgentSelectionAttachment {
+  kind: "selection";
+  id: string;
+  label: string;
+  text: string;
+  status: "ready";
+  error: null;
+}
+
+export type AgentComposerAttachment = AgentImageAttachment | AgentSelectionAttachment;
+
+/** What a selection attachment carries: its chip label and the values the agent reads. */
+export interface AgentSelection {
+  label: string;
+  text: string;
 }
 
 export interface AgentComposerState {
@@ -129,9 +148,23 @@ export function removeComposerAttachment(owner: ComposerOwner, id: string): void
     attachments: state.attachments.filter((item) => item.id !== id),
     error: null,
   }));
-  if (attachment.status === "transferring" || attachment.status === "ready") {
+  if (
+    attachment.kind === "image" &&
+    (attachment.status === "transferring" || attachment.status === "ready")
+  ) {
     publishAgent(owner, "removeAttachment", { id });
   }
+}
+
+export function attachSelection(owner: ComposerOwner, selection: AgentSelection): void {
+  if (!isLive(owner)) return;
+  addAttachment(owner, {
+    kind: "selection",
+    id: nextId("selection"),
+    ...selection,
+    status: "ready",
+    error: null,
+  });
 }
 
 export interface AgentInvocation {
@@ -153,7 +186,7 @@ export function prepareSubmission(
       : !command && state.attachments.some((attachment) => attachment.status !== "ready")
         ? "Wait for attachments to finish uploading."
         : prompt.length === 0 && !command && state.attachments.length === 0
-          ? "Write a prompt or attach an image before running the agent."
+          ? "Write a prompt or attach something before running the agent."
           : null;
   if (refusal !== null) {
     setComposerError(owner, refusal);
@@ -170,7 +203,12 @@ export function prepareSubmission(
     prompt,
     kind: invocation?.kind ?? "prompt",
     commandName: invocation?.name ?? "",
-    attachmentIds: command ? [] : state.attachments.map((attachment) => attachment.id),
+    attachmentIds: command ? [] : images(state.attachments).map((attachment) => attachment.id),
+    selections: command
+      ? []
+      : state.attachments
+          .filter((attachment) => attachment.kind === "selection")
+          .map(({ id, label, text }) => ({ id, label, text })),
   };
 }
 
@@ -179,6 +217,7 @@ export function uploadAgentImage(owner: ComposerOwner, blob: Blob): void {
   const id = nextId("attachment");
   const previewUrl = URL.createObjectURL(blob);
   addAttachment(owner, {
+    kind: "image",
     id,
     mime: blob.type,
     previewUrl,
@@ -315,14 +354,20 @@ function addAttachment(owner: ComposerOwner, attachment: AgentComposerAttachment
 function patchAttachment(
   owner: ComposerOwner,
   id: string,
-  patch: Partial<Pick<AgentComposerAttachment, "mime" | "previewUrl" | "status" | "error">>,
+  patch: Partial<Pick<AgentImageAttachment, "mime" | "previewUrl" | "status" | "error">>,
 ): void {
   update(owner, (state) => ({
     ...state,
     attachments: state.attachments.map((attachment) =>
-      attachment.id === id ? { ...attachment, ...patch } : attachment,
+      attachment.id === id && attachment.kind === "image"
+        ? { ...attachment, ...patch }
+        : attachment,
     ),
   }));
+}
+
+function images(attachments: readonly AgentComposerAttachment[]): AgentImageAttachment[] {
+  return attachments.filter((attachment) => attachment.kind === "image");
 }
 
 function hasAttachment(owner: ComposerOwner, id: string): boolean {
@@ -351,7 +396,7 @@ function isLive(owner: ComposerOwner): boolean {
 }
 
 function revoke(attachment: AgentComposerAttachment): void {
-  if (attachment.previewUrl.startsWith("blob:")) {
+  if (attachment.kind === "image" && attachment.previewUrl.startsWith("blob:")) {
     URL.revokeObjectURL(attachment.previewUrl);
   }
 }

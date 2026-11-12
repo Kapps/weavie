@@ -32,7 +32,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		await using var session = CreateSession(structured, settings, commandRegistry);
 		string imagePath = _dir.Combine("initial.png");
 
-		session.QueueInitialInput(Input("start here", new AgentInputAttachment {
+		session.QueueInitialInput(Input("start here", new AgentInputAttachment.Image {
 			Id = "image-1",
 			Mime = "image/png",
 			Path = imagePath,
@@ -46,7 +46,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		await structured.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 		var submission = Assert.Single(structured.Submissions);
 		Assert.Equal("start here", submission.Text);
-		var attachment = Assert.Single(submission.Attachments);
+		var attachment = Assert.IsType<AgentInputAttachment.Image>(Assert.Single(submission.Attachments));
 		Assert.Equal("image-1", attachment.Id);
 		Assert.Equal("image/png", attachment.Mime);
 		Assert.Equal(imagePath, attachment.Path);

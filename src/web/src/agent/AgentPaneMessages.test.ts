@@ -36,6 +36,46 @@ describe("toAgentTranscript", () => {
     expect(declined).toMatchObject({ tone: "system", status: "Declined · No", summary: null });
   });
 
+  it("shows an attached selection as a labelled row that opens to its values", () => {
+    const [prompt, selection] = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", itemId: "s", text: "why?" },
+      {
+        type: "user-selection",
+        providerId: "acp",
+        turnId: "1",
+        itemId: "sel-1",
+        summary: "p95 · 14:18",
+        text: "time,now",
+        status: "submitted",
+      },
+    ]);
+
+    expect(prompt).toMatchObject({ turnStart: true });
+    expect(selection).toMatchObject({
+      kind: "message",
+      tone: "user",
+      label: "Selection",
+      summary: "p95 · 14:18",
+      text: null,
+      actionMessage: { type: "user-selection", text: "time,now" },
+    });
+    expect(selection?.turnStart).toBeUndefined();
+  });
+
+  it("starts a turn with a selection-only prompt", () => {
+    const [selection] = toAgentTranscript([
+      {
+        type: "user-selection",
+        providerId: "acp",
+        turnId: "2",
+        itemId: "sel",
+        summary: "rows",
+        text: "a",
+      },
+    ]);
+    expect(selection).toMatchObject({ label: "Selection", turnStart: true });
+  });
+
   it("renders provider commands as command turns", () => {
     const transcript = toAgentTranscript([
       { type: "user-command", providerId: "acp", turnId: "1", text: "/compact" },

@@ -1,16 +1,26 @@
-import { X } from "lucide-solid";
-import { For, type JSX, Show } from "solid-js";
+import { Quote, X } from "lucide-solid";
+import { For, type JSX, Match, Show, Switch } from "solid-js";
 
 export type AgentAttachmentViewStatus = "reading" | "transferring" | "ready" | "failed";
 
-export interface AgentAttachmentView {
+export interface AgentImageView {
+  kind?: "image";
   id: string;
   previewUrl: string;
   status: AgentAttachmentViewStatus;
   error: string | null;
 }
 
-/** Shared image previews for active and not-yet-created agent sessions. */
+/** Values the user selected in the pane, attached to the next prompt as text. */
+export interface AgentSelectionView {
+  kind: "selection";
+  id: string;
+  label: string;
+}
+
+export type AgentAttachmentView = AgentImageView | AgentSelectionView;
+
+/** Shared attachment chips for active and not-yet-created agent sessions. */
 export function AgentAttachmentStrip(props: {
   attachments: AgentAttachmentView[];
   onRemove: (id: string) => void;
@@ -19,27 +29,45 @@ export function AgentAttachmentStrip(props: {
     <div class="agent-attachments">
       <For each={props.attachments}>
         {(attachment) => (
-          <div
-            class="agent-attachment"
-            classList={{ failed: attachment.status === "failed" }}
-            title={attachment.error ?? attachmentLabel(attachment.status)}
-          >
-            <img src={attachment.previewUrl} alt="Pasted attachment" />
-            <Show when={attachment.status !== "ready"}>
-              <span>{attachmentLabel(attachment.status)}</span>
-            </Show>
-            <button
-              type="button"
-              class="ui-icon-button"
-              title="Remove attachment"
-              onClick={() => props.onRemove(attachment.id)}
-            >
-              <X aria-hidden="true" />
-            </button>
-          </div>
+          <Switch>
+            <Match when={attachment.kind === "selection" && attachment}>
+              {(selection) => (
+                <div class="agent-attachment agent-attachment-selection" title={selection().label}>
+                  <span class="ui-icon">
+                    <Quote aria-hidden="true" />
+                  </span>
+                  <span class="agent-attachment-label">{selection().label}</span>
+                  <RemoveButton onRemove={() => props.onRemove(selection().id)} />
+                </div>
+              )}
+            </Match>
+            <Match when={attachment.kind !== "selection" && (attachment as AgentImageView)}>
+              {(image) => (
+                <div
+                  class="agent-attachment"
+                  classList={{ failed: image().status === "failed" }}
+                  title={image().error ?? attachmentLabel(image().status)}
+                >
+                  <img src={image().previewUrl} alt="Pasted attachment" />
+                  <Show when={image().status !== "ready"}>
+                    <span>{attachmentLabel(image().status)}</span>
+                  </Show>
+                  <RemoveButton onRemove={() => props.onRemove(image().id)} />
+                </div>
+              )}
+            </Match>
+          </Switch>
         )}
       </For>
     </div>
+  );
+}
+
+function RemoveButton(props: { onRemove: () => void }): JSX.Element {
+  return (
+    <button type="button" class="ui-icon-button" title="Remove attachment" onClick={props.onRemove}>
+      <X aria-hidden="true" />
+    </button>
   );
 }
 

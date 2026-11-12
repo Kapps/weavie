@@ -83,7 +83,9 @@ export function projectAgentTranscript(
     const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
     const startsTurn =
       ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
-      (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
+      ((message.type === "user-image" || message.type === "user-selection") &&
+        !previousWasUserInput &&
+        startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
@@ -190,6 +192,13 @@ function durableEntry(
     }
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
+    case "user-selection":
+      // The label is the row; the selected values open beneath it.
+      return {
+        ...entry(message, sequence, "message", "user", "Selection", null),
+        actionMessage: message,
+        text: null,
+      };
     case "user-message":
       return promptEntry(
         message,
@@ -341,7 +350,8 @@ function isUserInput(message: AgentPaneUpdate): boolean {
     message.type === "user-message" ||
     message.type === "user-command" ||
     message.type === "user-steer" ||
-    message.type === "user-image"
+    message.type === "user-image" ||
+    message.type === "user-selection"
   );
 }
 

@@ -624,6 +624,6 @@ agent exercise the whole path.
 11. Block entry kind, fixed frame, estimate, mount retention.
 12. ECharts chart view, palette tokens, theme re-apply.
 13. Table view.
-14. Attachment union end to end; selection gestures; command and setting.
+14. Attachment union end to end; selection gestures; command and setting. *(Union, submit wire, prompt text block, `user-selection` row, chips, reply-text highlight, `agent.attachOnSelect`, and `weavie.agent.attachSelection` are built; block selection gestures call `attachAgentSelection`.)*
 15. Image mode, hydration, remote route, CORS helper, setting.
 16. e2e specs, `pnpm e2e:perf`, the remote crop test, real-agent run, docs, reviewer, tester video, PR.

@@ -1,15 +1,32 @@
 namespace Weavie.Core.Agents;
 
-/// <summary>One image attached to a structured agent turn after the owning host has staged it on disk.</summary>
-public sealed record AgentInputAttachment {
+/// <summary>One thing attached to a structured agent turn: a staged image, or a selection the user pointed at.</summary>
+public abstract record AgentInputAttachment {
+	private AgentInputAttachment() { }
+
 	/// <summary>The client-generated attachment id, scoped to one Weavie session.</summary>
 	public required string Id { get; init; }
 
-	/// <summary>The absolute path on the provider's host.</summary>
-	public required string Path { get; init; }
+	/// <summary>An image the owning host has staged on disk.</summary>
+	public sealed record Image : AgentInputAttachment {
+		/// <summary>The absolute path on the provider's host.</summary>
+		public required string Path { get; init; }
 
-	/// <summary>The validated image MIME type.</summary>
-	public required string Mime { get; init; }
+		/// <summary>The validated image MIME type.</summary>
+		public required string Mime { get; init; }
+	}
+
+	/// <summary>Values the user selected in the pane (chart points, table cells, reply text), as the agent reads them.</summary>
+	public sealed record Selection : AgentInputAttachment {
+		/// <summary>The most characters a selection's text may hold.</summary>
+		public const int MaxTextLength = AgentBlockLimits.ArgumentBytes;
+
+		/// <summary>The chip label, such as the block title and range.</summary>
+		public required string Label { get; init; }
+
+		/// <summary>The selected values, as text.</summary>
+		public required string Text { get; init; }
+	}
 }
 
 /// <summary>The semantic kind of one structured-agent submission.</summary>
@@ -50,7 +67,7 @@ public sealed record AgentTurnSubmission {
 	/// <summary>The exact provider command or bundled MCP prompt name; empty for an ordinary prompt.</summary>
 	public required string CommandName { get; init; }
 
-	/// <summary>The staged images submitted with the text.</summary>
+	/// <summary>The staged images and selections submitted with the text.</summary>
 	public required IReadOnlyList<AgentInputAttachment> Attachments { get; init; }
 
 	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
@@ -65,7 +82,7 @@ public sealed record AgentTurnSubmission {
 	/// text leads so its slash opens the input; otherwise the images lead the text.
 	/// </summary>
 	public IReadOnlyList<string> TerminalParts() {
-		var paths = Attachments.Select(attachment => attachment.Path);
+		var paths = Attachments.OfType<AgentInputAttachment.Image>().Select(attachment => attachment.Path);
 		return Kind == AgentTurnSubmissionKind.ProviderCommand ? [Text, .. paths] : [.. paths, Text];
 	}
 }

@@ -11,7 +11,7 @@ public static class WorkflowKickoffTurns {
 		Text = kickoff.Text,
 		Kind = kickoff.Command.Length > 0 ? AgentTurnSubmissionKind.ProviderCommand : AgentTurnSubmissionKind.Prompt,
 		CommandName = kickoff.Command,
-		Attachments = [.. images.Select(image => new AgentInputAttachment { Id = Guid.NewGuid().ToString("n"), Mime = image.Mime, Path = image.Path })],
+		Attachments = [.. images.Select(image => new AgentInputAttachment.Image { Id = Guid.NewGuid().ToString("n"), Mime = image.Mime, Path = image.Path })],
 		CarriesTurnContext = true,
 	};
 }

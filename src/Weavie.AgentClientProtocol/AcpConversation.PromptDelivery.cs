@@ -65,6 +65,7 @@ internal sealed partial class AcpConversation {
 				CompletePermissionTools(turnId);
 				Observe(new AgentTurnStopped(WillResume: background));
 				CompleteContentStreams();
+				NoticeUnclaimedBlocks();
 				if (stopReason == "refusal") RetractTurn(turnId);
 				else ForgetTurnItems(turnId);
 				Emit(new AgentPaneMessage {

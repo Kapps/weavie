@@ -42,6 +42,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly IReviewHintSink _reviewHints;
 	private readonly IWorkflowRegistry _workflows;
 	private readonly string _toolsListJson;
+	private readonly string _paneToolsListJson;
 	private readonly IReadOnlyList<McpPrompt> _prompts;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -112,6 +113,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				LayoutToolEntries, CommandToolEntries, ThemeToolEntries,
 			]);
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
+		_paneToolsListJson = registry is null ? _toolsListJson : "{\"tools\":[" + entries + "," + BlockToolEntries + "]}";
 		IdeName = ideName;
 	}
 
@@ -290,7 +292,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await responder.SendResultAsync(idRaw, "{}", ct).ConfigureAwait(false);
 					break;
 				case "tools/list":
-					await responder.SendResultAsync(idRaw, _toolsListJson, ct).ConfigureAwait(false);
+					await responder.SendResultAsync(idRaw, grant.Blocks.Bound ? _paneToolsListJson : _toolsListJson, ct).ConfigureAwait(false);
 					break;
 				case "tools/call":
 					call = BeginCall(grant, responder.Client, idRaw, ct); {
@@ -463,6 +465,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "addReviewHint":
 				await HandleAddReviewHintAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case ShowBlockTool or UpdateBlockTool:
+				await HandleBlockToolAsync(responder, args, idRaw, call, name == ShowBlockTool, ct).ConfigureAwait(false);
 				break;
 			case ListWorkflowsTool:
 				await HandleListWorkflowsAsync(responder, idRaw, ct).ConfigureAwait(false);

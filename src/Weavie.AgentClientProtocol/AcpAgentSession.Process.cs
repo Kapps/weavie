@@ -33,8 +33,10 @@ public sealed partial class AcpAgentSession {
 
 	private void Restart(bool clearSubmissions) {
 		lock (_turnTransitionGate) {
-			if (!_displayRestored) Output.Replace(RestoreDisplay());
-			else if (_storageFailed) _primary.Save([]);
+			if (!_displayRestored) {
+				var (messages, blocks) = RestoreDisplay();
+				Output.Replace(messages, blocks);
+			} else if (_storageFailed) _primary.Save([]);
 			_storageFailed = false;
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");

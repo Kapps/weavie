@@ -6,12 +6,15 @@ public interface IConversationOutputSink {
 	void Live(AgentPaneRecord record);
 	/// <summary>Enqueues replacement of the visible history.</summary>
 	void Reset();
+	/// <summary>Enqueues a block's latest state.</summary>
+	void Block(AgentBlockRecord record);
 }
 
 /// <summary>The session's single output ledger, durable-write boundary, and ordered publication source.</summary>
 public sealed class ConversationOutput(IConversationOutputSink sink) {
 	private readonly Lock _gate = new();
 	private readonly AgentPaneLedger _ledger = new();
+	private readonly Dictionary<(string ProviderId, string? ConversationId, string BlockId), AgentBlockRecord> _blocks = [];
 	private long _generation;
 
 	/// <summary>Binds a read view to one provider and Weavie conversation scope.</summary>
@@ -25,20 +28,35 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 				Reset();
 				sink.Reset();
 			} else {
+				// A block lives while its reference row does.
+				if (message.Type == "item-retracted" && AgentPaneIdentity.ItemKey(message) is { } key
+					&& _ledger.TryItemIndex(key, out int index) && _ledger.EntryAt(index).Message is var row && AgentBlockReferences.IsBlockRow(row)) {
+					_blocks.Remove((row.ProviderId, row.ConversationId, row.BlockId!));
+				}
 				sink.Live(Record(_ledger.Store(message)));
 			}
 		}
 	}
 
-	/// <summary>Loads saved history before the session is addressable.</summary>
-	public void Restore(IReadOnlyList<AgentPaneMessage> messages) => Replace(messages, publish: false);
-
-	/// <summary>Replaces history and publishes its new generation and records.</summary>
-	public void Replace(IReadOnlyList<AgentPaneMessage> messages) => Replace(messages, publish: true);
-
-	private void Replace(IReadOnlyList<AgentPaneMessage> messages, bool publish) {
+	/// <summary>Persists a block's latest state and its reference row, then enqueues both.</summary>
+	public void WriteBlock(AgentBlockState state, AgentPaneMessage row, Action persist) {
+		ArgumentNullException.ThrowIfNull(state);
 		lock (_gate) {
-			if (_ledger.Count > 0) {
+			persist();
+			sink.Live(Record(_ledger.Store(row)));
+			sink.Block(SetBlock(state));
+		}
+	}
+
+	/// <summary>Loads saved history and the blocks it shows before the session is addressable.</summary>
+	public void Restore(IReadOnlyList<AgentPaneMessage> messages, IReadOnlyList<AgentBlockState> blocks) => Replace(messages, blocks, publish: false);
+
+	/// <summary>Replaces history and its blocks and publishes the new generation.</summary>
+	public void Replace(IReadOnlyList<AgentPaneMessage> messages, IReadOnlyList<AgentBlockState> blocks) => Replace(messages, blocks, publish: true);
+
+	private void Replace(IReadOnlyList<AgentPaneMessage> messages, IReadOnlyList<AgentBlockState> blocks, bool publish) {
+		lock (_gate) {
+			if (_ledger.Count > 0 || _blocks.Count > 0) {
 				Reset();
 				if (publish) sink.Reset();
 			}
@@ -46,7 +64,17 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 				var record = Record(_ledger.Store(message));
 				if (publish) sink.Live(record);
 			}
+			var shown = AgentBlockReferences.Of(Enumerable.Range(0, _ledger.Count).Select(index => _ledger.EntryAt(index).Message));
+			foreach (var block in blocks.Where(block => shown.Contains(Key(block)))) {
+				var record = SetBlock(block);
+				if (publish) sink.Block(record);
+			}
 		}
+	}
+
+	/// <summary>The current state of block <paramref name="blockId"/> in one conversation.</summary>
+	public AgentBlock? Block(string providerId, string? conversationId, string blockId) {
+		lock (_gate) return _blocks.GetValueOrDefault((providerId, conversationId, blockId))?.State.Block;
 	}
 
 	/// <summary>Returns a consistent full snapshot or changes since the client's baseline.</summary>
@@ -59,7 +87,8 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 			long? after = knownGeneration == _generation ? knownRevision : null;
 			return new(_generation, _ledger.Revision, [.. Enumerable.Range(0, _ledger.Count)
 				.Where(index => after is null || _ledger.RevisionAt(index) > after)
-				.Select(index => Record(_ledger.EntryAt(index)))]);
+				.Select(index => Record(_ledger.EntryAt(index)))],
+				[.. _blocks.Values.Where(block => after is null || block.Revision > after)]);
 		}
 	}
 
@@ -87,9 +116,14 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 
 	private AgentPaneRecord Record(AgentPaneLedgerEntry entry) => new(_generation, entry.Ordinal, entry.Revision, entry.Message);
 
+	private AgentBlockRecord SetBlock(AgentBlockState state) => _blocks[Key(state)] = new(_ledger.NextRevision(), state);
+
+	private static (string, string?, string) Key(AgentBlockState state) => (state.ProviderId, state.ConversationId, state.Block.Id);
+
 	private void Reset() {
 		_generation++;
 		_ledger.Clear();
+		_blocks.Clear();
 	}
 }
 
@@ -100,6 +134,9 @@ public sealed class ConversationView(ConversationOutput output, string providerI
 
 	/// <summary>The current materialized transcript.</summary>
 	public IReadOnlyList<AgentPaneMessage> Rows => output.ReadView(providerId, conversationId, active: false);
+
+	/// <summary>This conversation's current block <paramref name="blockId"/>.</summary>
+	public AgentBlock? Block(string blockId) => output.Block(providerId, conversationId, blockId);
 
 	/// <summary>Materializes the exact content run for its controller to complete and persist.</summary>
 	public AgentPaneMessage? CompleteContent(string? threadId, string turnId, string itemId) {
@@ -114,4 +151,4 @@ public sealed class ConversationView(ConversationOutput output, string providerI
 public sealed record AgentPaneRecord(long Generation, long Ordinal, long Revision, AgentPaneMessage Message);
 
 /// <summary>A consistent full or incremental snapshot of a session's output.</summary>
-public sealed record AgentPaneHistory(long Generation, long Revision, IReadOnlyList<AgentPaneRecord> Messages);
+public sealed record AgentPaneHistory(long Generation, long Revision, IReadOnlyList<AgentPaneRecord> Messages, IReadOnlyList<AgentBlockRecord> Blocks);

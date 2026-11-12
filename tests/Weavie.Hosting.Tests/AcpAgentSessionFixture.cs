@@ -79,6 +79,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
 
 	public IReadOnlyList<AgentPaneMessage> Messages => _output.History.ToArray();
+	public IReadOnlyList<AgentBlockRecord> PublishedBlocks => _output.Blocks.ToArray();
 
 	public static AcpAgentSessionFixture Create(bool allowAllPermissions, string? persistedSessionId) {
 		return Create(

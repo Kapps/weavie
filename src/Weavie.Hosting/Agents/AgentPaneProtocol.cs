@@ -33,6 +33,7 @@ internal static class AgentPaneProtocol {
 					history.Revision,
 					history.Messages.Count,
 					[.. records.Select(HistoryBody)],
+					complete ? [.. history.Blocks.Select(Block)] : [],
 					complete),
 				WireJson.Default.AgentPaneHistoryBatch,
 				ct).ConfigureAwait(false);
@@ -46,6 +47,11 @@ internal static class AgentPaneProtocol {
 		record.Message is { Type: "item-completed", ItemType: "tool" } tool && (tool.Text is not null || tool.Content is { Count: > 0 })
 			? Body(record with { Message = tool with { Text = null, Content = null } }, outputDeferred: true)
 			: Body(record, outputDeferred: false);
+
+	public static AgentBlockWire Block(AgentBlockRecord record) {
+		ArgumentNullException.ThrowIfNull(record);
+		return new(record.Revision, record.State.ProviderId, record.State.ConversationId, record.State.Block);
+	}
 
 	private static AgentPaneWire Body(AgentPaneRecord record, bool outputDeferred) {
 		var message = record.Message;
@@ -86,6 +92,7 @@ internal static class AgentPaneProtocol {
 			message.MediaData,
 			message.ResourceUri,
 			message.PlanPath,
+			message.BlockId,
 			message.Sender);
 	}
 }
@@ -127,7 +134,11 @@ internal sealed record AgentPaneWire(
 	string? MediaData,
 	string? ResourceUri,
 	string? PlanPath,
+	string? BlockId,
 	AgentMessageSender? Sender);
+
+/// <summary>A block's latest state; the pane draws it in the row whose <c>blockId</c> names it.</summary>
+internal sealed record AgentBlockWire(long Revision, string ProviderId, string? ConversationId, AgentBlock Block);
 
 internal sealed record AgentPaneDiffPath(string Path);
 
@@ -138,6 +149,7 @@ internal sealed record AgentPaneHistoryBatch(
 	long Revision,
 	int Count,
 	IReadOnlyList<AgentPaneWire> Messages,
+	IReadOnlyList<AgentBlockWire> Blocks,
 	bool Complete);
 
 internal sealed record AgentPaneRecordRequest(long Generation, long Ordinal);

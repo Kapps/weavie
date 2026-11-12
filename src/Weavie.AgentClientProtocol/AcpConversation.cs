@@ -81,6 +81,7 @@ internal sealed partial class AcpConversation {
 		Background = spec.Opening is AdoptedOpening adopted ? adopted.Work : new AcpBackgroundWork(this);
 		RestoreContinuation(spec.Seed.Continuation);
 		Inherit(spec.Seed);
+		BindBlocks();
 		_publishedQueueVersion = _pendingSubmissions.Version;
 	}
 

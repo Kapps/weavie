@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 using Weavie.Workflows;
 
@@ -22,6 +23,9 @@ public sealed class CapabilityRegistryGrant : IAsyncDisposable {
 
 	/// <summary>The credential advertised only to the owning conversation.</summary>
 	public AgentSessionCredential Credential { get; }
+
+	/// <summary>The owning conversation's block tool calls awaiting their rows.</summary>
+	public AgentBlockClaims Blocks { get; } = new();
 	internal ISessionPeers Sessions { get; }
 	internal CancellationToken Lifetime { get; }
 	internal bool Live => Volatile.Read(ref _disposed) == 0;
@@ -55,6 +59,7 @@ public sealed class CapabilityRegistryGrant : IAsyncDisposable {
 			Volatile.Write(ref _disposed, 1);
 		}
 		_server.RemoveGrant(this);
+		Blocks.Drain();
 		await _lifetime.CancelAsync().ConfigureAwait(false);
 		_lifetime.Dispose();
 	}

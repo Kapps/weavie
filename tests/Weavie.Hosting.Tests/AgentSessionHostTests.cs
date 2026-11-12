@@ -615,7 +615,7 @@ public sealed partial class AgentSessionHostTests {
 
 		public IReadOnlyList<AgentPaneMessage> Saved { get; init; } = [];
 
-		public void Restore() => Output.Restore(Saved);
+		public void Restore() => Output.Restore(Saved, []);
 
 		public void Start() {
 			Started = true;
@@ -624,7 +624,7 @@ public sealed partial class AgentSessionHostTests {
 
 		public void Emit(AgentPaneMessage message) => Output.Write(message, static () => { });
 
-		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => Output.Replace(messages);
+		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => Output.Replace(messages, []);
 
 		public void EmitUsage(AgentUsageSnapshot usage) {
 			Snapshot = usage;

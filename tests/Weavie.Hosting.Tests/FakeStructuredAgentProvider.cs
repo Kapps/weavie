@@ -122,7 +122,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 		public void Restore() {
 			_turns = transcript.Count(message => message.Type == "user-message");
-			output.Restore([.. transcript]);
+			output.Restore([.. transcript], []);
 		}
 
 		public void Start() {
@@ -219,7 +219,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			}
 			if (submission.Text is PlanReplayPrompt or PlanRemovedReplayPrompt) {
 				if (submission.Text == PlanRemovedReplayPrompt) transcript.RemoveAll(message => message.ItemType == "plan");
-				output.Replace([.. transcript]);
+				output.Replace([.. transcript], []);
 				return;
 			}
 

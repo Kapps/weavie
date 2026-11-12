@@ -14,7 +14,11 @@ internal sealed partial class FakeAcpAgent {
 	private async Task CallWeavieToolAsync(string call, CancellationToken ct) {
 		int colon = call.IndexOf(':', StringComparison.Ordinal);
 		string tool = call[..colon];
-		string argumentsJson = call[(colon + 1)..];
+		var (text, failed) = await PostWeavieToolAsync(tool, call[(colon + 1)..], ct).ConfigureAwait(false);
+		Message((failed ? $"{tool} failed: " : $"{tool}: ") + text);
+	}
+
+	private async Task<(string Text, bool Failed)> PostWeavieToolAsync(string tool, string argumentsJson, CancellationToken ct) {
 		var (url, authorization) = _weavieMcp ?? throw new InvalidOperationException("No Weavie MCP server was offered.");
 		var request = new JsonObject {
 			["jsonrpc"] = "2.0",
@@ -35,6 +39,6 @@ internal sealed partial class FakeAcpAgent {
 		using var reply = JsonDocument.Parse(data);
 		var result = reply.RootElement.GetProperty("result");
 		string text = result.GetProperty("content")[0].GetProperty("text").GetString() ?? string.Empty;
-		Message((result.TryGetProperty("isError", out var error) && error.GetBoolean() ? $"{tool} failed: " : $"{tool}: ") + text);
+		return (text, result.TryGetProperty("isError", out var error) && error.GetBoolean());
 	}
 }

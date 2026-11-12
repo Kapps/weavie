@@ -467,6 +467,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (text == "completed-tool-then-hold") return await CompletedToolThenHoldAsync(ct).ConfigureAwait(false);
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
+		if (text.StartsWith("block", StringComparison.Ordinal)) return await BlockCallAsync(text, ct).ConfigureAwait(false);
 		if (text.StartsWith("task", StringComparison.Ordinal) || text == "workflow-held") return TaskPrompt(text, ct);
 		if (text.StartsWith("input-custom-answer", StringComparison.Ordinal)) {
 			await CustomAnswerAsync(text == "input-custom-answer-multiple", ct).ConfigureAwait(false);

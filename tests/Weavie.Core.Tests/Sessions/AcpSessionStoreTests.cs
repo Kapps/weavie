@@ -10,6 +10,24 @@ public sealed class AcpSessionStoreTests : IDisposable {
 	private string Database => Path.Combine(_directory, "conversations.db");
 
 	[Fact]
+	public void BlocksLiveWhileTheirRowsDo() {
+		var store = new AcpSessionStore(Database);
+		var row = Message("item-completed", "") with { Text = null, TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "a" };
+		var side = row with { ConversationId = "btw-1" };
+		foreach (var (conversation, id) in new[] { ((string?)null, "a"), ("btw-1", "a"), (null, "gone") }) {
+			store.SaveBlock("/workspace", new AgentBlockState("provider", conversation, new AgentBlock { Id = id, Title = id }));
+		}
+
+		var kept = store.ReadBlocks("provider", "/workspace", [row, side]);
+		Assert.Equal([(null, "a"), ("btw-1", "a")], kept.Select(block => (block.ConversationId, block.Block.Id)).Order());
+		Assert.Equal(2, store.ReadBlocks("provider", "/workspace", [row, side]).Count);
+		store.Replace("provider", "/workspace", [], [row]);
+		Assert.Single(store.ReadBlocks("provider", "/workspace", [row, side]));
+		store.ClearWorkspace("/workspace");
+		Assert.Empty(store.ReadBlocks("provider", "/workspace", [row, side]));
+	}
+
+	[Fact]
 	public void ReopenPreservesExactConversationsAndDisplayOrderAndClearIsScoped() {
 		var store = new AcpSessionStore(Database);
 		var primary = State("", "primary-id", 4);

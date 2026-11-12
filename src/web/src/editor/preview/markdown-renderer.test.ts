@@ -1,6 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { describe, expect, it } from "vitest";
-import { isSafeAgentLink, taskLists } from "./markdown-renderer";
+import { createMarkdownEngine, isSafeAgentLink, taskLists } from "./markdown-renderer";
 
 describe("agent Markdown link policy", () => {
   it("allows web and workspace targets", () => {
@@ -37,5 +37,33 @@ describe("task lists", () => {
 
   it("leaves brackets that are not a leading marker alone", () => {
     expect(render("- [link]\n- a [ ] b\n\n[ ] not a list")).not.toContain("<input");
+  });
+});
+
+describe("image modes", () => {
+  const render = (images: "direct" | "hosted", content: string): string =>
+    createMarkdownEngine({
+      html: "none",
+      images,
+      allowMermaid: false,
+      safeLinksOnly: true,
+    }).markdown.render(content);
+
+  it("leaves a hosted image as an inert placeholder naming its source", () => {
+    const html = render("hosted", '![a "shot"](<shots/one two.png>)');
+    expect(html).toContain(
+      '<span class="agent-image" data-src="shots/one%20two.png" data-alt="a &quot;shot&quot;"></span>',
+    );
+    expect(html).not.toContain("<img");
+  });
+
+  it("drops a hosted image whose target the link policy refuses", () => {
+    expect(render("hosted", "![x](javascript:alert(1))")).not.toContain("agent-image");
+  });
+
+  it("renders a direct image as an img", () => {
+    expect(render("direct", "![shot](https://example.com/a.png)")).toContain(
+      '<img src="https://example.com/a.png" alt="shot">',
+    );
   });
 });

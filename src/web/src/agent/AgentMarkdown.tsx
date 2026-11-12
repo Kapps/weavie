@@ -7,22 +7,29 @@ import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
+import { hydrateAgentImages } from "./agent-images";
 import { installAgentMermaid } from "./agent-mermaid";
+import { installRegionSelect } from "./agent-region-select";
+import { installReplySelection } from "./agent-reply-selection";
+import { uploadAgentImage } from "./composer-store";
 import { hydrateGithubMedia } from "./github-media";
 
-/** `agent` is model output; `github` is GitHub-authored prose, with GitHub's allowlisted HTML and https images. */
+/**
+ * `agent` is model output, whose images the host loads; `github` is GitHub-authored prose, with GitHub's allowlisted
+ * HTML and https images.
+ */
 export type MarkdownFlavor = "agent" | "github";
 
 const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
   agent: createMarkdownRenderer({
     html: "none",
-    allowImages: false,
+    images: "hosted",
     allowMermaid: true,
     safeLinksOnly: true,
   }),
   github: createMarkdownRenderer({
     html: "github",
-    allowImages: true,
+    images: "direct",
     allowMermaid: true,
     safeLinksOnly: true,
   }),
@@ -37,6 +44,8 @@ interface CachedMarkdown {
 const renderedMarkdown = new WeakMap<object, CachedMarkdown>();
 
 export function AgentMarkdown(props: {
+  /** Whether highlighting text or boxing a picture attaches it to the next prompt; only agent replies do. */
+  attachable: boolean;
   cacheKey: object;
   content: string;
   flavor: MarkdownFlavor;
@@ -69,9 +78,11 @@ export function AgentMarkdown(props: {
     }
     host?.replaceChildren(...rendered.childNodes);
     disposeMedia =
-      host !== undefined && props.flavor === "github" && props.session !== null
-        ? hydrateGithubMedia(host, props.session)
-        : undefined;
+      host === undefined || props.session === null
+        ? undefined
+        : props.flavor === "github"
+          ? hydrateGithubMedia(host, props.session)
+          : hydrateAgentImages(host, props.session);
     if (host !== undefined && hasMermaid && shouldHydrate) {
       void hydrateMermaid(host, () => currentGeneration === generation).then((blocks) => {
         if (currentGeneration === generation) {
@@ -98,6 +109,11 @@ export function AgentMarkdown(props: {
         ),
       );
       onCleanup(installAgentCodeCopy(host));
+      const session = props.session;
+      if (props.attachable && session !== null) {
+        onCleanup(installReplySelection(host, session));
+        onCleanup(installRegionSelect(host, (png) => uploadAgentImage(session, png)));
+      }
     }
   });
 

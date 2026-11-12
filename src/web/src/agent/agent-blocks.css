@@ -1,0 +1,130 @@
+.agent-entry-block {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 9px 8px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--bar) 38%, var(--bg));
+  overflow: hidden;
+}
+
+.agent-block-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-block-body {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.agent-chart {
+  width: 100%;
+  height: 100%;
+  font: var(--font-content);
+  font-size: var(--font-content-secondary-size);
+}
+
+.agent-block-error {
+  margin: 0;
+  color: var(--bad);
+}
+
+.agent-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+}
+
+.agent-table-filter {
+  flex: none;
+  max-width: 28ch;
+}
+
+.agent-table-head,
+.agent-table-row {
+  display: grid;
+  grid-template-columns: var(--agent-table-columns);
+  column-gap: 12px;
+  width: 100%;
+  min-width: var(--agent-table-min-width);
+}
+
+/* Inside the scroller, so it scrolls sideways with the rows and stays put vertically. */
+.agent-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bar) 38%, var(--bg));
+}
+
+.agent-table-rows {
+  position: relative;
+  min-width: var(--agent-table-min-width);
+}
+
+.agent-table-sort {
+  justify-content: flex-start;
+  min-width: 0;
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+}
+
+.agent-table-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  user-select: none;
+}
+
+.agent-table-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding-inline: 0;
+  cursor: cell;
+}
+
+.agent-table-row:hover {
+  background: var(--list-hover-bg);
+}
+
+.agent-table-gutter {
+  color: var(--dim);
+  text-align: right;
+  cursor: pointer;
+}
+
+.agent-table-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-table-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-table-selected {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.agent-table-cell[data-level="bad"] {
+  color: var(--bad);
+}
+
+.agent-table-cell[data-level="warn"] {
+  color: var(--warn);
+}
+
+.agent-table-cell[data-level="dim"] {
+  color: var(--dim);
+}

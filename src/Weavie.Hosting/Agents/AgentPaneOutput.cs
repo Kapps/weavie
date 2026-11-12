@@ -12,6 +12,8 @@ internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSin
 	private readonly Action<string> _log;
 	private readonly Action _publishPlans;
 	private readonly List<AgentPaneRecord> _buffer = [];
+	// A block is latest state, so only its newest record per flush is worth sending.
+	private readonly Dictionary<(string, string?, string), AgentBlockRecord> _blocks = [];
 	private readonly Task _worker;
 	private long _flushVersion;
 	private int _closed;
@@ -33,6 +35,11 @@ internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSin
 	}
 
 	public void Reset() => Write(ResetCommand.Instance);
+
+	public void Block(AgentBlockRecord record) {
+		ArgumentNullException.ThrowIfNull(record);
+		Write(new BlockCommand(record));
+	}
 
 	public async Task DrainAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -66,12 +73,11 @@ internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSin
 						_buffer.Add(live.Message);
 						if (live.Message.Message.ItemType is "plan" or "plan-review"
 							|| live.Message.Message.Type is "item-retracted" or "approval-resolved") _publishPlans();
-						if (_window == TimeSpan.Zero) {
-							Flush();
-						} else if (_buffer.Count == 1) {
-							ScheduleFlush(++_flushVersion);
-						}
-
+						Buffered();
+						break;
+					case BlockCommand block:
+						_blocks[AgentBlockReferences.Key(block.Record.State)] = block.Record;
+						Buffered();
 						break;
 					case ResetCommand:
 						Discard();
@@ -114,29 +120,43 @@ internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSin
 		_commands.Writer.TryWrite(new FlushCommand(version));
 	});
 
+	private void Buffered() {
+		if (_window == TimeSpan.Zero) {
+			Flush();
+		} else if (_buffer.Count + _blocks.Count == 1) {
+			ScheduleFlush(++_flushVersion);
+		}
+	}
+
 	private void Flush() {
-		if (_buffer.Count == 0) {
+		if (_buffer.Count + _blocks.Count == 0) {
 			return;
 		}
 
 		var batch = _buffer.ToArray();
+		var blocks = _blocks.Values.ToArray();
 		_buffer.Clear();
+		_blocks.Clear();
 		_flushVersion++;
 		if (batch.Length == 1) {
 			_broadcast.Publish("pane", WireJson.Default.AgentPaneWire, AgentPaneProtocol.Message(batch[0]));
-		} else {
+		} else if (batch.Length > 1) {
 			_broadcast.Publish("paneBatch", WireJson.Default.AgentPaneBatch, AgentPaneProtocol.Batch(batch));
 		}
+		foreach (var block in blocks) _broadcast.Publish("block", WireJson.Default.AgentBlockWire, AgentPaneProtocol.Block(block));
 	}
 
 	private void Discard() {
 		_buffer.Clear();
+		_blocks.Clear();
 		_flushVersion++;
 	}
 
 	private abstract record OutputCommand;
 
 	private sealed record LiveCommand(AgentPaneRecord Message) : OutputCommand;
+
+	private sealed record BlockCommand(AgentBlockRecord Record) : OutputCommand;
 
 	private sealed record FlushCommand(long Version) : OutputCommand;
 

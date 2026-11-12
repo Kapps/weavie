@@ -28,6 +28,7 @@ export default function PlanView(props: {
               <h1>{plan().title}</h1>
             </header>
             <AgentMarkdown
+              attachable={false}
               cacheKey={plan()}
               content={plan().markdown}
               flavor="agent"

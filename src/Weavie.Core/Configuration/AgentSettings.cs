@@ -17,14 +17,20 @@ public static class AgentSettings {
 	/// <summary>Opens an agent's plan in the editor as soon as it asks for review.</summary>
 	public const string PlanReviewAutoOpen = "agent.planReview.autoOpen";
 
+	/// <summary>Loads the https images an agent's reply shows, fetched from the machine the agent runs on.</summary>
+	public const string RemoteImages = "agent.remoteImages";
+
 	/// <summary>How far down the agent pane a reply read from its start rests, as a fraction of the pane's height.</summary>
 	public const string ReplyStartOffset = "agent.replyStartOffset";
 
 	/// <summary>Whether thought text is shown inline or in a separate collapsed disclosure.</summary>
 	public const string ThoughtDisplay = "agent.thoughtDisplay";
 
+	/// <summary>Whether highlighting reply text attaches it to the next prompt.</summary>
+	public const string AttachOnSelect = "agent.attachOnSelect";
+
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset, ThoughtDisplay];
+	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset, ThoughtDisplay, AttachOnSelect];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
 	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
@@ -50,6 +56,7 @@ public static class AgentSettings {
 			writer.WriteEndArray();
 			writer.WriteNumber("replyStartOffset", store.RequireNumber(ReplyStartOffset));
 			writer.WriteString("thoughtDisplay", store.RequireString(ThoughtDisplay));
+			writer.WriteBoolean("attachOnSelect", store.RequireBool(AttachOnSelect));
 		});
 	}
 }

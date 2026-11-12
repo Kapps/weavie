@@ -16,6 +16,18 @@ const [request, setRequest] = createSignal<{
   nonce: number;
 } | null>(null);
 
+let root: HTMLElement | null = null;
+
+/** Records the mounted omnibar, so features can tell when focus has moved into it. */
+export function setOmnibarRoot(element: HTMLElement | null): void {
+  root = element;
+}
+
+/** Whether `node` is inside the omnibar, where a command is run from. */
+export function insideOmnibar(node: Node | null): boolean {
+  return node !== null && root?.contains(node) === true;
+}
+
 /** The latest focus request (nonce bumps each call so repeats still trigger). */
 export const omnibarRequest = request;
 

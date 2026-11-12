@@ -7,6 +7,7 @@ import {
 import { type Accessor, createEffect, createMemo, on } from "solid-js";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
+import { selectingBlockEntry } from "./agent-block-selection";
 
 /** Maps the shown transcript onto the virtualizer, which measures from the bottom: index 0 is the newest row. */
 export function createAgentPaneLayout(
@@ -79,10 +80,13 @@ export function createAgentPaneLayout(
     /** The measured row of the entry with `id`, if the shown transcript has it. */
     rowOf: (id: string): VirtualItem | undefined => rowAt(indexes().get(id) ?? null),
     itemKey,
-    // Pending forms own live command handlers, so they stay mounted.
+    // Pending forms own live command handlers, and a block mid-gesture owns its selection, so they stay mounted.
     rangeExtractor: createMemo(() => {
-      const { entries, pendingRowIndexes } = shown();
-      const pending = pendingRowIndexes.map((index) => reverse(entries.length, index));
+      const { entries, entryIndexes, pendingRowIndexes } = shown();
+      const selecting = entryIndexes.get(selectingBlockEntry() ?? "");
+      const pending = [...pendingRowIndexes, ...(selecting === undefined ? [] : [selecting])].map(
+        (index) => reverse(entries.length, index),
+      );
       return (range: Range) =>
         [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
           (left, right) => left - right,

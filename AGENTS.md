@@ -88,6 +88,11 @@ load it only when you need it.
   parent's announcement, and AIR async tasks join the root conversation's background work; the pane renders
   subagent and workflow cards plus a tray with Stop, and actions that would end running work confirm first. See
   [docs/specs/background-work.md](docs/specs/background-work.md).
+- **Agent blocks** — an ACP agent shows charts and tables in its pane through `showBlock`/`updateBlock`; Weavie
+  draws them (ECharts, theme-driven) and keeps only each block's latest state. The tool returns a random token,
+  and the conversation that sees it on its own tool row claims that row, so no provider id or ordering is needed.
+  Selecting chart ranges, table cells, image regions, or reply text attaches them to the next prompt. See
+  [docs/specs/acp-rich-content/design.md](docs/specs/acp-rich-content/design.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote

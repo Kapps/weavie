@@ -30,7 +30,7 @@ public sealed class AgentPaneHistoryStreamTests {
 			new AgentPaneMessage { Type = "item-completed", ProviderId = "test", Text = $"message {index}" })).ToArray();
 		using var output = new BlockedFlushStream();
 		using var cancellation = new CancellationTokenSource();
-		var writing = AgentPaneProtocol.WriteHistoryAsync(new(1, 100, records), output, cancellation.Token);
+		var writing = AgentPaneProtocol.WriteHistoryAsync(new(1, 100, records, []), output, cancellation.Token);
 		await output.Flushing.Task;
 		Assert.False(writing.IsCompleted);
 		string firstBatch = Encoding.UTF8.GetString(output.ToArray());

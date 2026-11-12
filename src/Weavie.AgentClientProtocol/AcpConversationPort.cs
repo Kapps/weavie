@@ -13,6 +13,22 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 		lock (transitionGate) return Publishing ? view.CompleteContent(threadId, turnId, itemId) : null;
 	}
 
+	/// <summary>This conversation's current block <paramref name="id"/>.</summary>
+	public AgentBlock? Block(string id) {
+		lock (transitionGate) return Detached ? null : view.Block(id);
+	}
+
+	/// <summary>Applies a claimed block operation and commits its row; false when it no longer applies.</summary>
+	public bool CommitBlock(AcpConversationState state, AgentBlockOperation operation, AgentPaneMessage row) {
+		lock (transitionGate) {
+			if (!Publishing || AgentBlockRules.Apply(view.Block(operation.Id), operation, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is not { } block) return false;
+			OnCommitBlock(state, block, row);
+			return true;
+		}
+	}
+
+	protected ConversationView View => view;
+
 	internal bool Detached { get; private set; }
 	private bool Publishing => !Detached && !Staged;
 
@@ -100,6 +116,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 
 	protected abstract AgentEventFeedback OnObserve(AgentEvent value);
 	protected abstract void OnEmit(AcpConversationState state, AgentPaneMessage message);
+	protected abstract void OnCommitBlock(AcpConversationState state, AgentBlock block, AgentPaneMessage row);
 	protected abstract void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages);
 	protected abstract void OnControlsChanged();
 	protected abstract void OnUsageChanged(AgentUsageSnapshot snapshot);
@@ -126,18 +143,40 @@ public sealed partial class AcpAgentSession {
 
 		protected override void OnEmit(AcpConversationState state, AgentPaneMessage message) {
 			if (Prepare(message) is not { } prepared) return;
+			// A block lives while its reference row does, so retracting the row deletes the block too.
+			string? dropped = View.RetractedBlock(prepared);
 			owner.Output.Write(prepared, () => {
 				// Failure reports must still reach the user after the archive stops accepting writes.
 				if (prepared.Type == "transcript-reset") return;
-				if (!owner._storageFailed) OnSave(state, [prepared]);
-				else if (!state.Failed && prepared.Type is not ("side-conversation-closed" or "side-conversation-failed")) throw new AcpSessionStoreException(
-					"The ACP conversation cannot continue until storage is available.", new IOException("Conversation storage failed."));
+				if (!owner._storageFailed) {
+					if (dropped is not null) Archive(() => owner._sessions.DeleteBlock(runtime.Definition.Id, owner._context.Workspace, conversationId, dropped));
+					OnSave(state, [prepared]);
+				} else if (!state.Failed && prepared.Type is not ("side-conversation-closed" or "side-conversation-failed")) {
+					throw StorageUnavailable();
+				}
 			});
 		}
 
-		protected override void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) {
+		// The block is saved before its row, so a crash between them leaves only a block no history shows.
+		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, AgentPaneMessage row) {
+			if (Prepare(row) is not { } prepared) return;
+			var blockState = new AgentBlockState(runtime.Definition.Id, conversationId, block);
+			owner.Output.WriteBlock(blockState, prepared, () => {
+				if (owner._storageFailed) throw StorageUnavailable();
+				Archive(() => owner._sessions.SaveBlock(owner._context.Workspace, blockState));
+				OnSave(state, [prepared]);
+			});
+		}
+
+		private static AcpSessionStoreException StorageUnavailable() => new(
+			"The ACP conversation cannot continue until storage is available.", new IOException("Conversation storage failed."));
+
+		protected override void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) =>
+			Archive(() => Store(state, messages));
+
+		private void Archive(Action write) {
 			try {
-				Store(state, messages);
+				write();
 			} catch (AcpSessionStoreException error) {
 				owner.ArchiveFailed(error);
 				throw;

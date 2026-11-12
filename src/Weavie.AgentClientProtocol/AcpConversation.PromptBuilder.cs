@@ -31,6 +31,9 @@ internal sealed partial class AcpConversation {
 			blocks.Add(AcpContent.Text(submission.Text));
 		}
 		AddImages(submission, blocks, images);
+		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {
+			blocks.Add(AcpContent.Text($"Attached selection ({selection.Label}):\n{selection.Text}"));
+		}
 
 		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
@@ -64,14 +67,14 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void RequireImageSupport(AgentTurnSubmission submission) {
-		if (submission.Attachments.Count != 0 && !_features.Images) {
+		if (submission.Attachments.OfType<AgentInputAttachment.Image>().Any() && !_features.Images) {
 			throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
 		}
 	}
 
 	private void AddImages(AgentTurnSubmission submission, List<JsonNode> blocks, List<SubmittedImage> images) {
 		RequireImageSupport(submission);
-		foreach (var attachment in submission.Attachments) {
+		foreach (var attachment in submission.Attachments.OfType<AgentInputAttachment.Image>()) {
 			var image = new SubmittedImage(attachment.Id, attachment.Mime,
 				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
 			images.Add(image);
@@ -90,6 +93,18 @@ internal sealed partial class AcpConversation {
 				ItemId = submission.Id,
 				Text = submission.Text,
 				Sender = submission.Sender,
+			});
+		}
+		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {
+			Emit(new AgentPaneMessage {
+				Type = "user-selection",
+				ProviderId = Definition.Id,
+				ThreadId = SessionId(),
+				TurnId = TurnId(),
+				ItemId = selection.Id,
+				Summary = selection.Label,
+				Text = selection.Text,
+				Status = "submitted",
 			});
 		}
 		foreach (var image in images) {

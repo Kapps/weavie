@@ -2,7 +2,7 @@ import type { AgentPaneUpdate } from "../bridge";
 import { AgentActivitySegments } from "./AgentActivitySegments";
 import { isAgentActivity } from "./AgentPaneActivitySummary";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
-import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { blockKey, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -83,7 +83,9 @@ export function projectAgentTranscript(
     const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
     const startsTurn =
       ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
-      (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
+      ((message.type === "user-image" || message.type === "user-selection") &&
+        !previousWasUserInput &&
+        startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
@@ -170,6 +172,23 @@ function durableEntry(
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "agent-message-delta":
     case "item-completed":
+      if (message.itemType === "block" && message.blockId) {
+        const kind = message.category === "table" ? "table" : "chart";
+        return {
+          ...entry(
+            message,
+            sequence,
+            "block",
+            "assistant",
+            kind === "table" ? "Table" : "Chart",
+            null,
+          ),
+          block: {
+            key: blockKey(message.providerId, message.conversationId, message.blockId),
+            kind,
+          },
+        };
+      }
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
       }
@@ -190,6 +209,13 @@ function durableEntry(
     }
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
+    case "user-selection":
+      // The label is the row; the selected values open beneath it.
+      return {
+        ...entry(message, sequence, "message", "user", "Selection", null),
+        actionMessage: message,
+        text: null,
+      };
     case "user-message":
       return promptEntry(
         message,
@@ -341,7 +367,8 @@ function isUserInput(message: AgentPaneUpdate): boolean {
     message.type === "user-message" ||
     message.type === "user-command" ||
     message.type === "user-steer" ||
-    message.type === "user-image"
+    message.type === "user-image" ||
+    message.type === "user-selection"
   );
 }
 

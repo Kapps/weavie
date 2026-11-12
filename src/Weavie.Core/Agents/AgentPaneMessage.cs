@@ -92,6 +92,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>A linked resource URI associated with the content.</summary>
 	public string? ResourceUri { get; init; }
 
+	/// <summary>The block a block row shows; its data lives in the conversation's block store.</summary>
+	public string? BlockId { get; init; }
+
 	/// <summary>The editable plan file a plan review asks the user to approve.</summary>
 	public string? PlanPath { get; init; }
 

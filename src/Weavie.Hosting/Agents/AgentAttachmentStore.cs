@@ -5,12 +5,12 @@ namespace Weavie.Hosting.Agents;
 
 /// <summary>Stages structured-agent images by client id until an exact submission claims them.</summary>
 internal sealed class AgentAttachmentStore(PastedImageStore images) {
-	private readonly Dictionary<string, AgentInputAttachment> _items = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, AgentInputAttachment.Image> _items = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, IReadOnlyList<string>> _submissionReceipts = new(StringComparer.Ordinal);
 	private readonly HashSet<string> _closedAttachmentIds = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 
-	public AgentInputAttachment? Add(string id, string mime, string extension, byte[] bytes) {
+	public AgentInputAttachment.Image? Add(string id, string mime, string extension, byte[] bytes) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentException.ThrowIfNullOrEmpty(mime);
 		ArgumentException.ThrowIfNullOrEmpty(extension);
@@ -26,7 +26,7 @@ internal sealed class AgentAttachmentStore(PastedImageStore images) {
 				return existing;
 			}
 
-			var attachment = new AgentInputAttachment {
+			var attachment = new AgentInputAttachment.Image {
 				Id = id,
 				Mime = mime,
 				Path = images.Write(extension, bytes),

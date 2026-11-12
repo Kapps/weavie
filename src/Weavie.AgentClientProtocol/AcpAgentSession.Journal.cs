@@ -24,14 +24,15 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Restore() {
 		try {
-			Output.Restore(RestoreDisplay());
+			var (messages, blocks) = RestoreDisplay();
+			Output.Restore(messages, blocks);
 		} catch (Exception error) {
 			// Reported by Start, once the session's failure observers are wired.
 			_restoreFailure = error;
 		}
 	}
 
-	private List<AgentPaneMessage> RestoreDisplay() {
+	private (IReadOnlyList<AgentPaneMessage> Messages, IReadOnlyList<AgentBlockState> Blocks) RestoreDisplay() {
 		lock (_turnTransitionGate) {
 			try {
 				var states = _sessions.ReadConversations(_definition.Id, _context.Workspace);
@@ -59,8 +60,10 @@ public sealed partial class AcpAgentSession {
 					_sideConversations[state.ConversationId] = failed;
 					recovery.Add(terminal);
 				}
+				List<AgentPaneMessage> restored = [.. messages, .. recovery];
+				var blocks = _sessions.ReadBlocks(_definition.Id, _context.Workspace, restored);
 				_displayRestored = true;
-				return [.. messages, .. recovery];
+				return (restored, blocks);
 			} catch (AcpSessionStoreException) {
 				_storageFailed = true;
 				throw;

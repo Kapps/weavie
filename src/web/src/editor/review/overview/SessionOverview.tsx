@@ -97,6 +97,7 @@ export function SessionOverview(props: {
                       () => (
                         <div class="session-overview-description">
                           <AgentMarkdown
+                            attachable={false}
                             cacheKey={pull()}
                             content={pull().body}
                             flavor="github"

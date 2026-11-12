@@ -28,13 +28,12 @@ public sealed class HostCoreStructuredAttachmentTests {
 
 		Assert.True(result.Ok, result.Error);
 		var session = host.Session("new-session-image");
-		await session.Agent.DrainPaneAsync(CancellationToken.None);
+		// The first prompt is delivered once the new session turns idle, after creation returns.
+		await HostCoreWorkflowTests.Eventually(() => host.Bridge.PostedEvents(session.Address, "agent", "pane").Any(
+			message => message.GetProperty("type").GetString() == "user-message"
+				&& message.GetProperty("text").GetString() == "describe this"));
 		string file = Assert.Single(Directory.GetFiles(session.PastedImages.Directory));
 		Assert.Equal(PngBytes, File.ReadAllBytes(file));
-		Assert.Contains(
-			host.Bridge.PostedEvents(session.Address, "agent", "pane"),
-			message => message.GetProperty("type").GetString() == "user-message"
-				&& message.GetProperty("text").GetString() == "describe this");
 	}
 
 	[Fact]
@@ -96,6 +95,36 @@ public sealed class HostCoreStructuredAttachmentTests {
 		Assert.True(rejected.HasValue);
 		Assert.Equal("rejected", rejected.Value.GetProperty("status").GetString());
 		Assert.Contains("not ready", rejected.Value.GetProperty("error").GetString(), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task Selections_AreAcceptedWithTheirIds_AndAnOversizedOneIsRefusedWithTheLimit() {
+		await using var host = await StartStructuredAsync("structured-selections");
+		var session = host.SelectedSession;
+
+		host.SessionEvent(session, "agent", "submit", new {
+			id = "with-selection",
+			prompt = "",
+			kind = "prompt",
+			commandName = "",
+			attachmentIds = Array.Empty<string>(),
+			selections = new[] { new { id = "sel-1", label = "p95", text = "a,b" } },
+		});
+		var accepted = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("accepted", accepted?.GetProperty("status").GetString());
+		Assert.Equal("sel-1", accepted?.GetProperty("attachmentIds")[0].GetString());
+
+		host.SessionEvent(session, "agent", "submit", new {
+			id = "oversized",
+			prompt = "look",
+			kind = "prompt",
+			commandName = "",
+			attachmentIds = Array.Empty<string>(),
+			selections = new[] { new { id = "sel-2", label = "huge", text = new string('x', Weavie.Core.Agents.AgentInputAttachment.Selection.MaxTextLength + 1) } },
+		});
+		var rejected = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("rejected", rejected?.GetProperty("status").GetString());
+		Assert.Contains("the limit is 1,048,576", rejected?.GetProperty("error").GetString(), StringComparison.Ordinal);
 	}
 
 	[Fact]

@@ -58,6 +58,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
     defaultProvider: "acp",
     replyStartOffset: 0.5,
     thoughtDisplay: "all",
+    attachOnSelect: true,
     providers: [],
   },
   commandCatalog: { commands: [], keybindings: [] },

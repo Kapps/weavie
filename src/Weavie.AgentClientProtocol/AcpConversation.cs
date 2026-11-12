@@ -81,6 +81,7 @@ internal sealed partial class AcpConversation {
 		Background = spec.Opening is AdoptedOpening adopted ? adopted.Work : new AcpBackgroundWork(this);
 		RestoreContinuation(spec.Seed.Continuation);
 		Inherit(spec.Seed);
+		BindBlocks();
 		_publishedQueueVersion = _pendingSubmissions.Version;
 	}
 
@@ -186,6 +187,12 @@ internal sealed partial class AcpConversation {
 	internal void Publish(AgentPaneMessage message) => Emit(message);
 
 	private void Emit(AgentPaneMessage message) {
+		TrackTurnItem(message);
+		_port.Emit(Continuation, message);
+	}
+
+	// A refused turn retracts every item it showed, so each one is recorded against its turn.
+	private void TrackTurnItem(AgentPaneMessage message) {
 		if (message.TurnId is { Length: > 0 } turnId
 			&& message.ItemId is { Length: > 0 } itemId
 			&& message.Type is "agent-message-delta"
@@ -198,7 +205,6 @@ internal sealed partial class AcpConversation {
 				items.Add(itemId);
 			}
 		}
-		_port.Emit(Continuation, message);
 	}
 
 	internal void Observe(AgentEvent value) {

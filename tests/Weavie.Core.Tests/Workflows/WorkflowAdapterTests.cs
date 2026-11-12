@@ -132,7 +132,8 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		var skill = new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" };
 		var turn = skill.Submission([new WorkflowTurnImage("/documents/prompt/r-1/image-1.png", "image/png")]);
 		Assert.Equal(("/spec x", "spec", AgentTurnSubmissionKind.ProviderCommand), (turn.Text, turn.CommandName, turn.Kind));
-		Assert.Equal(("/documents/prompt/r-1/image-1.png", "image/png"), (turn.Attachments[0].Path, turn.Attachments[0].Mime));
+		var image = Assert.IsType<AgentInputAttachment.Image>(turn.Attachments[0]);
+		Assert.Equal(("/documents/prompt/r-1/image-1.png", "image/png"), (image.Path, image.Mime));
 		Assert.Equal(AgentTurnSubmissionKind.Prompt, WorkflowKickoff.Prompt("go").Submission([]).Kind);
 	}
 

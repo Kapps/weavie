@@ -1,4 +1,5 @@
 import { base64ToBytes, bytesToBase64 } from "../terminal/base64";
+import { canvasBlob } from "./agent-crop";
 
 const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/;
 export const MAX_AGENT_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -69,16 +70,7 @@ async function resizeImage(blob: Blob): Promise<Blob> {
     const mime = blob.type === "image/jpeg" ? "image/jpeg" : "image/png";
     for (;;) {
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const encoded = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (result) =>
-            result === null
-              ? reject(new Error("Couldn't encode the image for upload."))
-              : resolve(result),
-          mime,
-          0.9,
-        );
-      });
+      const encoded = await canvasBlob(canvas, mime, 0.9);
       if (fitsImageLimit(encoded)) {
         return encoded;
       }

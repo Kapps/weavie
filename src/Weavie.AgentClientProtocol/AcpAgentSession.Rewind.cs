@@ -58,6 +58,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		var continuation = rewind?.Fork.Continuation ?? RewindContinuation(predecessor, plan);
 		string[] dropped;
 		IReadOnlyList<AgentPaneMessage> kept;
+		IReadOnlyList<AgentBlockState> blocks;
 		try {
 			predecessor.TerminalizeForRestart(clearSubmissions: false, "Conversation rewound.");
 			SuspendSides("Conversation rewound.");
@@ -66,6 +67,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			kept = AcpRewindPlan.Create(_sessions.ReadMessages(_definition.Id, _context.Workspace), plan.Turn.ToString(CultureInfo.InvariantCulture)).Kept;
 			dropped = [.. _sideConversations.Values.Where(side => !plan.Keeps(side.AnchorTurnNumber)).Select(side => side.ConversationId)];
 			_sessions.Replace(_definition.Id, _context.Workspace, [continuation, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], kept);
+			blocks = _sessions.ReadBlocks(_definition.Id, _context.Workspace, kept);
 		} catch (AcpSessionStoreException error) {
 			StopForStorageFailure(error);
 			throw;
@@ -80,7 +82,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			adopted.Fork.Inherit(handoff);
 			return adopted.Fork;
 		});
-		Output.Replace(kept);
+		Output.Replace(kept, blocks);
 		if (adopted is null) Launch(successor, process);
 		else adopted.Promote();
 		if (plan.Prompt.Length > 0) successor.Prefill(plan.Prompt);

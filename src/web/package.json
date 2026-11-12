@@ -39,6 +39,7 @@
     "@xterm/addon-webgl": "0.20.0-beta.287",
     "@xterm/xterm": "6.1.0-beta.288",
     "dompurify": "3.4.13",
+    "echarts": "6.1.0",
     "fzf": "^0.5.2",
     "highlight.js": "^11.11.1",
     "linguist-languages": "9.4.0",

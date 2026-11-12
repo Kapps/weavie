@@ -58,6 +58,7 @@ function CommentBody(props: { comment: PrComment; session: ClientSession }): JSX
         classList={{ "weavie-pr-comment-text-capped": !expanded(), "weavie-pr-fade": long() }}
       >
         <AgentMarkdown
+          attachable={false}
           cacheKey={props.comment}
           content={props.comment.body}
           flavor="github"

@@ -77,6 +77,11 @@ its own revocable grant on the session's MCP registry. Workflow grants capture o
 round. Ordinary BTW has no workflow completion authority. Adopted subagents borrow their parent's binding;
 the protocol does not provide an independent credential for them.
 
+The grant also carries the conversation's block claims. A `showBlock` or `updateBlock` call stages its operation
+on the grant and returns a random token; the conversation that finds the token on its own tool row commits the
+operation through its port, which saves the block and replaces or retracts the row. A subagent's claim is refused
+because the grant is its parent's. See [rich content](../specs/acp-rich-content/design.md).
+
 ## Controls
 
 A conversation's control changes reach the agent one request at a time, in the order they were asked for. A pick

@@ -203,17 +203,17 @@ internal sealed partial class AcpConversation {
 		lock (_gate) {
 			itemIds = _turnItemIds.Remove(turnId, out var items) ? [.. items] : [];
 		}
-		foreach (string itemId in itemIds) {
-			Emit(new AgentPaneMessage {
-				Type = "item-retracted",
-				ProviderId = Definition.Id,
-				ThreadId = SessionId(),
-				TurnId = turnId,
-				ItemId = itemId,
-				Status = "retracted",
-			});
-		}
+		foreach (string itemId in itemIds) Emit(Retraction(turnId, itemId));
 	}
+
+	private AgentPaneMessage Retraction(string turnId, string itemId) => new() {
+		Type = "item-retracted",
+		ProviderId = Definition.Id,
+		ThreadId = SessionId(),
+		TurnId = turnId,
+		ItemId = itemId,
+		Status = "retracted",
+	};
 
 	private void ForgetTurnItems(string turnId) {
 		lock (_gate) _turnItemIds.Remove(turnId);

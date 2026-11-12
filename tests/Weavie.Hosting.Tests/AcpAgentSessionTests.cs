@@ -922,7 +922,7 @@ public sealed class AcpAgentSessionTests {
 			Text = "image",
 			Kind = AgentTurnSubmissionKind.Prompt,
 			CommandName = string.Empty,
-			Attachments = [new AgentInputAttachment { Id = "image", Path = image, Mime = "image/png" }],
+			Attachments = [new AgentInputAttachment.Image { Id = "image", Path = image, Mime = "image/png" }],
 		});
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "image=True");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "3");

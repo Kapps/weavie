@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 using Weavie.Workflows;
 
@@ -46,6 +47,7 @@ public sealed partial class McpServer {
 		public CancellationToken Token => source.Token;
 		public WorkflowStageCall? Stage => stage;
 		public ISessionPeers Sessions => key.Item1.Sessions;
+		public AgentBlockClaims Blocks => key.Item1.Blocks;
 		public void BeginCompletionResponse() => _response = key.Item1.BeginCompletionResponse();
 
 		public void Dispose() {

@@ -159,6 +159,16 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.RemoteImages,
+			Kind = SettingKind.Bool,
+			Description = "Show the https images an agent's reply references. Weavie fetches them from the machine the "
+				+ "agent runs on; when off, only workspace images show.",
+			Aliases = ["agent images", "remote images", "load images", "web images"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ReplyStartOffset,
 			Kind = SettingKind.Number,
 			Description = "Where a long agent reply's first line rests once it stops scrolling, as a fraction of the "
@@ -171,6 +181,15 @@ public static class CoreSettings {
 			Validate = static value => value is double offset && offset is >= 0 and < 1
 				? ValidationResult.Success
 				: ValidationResult.Failure("agent.replyStartOffset must be a number from 0 up to, but not including, 1."),
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.AttachOnSelect,
+			Kind = SettingKind.Bool,
+			Description = "Attach reply text you highlight in the agent pane to your next prompt. When off, use Attach Selection to Prompt.",
+			Aliases = ["attach on select", "attach highlighted text", "highlight attaches"],
+			Apply = ApplyMode.Live,
+			Default = true,
 		});
 
 		registry.Register(new SettingDefinition {

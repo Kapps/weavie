@@ -9,8 +9,7 @@ public sealed partial class HostCore {
 		AgentPaneHistoryRequest request,
 		Stream output,
 		CancellationToken ct) {
-		var session = _sessions?.Find(address.Slot)?.Session;
-		if (session?.Address != address) {
+		if (ExactSession(address) is not { } session) {
 			return false;
 		}
 
@@ -20,4 +19,8 @@ public sealed partial class HostCore {
 		await AgentPaneProtocol.WriteHistoryAsync(snapshot, output, cancellation.Token).ConfigureAwait(false);
 		return true;
 	}
+
+	// A session resource names one incarnation, so a reloaded session's old address finds nothing.
+	private HostSession? ExactSession(SessionAddress address) =>
+		_sessions?.Find(address.Slot)?.Session is { } session && session.Address == address ? session : null;
 }

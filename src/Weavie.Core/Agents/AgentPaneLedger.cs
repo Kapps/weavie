@@ -34,6 +34,9 @@ public sealed class AgentPaneLedger {
 	/// <summary>The latest revision assigned to any row.</summary>
 	public long Revision { get; private set; }
 
+	/// <summary>Allocates a revision for state that changes beside the rows, such as a block's data.</summary>
+	public long NextRevision() => ++Revision;
+
 	/// <summary>The last-change revision of row <paramref name="index"/>.</summary>
 	public long RevisionAt(int index) => _revisions[index];
 

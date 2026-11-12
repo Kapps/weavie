@@ -167,6 +167,12 @@ public static partial class CoreCommands {
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
 
+	/// <summary>Attaches the text highlighted in an agent reply to that session's next prompt.</summary>
+	public const string AttachAgentSelection = "weavie.agent.attachSelection";
+
+	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
+	public const string AttachAgentBlock = "weavie.agent.attachBlock";
+
 	/// <summary>Copies the focused or newest fenced code block in structured-agent output.</summary>
 	public const string CopyAgentCodeBlock = "weavie.agent.copyCodeBlock";
 
@@ -942,7 +948,8 @@ public static partial class CoreCommands {
 			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
 			Aliases = ["btw", "ask aside", "side question"],
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"kind\":{\"type\":\"string\",\"enum\":[\"prompt\",\"providerCommand\",\"mcpPrompt\"],\"description\":\"Submission type; ordinary prompt when omitted\"},\"commandName\":{\"type\":\"string\",\"description\":\"Exact catalog name for a command invocation\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"}}",
+			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"kind\":{\"type\":\"string\",\"enum\":[\"prompt\",\"providerCommand\",\"mcpPrompt\"],\"description\":\"Submission type; ordinary prompt when omitted\"},\"commandName\":{\"type\":\"string\",\"description\":\"Exact catalog name for a command invocation\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"},"
+				+ "\"selections\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"}},\"required\":[\"id\",\"label\",\"text\"]},\"description\":\"Selected values attached as text\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1200,6 +1207,26 @@ public static partial class CoreCommands {
 			Aliases = ["toggle mermaid", "mermaid preview", "show mermaid source", "show mermaid diagram"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+m" }],
 			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AttachAgentSelection,
+			Title = "Attach Selection to Prompt",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Attach the text highlighted in an agent reply to the next prompt, for when agent.attachOnSelect is off.",
+			Aliases = ["attach selection", "quote selection", "attach highlighted text"],
+			When = "agentSelectionAttachable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AttachAgentBlock,
+			Title = "Attach Block to Prompt",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Attach all of the focused agent chart or table to the next prompt.",
+			Aliases = ["attach chart", "attach table", "attach block"],
+			When = "agentBlockFocused",
 		});
 
 		registry.Register(new CommandDefinition {

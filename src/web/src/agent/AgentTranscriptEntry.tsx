@@ -8,6 +8,7 @@ import { displayPath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
+import { AgentBlockEntry } from "./AgentBlockEntry";
 import { Disclosure } from "./AgentDisclosure";
 import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
@@ -36,6 +37,10 @@ export function TranscriptEntry(props: {
 }): JSX.Element {
   if (props.entry.kind === "thought") {
     return <AgentThoughtEntry {...props} />;
+  }
+  const block = props.entry.block;
+  if (block !== undefined) {
+    return <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} />;
   }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
@@ -116,6 +121,7 @@ export function TranscriptEntry(props: {
               }
             >
               <AgentMarkdown
+                attachable={props.entry.kind === "message" && props.entry.tone === "assistant"}
                 cacheKey={props.entry}
                 content={props.entry.text ?? ""}
                 flavor="agent"
@@ -125,24 +131,20 @@ export function TranscriptEntry(props: {
             </Show>
           )}
         </Show>
-        <Show
-          when={
-            props.entry.actionMessage?.type === "approval-requested" &&
-            formattedToolInput(props.entry.actionMessage.text ?? null)
-          }
-        >
-          {(input) => (
-            <Disclosure
-              class="agent-request-details"
-              label={
-                props.expandedDetails.has(`${props.entry.id}:input`) ? "hide input" : "show input"
-              }
-              open={props.expandedDetails.has(`${props.entry.id}:input`)}
-              onToggle={(open) => props.onDetailsToggle(`${props.entry.id}:input`, open)}
-            >
-              <pre class="agent-entry-text">{input()}</pre>
-            </Disclosure>
-          )}
+        <Show when={entryDetails(props.entry.actionMessage)}>
+          {(details) => {
+            const key = () => `${props.entry.id}:${details().noun}`;
+            return (
+              <Disclosure
+                class="agent-request-details"
+                label={`${props.expandedDetails.has(key()) ? "hide" : "show"} ${details().noun}`}
+                open={props.expandedDetails.has(key())}
+                onToggle={(open) => props.onDetailsToggle(key(), open)}
+              >
+                <pre class="agent-entry-text">{details().text}</pre>
+              </Disclosure>
+            );
+          }}
         </Show>
         <AgentMedia message={props.entry.actionMessage} session={props.session} />
         <AgentRichContent message={props.entry.actionMessage} session={props.session} />
@@ -331,4 +333,15 @@ function entryLabel(entry: AgentTranscriptEntry): string {
 
 function entryTitle(entry: AgentTranscriptEntry): string {
   return entry.status === null ? entry.label : `${entry.label} ${entry.status}`;
+}
+
+// The collapsed text an entry can reveal: an approval's tool input, or a prompt's attached selection.
+function entryDetails(message: AgentPaneUpdate | null): { noun: string; text: string } | null {
+  if (message?.type === "approval-requested") {
+    const input = formattedToolInput(message.text ?? null);
+    return input ? { noun: "input", text: input } : null;
+  }
+  return message?.type === "user-selection" && message.text
+    ? { noun: "selection", text: message.text }
+    : null;
 }

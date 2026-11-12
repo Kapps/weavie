@@ -83,6 +83,8 @@ export interface AgentDefaults {
   /** Where a reply read from its start rests: a fraction of the agent pane's height below its top. */
   replyStartOffset: number;
   thoughtDisplay: "all" | "current" | "collapsed";
+  /** Whether highlighting reply text attaches it to the next prompt. */
+  attachOnSelect: boolean;
   providers: AgentProviderInfo[];
 }
 
@@ -132,8 +134,67 @@ export interface AgentPaneUpdate {
   mediaData?: string | null;
   resourceUri?: string | null;
   planPath?: string | null;
+  /** The block a block row shows; its data arrives separately as an `AgentBlockRecord`. */
+  blockId?: string | null;
   /** The session that sent a submitted prompt, when another session's agent sent it. */
   sender?: AgentMessageSender | null;
+}
+
+/** Block fields the host leaves out arrive as `null`. */
+/** A JSON scalar in a block: a number, a string, or null. Times are Unix milliseconds. Absent block fields arrive as `null`. */
+export type AgentBlockValue = number | string | null;
+
+export interface AgentChartAxis {
+  type?: "time" | "category" | "number" | null;
+  label?: string | null;
+  unit?: string | null;
+}
+
+export interface AgentChartSeries {
+  name: string;
+  style?: "solid" | "comparison" | null;
+  axis?: "y" | "y2" | null;
+  points: [AgentBlockValue, AgentBlockValue][];
+}
+
+export interface AgentChart {
+  kind: "line" | "area" | "bar" | "scatter";
+  x: AgentChartAxis;
+  y?: AgentChartAxis | null;
+  y2?: AgentChartAxis | null;
+  series: AgentChartSeries[];
+  thresholds?: { label?: string | null; axis?: "y" | "y2" | null; value: number }[] | null;
+  bands?:
+    | {
+        label?: string | null;
+        axis?: "x" | "y" | "y2" | null;
+        from: AgentBlockValue;
+        to: AgentBlockValue;
+      }[]
+    | null;
+}
+
+export interface AgentTable {
+  columns: { name: string; type: "time" | "number" | "text" | "level" }[];
+  rows: AgentBlockValue[][];
+}
+
+/** A chart or table an agent shows in its pane; only its latest state exists. */
+export interface AgentBlock {
+  id: string;
+  title: string;
+  updatedAtMs?: number | null;
+  chart?: AgentChart | null;
+  table?: AgentTable | null;
+}
+
+/** A block's latest state at the output generation and revision that last changed it. */
+export interface AgentBlockRecord {
+  generation: number;
+  revision: number;
+  providerId: string;
+  conversationId: string | null;
+  block: AgentBlock;
 }
 
 export interface AgentPaneContent {

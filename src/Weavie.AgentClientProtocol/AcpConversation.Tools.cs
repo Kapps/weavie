@@ -22,7 +22,8 @@ internal sealed partial class AcpConversation {
 	private void UpdateToolSerialized(JsonElement update, bool initial) {
 		if (!initial && UnknownMetadataOnly(update)) return;
 		var tool = MergeTool(update, initial ? ToolUpdateSource.Initial : ToolUpdateSource.Update);
-		if (tool.LocallyTerminalized) return;
+		if (tool.LocallyTerminalized || tool.Claimed) return;
+		ClaimBlock(tool);
 		// Stopping a backgrounded command kills it, which its agent reports as a failure.
 		if (tool is { Backgrounded: true, Status: "failed" } && Background.Stopped(tool.Id)) tool.Status = "cancelled";
 		lock (_gate) {
@@ -80,7 +81,7 @@ internal sealed partial class AcpConversation {
 				tool.Title = RequiredString(update, "title", "tool call");
 				tool.InitialReported = true;
 			}
-			if (tool.LocallyTerminalized) return tool;
+			if (tool.LocallyTerminalized || tool.Claimed) return tool;
 			if (source != ToolUpdateSource.Permission) tool.NotificationReported = true;
 			tool.Title = OptionalString(update, "title") ?? tool.Title;
 			if (OptionalString(update, "kind") is { } kind) {
@@ -198,6 +199,7 @@ internal sealed partial class AcpConversation {
 		public string? Input { get; set; }
 		public string? PlanFile { get; set; }
 		public bool PlanReleased { get; set; }
+		public bool Claimed { get; set; }
 		public bool InitialReported { get; set; }
 		public bool NotificationReported { get; set; }
 		public bool LocallyTerminalized { get; set; }

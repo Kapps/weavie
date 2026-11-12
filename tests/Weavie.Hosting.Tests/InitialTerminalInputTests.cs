@@ -34,7 +34,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 	[Fact]
 	public void FirstTurn_LeadsWithImagePaths_WhichClaudeAttachesFromTheirPath() {
 		using var lifecycle = new ClaudeLifecycleHarness();
-		lifecycle.Agent.SeedFirstTurn(Input("what is this", new AgentInputAttachment {
+		lifecycle.Agent.SeedFirstTurn(Input("what is this", new AgentInputAttachment.Image {
 			Id = "image-1",
 			Mime = "image/png",
 			Path = "/shots/one.png",
@@ -48,7 +48,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 	[Fact]
 	public void FirstTurn_ThatIsACommand_LeadsWithItsSlash_SoClaudeStillReadsItAsOne() {
 		using var lifecycle = new ClaudeLifecycleHarness();
-		lifecycle.Agent.SeedFirstTurn(Input("/spec the picker", new AgentInputAttachment {
+		lifecycle.Agent.SeedFirstTurn(Input("/spec the picker", new AgentInputAttachment.Image {
 			Id = "image-1",
 			Mime = "image/png",
 			Path = "/shots/one.png",

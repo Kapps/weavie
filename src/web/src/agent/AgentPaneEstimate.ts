@@ -1,10 +1,13 @@
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { blockHeight } from "./agent-block-layout";
 
 // Rendered-line metrics behind the size estimate. Prose wraps at the markdown measure
 // (`.agent-markdown` is `max-width: 96ch`); fenced code and tool output are preformatted, so each
 // source line is exactly one rendered line at the content role's smaller leading.
 const proseColumns = 96;
+/** Every agent image sits in a frame this tall, so loading one never moves the transcript. */
+export const AGENT_IMAGE_HEIGHT = 240;
 const proseLineHeight = 27;
 const monoLineHeight = 18;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
@@ -15,6 +18,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return 48;
   }
   if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
+  if (entry.block !== undefined) return blockHeight(entry.block.kind);
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {
@@ -43,7 +47,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
       : prose
         ? markdownHeight(entry.text)
         : preformattedHeight(entry.text)) +
-    (entry.detailCount > 0 ? monoLineHeight : 0);
+    (entry.detailCount > 0 || entry.actionMessage?.type === "user-selection" ? monoLineHeight : 0);
   estimates.set(entry, size);
   return size;
 }
@@ -55,7 +59,9 @@ function markdownHeight(text: string): number {
     if (line.startsWith("```")) {
       fenced = !fenced;
     } else {
-      height += fenced ? monoLineHeight : wrappedHeight(line);
+      height += fenced
+        ? monoLineHeight
+        : wrappedHeight(line) + (line.match(/!\[[^\]]*\]\(/g)?.length ?? 0) * AGENT_IMAGE_HEIGHT;
     }
   }
   return height;

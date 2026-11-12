@@ -9,6 +9,13 @@ test("thought-carried steering replies stay visible through tools, completion, s
   weavie,
 }) => {
   const surface = await createAcpSession(page, "steer-replies");
+  await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.thoughtDisplay","value":"inline"}');
+  await expect(surface.locator(".agent-entry-result")).toContainText("setSetting:");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("/clear");
+  await composer.press("Escape");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-entry")).toHaveCount(0);
   const workspace = sessionWorktrees(weavie.workspace)[0]!;
   await writeFile(join(workspace, "hold-steer-reply"), "");
   await writeFile(join(workspace, "hold-steer-finish"), "");

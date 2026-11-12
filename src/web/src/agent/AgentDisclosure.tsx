@@ -5,7 +5,7 @@ import { Show } from "solid-js";
 export function Disclosure(props: {
   children: JSX.Element;
   class: string;
-  label: string;
+  label: JSX.Element;
   open: boolean;
   onToggle: (open: boolean) => void;
 }): JSX.Element {

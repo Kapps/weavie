@@ -460,6 +460,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text.StartsWith("steer-visibility", StringComparison.Ordinal)) return await SteerVisibilityAsync(text.EndsWith("shared", StringComparison.Ordinal), ct).ConfigureAwait(false);
+		if (text == "thought-disclosures") return await ThoughtDisclosuresAsync(ct).ConfigureAwait(false);
 		if (text is "input-with-parallel-tool" or "permission-with-parallel-tool") return await InteractionAlongsideToolAsync(text == "input-with-parallel-tool", ct).ConfigureAwait(false);
 		if (text == "completed-tool-then-hold") return await CompletedToolThenHoldAsync(ct).ConfigureAwait(false);
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);

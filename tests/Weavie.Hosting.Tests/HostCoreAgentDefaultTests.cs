@@ -24,7 +24,7 @@ public sealed class HostCoreAgentDefaultTests {
 	[Fact]
 	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
 		await using var host = await TestHost.StartAsync();
-		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"inline\"}", host.Core.BuildBootstrap());
+		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\"}", host.Core.BuildBootstrap());
 		host.Bridge.Clear();
 
 		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));
@@ -34,14 +34,14 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task ThoughtDisplay_IsInlineByDefaultAndRepushesTheValidatedChoice() {
+	public async Task ThoughtDisplay_IsCollapsedByDefaultAndRepushesTheValidatedChoice() {
 		await using var host = await TestHost.StartAsync();
 		var defaults = await host.HostRequestAsync<JsonElement>("agentDefaults", "get", new { });
-		Assert.Equal("inline", defaults.GetProperty("thoughtDisplay").GetString());
+		Assert.Equal("collapsed", defaults.GetProperty("thoughtDisplay").GetString());
 		host.Bridge.Clear();
-		host.Settings.Set(AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement("collapsed"));
+		host.Settings.Set(AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement("inline"));
 		var push = host.Bridge.LastEvent("settings", "agent-defaults");
-		Assert.Equal("collapsed", push!.Value.GetProperty("thoughtDisplay").GetString());
+		Assert.Equal("inline", push!.Value.GetProperty("thoughtDisplay").GetString());
 		Assert.Throws<SettingValidationException>(() => host.Settings.Set(
 			AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement("guessed-replies")));
 	}

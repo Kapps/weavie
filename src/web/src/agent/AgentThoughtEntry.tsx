@@ -1,9 +1,11 @@
-import type { JSX } from "solid-js";
+import { ChevronRight } from "lucide-solid";
+import { createMemo, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { agentThoughtDisplay } from "../chrome/agent-default";
 import { Disclosure } from "./AgentDisclosure";
 import { AgentMarkdown } from "./AgentMarkdown";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { thoughtPreview } from "./AgentThoughtPreview";
 
 export function AgentThoughtEntry(props: {
   entry: AgentTranscriptEntry;
@@ -11,6 +13,7 @@ export function AgentThoughtEntry(props: {
   onDetailsToggle: (entryId: string, open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
+  const preview = createMemo(() => thoughtPreview(props.entry.text ?? ""));
   const display = () => agentThoughtDisplay(props.session.connection.id);
   const key = () => `${props.entry.id}:thought:${display()}`;
   const inline = () => display() === "inline";
@@ -19,7 +22,15 @@ export function AgentThoughtEntry(props: {
     <article class="agent-entry agent-entry-thought agent-tone-system">
       <Disclosure
         class="agent-thought"
-        label="Thinking"
+        label={
+          <span class="agent-thought-row ui-row ui-row-compact">
+            <span class="ui-icon">
+              <ChevronRight aria-hidden="true" />
+            </span>
+            <span class="agent-thought-label">Thinking</span>
+            <span class="agent-thought-preview">{preview()}</span>
+          </span>
+        }
         open={open()}
         onToggle={(expanded) => props.onDetailsToggle(key(), expanded !== inline())}
       >

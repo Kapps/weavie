@@ -533,7 +533,6 @@ a:has(> .agent-path-dir) {
   color: var(--accent);
 }
 
-.agent-entry-thought,
 .agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request,
@@ -814,6 +813,51 @@ a:has(> .agent-path-dir) {
 
 .agent-disclosure[open] > summary::before {
   content: "v";
+}
+
+.agent-entry-thought {
+  padding: 0 8px;
+}
+
+.agent-thought {
+  margin: 0;
+  min-width: 0;
+}
+
+.agent-thought > summary {
+  display: block;
+  color: var(--dim);
+}
+
+.agent-disclosure.agent-thought > summary::before {
+  content: none;
+}
+
+.agent-thought-row {
+  border-radius: 4px;
+}
+
+.agent-thought-row:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.agent-thought-label {
+  flex: none;
+}
+
+.agent-thought-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-thought[open] > summary .ui-icon > svg {
+  transform: rotate(90deg);
+}
+
+.agent-thought > .agent-markdown {
+  padding: 4px 8px 8px;
+  overflow-wrap: anywhere;
 }
 
 .agent-activity-list {

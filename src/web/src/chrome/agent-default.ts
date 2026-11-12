@@ -20,7 +20,7 @@ declare global {
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
-  thoughtDisplay: "inline",
+  thoughtDisplay: "collapsed",
   providers: [
     {
       id: "claude",

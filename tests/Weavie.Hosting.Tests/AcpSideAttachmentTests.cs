@@ -18,7 +18,7 @@ public sealed class AcpSideAttachmentTests {
 			Text = prompt,
 			Kind = AgentTurnSubmissionKind.Prompt,
 			CommandName = string.Empty,
-			Attachments = [new AgentInputAttachment { Id = "side-image", Mime = "image/png", Path = path }],
+			Attachments = [new AgentInputAttachment.Image { Id = "side-image", Mime = "image/png", Path = path }],
 		});
 
 		var completed = await fixture.WaitForMessageAsync(message =>
@@ -64,7 +64,7 @@ public sealed class AcpSideAttachmentTests {
 			Text = prompt,
 			Kind = AgentTurnSubmissionKind.Prompt,
 			CommandName = string.Empty,
-			Attachments = [new AgentInputAttachment { Id = "reply-image", Mime = "image/png", Path = path }],
+			Attachments = [new AgentInputAttachment.Image { Id = "reply-image", Mime = "image/png", Path = path }],
 		});
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.ConversationId == conversationId && message.TurnId == "2");

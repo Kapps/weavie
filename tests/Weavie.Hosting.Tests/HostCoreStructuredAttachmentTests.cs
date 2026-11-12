@@ -99,6 +99,36 @@ public sealed class HostCoreStructuredAttachmentTests {
 	}
 
 	[Fact]
+	public async Task Selections_AreAcceptedWithTheirIds_AndAnOversizedOneIsRefusedWithTheLimit() {
+		await using var host = await StartStructuredAsync("structured-selections");
+		var session = host.SelectedSession;
+
+		host.SessionEvent(session, "agent", "submit", new {
+			id = "with-selection",
+			prompt = "",
+			kind = "prompt",
+			commandName = "",
+			attachmentIds = Array.Empty<string>(),
+			selections = new[] { new { id = "sel-1", label = "p95", text = "a,b" } },
+		});
+		var accepted = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("accepted", accepted?.GetProperty("status").GetString());
+		Assert.Equal("sel-1", accepted?.GetProperty("attachmentIds")[0].GetString());
+
+		host.SessionEvent(session, "agent", "submit", new {
+			id = "oversized",
+			prompt = "look",
+			kind = "prompt",
+			commandName = "",
+			attachmentIds = Array.Empty<string>(),
+			selections = new[] { new { id = "sel-2", label = "huge", text = new string('x', Weavie.Core.Agents.AgentInputAttachment.Selection.MaxTextLength + 1) } },
+		});
+		var rejected = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("rejected", rejected?.GetProperty("status").GetString());
+		Assert.Contains("the limit is 1,048,576", rejected?.GetProperty("error").GetString(), StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task SubmitBeforeUpload_IsRejectedWithoutConsumingTheLaterAttachment() {
 		await using var host = await StartStructuredAsync("attachment-race");
 		var session = host.SelectedSession;

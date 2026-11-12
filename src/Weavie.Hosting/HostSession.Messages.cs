@@ -266,8 +266,9 @@ public sealed partial class HostSession {
 
 	internal IReadOnlyList<string> AcceptAgentSubmission(AgentSubmitMessage message, Action<AgentTurnSubmission> submit) {
 		string[] attachmentIds = message.AttachmentIds ?? [];
-		if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
-			throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
+		AgentInputAttachment.Selection[] selections = [.. (message.Selections ?? []).Select(Selection)];
+		if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0 && selections.Length == 0) {
+			throw new InvalidOperationException("Write a prompt or attach something before running the agent.");
 		}
 		var kind = message.Kind switch {
 			"prompt" => AgentTurnSubmissionKind.Prompt,
@@ -278,16 +279,27 @@ public sealed partial class HostSession {
 		if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {
 			throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
 		}
-		if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length != 0) {
+		if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length + selections.Length != 0) {
 			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
-		return AgentAttachments.Submit(message.Id, attachmentIds, attachments => submit(new AgentTurnSubmission {
+		return [.. AgentAttachments.Submit(message.Id, attachmentIds, images => submit(new AgentTurnSubmission {
 			Id = message.Id,
 			Text = message.Prompt,
 			Kind = kind,
 			CommandName = message.CommandName ?? string.Empty,
-			Attachments = attachments,
-		}));
+			Attachments = [.. images, .. selections],
+		})), .. selections.Select(selection => selection.Id)];
+	}
+
+	private static AgentInputAttachment.Selection Selection(AgentSelectionWire wire) {
+		if (wire.Id.Length == 0 || wire.Label.Trim().Length == 0 || wire.Text.Length == 0) {
+			throw new InvalidOperationException("A selection attachment needs an id, a label, and text.");
+		}
+		if (wire.Text.Length > AgentInputAttachment.Selection.MaxTextLength) {
+			throw new InvalidOperationException(
+				$"The selection '{wire.Label}' has {wire.Text.Length:N0} characters; the limit is {AgentInputAttachment.Selection.MaxTextLength:N0}. Select less and attach it again.");
+		}
+		return new AgentInputAttachment.Selection { Id = wire.Id, Label = wire.Label.Trim(), Text = wire.Text };
 	}
 
 	private void PublishAttachmentState(string id, string status, string error) =>
@@ -359,7 +371,11 @@ public sealed partial class HostSession {
 		string Prompt,
 		string? Kind,
 		string? CommandName,
-		string[]? AttachmentIds);
+		string[]? AttachmentIds,
+		AgentSelectionWire[]? Selections);
+
+	/// <summary>Values the user selected in the pane, attached to a prompt as text.</summary>
+	internal sealed record AgentSelectionWire(string Id, string Label, string Text);
 
 	internal sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
 

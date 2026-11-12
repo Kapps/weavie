@@ -21,6 +21,7 @@ const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
   thoughtDisplay: "current",
+  attachOnSelect: true,
   providers: [
     {
       id: "claude",
@@ -55,6 +56,11 @@ export function agentReplyStartOffset(): number {
 /** The thought presentation selected on the session's own backend. */
 export function agentThoughtDisplay(backendId: string): AgentDefaults["thoughtDisplay"] {
   return byBackend().get(backendId)!.thoughtDisplay;
+}
+
+/** Whether highlighting reply text on the session's own backend attaches it to the next prompt. */
+export function agentAttachOnSelect(backendId: string): boolean {
+  return byBackend().get(backendId)!.attachOnSelect;
 }
 
 /** The provider the New Session prompt should preselect. */

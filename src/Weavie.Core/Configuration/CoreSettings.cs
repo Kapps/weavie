@@ -184,6 +184,15 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.AttachOnSelect,
+			Kind = SettingKind.Bool,
+			Description = "Attach reply text you highlight in the agent pane to your next prompt. When off, use Attach Selection to Prompt.",
+			Aliases = ["attach on select", "attach highlighted text", "highlight attaches"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
 			Description = "Show all agent thinking, the latest reasoning summary in a compact status row, or individual collapsed Thinking rows. Ordinary agent replies remain visible.",

@@ -879,6 +879,28 @@ a:has(> .agent-path-dir) {
   white-space: nowrap;
 }
 
+.agent-attachment-selection {
+  flex: 0 1 auto;
+  display: flex;
+  gap: 4px;
+  max-width: 260px;
+  padding: 0 22px 0 6px;
+  align-items: center;
+}
+
+.agent-attachment-selection span {
+  position: static;
+  padding: 0;
+  background: none;
+}
+
+.agent-attachment-label {
+  font: var(--font-chrome-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-attachment button {
   position: absolute;
   inset: 1px 1px auto auto;

@@ -163,6 +163,39 @@ describe("agent composer attachments", () => {
     });
   });
 
+  it("submits selections as text with no upload and clears their chips on the receipt", () => {
+    const session = owner("selection", "slot-selection");
+    store.attachAgentSelection(session, { label: "p95 · 14:18", text: "time,now\n14:18,318" });
+    expect(store.composerState(session).attachments).toMatchObject([
+      { kind: "selection", label: "p95 · 14:18", status: "ready" },
+    ]);
+    expect(bridge.posted.some(({ name }) => name === "uploadAttachment")).toBe(false);
+
+    expect(store.submitAgentTurn(session, null)).toBe(true);
+    const submission = bridge.posted.find(({ name }) => name === "submit")!;
+    const selectionId = store.composerState(session).attachments[0]!.id;
+    expect(submission.payload).toMatchObject({
+      prompt: "",
+      attachmentIds: [],
+      selections: [{ id: selectionId, label: "p95 · 14:18", text: "time,now\n14:18,318" }],
+    });
+    deliver("selection", "slot-selection", "submissionState", {
+      id: submission.payload.id,
+      attachmentIds: [selectionId],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).attachments).toEqual([]);
+  });
+
+  it("removes a selection chip without telling the host", () => {
+    const session = owner("selection-remove", "slot");
+    store.attachAgentSelection(session, { label: "rows 2-4", text: "a" });
+    store.removeComposerAttachment(session, store.composerState(session).attachments[0]!.id);
+    expect(store.composerState(session).attachments).toEqual([]);
+    expect(bridge.posted.some(({ name }) => name === "removeAttachment")).toBe(false);
+  });
+
   it("clears only the acknowledged session after an accepted submission", () => {
     const kept = owner("remote-b", "slot-b");
     const sent = owner("remote-c", "slot-c");
@@ -273,6 +306,7 @@ describe("agent composer attachments", () => {
       commandName: "",
       submissionId: expect.any(String),
       attachmentIds: [attachmentId],
+      selections: [],
     });
     await flushAsyncWork();
     expect(store.composerState(session)).toMatchObject({
@@ -316,6 +350,7 @@ describe("agent composer attachments", () => {
       commandName: "review",
       submissionId: expect.any(String),
       attachmentIds: [],
+      selections: [],
     });
     await flushAsyncWork();
     expect(store.composerState(session).draft).toBe("");
@@ -325,7 +360,7 @@ describe("agent composer attachments", () => {
     const session = owner("image-only", "aside");
     store.setComposerDraft(session, "/btw");
     expect(store.submitAgentAside(session, "", null)).toBe(false);
-    expect(store.composerState(session).error).toContain("attach an image");
+    expect(store.composerState(session).error).toContain("attach something");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
       session,
@@ -347,6 +382,7 @@ describe("agent composer attachments", () => {
       commandName: "",
       submissionId: expect.any(String),
       attachmentIds: [attachmentId],
+      selections: [],
     });
   });
 
@@ -399,6 +435,7 @@ describe("BTW reply composers", () => {
         kind: "prompt",
         commandName: "",
         attachmentIds: [id],
+        selections: [],
       },
     });
     const submission = message.payload.submission as { id: string };
@@ -470,7 +507,7 @@ describe("BTW reply composers", () => {
     store.uploadAgentImage(current.client, image);
     reply.uploadImage(image);
     const previews = [store.composerState(current.client), reply.state()].map(
-      (state) => state.attachments[0]!.previewUrl,
+      (state) => (state.attachments[0] as { previewUrl: string }).previewUrl,
     );
     Object.assign(current.client, { closed: true });
     current.dispose();

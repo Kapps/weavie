@@ -66,8 +66,8 @@ public sealed class PosixPtyTerminalTests {
 
 		int exitCode = StopOnceReady(new TerminalStartInfo {
 			Command = "/bin/bash",
-			Arguments = ["--noprofile", "--norc", "-i"],
-			Environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["PS1"] = "ready> " },
+			// Builtins check pending HUP without bash's signal-before-input-wait race.
+			Arguments = ["--noprofile", "--norc", "-i", "-c", "printf ready; while :; do :; done"],
 			HangUpOnStop = true,
 		});
 

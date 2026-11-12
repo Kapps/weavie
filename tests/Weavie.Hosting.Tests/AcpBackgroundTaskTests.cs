@@ -40,6 +40,20 @@ public sealed class AcpBackgroundTaskTests {
 	}
 
 	[Fact]
+	public async Task RunningWorkHoldsTheStatusWhileItsItemListIsUndelivered() {
+		await using var fixture = await StartedAsync();
+		var delivery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		fixture.Session.BackgroundWorkChanged += _ => delivery.Task.GetAwaiter().GetResult();
+		try {
+			await StartTaskAsync(fixture, "task-held", "1");
+
+			Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
+		} finally {
+			delivery.SetResult();
+		}
+	}
+
+	[Fact]
 	public async Task AnUnpromptedTurnIsTheSessionsOwnWorkNotOrphanableTask() {
 		await using var fixture = await StartedAsync();
 		fixture.Submit("task-turn");

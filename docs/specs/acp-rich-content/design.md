@@ -166,11 +166,12 @@ milliseconds or ISO 8601 and is stored as milliseconds. A comparison series is s
 the same x values. Column `type` is `time | number | text | level`.
 
 **`updateBlock`** — a whole new `chart` or `table` replaces the block's data; `append` adds points to existing
-series, or rows, and keeps the newest `keep`.
+series, or rows, and keeps the newest `append.keep`, which the schema requires inside `append`.
 
 ```json
-{ "id": "p95", "keep": 60,
-  "append": { "series": [{ "name": "now", "points": [[1794490800000, 371]] },
+{ "id": "p95",
+  "append": { "keep": 60,
+              "series": [{ "name": "now", "points": [[1794490800000, 371]] },
                          { "name": "24h ago", "points": [[1794490800000, 259]] }] } }
 ```
 
@@ -333,7 +334,8 @@ Rules:
 
 - `showBlock` on an id that exists is refused: "already shown; use updateBlock". `updateBlock` on an id
   that does not exist is refused.
-- `append` requires `keep`; series are matched by name, and a new name adds a series within the limit.
+- `append.keep` is required by the schema and the JSON contract; series are matched by name, and a new name
+  adds a series within the limit.
 - `tools/list` omits both tools for a grant whose `Blocks` is not bound, which is terminal Claude's.
 - `AgentBlockJson` is a source-generated context with `UnmappedMemberHandling.Disallow` and
   `NumberHandling.AllowReadingFromString`, plus a converter for `[x, y]` points.

@@ -76,7 +76,7 @@ public sealed partial class McpServer {
 				["table"] = Table(),
 			}, "id", "title"));
 		var update = Tool(UpdateBlockTool,
-			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows with 'keep' to hold a rolling window. Make one update per block at a time. The block shows when it was last updated.",
+			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The block shows when it was last updated.",
 			Object(new JsonObject {
 				["id"] = Text(),
 				["title"] = Text(),
@@ -85,8 +85,8 @@ public sealed partial class McpServer {
 				["append"] = Object(new JsonObject {
 					["series"] = Array(Object(new JsonObject { ["name"] = Described(Text(), "An existing series, or a new one to add."), ["points"] = Points() }, "name", "points")),
 					["rows"] = Rows(),
-				}),
-				["keep"] = new JsonObject { ["type"] = "integer", ["description"] = "With append: how many of the newest points per series, or rows, to keep." },
+					["keep"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1, ["description"] = "How many of the newest points per series, or rows, to keep." },
+				}, "keep"),
 			}, "id"));
 		return show.ToJsonString() + "," + update.ToJsonString();
 	}

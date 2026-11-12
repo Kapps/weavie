@@ -48,7 +48,7 @@ public static partial class AgentBlockRules {
 		int parts = (request.Chart is null ? 0 : 1) + (request.Table is null ? 0 : 1) + (request.Append is null ? 0 : 1);
 		if (show) {
 			if (current is not null) Refuse($"Block '{request.Id}' is already shown; change it with updateBlock.");
-			if (request.Append is not null || request.Keep is not null || parts != 1) Refuse("showBlock takes exactly one of 'chart' or 'table'.");
+			if (request.Append is not null || parts != 1) Refuse("showBlock takes exactly one of 'chart' or 'table'.");
 			string title = Text(request.Title, "title") is { Length: > 0 } given ? given : Fail<string>("showBlock requires a 'title'.");
 			var (chart, table) = Content(request);
 			return new AgentBlockOperation.Show(new AgentBlock { Id = request.Id, Title = title, Chart = chart, Table = table });
@@ -60,13 +60,12 @@ public static partial class AgentBlockRules {
 		if ((request.Chart is not null && current!.Chart is null) || (request.Table is not null && current!.Table is null)) {
 			Refuse($"Block '{request.Id}' is a {current!.Kind}; an update keeps its kind.");
 		}
-		if ((request.Append is null) != (request.Keep is null)) Refuse("'keep' is required with 'append', and only with it.");
 		var (replacedChart, replacedTable) = Content(request);
 		return new AgentBlockOperation.Update(request with {
 			Title = Text(request.Title, "title"),
 			Chart = replacedChart,
 			Table = replacedTable,
-			Append = request.Append is { } append ? Append(append, current!, request.Keep!.Value) : null,
+			Append = request.Append is { } append ? Append(append, current!) : null,
 		});
 	}
 
@@ -80,7 +79,7 @@ public static partial class AgentBlockRules {
 		if (request.Chart is { } chart) return current.Chart is null ? null : next with { Chart = chart };
 		if (request.Table is { } table) return current.Table is null ? null : next with { Table = table };
 		var append = request.Append!;
-		int keep = request.Keep!.Value;
+		int keep = append.Keep;
 		// Validation saw the block as it was then; an update applied since may have changed its shape.
 		if (current.Table is { } rows) {
 			return append.Rows!.All(row => row.Count == rows.Columns.Count)
@@ -143,7 +142,8 @@ public static partial class AgentBlockRules {
 		return new AgentTable { Columns = normalized, Rows = Rows(table.Rows, normalized, "table.rows") };
 	}
 
-	private static AgentBlockAppend Append(AgentBlockAppend append, AgentBlock current, int keep) {
+	private static AgentBlockAppend Append(AgentBlockAppend append, AgentBlock current) {
+		int keep = append.Keep;
 		if (current.Chart is { } chart) {
 			if (append.Rows is not null || append.Series is not { Count: > 0 }) Refuse("append to a chart takes 'series'.");
 			Keep(keep, AgentBlockLimits.Points, "points per series");
@@ -152,6 +152,7 @@ public static partial class AgentBlockRules {
 			int total = chart.Series.Select(line => line.Name).Union(added.Select(line => line.Name), StringComparer.Ordinal).Count();
 			if (total > AgentBlockLimits.Series) Refuse($"append.series would give the chart {total:N0} series; the limit is {AgentBlockLimits.Series:N0}.");
 			return new AgentBlockAppend {
+				Keep = keep,
 				Series = [.. added.Select((line, index) => line with {
 					Name = Name(line.Name, $"append.series[{index}].name"),
 					Points = Points(line.Points, chart.X.Type!, $"append.series[{index}].points"),
@@ -160,7 +161,7 @@ public static partial class AgentBlockRules {
 		}
 		if (append.Series is not null || append.Rows is null) Refuse("append to a table takes 'rows'.");
 		Keep(keep, AgentBlockLimits.Rows, "rows");
-		return new AgentBlockAppend { Rows = Rows(append.Rows!, current.Table!.Columns, "append.rows") };
+		return new AgentBlockAppend { Keep = keep, Rows = Rows(append.Rows!, current.Table!.Columns, "append.rows") };
 	}
 
 	private static IReadOnlyList<IReadOnlyList<AgentBlockValue>> Points(IReadOnlyList<IReadOnlyList<AgentBlockValue>> points, string x, string path) {

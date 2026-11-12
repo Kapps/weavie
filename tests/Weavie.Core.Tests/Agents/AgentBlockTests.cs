@@ -37,7 +37,8 @@ public sealed class AgentBlockTests {
 	[InlineData("""{"id":null,"title":"t"}""")]
 	[InlineData("""{"id":"p","title":"t","chart":{"kind":"line","x":null,"series":[]}}""")]
 	[InlineData("""{"id":"p","title":"t","chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","points":[[1e999,1]]}]}}""")]
-	public void NullsAndNonFiniteNumbersFailAsJson(string json) =>
+	[InlineData("""{"id":"p","append":{"rows":[["a"]]}}""")]
+	public void MalformedRequestsFailAsJson(string json) =>
 		Assert.ThrowsAny<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest));
 
 	[Fact]
@@ -56,15 +57,13 @@ public sealed class AgentBlockTests {
 		Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(new() { Id = "p95", Chart = Line }, null, show: false));
 		var added = AgentBlockRules.Apply(shown, AgentBlockRules.Validate(new() {
 			Id = "p95",
-			Keep = 2,
-			Append = new() { Series = [new() { Name = "other", Points = [[new(9, null), new(9, null)]] }] },
+			Append = new() { Keep = 2, Series = [new() { Name = "other", Points = [[new(9, null), new(9, null)]] }] },
 		}, shown, show: false), 1)!;
 		Assert.Equal(["now", "other"], added.Chart!.Series.Select(series => series.Name));
 
 		var append = AgentBlockRules.Validate(new() {
 			Id = "p95",
-			Keep = 2,
-			Append = new() { Series = [new() { Name = "now", Points = [[new(2, null), new(2, null)], [new(3, null), new(3, null)]] }] },
+			Append = new() { Keep = 2, Series = [new() { Name = "now", Points = [[new(2, null), new(2, null)], [new(3, null), new(3, null)]] }] },
 		}, shown, show: false);
 		var updated = AgentBlockRules.Apply(shown, append, 42)!;
 
@@ -78,7 +77,7 @@ public sealed class AgentBlockTests {
 	public void AnAppendValidatedAgainstAnOlderTableNoLongerApplies() {
 		var columns = new AgentTable { Columns = [new() { Name = "a", Type = "text" }], Rows = [] };
 		var shown = new AgentBlock { Id = "t", Title = "t", Table = columns };
-		var append = AgentBlockRules.Validate(new() { Id = "t", Keep = 5, Append = new() { Rows = [[new(null, "x")]] } }, shown, show: false);
+		var append = AgentBlockRules.Validate(new() { Id = "t", Append = new() { Keep = 5, Rows = [[new(null, "x")]] } }, shown, show: false);
 		var widened = shown with { Table = columns with { Columns = [.. columns.Columns, new() { Name = "b", Type = "text" }] } };
 
 		Assert.Null(AgentBlockRules.Apply(widened, append, 1));

@@ -6,7 +6,7 @@ namespace Weavie.Hosting.Tests;
 /// <summary>A block tool call becomes a block on its own row, however the agent relays the tool's result.</summary>
 public sealed class AcpBlockTests {
 	private const string Chart = """{"id":"p95","title":"p95 latency","chart":{"kind":"line","x":{"type":"time"},"series":[{"name":"now","points":[[1794490680000,318],["2026-11-12T14:19:00Z",344]]}]}}""";
-	private const string Append = """{"id":"p95","append":{"series":[{"name":"now","points":[[1794490800000,98765]]}]},"keep":2}""";
+	private const string Append = """{"id":"p95","append":{"series":[{"name":"now","points":[[1794490800000,98765]]}],"keep":2}}""";
 
 	[Theory]
 	[InlineData("claude")]
@@ -153,7 +153,7 @@ public sealed class AcpBlockTests {
 	public async Task Appends_ApplyInTheOrderTheirRowsAreClaimed() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
-		static string Point(int value) => $$"""{"id":"p95","append":{"series":[{"name":"now","points":[[{{1794490800000 + value}},{{value}}]]}]},"keep":10}""";
+		static string Point(int value) => $$$"""{"id":"p95","append":{"series":[{"name":"now","points":[[{{{1794490800000 + value}}},{{{value}}}]]}],"keep":10}}""";
 
 		await CallAsync(fixture, $"block-parallel:codex:updateBlock:{Point(1)}\n{Point(2)}", 2);
 

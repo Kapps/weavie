@@ -70,8 +70,7 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   const appends = [371, 389, 402].map((value) =>
     JSON.stringify({
       id: "p95",
-      append: { series: [{ name: "now", points: [[1794490800000 + value, value]] }] },
-      keep: 60,
+      append: { series: [{ name: "now", points: [[1794490800000 + value, value]] }], keep: 60 },
     }),
   );
   await submitAcpDraft(surface, `block-parallel:codex:updateBlock:${appends.join("\n")}`);

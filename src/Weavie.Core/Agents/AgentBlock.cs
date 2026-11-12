@@ -172,9 +172,6 @@ public sealed record AgentBlockRequest {
 
 	/// <summary>Points or rows to add to the current block.</summary>
 	public AgentBlockAppend? Append { get; init; }
-
-	/// <summary>How many points per series, or rows, an append keeps.</summary>
-	public int? Keep { get; init; }
 }
 
 /// <summary>Data appended to a block.</summary>
@@ -184,6 +181,9 @@ public sealed record AgentBlockAppend {
 
 	/// <summary>Rows to add to a table.</summary>
 	public IReadOnlyList<IReadOnlyList<AgentBlockValue>>? Rows { get; init; }
+
+	/// <summary>How many of the newest points per series, or rows, to keep; part of the append so a schema can require it.</summary>
+	public required int Keep { get; init; }
 }
 
 /// <summary>Points appended to one existing series.</summary>

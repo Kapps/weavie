@@ -51,7 +51,7 @@ test("a remote image says why it didn't load when remote images are off", async 
   await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.remoteImages","value":false}');
   await expect(surface.locator(".agent-entry-result")).toContainText("setSetting:");
 
-  await submitAcpDraft(surface, "![web](https://example.com/a.png)");
+  await submitAcpDraft(surface, "![web](https://example.com:8443/a.png)");
 
   await expect(surface.locator(".agent-image-status")).toHaveText(
     "Image unavailable: Remote images are off (setting agent.remoteImages).",
@@ -61,10 +61,11 @@ test("a remote image says why it didn't load when remote images are off", async 
   // The refusal isn't kept past the reply that saw it: turning the setting on lets the next reply try again.
   await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.remoteImages","value":true}');
   await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
-  await submitAcpDraft(surface, "again ![web](https://example.com/a.png)");
-  const retried = surface
-    .locator(".agent-markdown", { hasText: "echo: again" })
-    .locator(".agent-image");
-  await expect(retried.locator(".agent-image-status")).not.toHaveText("Loading image…");
-  await expect(retried).not.toContainText("Remote images are off");
+  // A port the address rule refuses before any request, so the retry is visible without network access.
+  await submitAcpDraft(surface, "again ![web](https://example.com:8443/a.png)");
+  await expect(
+    surface.locator(".agent-markdown", { hasText: "echo: again" }).locator(".agent-image-status"),
+  ).toHaveText(
+    "Image unavailable: Only https images on the default port, without a user name, load.",
+  );
 });

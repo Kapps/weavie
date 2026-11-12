@@ -1,4 +1,5 @@
 import { notify } from "../notify/notify";
+import { cropAgentImage } from "./agent-images";
 import "./agent-region-select.css";
 
 // The smallest drag, in CSS px, that counts as a box rather than a click.
@@ -11,7 +12,7 @@ const minimumBox = 8;
 export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => void): () => void {
   const onPointerDown = (event: PointerEvent): void => {
     const target = (event.target as Element | null)?.closest<HTMLImageElement | SVGSVGElement>(
-      "img.agent-image-loaded, .agent-mermaid-block svg",
+      "span.agent-image img, .agent-mermaid-block svg",
     );
     if (event.button !== 0 || target === null || target === undefined) return;
     event.preventDefault();
@@ -42,7 +43,16 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
       box.remove();
       const area = rect(up.clientX, up.clientY);
       if (area.width < minimumBox || area.height < minimumBox) return;
-      void crop(target, bounds, area)
+      const png =
+        target instanceof HTMLImageElement
+          ? cropAgentImage(target, {
+              x: area.left - bounds.left,
+              y: area.top - bounds.top,
+              width: area.width,
+              height: area.height,
+            })
+          : cropDiagram(target, bounds, area);
+      void png
         .then(attach)
         .catch((error: unknown) => notify("error", `Couldn't attach the region: ${String(error)}`));
     };
@@ -53,23 +63,18 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
   return () => host.removeEventListener("pointerdown", onPointerDown);
 }
 
-async function crop(
-  source: HTMLImageElement | SVGSVGElement,
-  bounds: DOMRect,
-  area: DOMRect,
-): Promise<Blob> {
-  const image = source instanceof HTMLImageElement ? source : await rasterize(source, bounds);
-  const scaleX = image.naturalWidth / bounds.width;
-  const scaleY = image.naturalHeight / bounds.height;
+async function cropDiagram(svg: SVGSVGElement, bounds: DOMRect, area: DOMRect): Promise<Blob> {
+  const image = await rasterize(svg, bounds);
+  const scale = image.naturalWidth / bounds.width;
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(area.width * scaleX);
-  canvas.height = Math.round(area.height * scaleY);
+  canvas.width = Math.round(area.width * scale);
+  canvas.height = Math.round(area.height * scale);
   canvas
     .getContext("2d")!
     .drawImage(
       image,
-      (area.left - bounds.left) * scaleX,
-      (area.top - bounds.top) * scaleY,
+      (area.left - bounds.left) * scale,
+      (area.top - bounds.top) * scale,
       canvas.width,
       canvas.height,
       0,

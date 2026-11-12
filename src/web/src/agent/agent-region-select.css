@@ -6,6 +6,7 @@
   pointer-events: none;
 }
 
-.agent-markdown .agent-mermaid-block svg {
+.agent-markdown .agent-mermaid-block svg,
+.agent-image > img {
   cursor: crosshair;
 }

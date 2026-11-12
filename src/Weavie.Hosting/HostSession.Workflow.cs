@@ -32,16 +32,15 @@ public sealed partial class HostSession {
 		FailWorkflowTurn);
 
 	private WorkflowRunner CreateWorkflowRunner(
-		IFileSystem fileSystem, SettingsStore settings, IWorkflowDecider decider, IWorkflowRoleResolver roles, string workspaceRoot,
-		Func<string, string> documentsDirectory) =>
+		IFileSystem fileSystem, SettingsStore settings, SessionWorkflowServices workflow, AgentProviderInfo provider, string workspaceRoot) =>
 		new(
 			WorkflowCatalog,
-			roles,
+			workflow.RoleResolver(provider),
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
-			decider,
+			workflow.Decider(workspaceRoot),
 			new WorkflowFileReader(fileSystem),
 			new WorkflowPort(this),
-			WeavieWorkflows.Environment(settings, workspaceRoot, runId => InheritedWorkflowDocuments ?? documentsDirectory(runId)));
+			WeavieWorkflows.Environment(settings, workspaceRoot, runId => InheritedWorkflowDocuments ?? workflow.DocumentsDirectory(runId)));
 
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.

@@ -141,43 +141,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			Attachments = attachments,
 		};
 
-	private HostSession CreateSession(SettingsStore settings, IAgentProvider provider) {
-		var commandRegistry = CoreCommands.CreateRegistry();
-		var endpoint = new HostMessageRouter(
-			new FakeHostBridge(),
-			new InlineUiDispatcher(),
-			_ => { }).OpenSession(new SessionAddress("slot-1", Guid.NewGuid().ToString("n")));
-		var session = new HostSession(
-			endpoint,
-			settings,
-			new LayoutStore(new LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
-			_dir.Path,
-			_dir.Path,
-			_dir.Combine("scratch"),
-			id => _dir.Combine("documents", id),
-			_dir.Combine("pasted"),
-			_dir.Combine("agent-pane.json"),
-			[ShellTerminalId.New()],
-			id => _dir.Combine($"shell-{id}.json"),
-			commandRegistry,
-			new KeybindingStore(commandRegistry, _dir.Combine("keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(new LocalFileSystem(), _dir.Combine("theme-overrides.json")),
-			new CorrectionCorpus(new LocalFileSystem(), _dir.Combine("corrections.jsonl")),
-			UnusedInferenceService.Instance,
-			new UnusedWorkflowDecider(),
-			new Weavie.Core.Workflows.WorkflowRoleStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("workflow-roles.json")),
-			NoWorkflowRoles.Instance,
-			AgentConsultation.None,
-			NoSessionPeers.Instance,
-			_launcher,
-			provider,
-			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-			() => false,
-			(_, accept) => accept(),
-			(_, _) => { });
-		session.ActivateOwnedRuntimeAndMessages();
-		return session;
-	}
+	private HostSession CreateSession(SettingsStore settings, IAgentProvider provider) =>
+		TestSessions.Create(_dir, settings, CoreCommands.CreateRegistry(), _launcher, provider);
 
 	/// <summary>The real Claude lifecycle over isolated in-memory stores, for launch-argument assertions.</summary>
 	private sealed class ClaudeLifecycleHarness : IDisposable {

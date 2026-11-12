@@ -515,6 +515,25 @@ public sealed partial class HostCore {
 		_ => throw new ArgumentOutOfRangeException(nameof(status), status, "unhandled session status"),
 	};
 
+	private SessionServices SessionServices() => new() {
+		Settings = _settings,
+		Layout = _layout,
+		CommandRegistry = _commandRegistry,
+		Keybindings = _keybindings,
+		ThemeOverrides = _themeOverrides,
+		Corrections = _corrections,
+		Inference = _inference,
+		AgentConsultation = _agentConsultation,
+		PtyLauncher = _platform.PtyLauncher,
+		Runtime = _runtime,
+		Workflow = new() {
+			Roles = _workflowRoles,
+			DocumentsDirectory = _workflowDocuments.ForRun,
+			Decider = worktree => new ModelWorkflowDecider(_decisions, worktree, _decisionHistory),
+			RoleResolver = RoleResolver,
+		},
+	};
+
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
 	private HostSession CreateSession(
 		string cwd,
@@ -530,42 +549,16 @@ public sealed partial class HostCore {
 		try {
 			session = new HostSession(
 				endpoint,
-				_settings,
-				_layout,
-				cwd,
-				WorkspaceRoot,
-				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
-				_workflowDocuments.ForRun,
-				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
-				// one session's images never touches another's.
-				Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
-				// Scrollback for the visible terminal an ACP agent uses to sign in, keyed by worktree like the
-				// shell log. The pane transcript itself is provider-owned and never cached by Weavie.
-				WeaviePaths.WorkspaceTerminalLogFile(
-					Id,
-					WorkspaceId.ForPath(cwd).Value,
-					"agent-authentication"),
-				shellTerminals,
-				terminalId => WeaviePaths.WorkspaceTerminalLogFile(
-					Id,
-					WorkspaceId.ForPath(cwd).Value,
-					$"shell-{terminalId}"),
-				_commandRegistry,
-				_keybindings,
-				_themeOverrides,
-				_corrections,
-				_inference,
-				new ModelWorkflowDecider(_decisions, cwd, _decisionHistory),
-				_workflowRoles,
-				RoleResolver(provider.Info),
-				_agentConsultation,
-				new BoundSessionPeers(this, address, side: null),
-				_platform.PtyLauncher,
 				provider,
-				_runtime,
-				() => _drainInputFrozen,
-				(userInitiated, accept) => TryAcceptInput(session!.SlotId, userInitiated, accept),
-				_sessionStore.RecordShellSize);
+				shellTerminals,
+				SessionPaths.For(Id, WorkspaceRoot, cwd),
+				SessionServices(),
+				new SessionOwner {
+					Peers = new BoundSessionPeers(this, address, side: null),
+					InputFrozen = () => _drainInputFrozen,
+					AcceptTerminalInput = (userInitiated, accept) => TryAcceptInput(slotId, userInitiated, accept),
+					ShellResized = _sessionStore.RecordShellSize,
+				});
 
 			// Seed every shell's pre-spawn size from the last real terminal size so a background-restored child is born at
 			// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.

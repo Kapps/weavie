@@ -2,11 +2,8 @@ using System.Text.Json.Nodes;
 
 namespace Weavie.FakeAcp;
 
-// Weavie tool calls narrated as tool rows, in every way an adapter may report them, so the block claim is tested
-// against relays rather than one provider's habits:
-//   `block:<relay>:<tool>:<json>`                 one call
-//   `block-parallel:<relay>:<tool>:<json>\n<json>` two calls whose results are reported in reverse order
-//   `block-subagent:<tool>:<json>`                 one call narrated on a subagent's session
+// Weavie tool calls narrated as tool rows in each way an adapter may report them: `block:`, `block-refused:` (the turn
+// ends in a refusal), `block-parallel:` (newline-separated calls, results reversed), and `block-subagent:`.
 internal sealed partial class FakeAcpAgent {
 	private int _blockCallSequence;
 
@@ -29,7 +26,7 @@ internal sealed partial class FakeAcpAgent {
 			await NarratedCallAsync(_sessionId!, parts[1], parts[2], parts[3], ct).ConfigureAwait(false);
 		}
 		Message("block call done");
-		return new JsonObject { ["stopReason"] = "end_turn" };
+		return new JsonObject { ["stopReason"] = parts[0] == "block-refused" ? "refusal" : "end_turn" };
 	}
 
 	private async Task NarratedCallAsync(string session, string relay, string tool, string arguments, CancellationToken ct) {

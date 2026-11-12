@@ -48,7 +48,7 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 		}
 	}
 
-	/// <summary>Loads saved history and the blocks it shows before the session is addressable.</summary>
+	/// <summary>Loads saved history and the blocks it shows (the caller passes only those) before the session is addressable.</summary>
 	public void Restore(IReadOnlyList<AgentPaneMessage> messages, IReadOnlyList<AgentBlockState> blocks) => Replace(messages, blocks, publish: false);
 
 	/// <summary>Replaces history and its blocks and publishes the new generation.</summary>
@@ -64,8 +64,7 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 				var record = Record(_ledger.Store(message));
 				if (publish) sink.Live(record);
 			}
-			var shown = AgentBlockReferences.Of(Enumerable.Range(0, _ledger.Count).Select(index => _ledger.EntryAt(index).Message));
-			foreach (var block in blocks.Where(block => shown.Contains(Key(block)))) {
+			foreach (var block in blocks) {
 				var record = SetBlock(block);
 				if (publish) sink.Block(record);
 			}
@@ -116,9 +115,8 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 
 	private AgentPaneRecord Record(AgentPaneLedgerEntry entry) => new(_generation, entry.Ordinal, entry.Revision, entry.Message);
 
-	private AgentBlockRecord SetBlock(AgentBlockState state) => _blocks[Key(state)] = new(_ledger.NextRevision(), state);
-
-	private static (string, string?, string) Key(AgentBlockState state) => (state.ProviderId, state.ConversationId, state.Block.Id);
+	private AgentBlockRecord SetBlock(AgentBlockState state) =>
+		_blocks[AgentBlockReferences.Key(state)] = new(_generation, _ledger.NextRevision(), state);
 
 	private void Reset() {
 		_generation++;
@@ -137,6 +135,11 @@ public sealed class ConversationView(ConversationOutput output, string providerI
 
 	/// <summary>This conversation's current block <paramref name="blockId"/>.</summary>
 	public AgentBlock? Block(string blockId) => output.Block(providerId, conversationId, blockId);
+
+	/// <summary>The block whose reference row <paramref name="retraction"/> removes, when it removes one.</summary>
+	public string? RetractedBlock(AgentPaneMessage retraction) =>
+		retraction.Type == "item-retracted" && AgentPaneIdentity.ItemKey(retraction) is { } key
+			&& output.FindItem(key) is { } row && AgentBlockReferences.IsBlockRow(row) ? row.BlockId : null;
 
 	/// <summary>Materializes the exact content run for its controller to complete and persist.</summary>
 	public AgentPaneMessage? CompleteContent(string? threadId, string turnId, string itemId) {

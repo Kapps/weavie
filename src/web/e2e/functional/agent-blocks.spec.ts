@@ -124,6 +124,29 @@ test("an agent's table sorts, filters, and attaches dragged cells", async ({ pag
   const chip = surface.locator("[data-agent-composer] .agent-attachment-selection");
   await expect(chip).toHaveCount(1);
   await expect(chip).toContainText("Recent errors · rows 1-2");
+
+  // A second gesture stacks a second chip.
+  await block.locator('[data-cell="2"]').click();
+  await expect(chip).toHaveCount(2);
+  await expect(chip.nth(1)).toContainText("Recent errors · row 3");
+});
+
+test("/clear removes the conversation's blocks", async ({ page }) => {
+  const surface = await createAcpSession(page, "agent-blocks-clear");
+  await submitAcpDraft(surface, `block:claude:showBlock:${JSON.stringify(chart)}`);
+  await expect(surface.locator(".agent-entry-block .agent-chart canvas")).toBeVisible();
+
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("/clear");
+  await composer.press("Escape");
+  await composer.press("Enter");
+
+  await expect(surface.locator(".agent-entry")).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.locator('[data-surface="structured-agent"] [data-agent-composer]'),
+  ).toBeVisible();
+  await expect(page.locator(".agent-entry-block")).toHaveCount(0);
 });
 
 test("an agent that can't report a block's result says it wasn't shown", async ({ page }) => {

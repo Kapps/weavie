@@ -1,4 +1,5 @@
 import { notify } from "../notify/notify";
+import { cropPng } from "./agent-crop";
 import { cropAgentImage } from "./agent-images";
 import "./agent-region-select.css";
 
@@ -37,10 +38,14 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
         height: `${area.height}px`,
       });
     };
-    const finish = (up: PointerEvent): void => {
+    const stop = (): void => {
       window.removeEventListener("pointermove", draw);
       window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", stop);
       box.remove();
+    };
+    const finish = (up: PointerEvent): void => {
+      stop();
       const area = rect(up.clientX, up.clientY);
       if (area.width < minimumBox || area.height < minimumBox) return;
       const png =
@@ -58,6 +63,8 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
     };
     window.addEventListener("pointermove", draw);
     window.addEventListener("pointerup", finish);
+    // A touch that turns into a scroll cancels the pointer; the box goes with it.
+    window.addEventListener("pointercancel", stop);
   };
   host.addEventListener("pointerdown", onPointerDown);
   return () => host.removeEventListener("pointerdown", onPointerDown);
@@ -66,29 +73,12 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
 async function cropDiagram(svg: SVGSVGElement, bounds: DOMRect, area: DOMRect): Promise<Blob> {
   const image = await rasterize(svg, bounds);
   const scale = image.naturalWidth / bounds.width;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(area.width * scale);
-  canvas.height = Math.round(area.height * scale);
-  canvas
-    .getContext("2d")!
-    .drawImage(
-      image,
-      (area.left - bounds.left) * scale,
-      (area.top - bounds.top) * scale,
-      canvas.width,
-      canvas.height,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (png) =>
-        png === null ? reject(new Error("The region could not be cropped.")) : resolve(png),
-      "image/png",
-    ),
-  );
+  return cropPng(image, {
+    x: (area.left - bounds.left) * scale,
+    y: (area.top - bounds.top) * scale,
+    width: area.width * scale,
+    height: area.height * scale,
+  });
 }
 
 // A diagram is SVG drawn by the page; it becomes an image at twice its on-screen size so the crop stays legible.

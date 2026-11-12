@@ -26,10 +26,19 @@ public sealed class AgentBlockTests {
 	[InlineData("""{"id":"p95","title":"t","chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","axis":"y2","points":[]}]}}""", "chart.series[0] uses axis y2, but the chart has no y2.")]
 	[InlineData("""{"id":"p 95","title":"t","table":{"columns":[{"name":"a","type":"text"}],"rows":[]}}""", "id must be 1-64 letters, digits, '.', '_' or '-'.")]
 	[InlineData("""{"id":"p95","title":"t","table":{"columns":[{"name":"a","type":"text"}],"rows":[["a","b"]]}}""", "table.rows[0] has 2 values; the table has 1 columns.")]
+	[InlineData("""{"id":"p95","title":"t","chart":{"kind":"line","x":{"type":"time"},"series":[{"name":"s","points":[null]}]}}""", "chart.series[0].points[0] must not be null.")]
+	[InlineData("""{"id":"p","title":"t","chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","points":[]}],"thresholds":[{"value":1e999}]}}""", "chart.thresholds[0].value must be a finite number.")]
 	public void RefusalsNameTheField(string json, string message) {
 		var request = System.Text.Json.JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest)!;
 		Assert.Equal(message, Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(request, null, show: true)).Message);
 	}
+
+	[Theory]
+	[InlineData("""{"id":null,"title":"t"}""")]
+	[InlineData("""{"id":"p","title":"t","chart":{"kind":"line","x":null,"series":[]}}""")]
+	[InlineData("""{"id":"p","title":"t","chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","points":[[1e999,1]]}]}}""")]
+	public void NullsAndNonFiniteNumbersFailAsJson(string json) =>
+		Assert.ThrowsAny<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest));
 
 	[Fact]
 	public void TooManyPointsIsRefusedWithTheLimit() {
@@ -45,11 +54,12 @@ public sealed class AgentBlockTests {
 		var shown = ((AgentBlockOperation.Show)AgentBlockRules.Validate(new() { Id = "p95", Title = "t", Chart = Line }, null, show: true)).Block;
 		Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(new() { Id = "p95", Title = "t", Chart = Line }, shown, show: true));
 		Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(new() { Id = "p95", Chart = Line }, null, show: false));
-		Assert.Contains("which the chart does not have", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(new() {
+		var added = AgentBlockRules.Apply(shown, AgentBlockRules.Validate(new() {
 			Id = "p95",
 			Keep = 2,
-			Append = new() { Series = [new() { Name = "other", Points = [] }] },
-		}, shown, show: false)).Message, StringComparison.Ordinal);
+			Append = new() { Series = [new() { Name = "other", Points = [[new(9, null), new(9, null)]] }] },
+		}, shown, show: false), 1)!;
+		Assert.Equal(["now", "other"], added.Chart!.Series.Select(series => series.Name));
 
 		var append = AgentBlockRules.Validate(new() {
 			Id = "p95",
@@ -62,6 +72,17 @@ public sealed class AgentBlockTests {
 		Assert.Equal(42, updated.UpdatedAtMs);
 		Assert.Null(AgentBlockRules.Apply(null, append, 42));
 		Assert.Null(AgentBlockRules.Apply(updated, new AgentBlockOperation.Show(shown), 42));
+	}
+
+	[Fact]
+	public void AnAppendValidatedAgainstAnOlderTableNoLongerApplies() {
+		var columns = new AgentTable { Columns = [new() { Name = "a", Type = "text" }], Rows = [] };
+		var shown = new AgentBlock { Id = "t", Title = "t", Table = columns };
+		var append = AgentBlockRules.Validate(new() { Id = "t", Keep = 5, Append = new() { Rows = [[new(null, "x")]] } }, shown, show: false);
+		var widened = shown with { Table = columns with { Columns = [.. columns.Columns, new() { Name = "b", Type = "text" }] } };
+
+		Assert.Null(AgentBlockRules.Apply(widened, append, 1));
+		Assert.Single(AgentBlockRules.Apply(shown, append, 1)!.Table!.Rows);
 	}
 
 	[Fact]
@@ -88,9 +109,8 @@ public sealed class AgentBlockTests {
 		var output = new ConversationOutput(new NullSink());
 		var row = new AgentPaneMessage { Type = "item-completed", ProviderId = "p", TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "a" };
 		var state = new AgentBlockState("p", null, new() { Id = "a", Title = "a" });
-		output.Restore([row], [state, state with { Block = new() { Id = "orphan", Title = "o" } }]);
+		output.Restore([row], [state]);
 		Assert.NotNull(output.Block("p", null, "a"));
-		Assert.Null(output.Block("p", null, "orphan"));
 		var baseline = output.ReadHistory(null, null);
 		Assert.Single(baseline.Blocks);
 

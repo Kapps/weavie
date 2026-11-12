@@ -1,13 +1,37 @@
 import { type ClientSession, mediaResourceUrl, sessionResourceUrl } from "../bridge";
+import { samePath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { AGENT_IMAGE_HEIGHT } from "./AgentPaneEstimate";
+import { cropPng, type Rect, sourceRect } from "./agent-crop";
 
-// Images as same-origin object URLs, kept so a streaming or remounted reply never fetches or flickers again; a
-// failure isn't kept, so the next render retries it.
-const loaded = createSessionOwnedResource(
-  () => ({ pending: new Map<string, Promise<string>>(), ready: new Map<string, string>() }),
+// Each image loads once per session as a same-origin object URL, so a streaming or remounted reply never fetches it
+// again, even after a failure; a workspace file that changes is fetched again by the next reply that shows it.
+interface SessionImages {
+  outcomes: Map<string, Promise<string>>;
+  ready: Map<string, string>;
+  off: () => void;
+}
+const loaded = createSessionOwnedResource<SessionImages>(
+  (session) => {
+    const outcomes = new Map<string, Promise<string>>();
+    const ready = new Map<string, string>();
+    const off = session
+      .feature("files")
+      .on<{ changes: { path: string }[] }>("changed", ({ changes }) => {
+        for (const source of [...outcomes.keys()]) {
+          const path = workspacePath(session, source);
+          if (path === null || !changes.some((change) => samePath(change.path, path))) continue;
+          outcomes.delete(source);
+          const url = ready.get(source);
+          if (url !== undefined) URL.revokeObjectURL(url);
+          ready.delete(source);
+        }
+      });
+    return { outcomes, ready, off };
+  },
   (_session, images) => {
+    images.off();
     for (const url of images.ready.values()) URL.revokeObjectURL(url);
   },
 );
@@ -15,6 +39,8 @@ const loaded = createSessionOwnedResource(
 /** Loads the `.agent-image` placeholders a hosted-image reply rendered; returns a function that stops it. */
 export function hydrateAgentImages(root: HTMLElement, session: ClientSession): () => void {
   let live = true;
+  const images = loaded.get(session);
+  if (images === undefined) return () => {};
   for (const holder of root.querySelectorAll<HTMLElement>("span.agent-image[data-src]")) {
     holder.style.height = `${AGENT_IMAGE_HEIGHT}px`;
     const source = holder.dataset.src ?? "";
@@ -24,7 +50,7 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
       image.src = url;
       holder.replaceChildren(image);
     };
-    const ready = loaded.get(session)?.ready.get(source);
+    const ready = images.ready.get(source);
     if (ready !== undefined) {
       show(ready);
       continue;
@@ -34,7 +60,24 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
     status.setAttribute("role", "status");
     status.textContent = "Loading image…";
     holder.replaceChildren(status);
-    load(session, source)
+    // Not an outcome to keep: the next render, once the root is known, loads it.
+    if (!isRemote(source) && workspacePath(session, source) === null) {
+      status.textContent = "Image unavailable: the workspace folder isn't known yet.";
+      continue;
+    }
+    let outcome = images.outcomes.get(source);
+    if (outcome === undefined) {
+      const fetched = fetchImage(session, source);
+      images.outcomes.set(source, fetched);
+      fetched.then(
+        (url) => {
+          if (images.outcomes.get(source) === fetched) images.ready.set(source, url);
+        },
+        () => {},
+      );
+      outcome = fetched;
+    }
+    outcome
       .then((url) => {
         if (live) show(url);
       })
@@ -48,49 +91,18 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
   };
 }
 
-/**
- * Crops `region`, in the image element's CSS pixels, out of a loaded agent image. The image is a same-origin object
- * URL, so the canvas is never tainted; `object-fit: contain` letterboxing is mapped back to the source pixels.
- */
-export function cropAgentImage(
-  image: HTMLImageElement,
-  region: { x: number; y: number; width: number; height: number },
-): Promise<Blob> {
-  const scale = Math.min(
-    image.clientWidth / image.naturalWidth,
-    image.clientHeight / image.naturalHeight,
+/** Crops `region`, in the image element's CSS pixels, out of a loaded agent image; a same-origin URL never taints. */
+export function cropAgentImage(image: HTMLImageElement, region: Rect): Promise<Blob> {
+  const [x = 50, y = 50] = getComputedStyle(image).objectPosition.split(" ").map(Number.parseFloat);
+  const area = sourceRect(
+    { width: image.clientWidth, height: image.clientHeight },
+    { width: image.naturalWidth, height: image.naturalHeight },
+    { x: x / 100, y: y / 100 },
+    region,
   );
-  const left = (image.clientWidth - image.naturalWidth * scale) / 2;
-  const top = (image.clientHeight - image.naturalHeight * scale) / 2;
-  const x = Math.max(0, (region.x - left) / scale);
-  const y = Math.max(0, (region.y - top) / scale);
-  const width = Math.min(image.naturalWidth - x, region.width / scale);
-  const height = Math.min(image.naturalHeight - y, region.height / scale);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(width));
-  canvas.height = Math.max(1, Math.round(height));
-  canvas.getContext("2d")?.drawImage(image, x, y, width, height, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (blob) => (blob === null ? reject(new Error("The crop is empty.")) : resolve(blob)),
-      "image/png",
-    ),
-  );
-}
-
-function load(session: ClientSession, source: string): Promise<string> {
-  const images = loaded.get(session);
-  if (images === undefined) return Promise.reject(new Error("the session has closed."));
-  const pending = images.pending.get(source);
-  if (pending !== undefined) return pending;
-  const image = fetchImage(session, source);
-  images.pending.set(source, image);
-  image.then(
-    (url) => images.ready.set(source, url),
-    () => {},
-  );
-  image.finally(() => images.pending.delete(source)).catch(() => {});
-  return image;
+  return area === null
+    ? Promise.reject(new Error("The box is outside the image."))
+    : cropPng(image, area);
 }
 
 async function fetchImage(session: ClientSession, source: string): Promise<string> {
@@ -103,20 +115,26 @@ async function fetchImage(session: ClientSession, source: string): Promise<strin
 
 // A URL with a scheme goes to the host, which loads only https images; anything else is a workspace path.
 function imageUrl(session: ClientSession, source: string): string {
-  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(source) && !/^[A-Za-z]:[\\/]/.test(source)) {
+  const path = workspacePath(session, source);
+  if (path === null) {
     const url = sessionResourceUrl(session, "/weavie-agent-image");
     url.searchParams.set("url", source);
     return url.toString();
   }
-  const path = decodeURI(source);
-  const root = fileIndexFor(session).root;
-  const absolute = /^([\\/]|[A-Za-z]:[\\/])/.test(path);
-  if (!absolute && root === null) throw new Error("the workspace folder isn't known yet.");
-  const media = mediaResourceUrl(
-    session,
-    absolute ? path : `${root}/${path.replace(/^\.\//, "")}`,
-    0,
-  );
+  const media = mediaResourceUrl(session, path, 0);
   if (media === null) throw new Error("the session's media origin is unavailable.");
   return media;
+}
+
+function isRemote(source: string): boolean {
+  return /^[A-Za-z][A-Za-z\d+.-]*:/.test(source) && !/^[A-Za-z]:[\\/]/.test(source);
+}
+
+// The absolute workspace path a source names, or null for a remote address or before the root is known.
+function workspacePath(session: ClientSession, source: string): string | null {
+  if (isRemote(source)) return null;
+  const path = decodeURI(source);
+  if (/^([\\/]|[A-Za-z]:[\\/])/.test(path)) return path;
+  const root = fileIndexFor(session).root;
+  return root === null ? null : `${root}/${path.replace(/^\.\//, "")}`;
 }

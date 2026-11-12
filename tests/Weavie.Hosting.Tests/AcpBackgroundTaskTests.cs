@@ -12,7 +12,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class AcpBackgroundTaskTests {
 	[Fact]
 	public async Task NativePaneAdvertisesExactlyItsClientCapabilities() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var initialize = JsonNode.Parse(File.ReadAllText(Path.Combine(fixture.FakeAcpStateDirectory, "initialize.json")))!;
 
 		Assert.Equal(
@@ -22,7 +22,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task ShellTaskIsATrayItemWhoseBackgroundedToolNeverHoldsTheTurn() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-held", "1");
 
 		Assert.Equal((AgentBackgroundKind.Task, "shell", true), (item.Kind, item.Type, item.CanStop));
@@ -41,7 +41,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task RunningWorkHoldsTheStatusWhileItsItemListIsUndelivered() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var delivery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		fixture.Session.BackgroundWorkChanged += _ => delivery.Task.GetAwaiter().GetResult();
 		try {
@@ -55,7 +55,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task AnUnpromptedTurnIsTheSessionsOwnWorkNotOrphanableTask() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		fixture.Submit("task-turn");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is null && message.TurnId == "1");
 
@@ -65,7 +65,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task AFailedTaskCarriesItsErrorOutputFileAndLateAttributedToolCall() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-failed", "1");
 
 		string call = item.Id["task:".Length..];
@@ -78,7 +78,7 @@ public sealed class AcpBackgroundTaskTests {
 	[InlineData(false, AgentBackgroundState.Stopped)]
 	[InlineData(true, AgentBackgroundState.Completed)]
 	public async Task StopGoesOutOnTheRootAndALaterTerminalStateCorrectsIt(bool corrected, AgentBackgroundState final) {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		if (corrected) Signal(fixture, "correct-stop");
 		var item = await StartTaskAsync(fixture, "task-held", "1");
 
@@ -95,7 +95,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task ATaskStartedInsideASubagentStopsThroughTheRoot() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-in-subagent", "1");
 
 		Assert.True(await fixture.Session.StopBackgroundTaskAsync(item.Id));
@@ -106,7 +106,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task WorkflowJournalsACardFromSpawnToItsFinalState() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var item = await StartTaskAsync(fixture, "workflow-held", "1");
 
 		var started = await fixture.WaitForMessageAsync(message => message.ItemType == "backgroundTask" && message.Type == "item-started");
@@ -123,7 +123,7 @@ public sealed class AcpBackgroundTaskTests {
 
 	[Fact]
 	public async Task RestartStopsRunningTasksAndSettlesTheirCards() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await StartTaskAsync(fixture, "workflow-held", "1");
 
 		fixture.Session.Restart();
@@ -136,7 +136,7 @@ public sealed class AcpBackgroundTaskTests {
 	[InlineData("input-custom-answer", "choice", new[] { "my own" }, """{"choice":"my own"}""")]
 	[InlineData("input-custom-answer-multiple", "question_0", new[] { "Alpha", "mine" }, """{"question_0":["Alpha"],"question_0_custom":"mine"}""")]
 	public async Task CustomAnswerCompanionsBecomeTheirQuestionsOther(string prompt, string question, string[] answer, string content) {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		fixture.Submit(prompt);
 
 		var request = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
@@ -145,12 +145,6 @@ public sealed class AcpBackgroundTaskTests {
 		fixture.Session.ResolveInput(request.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>> { [question] = answer });
 
 		await fixture.WaitForMessageAsync(message => message.Text == "custom answer: " + content);
-	}
-
-	private static async Task<AcpAgentSessionFixture> StartedAsync() {
-		var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
-		await fixture.StartAsync();
-		return fixture;
 	}
 
 	private static async Task<AgentBackgroundItem> StartTaskAsync(AcpAgentSessionFixture fixture, string prompt, string turnId) {

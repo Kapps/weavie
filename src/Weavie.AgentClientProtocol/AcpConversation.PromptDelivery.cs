@@ -95,6 +95,7 @@ internal sealed partial class AcpConversation {
 					ObserveTerminalizedTools(tools);
 					Observe(new AgentTurnStopped(WillResume: false));
 					CompleteContentStreams();
+					NoticeUnclaimedBlocks();
 					PublishTerminalizedToolMessages(tools);
 					RetractTurn(turnId);
 					Emit(new AgentPaneMessage {
@@ -121,6 +122,7 @@ internal sealed partial class AcpConversation {
 					ObserveTerminalizedTools(tools);
 					Observe(new AgentTurnStopped(WillResume: background));
 					CompleteContentStreams();
+					NoticeUnclaimedBlocks();
 					PublishTerminalizedToolMessages(tools);
 					Emit(new AgentPaneMessage {
 						Type = "turn-completed",

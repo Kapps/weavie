@@ -76,8 +76,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable, IConversationOutputSin
 						Buffered();
 						break;
 					case BlockCommand block:
-						var state = block.Record.State;
-						_blocks[(state.ProviderId, state.ConversationId, state.Block.Id)] = block.Record;
+						_blocks[AgentBlockReferences.Key(block.Record.State)] = block.Record;
 						Buffered();
 						break;
 					case ResetCommand:

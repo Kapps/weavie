@@ -140,7 +140,9 @@ public sealed class AgentBlockValueConverter : JsonConverter<AgentBlockValue> {
 
 	/// <inheritdoc/>
 	public override AgentBlockValue Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.TokenType switch {
-		JsonTokenType.Number => new(reader.GetDouble(), null),
+		JsonTokenType.Number => reader.GetDouble() is var number && double.IsFinite(number)
+			? new(number, null)
+			: throw new JsonException("A block value must be a finite number."),
 		JsonTokenType.String => new(null, reader.GetString()),
 		JsonTokenType.Null => default,
 		_ => throw new JsonException("A block value must be a number, a string, or null."),
@@ -205,14 +207,15 @@ public abstract record AgentBlockOperation(string Id) {
 /// <summary>A block and the provider and Weavie conversation that own it.</summary>
 public sealed record AgentBlockState(string ProviderId, string? ConversationId, AgentBlock Block);
 
-/// <summary>A block's latest state at the output revision that last changed it.</summary>
-public sealed record AgentBlockRecord(long Revision, AgentBlockState State);
+/// <summary>A block's latest state at the output generation and revision that last changed it.</summary>
+public sealed record AgentBlockRecord(long Generation, long Revision, AgentBlockState State);
 
 /// <summary>Source-generated block contracts, shared by the tool server and the conversation store.</summary>
 [JsonSourceGenerationOptions(
 	PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
 	UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
 	NumberHandling = JsonNumberHandling.AllowReadingFromString,
+	RespectNullableAnnotations = true,
 	DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AgentBlockRequest))]
 [JsonSerializable(typeof(AgentBlock))]

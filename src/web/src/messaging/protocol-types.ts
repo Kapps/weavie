@@ -140,30 +140,38 @@ export interface AgentPaneUpdate {
   sender?: AgentMessageSender | null;
 }
 
-/** A JSON scalar in a block: a number, a string, or null. Times are Unix milliseconds. */
+/** Block fields the host leaves out arrive as `null`. */
+/** A JSON scalar in a block: a number, a string, or null. Times are Unix milliseconds. Absent block fields arrive as `null`. */
 export type AgentBlockValue = number | string | null;
 
 export interface AgentChartAxis {
-  type?: "time" | "category" | "number";
-  label?: string;
-  unit?: string;
+  type?: "time" | "category" | "number" | null;
+  label?: string | null;
+  unit?: string | null;
 }
 
 export interface AgentChartSeries {
   name: string;
-  style?: "solid" | "comparison";
-  axis?: "y" | "y2";
+  style?: "solid" | "comparison" | null;
+  axis?: "y" | "y2" | null;
   points: [AgentBlockValue, AgentBlockValue][];
 }
 
 export interface AgentChart {
   kind: "line" | "area" | "bar" | "scatter";
   x: AgentChartAxis;
-  y?: AgentChartAxis;
-  y2?: AgentChartAxis;
+  y?: AgentChartAxis | null;
+  y2?: AgentChartAxis | null;
   series: AgentChartSeries[];
-  thresholds?: { label?: string; axis?: "y" | "y2"; value: number }[];
-  bands?: { label?: string; axis?: "x" | "y" | "y2"; from: AgentBlockValue; to: AgentBlockValue }[];
+  thresholds?: { label?: string | null; axis?: "y" | "y2" | null; value: number }[] | null;
+  bands?:
+    | {
+        label?: string | null;
+        axis?: "x" | "y" | "y2" | null;
+        from: AgentBlockValue;
+        to: AgentBlockValue;
+      }[]
+    | null;
 }
 
 export interface AgentTable {
@@ -175,13 +183,14 @@ export interface AgentTable {
 export interface AgentBlock {
   id: string;
   title: string;
-  updatedAtMs?: number;
-  chart?: AgentChart;
-  table?: AgentTable;
+  updatedAtMs?: number | null;
+  chart?: AgentChart | null;
+  table?: AgentTable | null;
 }
 
-/** A block's latest state at the output revision that last changed it. */
+/** A block's latest state at the output generation and revision that last changed it. */
 export interface AgentBlockRecord {
+  generation: number;
   revision: number;
   providerId: string;
   conversationId: string | null;

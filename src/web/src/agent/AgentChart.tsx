@@ -2,24 +2,26 @@ import type { ECharts } from "echarts/core";
 import { createEffect, createSignal, type JSX, on, onCleanup, onMount, Show } from "solid-js";
 import type { AgentBlockValue, AgentChart as AgentChartData } from "../bridge";
 import { onPreviewThemeChanged } from "../theme/controller";
-import type { BlockSelection } from "./agent-block-selection";
-import { chartOption, chartPalette, chartRangeText, formatX, loadECharts } from "./agent-charts";
+import { chartPointSelection, chartRangeSelection } from "./agent-block-selection";
+import { chartOption, chartPalette, loadECharts } from "./agent-charts";
+import type { AgentSelection } from "./composer-state";
 
 /** A block chart; dragging across it attaches that range, clicking a point attaches the point. */
 export function AgentChart(props: {
   chart: AgentChartData;
   id: string;
   title: string;
-  onSelect: (selection: BlockSelection) => void;
+  onSelect: (selection: AgentSelection) => void;
   onSelecting: (active: boolean) => void;
 }): JSX.Element {
   let host: HTMLDivElement | undefined;
   let chart: ECharts | undefined;
   const [error, setError] = createSignal<string | null>(null);
+  const block = () => ({ id: props.id, title: props.title });
 
   const draw = (): void => {
-    if (chart === undefined) return;
-    chart.setOption(chartOption(props.chart, chartPalette()), {
+    if (chart === undefined || host === undefined) return;
+    chart.setOption(chartOption(props.chart, chartPalette(host)), {
       replaceMerge: ["series", "yAxis"],
     });
     chart.dispatchAction({
@@ -41,23 +43,21 @@ export function AgentChart(props: {
         chart.getZr().on("mousedown", () => props.onSelecting(true));
         chart.getZr().on("mouseup", () => props.onSelecting(false));
         chart.on("brushEnd", (event) => {
-          const range = (event as { areas: { coordRange?: AgentBlockValue[] }[] }).areas[0]
-            ?.coordRange;
+          const range = (event as { areas: { coordRange?: number[] }[] }).areas[0]?.coordRange;
           chart?.dispatchAction({ type: "brush", areas: [] });
-          if (range === undefined) return;
-          const [from, to] = range as [AgentBlockValue, AgentBlockValue];
-          props.onSelect({
-            label: `${props.title} · ${formatX(props.chart, from)} to ${formatX(props.chart, to)}`,
-            text: chartRangeText(props.title, props.id, props.chart, from, to),
-          });
+          if (range?.length === 2)
+            props.onSelect(chartRangeSelection(block(), props.chart, range[0]!, range[1]!));
         });
         chart.on("click", (point) => {
           if (point.seriesName === undefined || !Array.isArray(point.value)) return;
-          const [x, y] = point.value as [AgentBlockValue, AgentBlockValue];
-          props.onSelect({
-            label: `${props.title} · ${point.seriesName} at ${formatX(props.chart, x)}`,
-            text: `Chart "${props.title}" (${props.id}), series "${point.seriesName}" at ${formatX(props.chart, x)}: ${y ?? ""}`,
-          });
+          props.onSelect(
+            chartPointSelection(
+              block(),
+              props.chart,
+              point.seriesName,
+              point.value as [AgentBlockValue, AgentBlockValue],
+            ),
+          );
         });
       })
       .catch((failure: unknown) => setError(`Chart unavailable: ${String(failure)}`));

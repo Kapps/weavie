@@ -7,8 +7,9 @@ import { attachAgentSelection } from "./composer-store";
 
 const LABEL_LENGTH = 60;
 const replies = new WeakMap<Element, ClientSession>();
-// The reply holding the document's selection owns Attach Selection to Prompt while it does.
-let owner: { host: Element; release: () => void } | null = null;
+// The reply whose text was last highlighted owns Attach Selection to Prompt, with that text, until the next press
+// in a reply: opening the palette to run the command collapses the highlight but must not lose it.
+let owner: { host: Element; text: string; release: () => void } | null = null;
 let lastAttached: { host: Element; text: string } | null = null;
 let tracking = false;
 
@@ -20,35 +21,50 @@ export function installReplySelection(host: HTMLElement, session: ClientSession)
   }
   replies.set(host, session);
   const attachOnRelease = (): void => {
-    if (agentAttachOnSelect(session.connection.id)) setTimeout(() => attach(host, session, false));
+    if (agentAttachOnSelect(session.connection.id)) setTimeout(() => attachCurrent(host, session));
   };
+  const disown = (): void => {
+    if (owner !== null) release();
+  };
+  host.addEventListener("pointerdown", disown);
   host.addEventListener("pointerup", attachOnRelease);
   return () => {
+    host.removeEventListener("pointerdown", disown);
     host.removeEventListener("pointerup", attachOnRelease);
     replies.delete(host);
-    if (owner?.host === host) {
-      owner.release();
-      owner = null;
-    }
+    if (owner?.host === host) release();
   };
 }
 
 function trackOwner(): void {
+  if (document.getSelection()?.isCollapsed !== false) lastAttached = null;
   const host = selectedReply();
-  if (host === owner?.host) return;
-  owner?.release();
-  owner = null;
   const session = host === null ? undefined : replies.get(host);
   if (host === null || session === undefined) return;
-  const off = registerCommand(CommandIds.attachAgentSelection, () => attach(host, session, true));
+  const text = selectedText();
+  if (owner?.host === host) {
+    owner.text = text;
+    return;
+  }
+  if (owner !== null) release();
+  const off = registerCommand(CommandIds.attachAgentSelection, () => {
+    if (owner === null || owner.text.length === 0) return false;
+    attachAgentSelection(session, { label: selectionLabel(owner.text), text: owner.text });
+  });
   setContext("agentSelectionAttachable", true);
   owner = {
     host,
+    text,
     release: () => {
       off();
       setContext("agentSelectionAttachable", false);
     },
   };
+}
+
+function release(): void {
+  owner?.release();
+  owner = null;
 }
 
 // The reply that contains the whole non-empty selection, when one does.
@@ -61,15 +77,17 @@ function selectedReply(): Element | null {
   return host !== null && replies.has(host) && host.contains(selection.focusNode) ? host : null;
 }
 
-function attach(host: Element, session: ClientSession, explicit: boolean): boolean {
-  if (selectedReply() !== host) return false;
-  const text = document.getSelection()?.toString().trim() ?? "";
-  if (text.length === 0) return false;
-  // Releasing the pointer again over the same highlight is not a new selection.
-  if (!explicit && lastAttached?.host === host && lastAttached.text === text) return false;
+function selectedText(): string {
+  return document.getSelection()?.toString().trim() ?? "";
+}
+
+// Releasing the pointer again over the same highlight is not a new selection.
+function attachCurrent(host: Element, session: ClientSession): void {
+  const text = selectedText();
+  if (selectedReply() !== host || text.length === 0) return;
+  if (lastAttached?.host === host && lastAttached.text === text) return;
   lastAttached = { host, text };
   attachAgentSelection(session, { label: selectionLabel(text), text });
-  return true;
 }
 
 /** A one-line chip label for selected text. */

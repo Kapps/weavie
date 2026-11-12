@@ -679,6 +679,7 @@ export class MockHost {
         `${JSON.stringify({
           ...baseline,
           messages: records.slice(Math.max(0, before - state.batchSize), before),
+          blocks: [],
           complete: false,
         })}\n`,
       );
@@ -695,7 +696,7 @@ export class MockHost {
         });
       }
     }
-    response.end(`${JSON.stringify({ ...baseline, messages: [], complete: true })}\n`);
+    response.end(`${JSON.stringify({ ...baseline, messages: [], blocks: [], complete: true })}\n`);
   }
 
   private answerFileProvider(message: MessageEnvelope): void {

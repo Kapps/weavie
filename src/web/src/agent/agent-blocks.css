@@ -24,6 +24,8 @@
 .agent-chart {
   width: 100%;
   height: 100%;
+  font: var(--font-content);
+  font-size: var(--font-content-secondary-size);
 }
 
 .agent-block-error {
@@ -48,11 +50,23 @@
   display: grid;
   grid-template-columns: var(--agent-table-columns);
   column-gap: 12px;
+  width: max-content;
+  min-width: 100%;
 }
 
+/* Inside the scroller, so it scrolls sideways with the rows and stays put vertically. */
 .agent-table-head {
-  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bar) 38%, var(--bg));
+}
+
+.agent-table-rows {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
 }
 
 .agent-table-sort {

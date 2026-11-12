@@ -8,12 +8,14 @@ interface BlockSignals {
     string,
     [Accessor<AgentBlockRecord | undefined>, Setter<AgentBlockRecord | undefined>]
   >;
+  // The transcript generation the held blocks belong to; a newer one voids them all.
+  generation: number;
   dispose: () => void;
 }
 
 // One signal per block, so a refreshing chart re-renders only itself.
 const stores = createSessionOwnedResource<BlockSignals>(
-  () => createRoot((dispose) => ({ blocks: new Map(), dispose })),
+  () => createRoot((dispose) => ({ blocks: new Map(), generation: -1, dispose })),
   (_session, store) => store.dispose(),
 );
 
@@ -28,11 +30,16 @@ function signal(store: BlockSignals, key: string) {
   return entry;
 }
 
-/** Applies block records; a record older than the one already held is ignored. */
+/** Applies block records: a newer generation replaces every block, and an older record changes nothing. */
 export function putBlocks(session: ClientSession, records: readonly AgentBlockRecord[]): void {
   const store = stores.get(session);
   if (store === undefined) return;
   for (const record of records) {
+    if (record.generation < store.generation) continue;
+    if (record.generation > store.generation) {
+      clear(store);
+      store.generation = record.generation;
+    }
     const [read, write] = signal(
       store,
       blockKey(record.providerId, record.conversationId, record.block.id),
@@ -43,7 +50,12 @@ export function putBlocks(session: ClientSession, records: readonly AgentBlockRe
 
 /** Forgets every block when the transcript is replaced. */
 export function clearBlocks(session: ClientSession): void {
-  for (const [, write] of stores.get(session)?.blocks.values() ?? []) write(undefined);
+  const store = stores.get(session);
+  if (store !== undefined) clear(store);
+}
+
+function clear(store: BlockSignals): void {
+  for (const [, write] of store.blocks.values()) write(undefined);
 }
 
 /** The latest state of the block `key` names, tracked reactively. */

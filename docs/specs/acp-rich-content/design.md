@@ -499,6 +499,8 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 - Command `weavie.agent.attachSelection` (*Attach Selection to Prompt*, web, unbound), registered by the
   reply that holds the text selection, with `When = "agentSelectionAttachable"`. With
   `agent.attachOnSelect` on, the same handler runs when the highlight gesture ends.
+- Command `weavie.agent.attachBlock` (*Attach Block to Prompt*, web, unbound) attaches a whole chart or table. The
+  block owns it while focus is inside it, and its header button shows the shortcut.
 
 ### Images
 

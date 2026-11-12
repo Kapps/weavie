@@ -50,7 +50,7 @@ internal static class AgentPaneProtocol {
 
 	public static AgentBlockWire Block(AgentBlockRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
-		return new(record.Revision, record.State.ProviderId, record.State.ConversationId, record.State.Block);
+		return new(record.Generation, record.Revision, record.State.ProviderId, record.State.ConversationId, record.State.Block);
 	}
 
 	private static AgentPaneWire Body(AgentPaneRecord record, bool outputDeferred) {
@@ -138,7 +138,7 @@ internal sealed record AgentPaneWire(
 	AgentMessageSender? Sender);
 
 /// <summary>A block's latest state; the pane draws it in the row whose <c>blockId</c> names it.</summary>
-internal sealed record AgentBlockWire(long Revision, string ProviderId, string? ConversationId, AgentBlock Block);
+internal sealed record AgentBlockWire(long Generation, long Revision, string ProviderId, string? ConversationId, AgentBlock Block);
 
 internal sealed record AgentPaneDiffPath(string Path);
 

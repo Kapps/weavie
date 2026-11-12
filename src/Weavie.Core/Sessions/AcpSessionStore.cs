@@ -100,7 +100,7 @@ public sealed partial class AcpSessionStore(string path) {
 			}
 			command.Parameters.Remove(id);
 			command.Parameters.Remove(state);
-			Prune(command, References(messages));
+			PruneBlocks(command, providerId, messages);
 			InsertMessages(command, messages);
 			transaction.Commit();
 			return true;

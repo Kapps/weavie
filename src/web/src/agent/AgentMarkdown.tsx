@@ -44,6 +44,8 @@ interface CachedMarkdown {
 const renderedMarkdown = new WeakMap<object, CachedMarkdown>();
 
 export function AgentMarkdown(props: {
+  /** Whether highlighting text or boxing a picture attaches it to the next prompt; only agent replies do. */
+  attachable: boolean;
   cacheKey: object;
   content: string;
   flavor: MarkdownFlavor;
@@ -108,7 +110,7 @@ export function AgentMarkdown(props: {
       );
       onCleanup(installAgentCodeCopy(host));
       const session = props.session;
-      if (props.flavor === "agent" && session !== null) {
+      if (props.attachable && session !== null) {
         onCleanup(installReplySelection(host, session));
         onCleanup(installRegionSelect(host, (png) => uploadAgentImage(session, png)));
       }

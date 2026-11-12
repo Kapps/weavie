@@ -170,6 +170,9 @@ public static partial class CoreCommands {
 	/// <summary>Attaches the text highlighted in an agent reply to that session's next prompt.</summary>
 	public const string AttachAgentSelection = "weavie.agent.attachSelection";
 
+	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
+	public const string AttachAgentBlock = "weavie.agent.attachBlock";
+
 	/// <summary>Copies the focused or newest fenced code block in structured-agent output.</summary>
 	public const string CopyAgentCodeBlock = "weavie.agent.copyCodeBlock";
 
@@ -1214,6 +1217,16 @@ public static partial class CoreCommands {
 			Description = "Attach the text highlighted in an agent reply to the next prompt, for when agent.attachOnSelect is off.",
 			Aliases = ["attach selection", "quote selection", "attach highlighted text"],
 			When = "agentSelectionAttachable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AttachAgentBlock,
+			Title = "Attach Block to Prompt",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Attach all of the focused agent chart or table to the next prompt.",
+			Aliases = ["attach chart", "attach table", "attach block"],
+			When = "agentBlockFocused",
 		});
 
 		registry.Register(new CommandDefinition {

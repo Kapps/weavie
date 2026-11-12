@@ -43,6 +43,7 @@ export function AgentThoughtEntry(props: {
 function ThoughtText(props: { entry: AgentTranscriptEntry; session: ClientSession }): JSX.Element {
   return (
     <AgentMarkdown
+      attachable={false}
       cacheKey={props.entry}
       content={props.entry.text ?? ""}
       flavor="agent"

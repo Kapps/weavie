@@ -1,5 +1,5 @@
 import type { EChartsCoreOption } from "echarts/core";
-import type { AgentBlockValue, AgentChart, AgentChartSeries } from "../bridge";
+import type { AgentChart, AgentChartSeries } from "../bridge";
 
 type ECharts = typeof import("echarts/core");
 let echartsPromise: Promise<ECharts> | undefined;
@@ -39,10 +39,13 @@ export interface ChartPalette {
   bad: string;
   series: string[];
   font: string;
+  size: number;
 }
 
-export function chartPalette(): ChartPalette {
+/** The palette from the theme's variables; type follows `host`'s content role, set in CSS. */
+export function chartPalette(host: HTMLElement): ChartPalette {
   const css = getComputedStyle(document.documentElement);
+  const type = getComputedStyle(host);
   const v = (name: string): string => css.getPropertyValue(name).trim();
   return {
     fg: v("--fg"),
@@ -52,13 +55,14 @@ export function chartPalette(): ChartPalette {
     accent: v("--accent"),
     bad: v("--bad"),
     series: [1, 2, 3, 4, 5, 6].map((index) => v(`--chart-${index}`)),
-    font: v("--interface-font-family"),
+    font: type.fontFamily,
+    size: Number.parseFloat(type.fontSize),
   };
 }
 
 /** The ECharts option for `chart`: no entrance animation, animated updates, Weavie's theme. */
 export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCoreOption {
-  const axisLabel = { color: palette.dim, fontFamily: palette.font, fontSize: 11 };
+  const axisLabel = { color: palette.dim, fontFamily: palette.font, fontSize: palette.size };
   const yAxis = (axis: AgentChart["y"], grid: boolean) => ({
     type: "value",
     name: axis?.label,
@@ -83,8 +87,8 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
     };
   });
   // Thresholds and bands ride an empty series per y axis, so they never depend on which series exist.
-  for (const axis of chart.y2 === undefined ? ["y"] : ["y", "y2"]) {
-    const onAxis = (mark: { axis?: string }) => (mark.axis ?? "y") === axis;
+  for (const axis of chart.y2 == null ? ["y"] : ["y", "y2"]) {
+    const onAxis = (mark: { axis?: string | null }) => (mark.axis ?? "y") === axis;
     series.push({
       type: "line",
       data: [],
@@ -98,7 +102,7 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
         label: {
           color: palette.bad,
           fontFamily: palette.font,
-          fontSize: 11,
+          fontSize: palette.size,
           position: "insideStartTop",
         },
         data: (chart.thresholds ?? [])
@@ -108,7 +112,7 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
       markArea: {
         silent: true,
         itemStyle: { color: palette.accent, opacity: 0.1 },
-        label: { color: palette.dim, fontFamily: palette.font, fontSize: 11 },
+        label: { color: palette.dim, fontFamily: palette.font, fontSize: palette.size },
         data: (chart.bands ?? [])
           .filter((band) => (axis === "y" && (band.axis ?? "x") === "x") || band.axis === axis)
           .map((band) => {
@@ -143,7 +147,7 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
       trigger: chart.kind === "scatter" ? "item" : "axis",
       backgroundColor: palette.bar,
       borderColor: palette.border,
-      textStyle: { color: palette.fg, fontFamily: palette.font, fontSize: 12 },
+      textStyle: { color: palette.fg, fontFamily: palette.font, fontSize: palette.size },
       extraCssText: "box-shadow: none",
     },
     xAxis: {
@@ -156,9 +160,7 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
       splitLine: { show: false },
     },
     yAxis:
-      chart.y2 === undefined
-        ? [yAxis(chart.y, true)]
-        : [yAxis(chart.y, true), yAxis(chart.y2, false)],
+      chart.y2 == null ? [yAxis(chart.y, true)] : [yAxis(chart.y, true), yAxis(chart.y2, false)],
     brush: {
       xAxisIndex: 0,
       brushType: "lineX",
@@ -169,40 +171,4 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
     },
     series,
   };
-}
-
-/** Text describing the points of `chart` whose x lies in [from, to], as the agent receives a selection. */
-export function chartRangeText(
-  title: string,
-  id: string,
-  chart: AgentChart,
-  from: AgentBlockValue,
-  to: AgentBlockValue,
-): string {
-  const inRange = (x: AgentBlockValue): boolean =>
-    typeof x === "number" && typeof from === "number" && typeof to === "number"
-      ? x >= from && x <= to
-      : x === from || x === to;
-  const xs = [...new Set(chart.series.flatMap((line) => line.points.map((point) => point[0])))]
-    .filter(inRange)
-    .sort((left, right) =>
-      typeof left === "number" && typeof right === "number" ? left - right : 0,
-    );
-  const rows = xs.map((x) =>
-    [
-      formatX(chart, x),
-      ...chart.series.map((line) => line.points.find((point) => point[0] === x)?.[1] ?? ""),
-    ].join(","),
-  );
-  return [
-    `Chart "${title}" (${id}), ${formatX(chart, from)} to ${formatX(chart, to)}`,
-    [chart.x.label ?? "x", ...chart.series.map((line) => line.name)].join(","),
-    ...rows,
-  ].join("\n");
-}
-
-export function formatX(chart: AgentChart, x: AgentBlockValue): string {
-  return chart.x.type === "time" && typeof x === "number"
-    ? new Date(x).toISOString()
-    : String(x ?? "");
 }

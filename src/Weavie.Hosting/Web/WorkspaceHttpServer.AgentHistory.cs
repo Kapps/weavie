@@ -6,25 +6,15 @@ namespace Weavie.Hosting.Web;
 
 public sealed partial class WorkspaceHttpServer {
 	private async Task ServeAgentHistoryAsync(HttpContext context) {
-		if (!AllowSessionResourceOrigin(context)) return;
-
-		string slot = context.Request.Query["slot"].ToString();
-		string incarnation = context.Request.Query["incarnation"].ToString();
-		if (string.IsNullOrEmpty(slot) || string.IsNullOrEmpty(incarnation)) {
-			context.Response.StatusCode = StatusCodes.Status400BadRequest;
-			return;
-		}
+		if (SessionResource(context, "no-store") is not { } address) return;
 
 		var request = new AgentPaneHistoryRequest(
 			ReadRevision(context, "knownGeneration"),
 			ReadRevision(context, "knownRevision"));
 		context.Response.ContentType = "application/x-ndjson";
-		context.Response.Headers.CacheControl = "no-store";
-		context.Response.Headers.XContentTypeOptions = "nosniff";
-		context.Response.Headers["Referrer-Policy"] = "no-referrer";
 		try {
 			if (!await _core.WriteAgentHistoryAsync(
-				new SessionAddress(slot, incarnation),
+				address,
 				request,
 				context.Response.Body,
 				context.RequestAborted).ConfigureAwait(false)) {

@@ -27,6 +27,8 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 		}
 	}
 
+	protected ConversationView View => view;
+
 	internal bool Detached { get; private set; }
 	private bool Publishing => !Detached && !Staged;
 
@@ -141,26 +143,27 @@ public sealed partial class AcpAgentSession {
 
 		protected override void OnEmit(AcpConversationState state, AgentPaneMessage message) {
 			if (Prepare(message) is not { } prepared) return;
+			// A block lives while its reference row does, so retracting the row deletes the block too.
+			string? dropped = View.RetractedBlock(prepared);
 			owner.Output.Write(prepared, () => {
 				// Failure reports must still reach the user after the archive stops accepting writes.
 				if (prepared.Type == "transcript-reset") return;
-				if (!owner._storageFailed) OnSave(state, [prepared]);
-				else if (!state.Failed && prepared.Type is not ("side-conversation-closed" or "side-conversation-failed")) throw StorageUnavailable();
+				if (!owner._storageFailed) {
+					if (dropped is not null) Archive(() => owner._sessions.DeleteBlock(runtime.Definition.Id, owner._context.Workspace, conversationId, dropped));
+					OnSave(state, [prepared]);
+				} else if (!state.Failed && prepared.Type is not ("side-conversation-closed" or "side-conversation-failed")) {
+					throw StorageUnavailable();
+				}
 			});
 		}
 
-		// The block is saved before its row, so a crash between them leaves only an unreferenced block, pruned on load.
+		// The block is saved before its row, so a crash between them leaves only a block no history shows.
 		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, AgentPaneMessage row) {
 			if (Prepare(row) is not { } prepared) return;
 			var blockState = new AgentBlockState(runtime.Definition.Id, conversationId, block);
 			owner.Output.WriteBlock(blockState, prepared, () => {
 				if (owner._storageFailed) throw StorageUnavailable();
-				try {
-					owner._sessions.SaveBlock(owner._context.Workspace, blockState);
-				} catch (AcpSessionStoreException error) {
-					owner.ArchiveFailed(error);
-					throw;
-				}
+				Archive(() => owner._sessions.SaveBlock(owner._context.Workspace, blockState));
 				OnSave(state, [prepared]);
 			});
 		}
@@ -168,9 +171,12 @@ public sealed partial class AcpAgentSession {
 		private static AcpSessionStoreException StorageUnavailable() => new(
 			"The ACP conversation cannot continue until storage is available.", new IOException("Conversation storage failed."));
 
-		protected override void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) {
+		protected override void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) =>
+			Archive(() => Store(state, messages));
+
+		private void Archive(Action write) {
 			try {
-				Store(state, messages);
+				write();
 			} catch (AcpSessionStoreException error) {
 				owner.ArchiveFailed(error);
 				throw;

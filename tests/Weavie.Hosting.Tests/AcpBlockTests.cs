@@ -19,7 +19,7 @@ public sealed class AcpBlockTests {
 	[InlineData("repeat")]
 	[InlineData("first")]
 	public async Task ShowBlock_BecomesItsOwnRow_ForEveryRelay(string relay) {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, $"block:{relay}:showBlock:{Chart}");
 
@@ -37,7 +37,7 @@ public sealed class AcpBlockTests {
 	[InlineData("noresult")]
 	[InlineData("altered")]
 	public async Task ShowBlock_WithoutItsTokenOnTheRow_SaysTheBlockWasNotShown(string relay) {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, $"block:{relay}:showBlock:{Chart}");
 
@@ -49,7 +49,7 @@ public sealed class AcpBlockTests {
 
 	[Fact]
 	public async Task UpdateBlock_ChangesTheBlockInPlace_AndLeavesNoRowOrDataInTheJournal() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
 
 		await CallAsync(fixture, $"block:codex:updateBlock:{Append}", 2);
@@ -68,7 +68,7 @@ public sealed class AcpBlockTests {
 
 	[Fact]
 	public async Task ParallelCalls_EachClaimTheirOwnRow_WhateverOrderTheirResultsArrive() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, "block-parallel:claude:showBlock:" + Chart.Replace("p95", "a", StringComparison.Ordinal) + "\n" + Chart.Replace("p95", "b", StringComparison.Ordinal));
 
@@ -79,7 +79,7 @@ public sealed class AcpBlockTests {
 
 	[Fact]
 	public async Task SubagentCalls_AreNotShown_AndSaySo() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, $"block-subagent:showBlock:{Chart}");
 
@@ -90,7 +90,7 @@ public sealed class AcpBlockTests {
 
 	[Fact]
 	public async Task RefusedCalls_FailTheirRow_WithTheReason() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, $"block:claude:updateBlock:{Append}");
 
@@ -100,19 +100,19 @@ public sealed class AcpBlockTests {
 
 	[Fact]
 	public async Task Clear_DeletesTheConversationsBlocks() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
 
 		fixture.Session.StartNewConversation();
 		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
 
 		Assert.Null(fixture.Session.Output.Block("fake", null, "p95"));
-		Assert.Empty(fixture.Sessions.ReadBlocks("fake", fixture.Workspace, fixture.Sessions.ReadMessages("fake", fixture.Workspace)));
+		Assert.Empty(StoredBlocks(fixture));
 	}
 
 	[Fact]
 	public async Task Rewind_KeepsEarlierBlocks_AndDeletesLaterOnes() {
-		await using var fixture = await StartedAsync();
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await CallAsync(fixture, $"block:claude:showBlock:{Chart.Replace("p95", "kept", StringComparison.Ordinal)}");
 		await CallAsync(fixture, "alpha", 2);
 		await CallAsync(fixture, $"block:claude:showBlock:{Chart.Replace("p95", "dropped", StringComparison.Ordinal)}", 3);
@@ -123,16 +123,68 @@ public sealed class AcpBlockTests {
 
 		Assert.NotNull(fixture.Session.Output.Block("fake", null, "kept"));
 		Assert.Null(fixture.Session.Output.Block("fake", null, "dropped"));
-		Assert.Equal(["kept"], fixture.Sessions.ReadBlocks("fake", fixture.Workspace, fixture.Sessions.ReadMessages("fake", fixture.Workspace)).Select(block => block.Block.Id));
+		Assert.Equal(["kept"], StoredBlocks(fixture));
+	}
+
+	[Fact]
+	public async Task ARefusedTurn_DeletesTheBlockItShowed() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+
+		await CallAsync(fixture, $"block-refused:first:showBlock:{Chart}");
+
+		Assert.Null(fixture.Session.Output.Block("fake", null, "p95"));
+		Assert.Empty(StoredBlocks(fixture));
+	}
+
+	[Fact]
+	public async Task Show_AddsNoJournalEventBeyondTheCallsOwn_AndRestoresFromTheStore() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+
+		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+
+		var events = fixture.Sessions.ReadMessages("fake", fixture.Workspace).Where(message => message.ItemId == "tool:block-call-1").ToList();
+		Assert.Equal(["item-started", "item-started", "item-completed"], events.Select(message => message.Type));
+		Assert.Equal("block", events[^1].ItemType);
+		fixture.Session.Restore();
+		Assert.Equal("p95 latency", fixture.Session.Output.Block("fake", null, "p95")!.Title);
+	}
+
+	[Fact]
+	public async Task Appends_ApplyInTheOrderTheirRowsAreClaimed() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		static string Point(int value) => $$"""{"id":"p95","append":{"series":[{"name":"now","points":[[{{1794490800000 + value}},{{value}}]]}]},"keep":10}""";
+
+		await CallAsync(fixture, $"block-parallel:codex:updateBlock:{Point(1)}\n{Point(2)}", 2);
+
+		Assert.Equal([318, 344, 2, 1], fixture.Session.Output.Block("fake", null, "p95")!.Chart!.Series[0].Points.Select(point => point[1].Number!.Value));
+	}
+
+	[Fact]
+	public async Task ASideConversationsBlocks_AreItsOwn() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+
+		fixture.AskAside($"block:claude:showBlock:{Chart.Replace("p95 latency", "side latency", StringComparison.Ordinal)}");
+		var row = await fixture.WaitForMessageAsync(message => message.ConversationId is not null && message.ItemType == "block");
+
+		Assert.Equal("p95 latency", fixture.Session.Output.Block("fake", null, "p95")!.Title);
+		Assert.Equal("side latency", fixture.Session.Output.Block("fake", row.ConversationId, "p95")!.Title);
+	}
+
+	// The table itself, not a read filtered by the rows that are left.
+	private static List<string> StoredBlocks(AcpAgentSessionFixture fixture) {
+		using var database = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={fixture.Sessions.FilePath};Pooling=False");
+		database.Open();
+		using var command = database.CreateCommand();
+		command.CommandText = "SELECT id FROM blocks ORDER BY id";
+		using var reader = command.ExecuteReader();
+		var ids = new List<string>();
+		while (reader.Read()) ids.Add(reader.GetString(0));
+		return ids;
 	}
 
 	private static string Json(AgentBlock block) => System.Text.Json.JsonSerializer.Serialize(block, AgentBlockJson.Default.AgentBlock);
-
-	private static async Task<AcpAgentSessionFixture> StartedAsync() {
-		var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
-		await fixture.StartAsync();
-		return fixture;
-	}
 
 	private static Task CallAsync(AcpAgentSessionFixture fixture, string prompt) => CallAsync(fixture, prompt, 1);
 

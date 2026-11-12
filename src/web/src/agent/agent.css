@@ -885,7 +885,7 @@ a:has(> .agent-path-dir) {
   gap: 4px;
   max-width: 260px;
   padding: 0 22px 0 6px;
-  align-items: center;
+  align-items: baseline;
 }
 
 .agent-attachment-selection span {

@@ -20,6 +20,7 @@ internal sealed partial class AcpConversation {
 		tool.Input = null;
 		tool.Text = null;
 		tool.Content = null;
+		var retraction = Retraction(tool.TurnId, ToolItemId(tool.Id));
 		var row = operation is AgentBlockOperation.Show show
 			? ToolMessage(tool) with {
 				Type = "item-completed",
@@ -30,9 +31,10 @@ internal sealed partial class AcpConversation {
 				Text = null,
 				Content = null,
 			}
-			: Retraction(tool.TurnId, ToolItemId(tool.Id));
+			: retraction;
+		TrackTurnItem(row);
 		if (_port.CommitBlock(Continuation, operation, row)) return;
-		Emit(Retraction(tool.TurnId, ToolItemId(tool.Id)));
+		Emit(retraction);
 		Notice(operation is AgentBlockOperation.Show
 			? $"Block '{operation.Id}' was already shown, so this call changed nothing."
 			: $"Block '{operation.Id}' changed or was removed before this update landed, so it was not applied.");

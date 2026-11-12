@@ -53,7 +53,8 @@ its root's background work. Everything else that differs lives in its port. See
 2. **Port** — `AcpConversationPort`, handed in at construction, is the conversation's only event sink and its
    only way to persist, publish, report controls, usage and queue changes, fail the process, or restart it.
    `PrimaryPort` raises the facade events; `SidePort`, `IndependentPort`, and `SubagentPort` share `NestedPort`, which namespaces
-   nested messages, request ids, and events; `SidePort` completes the side, `SubagentPort` journals display
+   nested messages, request ids, and events; `SidePort` completes the side, `IndependentPort` saves a continuation
+   only its owner restores and forgets it when the owner closes it, `SubagentPort` journals display
    events without a continuation; `RewindPort` stages a rewind's fork (below). Every port call takes the transition gate and is inert
    once the port is detached.
 3. **Lifetime** — a cancellation source cancelled when the incarnation fails, is terminalized, retires, or is

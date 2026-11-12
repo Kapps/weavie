@@ -54,12 +54,18 @@ internal static class WorkflowReader {
 						: new Dictionary<string, string>(),
 				})]
 				: [],
-			Stages = [.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))],
+			Stages = Resolve([.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))]),
 			SourceText = text,
 		};
 		WorkflowSemantics.Check(definition, fileId(definition), check);
 		return check.HasErrors ? Failed(check.Diagnostics) : new WorkflowReadResult { Definition = definition, Diagnostics = check.Diagnostics };
 	}
+
+	// A reusing stage opens its conversation as the stage it names does; WorkflowSemantics reports a name that can't.
+	private static List<WorkflowStage> Resolve(List<WorkflowStage> stages) => [.. stages.Select(stage =>
+		stage.Run.Reuse is { } reused && stages.FirstOrDefault(s => s.Id == reused) is { Run.Reuse: null, Run.Context: not WorkflowContext.Continue } opener
+			? stage with { Run = stage.Run with { Context = opener.Run.Context } }
+			: stage)];
 
 	private static WorkflowStage ReadStage(JsonObject stage, string path, WorkflowCheck check) {
 		var work = stage["run"]!.AsObject();
@@ -67,12 +73,17 @@ internal static class WorkflowReader {
 			Id = Text(stage["id"]),
 			If = stage["if"] is { } condition ? Question(condition, $"{path}.if", check) : null,
 			Run = new WorkflowWork {
-				Context = work["context"] is not { } context ? WorkflowContext.Continue : Text(context) switch {
-					"continue" => WorkflowContext.Continue,
-					"fork" => WorkflowContext.Fork,
-					"fresh" => WorkflowContext.Fresh,
-					_ => throw new InvalidOperationException("The workflow schema accepted an unknown conversation context."),
+				Context = work["context"] switch {
+					null => WorkflowContext.Continue,
+					JsonObject => WorkflowContext.Fresh,
+					var context => Text(context) switch {
+						"continue" => WorkflowContext.Continue,
+						"fork" => WorkflowContext.Fork,
+						"fresh" => WorkflowContext.Fresh,
+						_ => throw new InvalidOperationException("The workflow schema accepted an unknown conversation context."),
+					},
 				},
+				Reuse = work["context"] is JsonObject reuse ? Text(reuse["reuse"]) : null,
 				Prompt = Template(work["prompt"], $"{path}.run.prompt", check),
 				Skill = work["skill"] is null ? null : Text(work["skill"]),
 				Args = Template(work["args"], $"{path}.run.args", check),

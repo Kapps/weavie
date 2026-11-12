@@ -139,6 +139,7 @@ internal sealed partial class AcpConversation {
 				GuidanceSent = _guidanceSent,
 				PlanTurns = new Dictionary<string, string>(_planTurns),
 				Failed = _runtimeFailed,
+				Owner = _spec.Seed.Continuation.Owner,
 			};
 		}
 	}
@@ -177,6 +178,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	internal void Save(IReadOnlyList<AgentPaneMessage> messages) => _port.Save(Continuation, messages);
+	internal void Forget() => _port.Forget(Continuation);
 
 	private void SaveContinuation() => Save([]);
 

@@ -78,6 +78,21 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Equal(nested, reloaded.ReadMessages("provider", "/workspace")[^1]);
 	}
 
+	[Fact]
+	public void ForgetDeletesOneOwnedConversationAndKeepsItsDisplay() {
+		var store = new AcpSessionStore(Database);
+		var owner = new Weavie.Core.Agents.AgentConversationKey("r-1", "review");
+		store.Save("provider", "/workspace", State("", "primary-id", 1), []);
+		store.Save("provider", "/workspace", State("kept", "kept-id", 2) with { Owner = owner }, [Message("user-message", "review")]);
+
+		Assert.Equal(owner, new AcpSessionStore(Database).ReadConversations("provider", "/workspace").Single(state => state.ConversationId == "kept").Owner);
+		store.Forget("provider", "/workspace", "kept");
+
+		var reloaded = new AcpSessionStore(Database);
+		Assert.Equal("primary-id", Assert.Single(reloaded.ReadConversations("provider", "/workspace")).SessionId);
+		Assert.Equal("review", Assert.Single(reloaded.ReadMessages("provider", "/workspace")).Text);
+	}
+
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]

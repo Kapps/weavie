@@ -8,15 +8,59 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 
 	/// <inheritdoc/>
 	public Task<IAgentConversation> OpenFreshAsync(AgentConversationBinding binding, CancellationToken ct) =>
-		OpenOwnedAsync(binding, fork: false, ct);
+		OpenOwnedAsync(binding, primary => NewChild(primary, fork: false, binding), ct);
 
 	/// <inheritdoc/>
 	public Task<IAgentConversation> OpenForkAsync(AgentConversationBinding binding, CancellationToken ct) =>
-		OpenOwnedAsync(binding, fork: true, ct);
+		OpenOwnedAsync(binding, primary => NewChild(primary, fork: true, binding), ct);
 
-	private async Task<IAgentConversation> OpenOwnedAsync(AgentConversationBinding binding, bool fork, CancellationToken ct) {
+	/// <inheritdoc/>
+	public async Task<IAgentConversation?> RestoreAsync(AgentConversationBinding binding, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(binding);
+		AcpConversationState? kept;
+		bool restorable;
+		lock (_turnTransitionGate) {
+			kept = binding.Owner is { } key ? _sideConversations.Values.FirstOrDefault(state => state.Owner == key && Continuable(state)) : null;
+			restorable = (_runtime.Features.Load || _runtime.Features.Resume) && !(kept?.SessionId is { } id && _runtime.Bound(id));
+			if (kept is null || !restorable) Forget(owner => owner == binding.Owner);
+		}
+		if (kept is null || !restorable) {
+			await binding.Tools.DisposeAsync().ConfigureAwait(false);
+			return kept is null ? null : throw new InvalidOperationException($"{_definition.Name} cannot restore this conversation in its current process.");
+		}
+		return await OpenOwnedAsync(binding,
+			_ => new(AcpConversationHandoff.Fresh(kept), AcpConversationOpening.Continue, AcpConversationRole.Independent), ct).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc/>
+	public void Forget(Func<AgentConversationKey, bool> owners) {
+		ArgumentNullException.ThrowIfNull(owners);
+		lock (_turnTransitionGate) {
+			var live = _runtime.Conversations.Select(conversation => conversation.ConversationId).ToHashSet(StringComparer.Ordinal);
+			foreach (var state in _sideConversations.Values.Where(state => state.Owner is { } owner && owners(owner) && !live.Contains(state.ConversationId)).ToArray()) {
+				ForgetKept(state);
+			}
+		}
+	}
+
+	private void ForgetKept(AcpConversationState state) {
+		_sideConversations.Remove(state.ConversationId);
+		_sessions.Forget(_definition.Id, _context.Workspace, state.ConversationId);
+		_primary.Publish(SideMessage(Side(state), "side-conversation-closed", "closed"));
+	}
+
+	// A new conversation replaces any its owner kept before.
+	private AcpConversationSpec NewChild(AcpConversation primary, bool fork, AgentConversationBinding binding) {
+		if (fork) EnsureSideConversationSupport(primary);
+		if (binding.Owner is { } key) Forget(owner => owner == key);
+		var spec = ChildSpec(primary, fork, binding.Title, AcpConversationRole.Independent);
+		return spec with { Seed = spec.Seed with { Continuation = spec.Seed.Continuation with { Owner = binding.Owner } } };
+	}
+
+	private async Task<IAgentConversation> OpenOwnedAsync(AgentConversationBinding binding, Func<AcpConversation, AcpConversationSpec> spec, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(binding);
 		AcpConversationHandle? handle = null;
+		bool restoring = false;
 		try {
 			ct.ThrowIfCancellationRequested();
 			AcpConversation primary;
@@ -31,17 +75,20 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 				ct.ThrowIfCancellationRequested();
 				if (!primary.Live || !primary.Ready) throw new InvalidOperationException("The conversation was replaced while opening owned work.");
 				if (!_runtime.Features.Close) throw new InvalidOperationException($"{_definition.Name} cannot close independently owned conversations.");
-				if (fork) EnsureSideConversationSupport(primary);
+				var opening = spec(primary);
+				restoring = opening.Seed.Continuation.SessionId is not null;
 				var controls = primary.Snapshot.Axes.ToDictionary(axis => axis.Id, axis => axis.Value, StringComparer.Ordinal);
 				foreach (var (axis, value) in overrides) controls[axis] = value;
-				handle = StartOwned(ChildSpec(primary, fork, binding.Title, AcpConversationRole.Independent),
-					binding with { ControlHold = new CapturedControls(controls) });
+				handle = StartOwned(opening, binding with { ControlHold = new CapturedControls(controls) });
 			}
 			await handle.Conversation.WaitUntilReadyAsync(ct).ConfigureAwait(false);
 			return handle;
 		} catch {
 			if (handle is null) await binding.Tools.DisposeAsync().ConfigureAwait(false);
-			else {
+			else if (restoring && ct.IsCancellationRequested) {
+				// Its owner stopped waiting, as when the session unloads; the conversation stays kept for the next load.
+				lock (_turnTransitionGate) Suspend(handle.Conversation, "Restore cancelled.");
+			} else {
 				var closing = handle.DisposeAsync();
 				if (!ct.IsCancellationRequested) await closing.ConfigureAwait(false);
 			}
@@ -84,11 +131,24 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 		if (_storageFailed) throw new InvalidOperationException("The conversation archive has failed. Restart the session before opening new work.");
 	}
 
-	// Independently owned work has a readable transcript, never a resumable BTW continuation.
+	// Independently owned work is kept for its owner to restore, as an aside is for a reply, until the owner closes it.
 	private sealed class IndependentPort(AcpAgentSession owner, SideConversation side)
 		: NestedPort(owner, owner._runtime, side.ConversationId, side.AnchorTurnNumber) {
-		protected override void Store(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) =>
-			Owner._sessions.Append(Owner._definition.Id, Owner._context.Workspace, messages);
+		private bool _kept = true;
+
+		protected override void Store(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) {
+			if (!_kept || state.Owner is null) {
+				Owner._sessions.Append(Owner._definition.Id, Owner._context.Workspace, messages);
+				return;
+			}
+			Owner._sessions.Save(Owner._definition.Id, Owner._context.Workspace, state, messages);
+			Owner._sideConversations[state.ConversationId] = state;
+		}
+
+		protected override void OnForget(AcpConversationState state) {
+			_kept = false;
+			Owner.ForgetKept(state);
+		}
 
 		protected override bool OnFail(Exception error) =>
 			error is IOException or AcpProtocolException or AcpSessionStoreException && Runtime.Fail(error);
@@ -96,9 +156,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 		protected override void OnSettled(AcpConversationState state, bool terminal) {
 			if (terminal) OnEmit(state, new AgentPaneMessage { Type = "side-conversation-failed", ProviderId = Runtime.Definition.Id, Status = "failed" });
 		}
-
-		protected override void OnClosed(AcpConversationState state) =>
-			OnEmit(state, new AgentPaneMessage { Type = "side-conversation-closed", ProviderId = Runtime.Definition.Id, Status = "closed" });
 
 	}
 }

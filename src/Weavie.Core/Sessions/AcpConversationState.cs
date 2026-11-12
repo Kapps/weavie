@@ -18,4 +18,6 @@ public sealed record AcpConversationState {
 	public required IReadOnlyDictionary<string, string> PlanTurns { get; init; }
 	/// <summary>Whether a side conversation was explicitly retired after a terminal failure.</summary>
 	public required bool Failed { get; init; }
+	/// <summary>Who keeps this independently owned conversation; null for the primary and <c>/btw</c> asides.</summary>
+	public Weavie.Core.Agents.AgentConversationKey? Owner { get; init; }
 }

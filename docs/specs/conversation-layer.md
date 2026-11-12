@@ -79,8 +79,8 @@ In-flight operations remain bound to their incarnation during restart, clear, an
 submissions transfer explicitly through the handoff policy.
 
 BTW and workflow children share `StartOwned` for controller creation, registration, initial publication,
-and opening. The different ports preserve their actual policies: BTW saves a resumable continuation;
-workflow children save readable output only. Their common nested port handles placement and request routing.
+and opening. Both save a resumable continuation; a workflow child's is tagged with its owner, restored only through
+that owner, and forgotten when the owner closes it. Their common nested port handles placement and request routing.
 IDs remain at protocol, persistence, and UI boundaries; the workflow owner retains an object.
 
 `OpenFreshAsync` and `OpenForkAsync` open against the session's runtime. Opening waits for the captured
@@ -134,7 +134,7 @@ the owning stage. A saved transcript remains readable after execution ends.
 | Consult | MCP call owns restricted transient process and fresh session | Text after last tool plus denied actions; dispose after result/cancel |
 | Inference | Typed query owns restricted transient process in its worktree | Bounded text, typed validation, usage and errors remain query-owned |
 | Workflow `continue` | Stage borrows main input; does not own main | Main transcript; stage tools drive progression |
-| Workflow `fork` / `fresh` | Exact stage visit owns child handle and binding | Replies/revisions in card; outputs and questions return to main; leaving closes it |
+| Workflow `fork` / `fresh` | The run owns one child per opening stage and lends it to one visit at a time | Replies/revisions in card; outputs and questions return to main; the run ending closes it |
 | Session message / bundled prompt | Input producer addresses existing session | Uses ordinary submission and lifecycle |
 
 Consult and inference share ACP open/configure/prompt mechanics and chunk decoding, not an interactive
@@ -169,9 +169,10 @@ workflow engine, and no teardown awaits itself under the runner lock. Jump, canc
 immediately. Invalid outputs and `failStage` retain the live visit and handle.
 
 Main stays usable while a child runs. Outputs, summary, and user questions return through the runner's owed
-kickoff mechanism. Revisions reuse the child. Losing its incarnation pauses the stage; Resume opens a new
-one. Reloaded child rows are display-only, never guessed resumable sessions. The authoring prompt explains
-when to use `continue`, `fork`, and `fresh`.
+kickoff mechanism. Revisions and later visits reuse the child; its grant captures only the visit it is lent to.
+Losing its incarnation during a visit pauses the stage; Resume restores it from its owner's continuation, which
+survives an agent restart and a reload but not a crash, `/clear`, or Rewind. The authoring prompt explains when to
+use `continue`, `fork`, `fresh`, and `reuse`. See [workflow-context-reuse](workflow-context-reuse/design.md).
 
 Main's prompt-image delivery is persisted with the run. Each child handle owns its own receipt: revisions
 retain it, reopening resets it, and only an accepted submission consumes the images owed to that child.
@@ -207,4 +208,4 @@ coverage as well as removing duplicated paths; net deletion is not claimed. Remo
 formatting, and deferred behavior do not count as refactoring savings.
 
 No global conversation directory, scheduler, pool, retry layer, cross-provider history conversion, new
-transcript format, general permissions framework, or automatic lost-child resumption is introduced.
+transcript format, or general permissions framework is introduced.

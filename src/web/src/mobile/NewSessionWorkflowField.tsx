@@ -1,4 +1,14 @@
-import { createEffect, createMemo, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
+import { RefreshCw } from "lucide-solid";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  Index,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import {
   backendPhase,
   launchSource,
@@ -16,10 +26,14 @@ import {
   rolesReady,
 } from "../chrome/new-session-role-choice";
 import {
+  canRefreshWorkflow,
   NewSessionWorkflowChoice,
   type WorkflowChoiceState,
   type WorkflowTarget,
 } from "../chrome/new-session-workflow-choice";
+import { keyHint } from "../commands/key-hint";
+import { registerCommand, runCommandWithFeedback } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { NewSessionPicker } from "./NewSessionPicker";
 
 /** What a start runs: the workflow (null for none) and what to save for each role it still needs. */
@@ -62,8 +76,15 @@ export function NewSessionWorkflowField(props: {
   let target: WorkflowTarget | null = null;
   const choice = new NewSessionWorkflowChoice(
     (to, signal) => requestWorkflowCatalog(to.backendId, to.sourceId, to.providerId, signal),
-    (to, prompt, signal) =>
-      requestWorkflowSuggestion(to.backendId, to.sourceId, to.providerId, prompt, signal),
+    (to, prompt, userInitiated, signal) =>
+      requestWorkflowSuggestion(
+        to.backendId,
+        to.sourceId,
+        to.providerId,
+        prompt,
+        userInitiated,
+        signal,
+      ),
     setState,
   );
   const roleChoice = new NewSessionRoleChoice(
@@ -113,6 +134,18 @@ export function NewSessionWorkflowField(props: {
     roleChoice.cancel();
   });
 
+  const canRefresh = (): boolean =>
+    props.active && canRefreshWorkflow(state(), props.prompt, online());
+  onMount(() =>
+    onCleanup(
+      registerCommand(CommandIds.resuggestWorkflow, () => {
+        if (!canRefresh()) return false;
+        choice.refresh();
+        return true;
+      }),
+    ),
+  );
+
   const providerName = (): string =>
     agentProviders(props.backendId).find((provider) => provider.id === props.providerId)?.name ??
     props.providerId;
@@ -122,7 +155,6 @@ export function NewSessionWorkflowField(props: {
   return (
     <>
       <NewSessionPicker
-        id="new-session-workflow"
         label="Workflow"
         value={state().workflow ?? "No workflow"}
         selected={state().workflow ?? NONE}
@@ -149,6 +181,18 @@ export function NewSessionWorkflowField(props: {
         onFocus={() => choice.claim()}
         onBlur={() => choice.release()}
         onPick={(id) => choice.pick(id === NONE ? null : id)}
+        action={
+          <button
+            type="button"
+            class="session-composer-resuggest ui-icon-button"
+            aria-label="Suggest a workflow again"
+            title={`Suggest Workflow Again${keyHint(CommandIds.resuggestWorkflow)}`}
+            disabled={!canRefresh()}
+            onClick={() => void runCommandWithFeedback(CommandIds.resuggestWorkflow)}
+          >
+            <RefreshCw aria-hidden="true" />
+          </button>
+        }
       />
       <Show when={roles().rows.length > 0}>
         <section class="session-composer-roles" aria-labelledby="new-session-roles-label">

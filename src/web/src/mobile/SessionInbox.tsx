@@ -1,4 +1,4 @@
-import { ArrowUp } from "lucide-solid";
+import { ArrowUp, Bot, GitBranch, Laptop } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import {
@@ -16,6 +16,7 @@ import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
 import { MobileActionLabel } from "./MobileActionLabel";
 import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
+import { NewSessionControl } from "./NewSessionControl";
 import { SessionInboxRow } from "./SessionInboxRow";
 
 export type { NewSessionSeed } from "./NewSessionComposer";
@@ -191,45 +192,53 @@ export function SessionInbox(props: {
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
-      <select
-        class="ui-field"
-        aria-label={locationLabel}
-        value={backendId()}
-        onChange={(event) => selectBackend(event.currentTarget.value)}
-      >
-        <For each={connectedBackends()}>
-          {(backend) => (
-            <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
-          )}
-        </For>
-      </select>
-      <select
-        class="ui-field"
-        aria-label={providerLabel}
-        disabled={savingProvider()}
-        onChange={(event) => selectProvider(event.currentTarget.value)}
-      >
-        <For each={agentProviders(backendId())}>
-          {(provider) => (
-            <option
-              value={provider.id}
-              selected={provider.id === providerId()}
-              disabled={!provider.available}
-              title={provider.unavailableReason ?? provider.name}
-            >
-              {provider.name}
-              {provider.available ? "" : " (Unavailable)"}
-            </option>
-          )}
-        </For>
-      </select>
+      <NewSessionControl icon={<Laptop />}>
+        <select
+          class="ui-field"
+          aria-label={locationLabel}
+          value={backendId()}
+          onChange={(event) => selectBackend(event.currentTarget.value)}
+        >
+          <For each={connectedBackends()}>
+            {(backend) => (
+              <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
+            )}
+          </For>
+        </select>
+      </NewSessionControl>
+      <NewSessionControl icon={<Bot />}>
+        <select
+          class="ui-field"
+          aria-label={providerLabel}
+          disabled={savingProvider()}
+          onChange={(event) => selectProvider(event.currentTarget.value)}
+        >
+          <For each={agentProviders(backendId())}>
+            {(provider) => (
+              <option
+                value={provider.id}
+                selected={provider.id === providerId()}
+                disabled={!provider.available}
+                title={provider.unavailableReason ?? provider.name}
+              >
+                {provider.name}
+                {provider.available ? "" : " (Unavailable)"}
+              </option>
+            )}
+          </For>
+        </select>
+      </NewSessionControl>
       <Show
         when={
           agentProviders(backendId()).find((provider) => provider.id === providerId())
             ?.unavailableReason
         }
       >
-        {(reason) => <small role="alert">{reason()}</small>}
+        {(reason) => (
+          <small class="session-composer-destination-error" role="alert">
+            {reason()}
+          </small>
+        )}
       </Show>
     </>
   );
@@ -288,20 +297,21 @@ export function SessionInbox(props: {
               void openExisting();
             }}
           >
-            <label class="session-composer-branch">
-              <span>Branch</span>
-              <input
-                class="ui-field ui-field-content"
-                type="text"
-                list="session-existing-branches"
-                aria-label="Existing branch for the session"
-                autocapitalize="none"
-                autocomplete="off"
-                spellcheck={false}
-                placeholder="Choose a branch"
-                value={existingBranch()}
-                onInput={(event) => setExistingBranch(event.currentTarget.value)}
-              />
+            <div class="session-composer-field session-composer-branch">
+              <NewSessionControl icon={<GitBranch />}>
+                <input
+                  class="ui-field ui-field-mono"
+                  type="text"
+                  list="session-existing-branches"
+                  aria-label="Existing branch for the session"
+                  autocapitalize="none"
+                  autocomplete="off"
+                  spellcheck={false}
+                  placeholder="Choose a branch"
+                  value={existingBranch()}
+                  onInput={(event) => setExistingBranch(event.currentTarget.value)}
+                />
+              </NewSessionControl>
               <datalist id="session-existing-branches">
                 <For each={branches()}>{(branch) => <option value={branch} />}</For>
               </datalist>
@@ -311,7 +321,7 @@ export function SessionInbox(props: {
               <Show when={branchListError() !== ""}>
                 <small role="alert">{branchListError()}</small>
               </Show>
-            </label>
+            </div>
             <div class="session-composer-options">
               {destinationFields("Open on", "Open with")}
               <button

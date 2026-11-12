@@ -660,9 +660,15 @@ export const requestWorkflowSuggestion = (
   sourceId: string | null,
   providerId: string,
   prompt: string,
+  userInitiated: boolean,
   signal: AbortSignal,
 ): Promise<WorkflowSuggestion> =>
-  requestSessionCreation(backendId, "suggestWorkflow", { sourceId, providerId, prompt }, signal);
+  requestSessionCreation(
+    backendId,
+    "suggestWorkflow",
+    { sourceId, providerId, prompt, userInitiated },
+    signal,
+  );
 
 /** A role's pickers in `providerId` sessions with `model` chosen ("" for none); answers once its models are known. */
 export const requestRoleControls = (

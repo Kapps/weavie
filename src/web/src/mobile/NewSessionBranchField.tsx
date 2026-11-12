@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-solid";
+import { GitBranch, RefreshCw } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { backendPhase, type EncodedImageAttachment, requestBranchPreview } from "../bridge";
 import {
@@ -6,8 +6,10 @@ import {
   NewSessionBranchPreview,
 } from "../chrome/new-session-branch-preview";
 import { keyHint } from "../commands/key-hint";
-import { registerCommand } from "../commands/registry";
+import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+
+import { NewSessionControl } from "./NewSessionControl";
 
 export interface NewSessionBranchActions {
   flush: () => void;
@@ -55,7 +57,7 @@ export function NewSessionBranchField(props: {
   onMount(() =>
     onCleanup(
       registerCommand(CommandIds.resuggestBranch, () => {
-        if (!props.active || !props.inputReady || !online()) {
+        if (!props.active || !props.inputReady || !online() || state().status === "loading") {
           return false;
         }
         preview.refresh();
@@ -83,40 +85,40 @@ export function NewSessionBranchField(props: {
   const placeholder = (): string => {
     switch (state().status) {
       case "loading":
-        return "Suggesting…";
+        return "Suggesting branch…";
       case "needsDetail":
-        return "Say more, or type a name";
+        return "Say more, or type a branch name";
       case "error":
-        return "Preview unavailable";
+        return "Branch suggestion unavailable";
       default:
-        return "Name from prompt";
+        return "Branch name from prompt";
     }
   };
 
   return (
-    <div class="session-composer-branch">
-      <label for="new-session-branch">Branch</label>
-      <input
-        class="ui-field ui-field-content"
-        id="new-session-branch"
-        type="text"
-        aria-label="Branch for the new session"
-        autocapitalize="none"
-        autocomplete="off"
-        spellcheck={false}
-        placeholder={placeholder()}
-        value={state().branch}
-        onInput={(event) => preview.edit(event.currentTarget.value)}
-        onFocus={() => preview.claim()}
-        onBlur={() => preview.release()}
-      />
+    <div class="session-composer-field session-composer-branch">
+      <NewSessionControl icon={<GitBranch />}>
+        <input
+          class="ui-field ui-field-mono"
+          type="text"
+          aria-label="Branch for the new session"
+          autocapitalize="none"
+          autocomplete="off"
+          spellcheck={false}
+          placeholder={placeholder()}
+          value={state().branch}
+          onInput={(event) => preview.edit(event.currentTarget.value)}
+          onFocus={() => preview.claim()}
+          onBlur={() => preview.release()}
+        />
+      </NewSessionControl>
       <button
         type="button"
         class="session-composer-resuggest ui-icon-button"
         aria-label="Suggest a branch name again"
-        title={`Suggest again${keyHint(CommandIds.resuggestBranch)}`}
+        title={`Suggest Branch Name Again${keyHint(CommandIds.resuggestBranch)}`}
         disabled={!props.inputReady || !online() || state().status === "loading"}
-        onClick={() => preview.refresh()}
+        onClick={() => void runCommandWithFeedback(CommandIds.resuggestBranch)}
       >
         <RefreshCw aria-hidden="true" />
       </button>

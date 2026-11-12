@@ -39,13 +39,13 @@ public sealed partial class WorkflowSuggester(IDecisionService decisions, Workfl
 	/// from <paramref name="worktree"/>; an answer below <paramref name="minimumConfidence"/> changes nothing.
 	/// </summary>
 	public async Task<WorkflowSuggestion> SuggestAsync(
-		IReadOnlyList<WorkflowDefinition> startable, string prompt, string worktree, double minimumConfidence, CancellationToken ct) {
+		IReadOnlyList<WorkflowDefinition> startable, string prompt, string worktree, double minimumConfidence, InferenceInvocationOrigin origin, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(startable);
 		if (startable.Count == 0) {
 			return new WorkflowSuggestion.Unchanged();
 		}
 
-		var suggestion = await AskAsync(decisions, history, Request(worktree,
+		var suggestion = await AskAsync(decisions, history, Request(worktree, origin,
 			JsonSerializer.SerializeToElement(new SuggestionEvidence(prompt), SuggestionJson.Default.SuggestionEvidence),
 			new(Instructions, [
 				new(NoWorkflow, "No listed workflow clearly fits; the session starts with the prompt alone."),
@@ -68,19 +68,19 @@ public sealed partial class WorkflowSuggester(IDecisionService decisions, Workfl
 
 		IReadOnlyList<string> prompts = [.. definition.Stages.Where(stage => stage.Run.Role == role)
 			.Select(stage => stage.Run.Prompt?.Source ?? $"/{stage.Run.Skill} {stage.Run.Args?.Source}".TrimEnd())];
-		return await AskAsync(decisions, history, Request(worktree,
+		return await AskAsync(decisions, history, Request(worktree, InferenceInvocationOrigin.Automatic,
 			JsonSerializer.SerializeToElement(new RoleEvidence(role, prompts), SuggestionJson.Default.RoleEvidence),
 			new(RoleInstructions, [.. offered.Select(model => new DecisionChoice(
 				model.Id, model.Description is { } description ? $"{model.Label}: {description}" : model.Label))])),
 			minimumConfidence, ct).ConfigureAwait(false);
 	}
 
-	/// <summary>An automatic composer decision for the session that would start from <paramref name="worktree"/>.</summary>
-	internal static DecisionRequest Request(string worktree, JsonElement evidence, DecisionQuestion question) => new() {
+	/// <summary>A composer decision for the session that would start from <paramref name="worktree"/>.</summary>
+	internal static DecisionRequest Request(string worktree, InferenceInvocationOrigin origin, JsonElement evidence, DecisionQuestion question) => new() {
 		Owner = new InferenceOwner { Workspace = worktree },
 		Evidence = evidence,
 		Question = question,
-		Origin = InferenceInvocationOrigin.Automatic,
+		Origin = origin,
 		TimeBudget = TimeBudget,
 	};
 
@@ -92,7 +92,8 @@ public sealed partial class WorkflowSuggester(IDecisionService decisions, Workfl
 				history.Record(receipt);
 				return answer.Probability < minimumConfidence ? new WorkflowSuggestion.Unchanged() : new WorkflowSuggestion.Chosen(answer.Choice);
 			// The user turned suggestions off; that is not a failed one.
-			case InferenceFailure<DecisionAnswer> { Kind: InferenceFailureKind.Disabled or InferenceFailureKind.PolicyDenied }:
+			case InferenceFailure<DecisionAnswer> { Kind: InferenceFailureKind.Disabled or InferenceFailureKind.PolicyDenied }
+				when request.Origin == InferenceInvocationOrigin.Automatic:
 				return new WorkflowSuggestion.Unchanged();
 			case InferenceFailure<DecisionAnswer> failure:
 				return new WorkflowSuggestion.Failed(failure.Detail);

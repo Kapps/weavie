@@ -56,7 +56,8 @@ public sealed partial class HostCore {
 		string root = RequireLaunchRoot(request.SourceId);
 		var options = await WorkflowStartOptionsAsync(root, request.ProviderId, ct).ConfigureAwait(false);
 		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory)
-			.SuggestAsync(options.Startable, request.Prompt, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence), ct)
+			.SuggestAsync(options.Startable, request.Prompt, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence),
+				request.UserInitiated ? InferenceInvocationOrigin.UserInitiated : InferenceInvocationOrigin.Automatic, ct)
 			.ConfigureAwait(false);
 		return Reply(suggestion, static (applies, workflow, error) => new WorkflowSuggestionResult(applies, workflow, error));
 	}
@@ -97,7 +98,7 @@ public sealed partial class HostCore {
 
 	internal sealed record WorkflowStartTarget(string? SourceId, string ProviderId);
 
-	internal sealed record WorkflowSuggestionRequest(string? SourceId, string ProviderId, string Prompt);
+	internal sealed record WorkflowSuggestionRequest(string? SourceId, string ProviderId, string Prompt, bool UserInitiated);
 
 	internal sealed record WorkflowRoleNeedWire(string Role, string? Problem);
 

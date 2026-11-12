@@ -213,7 +213,7 @@ test.describe("vague branch inference", () => {
     await composer.fill(VAGUE_DRAFT);
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
-    await expect(branch).toHaveAttribute("placeholder", "Say more, or type a name");
+    await expect(branch).toHaveAttribute("placeholder", "Say more, or type a branch name");
 
     await composer.fill(`${VAGUE_DRAFT} when the compact branch field is used`);
     await expect(branch).toHaveValue("fix/mobile-branch-inference");
@@ -622,16 +622,26 @@ test("a compact session row manages its session from a hold and its actions butt
   const row = page.locator(rowSelector).first();
   const menu = page.locator(".context-menu");
   const manage = row.getByRole("button", { name: /^Manage / });
+  const dismissSessionNotice = (text: string) =>
+    page
+      .locator(".toast", { hasText: text })
+      .getByRole("button", { name: "Dismiss", exact: true })
+      .click();
   await expect(row).toBeVisible();
 
   const touch = touchSession(page);
   const startTouch = async () => {
+    await row.scrollIntoViewIfNeeded();
     // Query and measure together: catalog updates replace rows, and each gesture can move the list.
     const point = await page.evaluate((selector) => {
       const element = document.querySelector(selector);
       if (element === null) throw new Error("No session row to touch");
       const bounds = element.getBoundingClientRect();
-      return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+      const point = { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+      if (!element.contains(document.elementFromPoint(point.x, point.y))) {
+        throw new Error(`Session row touch point is obstructed: ${JSON.stringify(point)}`);
+      }
+      return point;
     }, rowSelector);
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
     return point;
@@ -676,6 +686,7 @@ test("a compact session row manages its session from a hold and its actions butt
 
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
   await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
+  await dismissSessionNotice("was unloaded");
 
   // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
   // stay armed to eat the tap that follows.
@@ -691,6 +702,7 @@ test("a compact session row manages its session from a hold and its actions butt
   ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
   await expect(row.locator(".session-inbox-status")).not.toHaveText(/^not loaded/);
+  await dismissSessionNotice("Loaded session");
 
   // The actions button opens the same command rows and runs them.
   await manage.click();

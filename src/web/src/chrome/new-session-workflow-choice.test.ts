@@ -32,7 +32,12 @@ const applies = (workflow: string | null): WorkflowSuggestion => ({
 interface Harness {
   choice: NewSessionWorkflowChoice;
   state: () => WorkflowChoiceState;
-  suggestions: { target: WorkflowTarget; prompt: string; signal: AbortSignal }[];
+  suggestions: {
+    target: WorkflowTarget;
+    prompt: string;
+    userInitiated: boolean;
+    signal: AbortSignal;
+  }[];
   answer: (result: WorkflowSuggestion) => Promise<void>;
   catalogs: Map<string, WorkflowStartCatalog>;
 }
@@ -53,8 +58,8 @@ const harness = (): Harness => {
       catalogs.get(`${target.backendId}/${target.providerId}`) ??
       catalogs.get(target.backendId) ??
       Promise.reject(new Error("offline")),
-    (target, prompt, signal) => {
-      suggestions.push({ target, prompt, signal });
+    (target, prompt, userInitiated, signal) => {
+      suggestions.push({ target, prompt, userInitiated, signal });
       return new Promise((resolve) => answers.push(resolve));
     },
     (state) => states.push(state),
@@ -117,7 +122,7 @@ describe("NewSessionWorkflowChoice", () => {
     await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS - 1);
     expect(suggestions).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(suggestions).toMatchObject([{ target: LOCAL, prompt: DRAFT }]);
+    expect(suggestions).toMatchObject([{ target: LOCAL, prompt: DRAFT, userInitiated: false }]);
     expect(state().status).toBe("suggesting");
 
     await answer(applies("quick-fix"));
@@ -127,6 +132,78 @@ describe("NewSessionWorkflowChoice", () => {
     await settle();
     choice.flush();
     expect(suggestions).toHaveLength(1);
+  });
+
+  it("explicitly reconsiders a manual pick using the latest, even short, prompt", async () => {
+    const { choice, state, suggestions, answer } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft(DRAFT);
+    choice.flush();
+    await answer(applies("quick-fix"));
+    choice.pick("spec-driven");
+    choice.draft(SHORT);
+    choice.claim();
+
+    expect(choice.canRefresh).toBe(true);
+    choice.refresh();
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[1]).toMatchObject({ prompt: SHORT, userInitiated: true });
+    expect(state()).toMatchObject({ workflow: "spec-driven", status: "suggesting" });
+    expect(choice.canRefresh).toBe(false);
+    choice.refresh();
+    expect(suggestions).toHaveLength(2);
+    await answer(applies("quick-fix"));
+    expect(state()).toMatchObject({ workflow: "quick-fix", status: "ready" });
+    choice.release();
+    choice.flush();
+    await settle();
+    expect(suggestions).toHaveLength(2);
+  });
+
+  it("retries a failed suggestion but never overwrites a later pick or captured start", async () => {
+    const { choice, state, suggestions, answer } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft(SHORT);
+    choice.refresh();
+    await answer({ applies: false, workflow: null, error: "Unavailable" });
+    expect(state().problem).toContain("Unavailable");
+
+    choice.refresh();
+    expect(state().problem).toBeNull();
+    choice.pick("spec-driven");
+    expect(suggestions[1]?.signal.aborted).toBe(true);
+    await answer(applies("quick-fix"));
+    expect(state().workflow).toBe("spec-driven");
+
+    choice.refresh();
+    expect(choice.capture()).toBe("spec-driven");
+    expect(suggestions[2]?.signal.aborted).toBe(true);
+    await answer(applies(null));
+    expect(state().workflow).toBe("spec-driven");
+  });
+
+  it("cannot refresh without a prompt, an online host, or a loaded startable catalog", async () => {
+    const { choice, suggestions, catalogs } = harness();
+    choice.draft(SHORT);
+    choice.retarget(LOCAL);
+    expect(choice.canRefresh).toBe(false);
+    choice.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    choice.draft("");
+    expect(choice.canRefresh).toBe(false);
+    choice.refresh();
+    choice.draft(SHORT);
+    choice.retarget(null);
+    expect(choice.canRefresh).toBe(false);
+    choice.refresh();
+    catalogs.set("remote", catalog({ workflows: [] }));
+    choice.retarget(REMOTE);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(choice.canRefresh).toBe(false);
+    choice.refresh();
+    expect(suggestions).toEqual([]);
   });
 
   it("asks at once when focus leaves a draft worth judging", async () => {

@@ -5,7 +5,7 @@ import { type WebSocket, WebSocketServer } from "ws";
 import { CommandIds, type CommandInfo } from "../src/commands/types";
 import { basename } from "../src/editor/fs-path";
 import { DEFAULT_EDITOR_OPTIONS } from "../src/editor-options-defaults";
-import type { EditorOptionsSpec } from "../src/messaging/protocol-types";
+import type { AgentDefaults, EditorOptionsSpec } from "../src/messaging/protocol-types";
 import {
   decodeWebSocketMessage,
   encodeWebSocketMessage,
@@ -139,7 +139,7 @@ const DEFAULT_LAYOUT = {
   focused: "p_agent",
 };
 
-const MOCK_AGENT_DEFAULTS = {
+export const MOCK_AGENT_DEFAULTS: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
   thoughtDisplay: "current",

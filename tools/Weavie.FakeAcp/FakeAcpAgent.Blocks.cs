@@ -33,13 +33,15 @@ internal sealed partial class FakeAcpAgent {
 		string id = NextBlockCall();
 		if (relay == "first") {
 			var early = await PostWeavieToolAsync(tool, arguments, ct).ConfigureAwait(false);
-			var row = ClaudeStart(id, tool);
+			var row = ClaudeStart(id, "mcp__weavie__" + tool);
 			row["status"] = Status(early);
 			row["rawOutput"] = new JsonArray(TextBlock(early.Text));
 			UpdateOn(session, row);
 			return;
 		}
 		if (relay != "none") Start(session, id, relay, tool, arguments);
+		// A test opts into catching the call in flight by creating hold-block.
+		await HoldOnceAsync("block", ct).ConfigureAwait(false);
 		var result = await PostWeavieToolAsync(tool, arguments, ct).ConfigureAwait(false);
 		Report(session, id, relay, result);
 	}
@@ -56,7 +58,7 @@ internal sealed partial class FakeAcpAgent {
 			});
 			return;
 		}
-		UpdateOn(session, ClaudeStart(id, tool));
+		UpdateOn(session, ClaudeStart(id, relay == "untitled" ? "Refresh" : "mcp__weavie__" + tool));
 		UpdateOn(session, new JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = id, ["rawInput"] = JsonNode.Parse(arguments) });
 	}
 
@@ -105,10 +107,10 @@ internal sealed partial class FakeAcpAgent {
 		}
 	}
 
-	private static JsonObject ClaudeStart(string id, string tool) => new() {
+	private static JsonObject ClaudeStart(string id, string title) => new() {
 		["sessionUpdate"] = "tool_call",
 		["toolCallId"] = id,
-		["title"] = "mcp__weavie__" + tool,
+		["title"] = title,
 		["kind"] = "other",
 		["status"] = "pending",
 		["rawInput"] = new JsonObject(),

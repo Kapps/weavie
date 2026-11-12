@@ -1,6 +1,6 @@
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { blockHeight } from "./agent-block-layout";
+import { chartHeight, tableHeightEstimate } from "./agent-block-layout";
 
 // Rendered-line metrics behind the size estimate. Prose wraps at the markdown measure
 // (`.agent-markdown` is `max-width: 96ch`); fenced code and tool output are preformatted, so each
@@ -18,7 +18,8 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return 48;
   }
   if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
-  if (entry.block !== undefined) return blockHeight(entry.block.kind);
+  if (entry.block !== undefined)
+    return entry.block.kind === "chart" ? chartHeight : tableHeightEstimate;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {

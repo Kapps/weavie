@@ -22,11 +22,26 @@ export function loadECharts(): Promise<ECharts> {
       components.MarkLineComponent,
       components.MarkAreaComponent,
       components.BrushComponent,
+      renderers.SVGRenderer,
       renderers.CanvasRenderer,
     ]);
     return core;
   });
   return echartsPromise;
+}
+
+const svgMarkLimit = 2000;
+
+/**
+ * SVG draws text as the page does, so it is the renderer until a chart has too many marks for the DOM: a bar or a
+ * scatter point is an element each, while a line is one path however long.
+ */
+export function chartRenderer(chart: AgentChart): "svg" | "canvas" {
+  const marks =
+    chart.kind === "bar" || chart.kind === "scatter"
+      ? chart.series.reduce((sum, line) => sum + line.points.length, 0)
+      : 0;
+  return marks > svgMarkLimit ? "canvas" : "svg";
 }
 
 /** The theme a chart draws with, read from Weavie's live CSS variables. */
@@ -42,7 +57,7 @@ export interface ChartPalette {
   size: number;
 }
 
-/** The palette from the theme's variables; type follows `host`'s content role, set in CSS. */
+/** The palette from the theme's variables; type follows `host`'s chrome role, set in CSS. */
 export function chartPalette(host: HTMLElement): ChartPalette {
   const css = getComputedStyle(document.documentElement);
   const type = getComputedStyle(host);
@@ -66,6 +81,7 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
   const yAxis = (axis: AgentChart["y"], grid: boolean) => ({
     type: "value",
     name: axis?.label,
+    nameLocation: "middle",
     nameTextStyle: axisLabel,
     axisLabel: { ...axisLabel, formatter: (value: number) => `${value}${axis?.unit ?? ""}` },
     splitLine: { show: grid, lineStyle: { color: palette.border } },
@@ -126,15 +142,18 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
     animationDuration: 0,
     animationDurationUpdate: 300,
     textStyle: { fontFamily: palette.font, color: palette.dim },
+    // The grid shrinks inside these bounds to fit its axis labels and names, so neither meets the legend.
     grid: {
       left: 8,
       right: 8,
-      top: chart.series.length > 1 ? 30 : 14,
+      top: chart.series.length > 1 ? 36 : 16,
       bottom: 4,
-      containLabel: true,
+      outerBoundsMode: "same",
+      outerBoundsContain: "all",
     },
     legend: {
       show: chart.series.length > 1,
+      type: "scroll",
       data: chart.series.map((line) => line.name),
       left: 0,
       top: 0,
@@ -153,8 +172,9 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
     xAxis: {
       type: chart.x.type === "number" ? "value" : chart.x.type,
       name: chart.x.label,
+      nameLocation: "middle",
       nameTextStyle: axisLabel,
-      axisLabel,
+      axisLabel: { ...axisLabel, hideOverlap: true },
       axisLine: { lineStyle: { color: palette.border } },
       axisTick: { show: false },
       splitLine: { show: false },

@@ -109,7 +109,8 @@ token in those two fields on any tool update:
 | Long output truncated by the adapter | The token is the first thing in the result |
 | Result on the first `tool_call`, on a later update, or after the row already completed | The claim runs on every tool update and replaces the row in place |
 | One update or many | Single use: the first sighting claims, later ones find nothing |
-| Any tool title, kind, or call id | None is read |
+| Any tool kind or call id | None is read |
+| Tool title | Read only to leave an in-flight `updateBlock` row undrawn: `AgentBlockRules.NamesUpdate` matches a one-word title ending in the tool's name, as `mcp__weavie__updateBlock` and `mcp.weavie.updateBlock` do. A title that doesn't draws the row until its result is claimed, and the block updates either way |
 | Parallel calls, results in any order | Each result carries its own token |
 
 What breaks it, and what the user and the agent then see:
@@ -441,7 +442,7 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 ### Block row — `AgentBlockEntry.tsx` (new)
 
 ```tsx
-<section class="agent-block" style={{ height: `${blockHeight(props.entry.block.kind)}px` }}>
+<section class="agent-block" style={{ height: chart ? `${chartHeight}px` : undefined }}>
   <header class="agent-block-head">{title}<span class="agent-block-updated">{updated}</span></header>
   <Switch>
     <Match when={block()?.chart}>{(chart) => <AgentChart chart={chart()} … />}</Match>
@@ -450,9 +451,12 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 </section>
 ```
 
-- Height depends on the block kind only (`AgentBlockLayout.ts`), and `estimateEntrySize` returns the same
-  number, so a block arriving or updating never moves the transcript. A table scrolls inside its frame.
-- A row whose block has not arrived renders the same frame with its title from the row's `Summary`.
+- A chart's height is fixed (`agent-block-layout.ts`), and `estimateEntrySize` returns the same number, so a
+  chart arriving or updating never moves the transcript. A table is as tall as its rows up to a cap, where it
+  scrolls inside its frame; the rows are counted before filtering, so a filter never changes its height.
+- The header is the title alone; the block shows what kind it is.
+- A row whose block has not arrived renders its title from the row's `Summary` over an empty frame: a chart's
+  full height, a table's title alone.
 - "updated 14:32" appears once a block has been updated, from `updatedAtMs`.
 - `AgentPaneLayout.ts`'s `rangeExtractor` also keeps the row that owns the in-progress selection mounted,
   as it does for pending forms.
@@ -460,8 +464,11 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 ### Chart — `charts.ts`, `AgentChart.tsx` (new)
 
 - `echarts/core` with line, bar and scatter charts and the grid, tooltip, legend, mark-line, mark-area
-  and brush components, canvas renderer (12 series of 5,000 points is too many SVG nodes), loaded by a memoized dynamic import as Mermaid is in
-  `editor/preview/diagrams.ts`.
+  and brush components, loaded by a memoized dynamic import as Mermaid is in `editor/preview/diagrams.ts`.
+- `chartRenderer(chart)` picks SVG, whose text is the page's own, until a bar or scatter chart passes 2,000
+  marks; past that it is canvas, because every bar and point is a DOM node. A line is one path at any length.
+- Chart text is the chrome secondary role. Axis names sit along their axes and the grid lays itself out
+  inside its bounds (`outerBoundsContain: "all"`), so no name or label can meet the legend above it.
 - `chartOption(chart, palette)` is a pure function: `animationDuration: 0`, `animationDurationUpdate: 300`,
   comparison series dashed and dim, `thresholds` as `markLine`, `bands` as `markArea`, `y2` as a second
   `yAxis`.
@@ -472,8 +479,9 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 ### Table — `AgentTable.tsx` (new)
 
 - Rows are `.ui-row-content`, virtualized with `@tanstack/solid-virtual`; header and rows share explicit column
-  widths sized from the data, because virtualized rows can't join one grid; the filter is a `.ui-field`;
-  sortable headers are `.ui-button`.
+  widths sized from the data, because virtualized rows can't join one grid; sortable headers are `.ui-button`.
+- Each column filters from the button beside its name (`AgentTableFilter.tsx`): a phrase the cell must
+  contain, and the column's eight most common values to pick from. A selection's text names the filters.
 - `level` cells take `--warn`, `--bad`, `--dim`. `time` cells render in local time.
 - Dragging across cells attaches that rectangle; the row number attaches its row. The gesture attaches when it
   ends, like a chart brush.
@@ -549,7 +557,7 @@ No timeouts are added. A remote image fetch ends with its request or its session
 | --- | --- |
 | `tests/Weavie.Core.Tests` | `AgentBlockValidator` (each limit names itself), `AgentBlockOps` (replace, append, trim), `AgentBlockClaims` (single use, unbound, cleared), `AcpSessionStore` (upsert, prune in `Replace`, `ClearWorkspace`), `McpServer` (errors, per-grant `tools/list`), `AgentPaneLedger` (tool row to block row in place), `ConversationOutput` (history with blocks, block dropped on retraction), `AgentImageFetcher` with a stub handler |
 | `tests/Weavie.Hosting.Tests`, new `AcpBlockTests` | Show claims its own row with no extra journal event; update retracts and leaves no dataset in `pane_events`; Claude-shaped and Codex-shaped results; two parallel calls whose results arrive swapped; two appends applied in row order; subagent refused; no relay; restart; `/clear`; Rewind; `/btw` and workflow-thread isolation; refused turn deletes its block. Selection attachments beside `AcpSideAttachmentTests` |
-| Fake agent | `block:<relay>:<tool>:<json>`, `block-parallel:…` and `block-subagent:…` (`tools/Weavie.FakeAcp/FakeAcpAgent.Blocks.cs`) narrate the call with one relay per row of both tables in "What the link depends on": Claude and Codex shapes, JSON-escaped, content-only, fenced, truncated, result on the first `tool_call`, result after completion, repeated, swapped parallel results, no narration, no result, altered token, and a call narrated on a subagent session. Plain `mcp:` calls stay un-narrated |
+| Fake agent | `block:<relay>:<tool>:<json>`, `block-parallel:…` and `block-subagent:…` (`tools/Weavie.FakeAcp/FakeAcpAgent.Blocks.cs`) narrate the call with one relay per row of both tables in "What the link depends on": Claude and Codex shapes, JSON-escaped, content-only, fenced, truncated, result on the first `tool_call`, result after completion, repeated, swapped parallel results, no narration, no result, altered token, a row title that doesn't name the tool, and a call narrated on a subagent session. Plain `mcp:` calls stay un-narrated |
 | Vitest | `AgentPaneMessages`, `AgentPaneEstimate`, `AgentPaneAccumulator`, `block-store`, `chartOption`, table sort, filter and selection, selection text composition, `composer-state` |
 | e2e headless (`src/web/e2e/functional`) | `agent-blocks.spec.ts`: a block between two pieces of reply text; in-place update with many small appends; reload with the history response held, row offsets unchanged when blocks land; Rewind; `/clear`. `agent-attachments.spec.ts`: each gesture, stacked chips, the prompt the fake receives. `agent-images.spec.ts`: workspace image, region crop, the setting-off message |
 | e2e remote | One test: cropping an image across origins |

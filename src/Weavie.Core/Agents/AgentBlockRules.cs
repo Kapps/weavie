@@ -40,6 +40,15 @@ public static partial class AgentBlockRules {
 	public static readonly IReadOnlyList<string> ColumnTypes = ["time", "number", "text", "level"];
 	/// <summary>The id rule, as the tool schema states it.</summary>
 	public const string IdRule = "1-64 letters, digits, '.', '_' or '-'";
+	/// <summary>The MCP tool that changes a block.</summary>
+	public const string UpdateTool = "updateBlock";
+
+	/// <summary>
+	/// Whether a tool row's title is <see cref="UpdateTool"/> under whatever prefix its agent gives an MCP tool; a
+	/// command line that mentions the name is not. It decides only whether the in-flight row is drawn; claiming a
+	/// block never reads a title.
+	/// </summary>
+	public static bool NamesUpdate(string? title) => title is not null && UpdateTitle().IsMatch(title);
 
 	/// <summary>Validates and normalizes a request against the conversation's current block with that id.</summary>
 	public static AgentBlockOperation Validate(AgentBlockRequest request, AgentBlock? current, bool show) {
@@ -242,6 +251,9 @@ public static partial class AgentBlockRules {
 	private static void Refuse(string message) => throw new AgentBlockException(message);
 
 	private static T Fail<T>(string message) => throw new AgentBlockException(message);
+
+	[GeneratedRegex(@"^(\S*[^A-Za-z0-9\s])?" + UpdateTool + "$")]
+	private static partial Regex UpdateTitle();
 
 	[GeneratedRegex("^[A-Za-z0-9_.-]{1,64}$")]
 	private static partial Regex BlockId();

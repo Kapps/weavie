@@ -10,7 +10,7 @@ namespace Weavie.Core.Mcp;
 // The schema is built from the validator's own value sets and limits, so the two can't drift.
 public sealed partial class McpServer {
 	private const string ShowBlockTool = "showBlock";
-	private const string UpdateBlockTool = "updateBlock";
+	private const string UpdateBlockTool = AgentBlockRules.UpdateTool;
 
 	private static readonly string BlockToolEntries = BlockSchemas();
 
@@ -76,7 +76,7 @@ public sealed partial class McpServer {
 				["table"] = Table(),
 			}, "id", "title"));
 		var update = Tool(UpdateBlockTool,
-			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The block shows when it was last updated.",
+			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention.",
 			Object(new JsonObject {
 				["id"] = Text(),
 				["title"] = Text(),
@@ -105,7 +105,7 @@ public sealed partial class McpServer {
 			string kind = operation is AgentBlockOperation.Show shown ? shown.Block.Kind : "Block";
 			text = call.Blocks.Stage(operation) + (show
 				? $" The {kind} '{request.Id}' is shown to the user. Don't repeat its data; change it with updateBlock."
-				: $" Block '{request.Id}' is updated.");
+				: $" Block '{request.Id}' is updated; the user sees it change.");
 		} catch (JsonException ex) {
 			await SendToolErrorAsync(responder, idRaw, $"Invalid {(show ? ShowBlockTool : UpdateBlockTool)} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
 			return;

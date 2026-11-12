@@ -41,6 +41,10 @@ export function AgentPane(props: {
     if (!pressedWithMouse || event.button !== 0 || event.detail === 0) {
       return;
     }
+    // A portaled panel's clicks arrive here from outside the surface; the path survives a click removing its target.
+    if (!event.composedPath().includes(event.currentTarget as EventTarget)) {
+      return;
+    }
 
     const target = event.target;
     if (

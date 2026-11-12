@@ -8,7 +8,8 @@ import { highlightFence } from "./highlight";
 export interface MarkdownProfile {
   /** Raw HTML: dropped, kept to GitHub's user-content allowlist, or kept to DOMPurify's broad defaults. */
   html: "none" | "github" | "any";
-  allowImages: boolean;
+  /** Images: loaded directly, or left as inert `.agent-image` placeholders the host loads. */
+  images: "direct" | "hosted";
   allowMermaid: boolean;
   safeLinksOnly: boolean;
 }
@@ -42,10 +43,11 @@ export function createMarkdownEngine(profile: MarkdownProfile): MarkdownEngine {
         : highlightFence(code, lang),
   });
 
-  if (!profile.allowImages) {
+  if (profile.images === "hosted") {
     markdown.renderer.rules.image = (tokens, index) => {
-      const alt = tokens[index]?.content.trim();
-      return `<span class="markdown-image-blocked">[image${alt ? `: ${markdown.utils.escapeHtml(alt)}` : ""}]</span>`;
+      const token = tokens[index];
+      const escapeHtml = markdown.utils.escapeHtml;
+      return `<span class="agent-image" data-src="${escapeHtml(token?.attrGet("src") ?? "")}" data-alt="${escapeHtml(token?.content.trim() ?? "")}"></span>`;
     };
   }
 

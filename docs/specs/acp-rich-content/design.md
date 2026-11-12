@@ -625,5 +625,5 @@ agent exercise the whole path.
 12. ECharts chart view, palette tokens, theme re-apply.
 13. Table view.
 14. Attachment union end to end; selection gestures; command and setting.
-15. Image mode, hydration, remote route, CORS helper, setting.
+15. ~~Image mode, hydration, remote route, CORS helper, setting.~~ Done.
 16. e2e specs, `pnpm e2e:perf`, the remote crop test, real-agent run, docs, reviewer, tester video, PR.

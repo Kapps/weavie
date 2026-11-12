@@ -17,6 +17,9 @@ public static class AgentSettings {
 	/// <summary>Opens an agent's plan in the editor as soon as it asks for review.</summary>
 	public const string PlanReviewAutoOpen = "agent.planReview.autoOpen";
 
+	/// <summary>Loads the https images an agent's reply shows, fetched from the machine the agent runs on.</summary>
+	public const string RemoteImages = "agent.remoteImages";
+
 	/// <summary>How far down the agent pane a reply read from its start rests, as a fraction of the pane's height.</summary>
 	public const string ReplyStartOffset = "agent.replyStartOffset";
 

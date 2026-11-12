@@ -7,7 +7,7 @@ import { type BlockChange, blockChanges, mostlyRewritten } from "./block-changes
 
 const { markdown } = createMarkdownEngine({
   html: "any",
-  allowImages: true,
+  images: "direct",
   allowMermaid: true,
   safeLinksOnly: false,
 });

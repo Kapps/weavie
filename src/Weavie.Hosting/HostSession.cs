@@ -80,10 +80,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(paths);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentNullException.ThrowIfNull(owner);
-		ArgumentException.ThrowIfNullOrEmpty(paths.WorkspaceRoot);
-		ArgumentException.ThrowIfNullOrEmpty(paths.ScratchDir);
-		ArgumentException.ThrowIfNullOrEmpty(paths.PastedImagesDir);
-		ArgumentException.ThrowIfNullOrEmpty(paths.AuthenticationTerminalLog);
 		var settings = services.Settings;
 		string workspaceRoot = paths.WorkspaceRoot;
 

@@ -74,16 +74,17 @@ internal sealed record SessionPaths {
 	/// <summary>A shell terminal's scrollback log, from its id.</summary>
 	public required Func<string, string> ShellScrollback { get; init; }
 
-	/// <summary>The paths of the session rooted at <paramref name="cwd"/> in <paramref name="workspace"/>.</summary>
-	public static SessionPaths For(WorkspaceId workspace, string workspaceRoot, string cwd) {
-		string worktree = WorkspaceId.ForPath(cwd).Value;
+	/// <summary>The paths of the session rooted at <paramref name="worktree"/> in <paramref name="workspace"/>.</summary>
+	public static SessionPaths For(WorkspaceId workspace, string settingsWorkspaceRoot, string worktree) {
+		ArgumentException.ThrowIfNullOrEmpty(worktree);
+		string worktreeDigest = WorkspaceId.ForPath(worktree).Value;
 		return new() {
-			WorkspaceRoot = cwd,
-			SettingsWorkspaceRoot = workspaceRoot,
-			ScratchDir = Path.Combine(WeaviePaths.WorkspaceScratchDir(workspace), worktree),
-			PastedImagesDir = Path.Combine(WeaviePaths.WorkspacePastedImagesDir(workspace), worktree),
-			AuthenticationTerminalLog = WeaviePaths.WorkspaceTerminalLogFile(workspace, worktree, "agent-authentication"),
-			ShellScrollback = terminalId => WeaviePaths.WorkspaceTerminalLogFile(workspace, worktree, $"shell-{terminalId}"),
+			WorkspaceRoot = worktree,
+			SettingsWorkspaceRoot = settingsWorkspaceRoot,
+			ScratchDir = Path.Combine(WeaviePaths.WorkspaceScratchDir(workspace), worktreeDigest),
+			PastedImagesDir = Path.Combine(WeaviePaths.WorkspacePastedImagesDir(workspace), worktreeDigest),
+			AuthenticationTerminalLog = WeaviePaths.WorkspaceTerminalLogFile(workspace, worktreeDigest, "agent-authentication"),
+			ShellScrollback = terminalId => WeaviePaths.WorkspaceTerminalLogFile(workspace, worktreeDigest, $"shell-{terminalId}"),
 		};
 	}
 }

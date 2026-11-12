@@ -515,7 +515,9 @@ public sealed partial class HostCore {
 		_ => throw new ArgumentOutOfRangeException(nameof(status), status, "unhandled session status"),
 	};
 
-	private SessionServices SessionServices() => new() {
+	private readonly SessionServices _sessionServices;
+
+	private SessionServices CreateSessionServices() => new() {
 		Settings = _settings,
 		Layout = _layout,
 		CommandRegistry = _commandRegistry,
@@ -552,7 +554,7 @@ public sealed partial class HostCore {
 				provider,
 				shellTerminals,
 				SessionPaths.For(Id, WorkspaceRoot, cwd),
-				SessionServices(),
+				_sessionServices,
 				new SessionOwner {
 					Peers = new BoundSessionPeers(this, address, side: null),
 					InputFrozen = () => _drainInputFrozen,

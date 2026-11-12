@@ -2,14 +2,9 @@ using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
-using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
-using Weavie.Core.Layout;
-using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
-using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
-using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;

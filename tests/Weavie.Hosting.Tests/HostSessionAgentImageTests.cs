@@ -1,12 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
-using Weavie.Core.Layout;
-using Weavie.Core.Mcp;
-using Weavie.Core.Sessions;
-using Weavie.Core.Shell;
-using Weavie.Core.Theming;
-using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;

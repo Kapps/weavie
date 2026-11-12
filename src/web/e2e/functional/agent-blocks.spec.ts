@@ -60,7 +60,7 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   const block = surface.locator(".agent-entry-block");
   await expect(block).toHaveCount(1);
   await expect(block.locator(".agent-block-title")).toHaveText("p95 latency");
-  await expect(block.locator(".agent-chart svg")).toBeVisible();
+  await expect(block.locator(".agent-chart canvas")).toBeVisible();
   expect(await block.evaluate((element) => element.getBoundingClientRect().height)).toBe(300);
   const order = await surface
     .locator(".agent-entry-message.agent-tone-assistant, .agent-entry-block")
@@ -84,7 +84,7 @@ test("an agent's chart sits between its reply text, keeps its height, and update
 
   await page.reload();
   const restored = page.locator('[data-surface="structured-agent"] .agent-entry-block');
-  await expect(restored.locator(".agent-chart svg")).toBeVisible();
+  await expect(restored.locator(".agent-chart canvas")).toBeVisible();
   await expect(restored.locator(".agent-entry-status")).toContainText("updated");
 
   // Dragging across the chart attaches that range to the next prompt.
@@ -199,10 +199,43 @@ test("an update that lands while a column filter is open leaves it open", async 
   await expect(byLevel).toBeHidden();
 });
 
+test("a table scrolled out of the transcript and back keeps its sort and filters", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "agent-blocks-table-remount");
+  await submitAcpDraft(surface, `block:codex:showBlock:${JSON.stringify(table)}`);
+  const block = surface.locator(".agent-entry-block");
+  const messages = block.locator(".agent-table-row .agent-table-cell:nth-of-type(4)");
+  await block.getByRole("button", { name: "time", exact: true }).click();
+  await block.getByRole("button", { name: "Filter level" }).click();
+  await page.keyboard.type("r");
+  await expect(messages).toHaveText(["upstream timed out", "retrying"]);
+  await page.keyboard.press("Escape");
+
+  // Enough replies to push the table's row out of the mounted part of the transcript.
+  const filler = Array.from({ length: 60 }, (_, line) => `filler line ${line}`).join("\n");
+  for (let reply = 0; reply < 4; reply++) {
+    await submitAcpDraft(surface, `${reply}\n${filler}`);
+    await expect(surface.getByText(`echo: ${reply}`)).toBeVisible();
+  }
+  await expect(block).toHaveCount(0);
+
+  await surface.locator(".agent-transcript-scroller").hover();
+  await expect(async () => {
+    await page.mouse.wheel(0, -2000);
+    await expect(block).toBeVisible({ timeout: 500 });
+  }).toPass();
+  await expect(messages).toHaveText(["upstream timed out", "retrying"]);
+  await expect(block.getByRole("button", { name: "Filter level" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
 test("/clear removes the conversation's blocks", async ({ page }) => {
   const surface = await createAcpSession(page, "agent-blocks-clear");
   await submitAcpDraft(surface, `block:claude:showBlock:${JSON.stringify(chart)}`);
-  await expect(surface.locator(".agent-entry-block .agent-chart svg")).toBeVisible();
+  await expect(surface.locator(".agent-entry-block .agent-chart canvas")).toBeVisible();
 
   const composer = surface.locator("[data-agent-composer] textarea");
   await composer.fill("/clear");

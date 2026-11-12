@@ -3,14 +3,8 @@ import { createMemo, createSignal, For, type JSX } from "solid-js";
 import type { AgentBlockValue, AgentTable as AgentTableData } from "../bridge";
 import { AgentTableHead } from "./AgentTableHead";
 import { blockSelection, rawValue } from "./agent-block-selection";
-import {
-  type ColumnFilter,
-  cellText,
-  describeFilters,
-  filterActive,
-  passesFilter,
-  type TableSort,
-} from "./agent-table-model";
+import { cellText, describeFilters, filterActive, passesFilter } from "./agent-table-model";
+import type { TableView } from "./block-store";
 import type { AgentSelection } from "./composer-state";
 
 const textColumn = "minmax(16ch, 1fr)";
@@ -30,13 +24,12 @@ export function AgentTable(props: {
   id: string;
   table: AgentTableData;
   title: string;
+  view: TableView;
   onSelect: (selection: AgentSelection) => void;
   onSelecting: (active: boolean) => void;
 }): JSX.Element {
   let scroller: HTMLDivElement | undefined;
-  const [sort, setSort] = createSignal<TableSort>(null);
-  // Keyed by column name, so a filter survives the table being replaced with the same columns.
-  const [filters, setFilters] = createSignal<ReadonlyMap<string, ColumnFilter>>(new Map());
+  const { sort, setSort, filters, setFilters } = props.view;
   const [anchor, setAnchor] = createSignal<Cell | null>(null);
   const [focus, setFocus] = createSignal<Cell | null>(null);
 

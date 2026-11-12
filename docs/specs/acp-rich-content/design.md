@@ -465,8 +465,8 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 
 - `echarts/core` with line, bar and scatter charts and the grid, tooltip, legend, mark-line, mark-area
   and brush components, loaded by a memoized dynamic import as Mermaid is in `editor/preview/diagrams.ts`.
-- `chartRenderer(chart)` picks SVG, whose text is the page's own, until a bar or scatter chart passes 2,000
-  marks; past that it is canvas, because every bar and point is a DOM node. A line is one path at any length.
+- The renderer is canvas. SVG text would be the page's own, but WebKit can leave an SVG chart's lines unpainted
+  while every element is in place, and a bar or scatter chart at the limits is too many DOM nodes.
 - Chart text is the chrome secondary role. Axis names sit along their axes and the grid lays itself out
   inside its bounds (`outerBoundsContain: "all"`), so no name or label can meet the legend above it.
 - `chartOption(chart, palette)` is a pure function: `animationDuration: 0`, `animationDurationUpdate: 300`,
@@ -480,6 +480,8 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 
 - Rows are `.ui-row-content`, virtualized with `@tanstack/solid-virtual`; header and rows share explicit column
   widths sized from the data, because virtualized rows can't join one grid; sortable headers are `.ui-button`.
+- A table's sort and filters live with its block in `block-store.ts`, so a row the transcript unmounts when it
+  scrolls away comes back as the user left it.
 - Each column filters from the button beside its name (`AgentTableFilter.tsx`): a phrase the cell must
   contain, and the column's eight most common values to pick from. A selection's text names the filters.
 - `level` cells take `--warn`, `--bad`, `--dim`. `time` cells render in local time.

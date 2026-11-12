@@ -13,7 +13,7 @@ vi.mock("../messaging/session-owned-state", () => ({
   },
 }));
 
-const { agentBlock, putBlocks } = await import("./block-store");
+const { agentBlock, putBlocks, tableView } = await import("./block-store");
 const { blockKey } = await import("./AgentPaneIdentity");
 
 const record = (generation: number, revision: number, title: string): AgentBlockRecord => ({
@@ -37,5 +37,16 @@ describe("block store", () => {
 
     putBlocks(session, [record(1, 99, "stale")]);
     expect(agentBlock(session, key)?.block.title).toBe("after clear");
+  });
+
+  it("keeps a table's view with its block until a new generation voids the block", () => {
+    const session = {} as ClientSession;
+    const key = blockKey("fake", null, "p95");
+    putBlocks(session, [record(1, 1, "first")]);
+    tableView(session, key)!.setSort({ column: 1, descending: true });
+
+    expect(tableView(session, key)!.sort()).toEqual({ column: 1, descending: true });
+    putBlocks(session, [record(2, 1, "next")]);
+    expect(tableView(session, key)!.sort()).toBeNull();
   });
 });

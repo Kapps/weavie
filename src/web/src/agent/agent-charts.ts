@@ -22,26 +22,11 @@ export function loadECharts(): Promise<ECharts> {
       components.MarkLineComponent,
       components.MarkAreaComponent,
       components.BrushComponent,
-      renderers.SVGRenderer,
       renderers.CanvasRenderer,
     ]);
     return core;
   });
   return echartsPromise;
-}
-
-const svgMarkLimit = 2000;
-
-/**
- * SVG draws text as the page does, so it is the renderer until a chart has too many marks for the DOM: a bar or a
- * scatter point is an element each, while a line is one path however long.
- */
-export function chartRenderer(chart: AgentChart): "svg" | "canvas" {
-  const marks =
-    chart.kind === "bar" || chart.kind === "scatter"
-      ? chart.series.reduce((sum, line) => sum + line.points.length, 0)
-      : 0;
-  return marks > svgMarkLimit ? "canvas" : "svg";
 }
 
 /** The theme a chart draws with, read from Weavie's live CSS variables. */

@@ -5,7 +5,7 @@ import { blockKey } from "./AgentPaneIdentity";
 import { toAgentTranscript } from "./AgentPaneTestModel";
 import { tableHeightEstimate } from "./agent-block-layout";
 import { chartRangeSelection, wholeBlockSelection } from "./agent-block-selection";
-import { chartOption, chartRenderer } from "./agent-charts";
+import { chartOption } from "./agent-charts";
 import { sourceRect } from "./agent-crop";
 import { commonValues, describeFilters, noFilter, passesFilter } from "./agent-table-model";
 
@@ -78,14 +78,6 @@ describe("agent blocks", () => {
     expect(option.series[3]!.markLine!.data).toEqual([{ yAxis: 2.5, name: "SLO" }]);
     expect(option.series[3]!.markArea!.data).toHaveLength(1);
     expect(option.series[4]!.markLine!.data).toEqual([]);
-  });
-
-  it("draws in SVG until a bar or scatter chart has too many marks for the DOM", () => {
-    const points = Array.from({ length: 2001 }, (_, index): [number, number] => [index, index]);
-    const dense: AgentChart = { ...chart, series: [{ name: "s", points }] };
-    expect(chartRenderer(dense)).toBe("svg");
-    expect(chartRenderer({ ...dense, kind: "scatter" })).toBe("canvas");
-    expect(chartRenderer({ ...chart, kind: "bar" })).toBe("svg");
   });
 
   it("draws one y axis when the wire sends y2 as null", () => {

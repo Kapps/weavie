@@ -3,10 +3,11 @@ import type { AgentChart } from "../bridge";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { blockKey } from "./AgentPaneIdentity";
 import { toAgentTranscript } from "./AgentPaneTestModel";
-import { blockHeight } from "./agent-block-layout";
+import { tableHeightEstimate } from "./agent-block-layout";
 import { chartRangeSelection, wholeBlockSelection } from "./agent-block-selection";
-import { chartOption } from "./agent-charts";
+import { chartOption, chartRenderer } from "./agent-charts";
 import { sourceRect } from "./agent-crop";
+import { commonValues, describeFilters, noFilter, passesFilter } from "./agent-table-model";
 
 const chart: AgentChart = {
   kind: "area",
@@ -79,6 +80,14 @@ describe("agent blocks", () => {
     expect(option.series[4]!.markLine!.data).toEqual([]);
   });
 
+  it("draws in SVG until a bar or scatter chart has too many marks for the DOM", () => {
+    const points = Array.from({ length: 2001 }, (_, index): [number, number] => [index, index]);
+    const dense: AgentChart = { ...chart, series: [{ name: "s", points }] };
+    expect(chartRenderer(dense)).toBe("svg");
+    expect(chartRenderer({ ...dense, kind: "scatter" })).toBe("canvas");
+    expect(chartRenderer({ ...chart, kind: "bar" })).toBe("svg");
+  });
+
   it("draws one y axis when the wire sends y2 as null", () => {
     const option = chartOption(
       { ...chart, y2: null, series: chart.series.slice(0, 2) },
@@ -143,7 +152,31 @@ describe("agent blocks", () => {
       summary: "Errors",
       block: { key: blockKey("fake", null, "errors"), kind: "table" },
     });
-    expect(estimateEntrySize(entry)).toBe(blockHeight("table"));
+    expect(estimateEntrySize(entry)).toBe(tableHeightEstimate);
+  });
+});
+
+describe("table column filters", () => {
+  it("passes a cell on its phrase and picked values, and names both for the agent", () => {
+    expect(passesFilter({ phrase: " Time ", values: [] }, "upstream timed out")).toBe(true);
+    expect(passesFilter({ phrase: "", values: ["warn"] }, "error")).toBe(false);
+    expect(commonValues(["a", "b", "b", "c", "b", "c"], ["a", "gone", "b"], 2)).toEqual([
+      { value: "b", count: 3 },
+      { value: "c", count: 2 },
+      { value: "a", count: 1 },
+      { value: "gone", count: 0 },
+    ]);
+    expect(
+      describeFilters(
+        ["level", "message", "ms"],
+        new Map([
+          ["gone", { phrase: "x", values: [] }],
+          ["level", { phrase: "", values: ["error", "warn"] }],
+          ["message", { phrase: "retry", values: [] }],
+          ["ms", noFilter],
+        ]),
+      ),
+    ).toBe('level is error or warn, message contains "retry"');
   });
 });
 

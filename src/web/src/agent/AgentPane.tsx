@@ -43,6 +43,11 @@ export function AgentPane(props: {
     }
 
     const target = event.target;
+    // A panel portaled out of the surface still delivers its clicks here; they are not presses on the surface.
+    const surface = event.currentTarget;
+    if (!(target instanceof Node) || !(surface instanceof Node) || !surface.contains(target)) {
+      return;
+    }
     if (
       target instanceof Element &&
       target.closest(

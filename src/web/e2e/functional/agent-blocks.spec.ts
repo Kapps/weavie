@@ -1,6 +1,9 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 const chart = {
   id: "p95",
@@ -57,7 +60,7 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   const block = surface.locator(".agent-entry-block");
   await expect(block).toHaveCount(1);
   await expect(block.locator(".agent-block-title")).toHaveText("p95 latency");
-  await expect(block.locator(".agent-chart canvas")).toBeVisible();
+  await expect(block.locator(".agent-chart svg")).toBeVisible();
   expect(await block.evaluate((element) => element.getBoundingClientRect().height)).toBe(300);
   const order = await surface
     .locator(".agent-entry-message.agent-tone-assistant, .agent-entry-block")
@@ -81,7 +84,7 @@ test("an agent's chart sits between its reply text, keeps its height, and update
 
   await page.reload();
   const restored = page.locator('[data-surface="structured-agent"] .agent-entry-block');
-  await expect(restored.locator(".agent-chart canvas")).toBeVisible();
+  await expect(restored.locator(".agent-chart svg")).toBeVisible();
   await expect(restored.locator(".agent-entry-status")).toContainText("updated");
 
   // Dragging across the chart attaches that range to the next prompt.
@@ -108,12 +111,37 @@ test("an agent's table sorts, filters, and attaches dragged cells", async ({ pag
   await expect(messages).toHaveText(["upstream timed out", "deploy started", "retrying"]);
   await expect(block.locator('[data-level="bad"]')).toHaveText("error");
 
-  await block.getByRole("button", { name: "time" }).click();
+  await block.getByRole("button", { name: "time", exact: true }).click();
   await expect(messages).toHaveText(["deploy started", "upstream timed out", "retrying"]);
 
-  await block.getByRole("searchbox", { name: "Filter Recent errors" }).fill("retry");
+  // Three rows are three rows tall, and a filter narrows them without moving what's below.
+  const height = (await block.boundingBox())!.height;
+  expect(height).toBeLessThan(200);
+  await block.getByRole("button", { name: "Filter message" }).click();
+  const byMessage = page.getByRole("dialog", { name: "Filter message" });
+  await page.keyboard.type("retry");
   await expect(messages).toHaveText(["retrying"]);
-  await block.getByRole("searchbox", { name: "Filter Recent errors" }).fill("");
+  expect((await block.boundingBox())!.height).toBe(height);
+  await byMessage.getByRole("button", { name: "Clear Filter" }).click();
+  await page.keyboard.press("Escape");
+  await expect(byMessage).toBeHidden();
+  await expect(block.getByRole("button", { name: "Filter message" })).toBeFocused();
+
+  await block.getByRole("button", { name: "Filter level" }).click();
+  const byLevel = page.getByRole("dialog", { name: "Filter level" });
+  await byLevel.getByRole("button", { name: "error" }).click();
+  await byLevel.getByRole("button", { name: "warn" }).click();
+  await expect(messages).toHaveText(["upstream timed out", "retrying"]);
+  // Picking a value leaves focus in the panel, where Escape and Enter are the panel's and not the prompt's.
+  await expect(byLevel.getByRole("searchbox")).toBeFocused();
+  await expect(block.getByRole("button", { name: "Filter level" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await byLevel.getByRole("button", { name: "Clear Filter" }).click();
+  await block.getByRole("button", { name: "Filter level" }).click();
+  await expect(byLevel).toBeHidden();
+  await expect(messages).toHaveCount(3);
 
   const first = block.locator('[data-cell="0:1"]');
   const last = block.locator('[data-cell="1:2"]');
@@ -131,10 +159,44 @@ test("an agent's table sorts, filters, and attaches dragged cells", async ({ pag
   await expect(chip.nth(1)).toContainText("Recent errors · row 3");
 });
 
+test("an update that lands while a column filter is open leaves it open", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "agent-blocks-live-filter");
+  const signal = (name: string): Promise<void> =>
+    writeFile(join(sessionWorktrees(weavie.workspace)[0]!, name), "");
+  await submitAcpDraft(surface, `block:codex:showBlock:${JSON.stringify(table)}`);
+  const block = surface.locator(".agent-entry-block");
+  const messages = block.locator(".agent-table-row .agent-table-cell:nth-of-type(4)");
+  await expect(messages).toHaveCount(3);
+
+  const append = { rows: [["2026-11-12T14:32:00Z", "error", "circuit open"]], keep: 10 };
+  await signal("hold-block");
+  await submitAcpDraft(
+    surface,
+    `block:claude:updateBlock:${JSON.stringify({ id: "errors", append })}`,
+  );
+  await block.getByRole("button", { name: "Filter level" }).click();
+  const byLevel = page.getByRole("dialog", { name: "Filter level" });
+  await byLevel.getByRole("button", { name: "error" }).click();
+  await page.keyboard.type("err");
+  await expect(messages).toHaveText(["upstream timed out"]);
+  // The call is in flight, and its row is not drawn.
+  await expect(surface.locator(".agent-entry-activity")).toHaveCount(0);
+
+  await signal("release-block");
+  await expect(messages).toHaveText(["upstream timed out", "circuit open"]);
+  await expect(byLevel.getByRole("searchbox")).toBeFocused();
+  await expect(byLevel.getByRole("button", { name: "error" })).toContainText("2");
+  await page.keyboard.press("Escape");
+  await expect(byLevel).toBeHidden();
+});
+
 test("/clear removes the conversation's blocks", async ({ page }) => {
   const surface = await createAcpSession(page, "agent-blocks-clear");
   await submitAcpDraft(surface, `block:claude:showBlock:${JSON.stringify(chart)}`);
-  await expect(surface.locator(".agent-entry-block .agent-chart canvas")).toBeVisible();
+  await expect(surface.locator(".agent-entry-block .agent-chart svg")).toBeVisible();
 
   const composer = surface.locator("[data-agent-composer] textarea");
   await composer.fill("/clear");

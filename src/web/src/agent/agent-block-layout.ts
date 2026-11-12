@@ -1,6 +1,4 @@
-/** A block row's height depends on its kind only, so data arriving or updating never moves the transcript. */
-export const blockHeights = { chart: 300, table: 320 } as const;
-
-export function blockHeight(kind: keyof typeof blockHeights): number {
-  return blockHeights[kind];
-}
+/** A chart's row is this tall whatever its data, so an update never moves the transcript. */
+export const chartHeight = 300;
+/** A table is as tall as its rows up to about this, its size before it is measured. */
+export const tableHeightEstimate = 310;

@@ -59,11 +59,24 @@ public sealed class AcpBlockTests {
 		Assert.NotNull(block.UpdatedAtMs);
 		var update = Assert.Single(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.ItemId == "tool:block-call-2");
 		Assert.Equal("item-retracted", update.Message.Type);
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemId == "tool:block-call-2" && message.Type == "item-started");
 		Assert.DoesNotContain(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.ItemId == "tool:block-call-2"
 			&& (message.Text ?? "").Contains("98765", StringComparison.Ordinal));
 		Assert.Equal(98765, fixture.PublishedBlocks[^1].State.Block.Chart!.Series[0].Points[1][1].Number);
 		var saved = Assert.Single(fixture.Sessions.ReadBlocks("fake", fixture.Workspace, fixture.Sessions.ReadMessages("fake", fixture.Workspace)));
 		Assert.Equal(Json(block), Json(saved.Block));
+	}
+
+	[Fact]
+	public async Task UpdateBlock_UnderATitleThatDoesNotNameIt_StillAppliesAndRemovesItsRow() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+
+		await CallAsync(fixture, $"block:untitled:updateBlock:{Append}", 2);
+
+		Assert.Equal(98765, fixture.Session.Output.Block("fake", null, "p95")!.Chart!.Series[0].Points[1][1].Number);
+		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:block-call-2" && message.Type == "item-started");
+		Assert.Equal("item-retracted", Assert.Single(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.ItemId == "tool:block-call-2").Message.Type);
 	}
 
 	[Fact]

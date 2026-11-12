@@ -1,11 +1,18 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { ArrowDown, ArrowUp } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX } from "solid-js";
 import type { AgentBlockValue, AgentTable as AgentTableData } from "../bridge";
+import { AgentTableHead } from "./AgentTableHead";
 import { blockSelection, rawValue } from "./agent-block-selection";
+import {
+  type ColumnFilter,
+  cellText,
+  describeFilters,
+  filterActive,
+  passesFilter,
+  type TableSort,
+} from "./agent-table-model";
 import type { AgentSelection } from "./composer-state";
 
-type Sort = { column: number; descending: boolean } | null;
 const textColumn = "minmax(16ch, 1fr)";
 interface Cell {
   row: number;
@@ -18,7 +25,7 @@ interface Area {
   right: number;
 }
 
-/** A sortable, filterable block table; dragging across cells attaches them, the row number a whole row. */
+/** A block table sorted and filtered per column; dragging across cells attaches them, the row number a whole row. */
 export function AgentTable(props: {
   id: string;
   table: AgentTableData;
@@ -27,19 +34,21 @@ export function AgentTable(props: {
   onSelecting: (active: boolean) => void;
 }): JSX.Element {
   let scroller: HTMLDivElement | undefined;
-  const [sort, setSort] = createSignal<Sort>(null);
-  const [filter, setFilter] = createSignal("");
+  const [sort, setSort] = createSignal<TableSort>(null);
+  // Keyed by column name, so a filter survives the table being replaced with the same columns.
+  const [filters, setFilters] = createSignal<ReadonlyMap<string, ColumnFilter>>(new Map());
   const [anchor, setAnchor] = createSignal<Cell | null>(null);
   const [focus, setFocus] = createSignal<Cell | null>(null);
 
   const rows = createMemo(() => {
-    const query = filter().trim().toLowerCase();
-    const shown = props.table.rows.filter(
-      (row) =>
-        query.length === 0 ||
-        row.some((value, column) =>
-          cellText(props.table, column, value).toLowerCase().includes(query),
-        ),
+    const active = props.table.columns.flatMap((column, index) => {
+      const filter = filters().get(column.name);
+      return filterActive(filter) ? [{ index, filter: filter! }] : [];
+    });
+    const shown = props.table.rows.filter((row) =>
+      active.every(({ index, filter }) =>
+        passesFilter(filter, cellText(props.table, index, row[index] ?? null)),
+      ),
     );
     const order = sort();
     if (order !== null) {
@@ -59,7 +68,7 @@ export function AgentTable(props: {
       const values = column.type === "time" ? props.table.rows.slice(0, 1) : props.table.rows;
       const longest = values.reduce(
         (width, row) => Math.max(width, cellText(props.table, index, row[index] ?? null).length),
-        column.name.length + 2,
+        column.name.length + 5,
       );
       return Math.min(longest, 32) + 2;
     });
@@ -76,7 +85,8 @@ export function AgentTable(props: {
     get count() {
       return rows().length;
     },
-    estimateSize: () => 24,
+    // For rows not yet measured; a mounted row reports its own height.
+    estimateSize: () => 25,
     getScrollElement: () => scroller ?? null,
     overscan: 8,
   });
@@ -136,11 +146,14 @@ export function AgentTable(props: {
     const picked = props.table.columns.slice(box.left, box.right + 1);
     const span =
       box.top === box.bottom ? `row ${box.top + 1}` : `rows ${box.top + 1}-${box.bottom + 1}`;
-    const query = filter().trim();
+    const where = describeFilters(
+      props.table.columns.map((column) => column.name),
+      filters(),
+    );
     return blockSelection(
       "Table",
       { id: props.id, title: props.title },
-      { label: span, detail: `${span} of ${rows().length}${query ? ` matching "${query}"` : ""}` },
+      { label: span, detail: `${span} of ${rows().length}${where ? ` where ${where}` : ""}` },
       picked.map((column) => column.name),
       rows()
         .slice(box.top, box.bottom + 1)
@@ -156,16 +169,9 @@ export function AgentTable(props: {
       style={{
         "--agent-table-columns": columns().template,
         "--agent-table-min-width": columns().minWidth,
+        "--agent-table-count": props.table.rows.length,
       }}
     >
-      <input
-        class="ui-field ui-field-content agent-table-filter"
-        type="search"
-        placeholder="Filter"
-        aria-label={`Filter ${props.title}`}
-        value={filter()}
-        onInput={(event) => setFilter(event.currentTarget.value)}
-      />
       <div
         class="agent-table-body"
         ref={scroller}
@@ -173,32 +179,13 @@ export function AgentTable(props: {
         onPointerUp={end}
         onPointerCancel={stop}
       >
-        <div class="agent-table-head">
-          <span class="agent-table-gutter" />
-          <For each={props.table.columns}>
-            {(column, index) => (
-              <button
-                type="button"
-                class="ui-button ui-button-content agent-table-sort"
-                title={`Sort by ${column.name}`}
-                onClick={() =>
-                  setSort((current) =>
-                    current?.column !== index()
-                      ? { column: index(), descending: false }
-                      : current.descending
-                        ? null
-                        : { column: index(), descending: true },
-                  )
-                }
-              >
-                {column.name}
-                <Show when={sort()?.column === index()}>
-                  <span class="ui-icon">{sort()?.descending ? <ArrowDown /> : <ArrowUp />}</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
+        <AgentTableHead
+          table={props.table}
+          sort={sort()}
+          onSort={setSort}
+          filters={filters()}
+          onFilters={setFilters}
+        />
         <div class="agent-table-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
           <For each={virtualizer.getVirtualItems()}>
             {(item) => (
@@ -255,13 +242,6 @@ export function AgentTable(props: {
       </div>
     </div>
   );
-}
-
-function cellText(table: AgentTableData, column: number, value: AgentBlockValue): string {
-  if (value === null) return "";
-  return table.columns[column]?.type === "time" && typeof value === "number"
-    ? new Date(value).toLocaleString()
-    : String(value);
 }
 
 function compare(left: AgentBlockValue | undefined, right: AgentBlockValue | undefined): number {

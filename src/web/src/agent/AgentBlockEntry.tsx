@@ -7,7 +7,7 @@ import { CommandIds } from "../commands/types";
 import { AgentChart } from "./AgentChart";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTable } from "./AgentTable";
-import { blockHeight } from "./agent-block-layout";
+import { chartHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
 import { ownCommand, ownsCommand } from "./agent-command-owner";
 import { agentBlock } from "./block-store";
@@ -46,12 +46,12 @@ export function AgentBlockEntry(props: {
   return (
     <div
       class="agent-entry agent-entry-block"
-      style={{ height: `${blockHeight(props.entry.block.kind)}px` }}
+      data-block={props.entry.block.kind}
+      style={{ height: props.entry.block.kind === "chart" ? `${chartHeight}px` : undefined }}
       onFocusIn={own}
       onPointerDown={own}
     >
       <div class="agent-entry-head">
-        <span class="agent-entry-label">{props.entry.label}</span>
         <span class="agent-block-title">{title()}</span>
         <button
           type="button"

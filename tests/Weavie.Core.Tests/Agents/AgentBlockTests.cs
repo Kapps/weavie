@@ -84,6 +84,17 @@ public sealed class AgentBlockTests {
 		Assert.Single(AgentBlockRules.Apply(shown, append, 1)!.Table!.Rows);
 	}
 
+	[Theory]
+	[InlineData("mcp__weavie__updateBlock", true)]
+	[InlineData("mcp.weavie.updateBlock", true)]
+	[InlineData("updateBlock", true)]
+	[InlineData("rg updateBlock src", false)]
+	[InlineData("grep -r updateBlock", false)]
+	[InlineData("mcp__weavie__showBlock", false)]
+	[InlineData(null, false)]
+	public void OnlyAToolTitleNamesAnUpdate(string? title, bool names) =>
+		Assert.Equal(names, AgentBlockRules.NamesUpdate(title));
+
 	[Fact]
 	public void ClaimsAreSingleUseAndFoundInAnyRelayShape() {
 		var claims = new AgentBlockClaims();

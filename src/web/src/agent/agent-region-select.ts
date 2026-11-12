@@ -1,6 +1,6 @@
 import { notify } from "../notify/notify";
 import { cropPng } from "./agent-crop";
-import { cropAgentImage } from "./agent-images";
+import { cropAgentImage, imageFrame } from "./agent-images";
 import "./agent-region-select.css";
 
 // The smallest drag, in CSS px, that counts as a box rather than a click.
@@ -17,7 +17,9 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
     );
     if (event.button !== 0 || target === null || target === undefined) return;
     event.preventDefault();
+    // Measured now: a reply that re-renders during the drag replaces the element, but not its pixels.
     const bounds = target.getBoundingClientRect();
+    const frame = target instanceof HTMLImageElement ? imageFrame(target) : null;
     const box = document.createElement("div");
     box.className = "agent-region-box";
     document.body.append(box);
@@ -50,7 +52,7 @@ export function installRegionSelect(host: HTMLElement, attach: (png: Blob) => vo
       if (area.width < minimumBox || area.height < minimumBox) return;
       const png =
         target instanceof HTMLImageElement
-          ? cropAgentImage(target, {
+          ? cropAgentImage(target, frame!, {
               x: area.left - bounds.left,
               y: area.top - bounds.top,
               width: area.width,

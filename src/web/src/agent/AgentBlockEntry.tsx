@@ -2,15 +2,14 @@ import { Paperclip } from "lucide-solid";
 import { type JSX, Match, onCleanup, Show, Switch } from "solid-js";
 import "./agent-blocks.css";
 import type { ClientSession } from "../bridge";
-import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { AgentChart } from "./AgentChart";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTable } from "./AgentTable";
 import { blockHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
+import { ownCommand, ownsCommand } from "./agent-command-owner";
 import { agentBlock } from "./block-store";
 import type { AgentSelection } from "./composer-state";
 import { attachAgentSelection } from "./composer-store";
@@ -31,20 +30,17 @@ export function AgentBlockEntry(props: {
     select(wholeBlockSelection(block));
     return true;
   };
-  // The focused block owns Attach Block to Prompt, so the keyboard reaches all of its data.
+  // The block last pressed or focused owns Attach Block to Prompt, until the user moves on; the omnibar keeps it.
   let release: (() => void) | null = null;
-  const own = (): void => {
-    if (release !== null) return;
-    const off = registerCommand(CommandIds.attachAgentBlock, attachAll);
-    setContext("agentBlockFocused", true);
-    release = () => {
-      off();
-      setContext("agentBlockFocused", false);
-      release = null;
-    };
-  };
-  const disown = (event: FocusEvent): void => {
-    if (!(event.currentTarget as Element).contains(event.relatedTarget as Node | null)) release?.();
+  const own = (event: Event): void => {
+    if (ownsCommand(CommandIds.attachAgentBlock, release)) return;
+    release = ownCommand(
+      CommandIds.attachAgentBlock,
+      "agentBlockFocused",
+      event.currentTarget as Element,
+      attachAll,
+      false,
+    );
   };
   onCleanup(() => release?.());
   return (
@@ -52,7 +48,7 @@ export function AgentBlockEntry(props: {
       class="agent-entry agent-entry-block"
       style={{ height: `${blockHeight(props.entry.block.kind)}px` }}
       onFocusIn={own}
-      onFocusOut={disown}
+      onPointerDown={own}
     >
       <div class="agent-entry-head">
         <span class="agent-entry-label">{props.entry.label}</span>

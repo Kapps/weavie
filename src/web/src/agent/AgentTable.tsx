@@ -6,6 +6,7 @@ import { blockSelection, rawValue } from "./agent-block-selection";
 import type { AgentSelection } from "./composer-state";
 
 type Sort = { column: number; descending: boolean } | null;
+const textColumn = "minmax(16ch, 1fr)";
 interface Cell {
   row: number;
   column: number;
@@ -49,18 +50,26 @@ export function AgentTable(props: {
     }
     return shown;
   });
-  // Explicit widths, so the header and the virtualized rows line up without sharing one grid.
+  // Explicit widths, so the header and the virtualized rows line up without sharing one grid: fixed columns take
+  // their longest value, text columns share the rest, and the table never gets narrower than all of them at minimum.
   const columns = createMemo(() => {
+    const gutter = String(props.table.rows.length).length + 2;
     const widths = props.table.columns.map((column, index) => {
-      if (column.type === "text") return "minmax(16ch, 1fr)";
+      if (column.type === "text") return textColumn;
       const values = column.type === "time" ? props.table.rows.slice(0, 1) : props.table.rows;
       const longest = values.reduce(
         (width, row) => Math.max(width, cellText(props.table, index, row[index] ?? null).length),
         column.name.length + 2,
       );
-      return `${Math.min(longest, 32) + 2}ch`;
+      return Math.min(longest, 32) + 2;
     });
-    return `${String(props.table.rows.length).length + 2}ch ${widths.join(" ")}`;
+    const minimum =
+      gutter +
+      widths.reduce<number>((sum, width) => sum + (typeof width === "number" ? width : 16), 0);
+    return {
+      template: `${gutter}ch ${widths.map((width) => (typeof width === "number" ? `${width}ch` : width)).join(" ")}`,
+      minWidth: `calc(${minimum}ch + ${props.table.columns.length * 12}px)`,
+    };
   });
 
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -142,7 +151,13 @@ export function AgentTable(props: {
   };
 
   return (
-    <div class="agent-table" style={{ "--agent-table-columns": columns() }}>
+    <div
+      class="agent-table"
+      style={{
+        "--agent-table-columns": columns().template,
+        "--agent-table-min-width": columns().minWidth,
+      }}
+    >
       <input
         class="ui-field ui-field-content agent-table-filter"
         type="search"

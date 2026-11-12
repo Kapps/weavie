@@ -198,3 +198,35 @@ describe("block selections", () => {
     ]);
   });
 });
+
+describe("whole-block selections", () => {
+  it("attaches an empty time chart, and skips points without an x", () => {
+    const empty = wholeBlockSelection({
+      id: "e",
+      title: "Empty",
+      chart: { kind: "line", x: { type: "time" }, series: [{ name: "now", points: [] }] },
+    });
+    expect(empty.label).toBe("Empty · all 0 points");
+    expect(empty.text.split("\n")).toEqual(['Chart "Empty" (e), all 0 points', "x,now"]);
+
+    const gappy = wholeBlockSelection({
+      id: "g",
+      title: "Gappy",
+      chart: {
+        kind: "line",
+        x: { type: "number" },
+        series: [
+          {
+            name: "s",
+            points: [
+              [2, 20],
+              [null, 5],
+              [1, 10],
+            ],
+          },
+        ],
+      },
+    });
+    expect(gappy.text.split("\n").slice(1)).toEqual(["x,s", "1,10", "2,20"]);
+  });
+});

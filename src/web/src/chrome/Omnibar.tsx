@@ -35,7 +35,7 @@ import { createFileSearch, FILE_SEARCH_VIEW_CAP as VIEW_CAP } from "./create-fil
 import { splitPath } from "./file-search";
 import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
-import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
+import { type OmnibarMode, omnibarRequest, setOmnibarRoot } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
 
@@ -604,7 +604,15 @@ export function Omnibar(props: {
   };
 
   return (
-    <div class="tb-omnibar" ref={rootRef} onFocusOut={onFocusOut}>
+    <div
+      class="tb-omnibar"
+      ref={(element) => {
+        rootRef = element;
+        setOmnibarRoot(element);
+        onCleanup(() => setOmnibarRoot(null));
+      }}
+      onFocusOut={onFocusOut}
+    >
       <div class="tb-omnibar-box" classList={{ open: open() }}>
         <span class="tb-omnibar-icon" aria-hidden="true">
           <Search />

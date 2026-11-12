@@ -1,14 +1,13 @@
 import type { ClientSession } from "../bridge";
 import { agentAttachOnSelect } from "../chrome/agent-default";
-import { setContext } from "../commands/context";
-import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { ownCommand, ownsCommand } from "./agent-command-owner";
 import { attachAgentSelection } from "./composer-store";
 
 const LABEL_LENGTH = 60;
 const replies = new WeakMap<Element, ClientSession>();
-// The reply whose text was last highlighted owns Attach Selection to Prompt, with that text, until the next press
-// in a reply: opening the palette to run the command collapses the highlight but must not lose it.
+// The reply whose text is highlighted owns Attach Selection to Prompt, holding that text so opening the omnibar,
+// which collapses the highlight, doesn't lose it; any press or focus elsewhere, or a press in the reply, ends it.
 let owner: { host: Element; text: string; release: () => void } | null = null;
 let lastAttached: { host: Element; text: string } | null = null;
 let tracking = false;
@@ -23,16 +22,11 @@ export function installReplySelection(host: HTMLElement, session: ClientSession)
   const attachOnRelease = (): void => {
     if (agentAttachOnSelect(session.connection.id)) setTimeout(() => attachCurrent(host, session));
   };
-  const disown = (): void => {
-    if (owner !== null) release();
-  };
-  host.addEventListener("pointerdown", disown);
   host.addEventListener("pointerup", attachOnRelease);
   return () => {
-    host.removeEventListener("pointerdown", disown);
     host.removeEventListener("pointerup", attachOnRelease);
     replies.delete(host);
-    if (owner?.host === host) release();
+    if (owner?.host === host) owner.release();
   };
 }
 
@@ -42,29 +36,27 @@ function trackOwner(): void {
   const session = host === null ? undefined : replies.get(host);
   if (host === null || session === undefined) return;
   const text = selectedText();
-  if (owner?.host === host) {
+  if (
+    owner !== null &&
+    owner.host === host &&
+    ownsCommand(CommandIds.attachAgentSelection, owner.release)
+  ) {
     owner.text = text;
     return;
   }
-  if (owner !== null) release();
-  const off = registerCommand(CommandIds.attachAgentSelection, () => {
-    if (owner === null || owner.text.length === 0) return false;
-    attachAgentSelection(session, { label: selectionLabel(owner.text), text: owner.text });
-  });
-  setContext("agentSelectionAttachable", true);
-  owner = {
+  const held = { host, text, release: () => {} };
+  held.release = ownCommand(
+    CommandIds.attachAgentSelection,
+    "agentSelectionAttachable",
     host,
-    text,
-    release: () => {
-      off();
-      setContext("agentSelectionAttachable", false);
+    () => {
+      if (held.text.length === 0) return false;
+      attachAgentSelection(session, { label: selectionLabel(held.text), text: held.text });
+      return true;
     },
-  };
-}
-
-function release(): void {
-  owner?.release();
-  owner = null;
+    true,
+  );
+  owner = held;
 }
 
 // The reply that contains the whole non-empty selection, when one does.

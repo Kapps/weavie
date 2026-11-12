@@ -50,8 +50,8 @@
   display: grid;
   grid-template-columns: var(--agent-table-columns);
   column-gap: 12px;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: var(--agent-table-min-width);
 }
 
 /* Inside the scroller, so it scrolls sideways with the rows and stays put vertically. */
@@ -65,8 +65,7 @@
 
 .agent-table-rows {
   position: relative;
-  width: max-content;
-  min-width: 100%;
+  min-width: var(--agent-table-min-width);
 }
 
 .agent-table-sort {

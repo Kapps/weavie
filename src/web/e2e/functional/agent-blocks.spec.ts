@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 
@@ -159,3 +160,50 @@ test("an agent that can't report a block's result says it wasn't shown", async (
   );
   await expect(surface.locator(".agent-entry-block")).toHaveCount(0);
 });
+
+test("a long cell ellipsizes in its own column, and the focused block attaches whole from the palette", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "agent-blocks-wide");
+  const wide = {
+    id: "wide",
+    title: "Wide",
+    table: {
+      columns: [
+        { name: "message", type: "text" },
+        { name: "count", type: "number" },
+      ],
+      rows: [
+        ["short", 1],
+        ["x".repeat(400), 2],
+      ],
+    },
+  };
+  await submitAcpDraft(surface, `block:claude:showBlock:${JSON.stringify(wide)}`);
+  const block = surface.locator(".agent-entry-block");
+  await expect(block.locator(".agent-table-row")).toHaveCount(2);
+  const left = (locator: Locator) =>
+    locator.evaluate((element) => Math.round(element.getBoundingClientRect().left));
+  const header = await left(block.locator(".agent-table-sort").nth(1));
+  expect(await left(block.locator('[data-cell="0:1"]'))).toBe(header);
+  expect(await left(block.locator('[data-cell="1:1"]'))).toBe(header);
+  const [client, scroll] = await block
+    .locator(".agent-table-body")
+    .evaluate((element) => [element.clientWidth, element.scrollWidth]);
+  expect(scroll).toBe(client);
+
+  // Pressing a cell attaches it and leaves the block owning the command for the omnibar.
+  await block.locator('[data-cell="0:1"]').click();
+  await runFromOmnibar(page, "Attach Block to Prompt");
+  const chips = surface.locator("[data-agent-composer] .agent-attachment-selection");
+  await expect(chips.last()).toContainText("Wide · all 2 rows");
+});
+
+async function runFromOmnibar(page: Page, title: string): Promise<void> {
+  await page.locator(".tb-omnibar-input").click();
+  await page.locator(".tb-omnibar-input").fill(`>${title}`);
+  await page
+    .locator(".tb-omnibar-row")
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: new RegExp(`^${title}$`) }) })
+    .click();
+}

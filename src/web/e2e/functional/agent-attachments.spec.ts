@@ -62,6 +62,17 @@ test("with attach-on-select off, highlighting attaches nothing until the command
     .click();
   await expect(chip).toHaveCount(1);
   await expect(chip).toContainText("echo: delta echo foxtrot");
+
+  // Moving on from the highlight ends the command: the omnibar no longer offers it.
+  await highlight(page, reply);
+  await surface.locator("[data-agent-composer] textarea").click();
+  await page.locator(".tb-omnibar-input").click();
+  await page.locator(".tb-omnibar-input").fill(">Attach Selection to Prompt");
+  await expect(
+    page
+      .locator(".tb-omnibar-row")
+      .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Attach Selection to Prompt$/ }) }),
+  ).toHaveCount(0);
 });
 
 async function highlight(page: Page, reply: Locator): Promise<void> {

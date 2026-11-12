@@ -49,23 +49,38 @@ export function chartRangeSelection(
   from: number,
   to: number,
 ): AgentSelection {
-  const xs = [...new Set(chart.series.flatMap((line) => line.points.map((point) => point[0])))];
+  const xs = chartXs(chart);
   const covered =
     chart.x.type === "category"
       ? xs.slice(Math.max(0, Math.ceil(from)), Math.floor(to) + 1)
-      : xs
-          .filter((x): x is number => typeof x === "number" && x >= from && x <= to)
-          .sort((left, right) => left - right);
+      : xs.filter((x) => typeof x === "number" && x >= from && x <= to);
   const ends =
     chart.x.type === "category" ? [covered[0] ?? null, covered.at(-1) ?? null] : [from, to];
   const range = (format: typeof rawValue): string =>
     `${format(chart.x.type, ends[0] ?? null)} to ${format(chart.x.type, ends[1] ?? null)}`;
+  return chartRows(block, chart, covered, { label: range(shortValue), detail: range(rawValue) });
+}
+
+// Every distinct x, in category order for a category axis and ascending otherwise; a null x has no position.
+function chartXs(chart: AgentChart): AgentBlockValue[] {
+  const xs = [
+    ...new Set(chart.series.flatMap((line) => line.points.map((point) => point[0]))),
+  ].filter((x) => x !== null);
+  return chart.x.type === "category" ? xs : xs.sort((left, right) => Number(left) - Number(right));
+}
+
+function chartRows(
+  block: { id: string; title: string },
+  chart: AgentChart,
+  xs: readonly AgentBlockValue[],
+  scope: { label: string; detail: string },
+): AgentSelection {
   return blockSelection(
     "Chart",
     block,
-    { label: range(shortValue), detail: range(rawValue) },
+    scope,
     [chart.x.label ?? "x", ...chart.series.map((line) => line.name)],
-    covered.map((x) => [
+    xs.map((x) => [
       rawValue(chart.x.type, x),
       ...chart.series.map((line) =>
         rawValue("number", line.points.find((point) => point[0] === x)?.[1] ?? null),
@@ -96,14 +111,9 @@ export function chartPointSelection(
 /** All of a block's data, for attaching the whole block from the keyboard. */
 export function wholeBlockSelection(block: AgentBlock): AgentSelection {
   if (block.chart != null) {
-    const xs = block.chart.series.flatMap((line) => line.points.map((point) => point[0]));
-    const numeric = xs.every((x) => typeof x === "number");
-    return chartRangeSelection(
-      block,
-      block.chart,
-      numeric ? Math.min(...(xs as number[])) : 0,
-      numeric ? Math.max(...(xs as number[])) : xs.length,
-    );
+    const xs = chartXs(block.chart);
+    const scope = `all ${xs.length} points`;
+    return chartRows(block, block.chart, xs, { label: scope, detail: scope });
   }
   const table = block.table!;
   return blockSelection(

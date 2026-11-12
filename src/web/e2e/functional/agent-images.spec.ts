@@ -25,10 +25,11 @@ test("an agent reply shows a workspace image in a fixed frame, from a same-origi
   await expect
     .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
     .toBe(2);
-  expect(await surface.locator(".agent-image").evaluate((element) => element.clientHeight)).toBe(
-    240,
-  );
-  // A reply that finishes rendering reinserts its loaded image, so measure the one that stays.
+  // A reply re-renders once more when its completion arrives, replacing the frame; read the one that stays.
+  await expect
+    .poll(() => surface.locator(".agent-image").evaluate((element) => element.clientHeight))
+    .toBe(240);
+  // A reply that finishes rendering can reinsert its image mid-drag; the crop keeps the frame it started on.
   let box: { x: number; y: number; width: number; height: number } | null = null;
   await expect(async () => {
     await image.scrollIntoViewIfNeeded();
@@ -56,4 +57,14 @@ test("a remote image says why it didn't load when remote images are off", async 
     "Image unavailable: Remote images are off (setting agent.remoteImages).",
   );
   await expect(surface.locator(".agent-image img")).toHaveCount(0);
+
+  // The refusal isn't kept past the reply that saw it: turning the setting on lets the next reply try again.
+  await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.remoteImages","value":true}');
+  await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
+  await submitAcpDraft(surface, "again ![web](https://example.com/a.png)");
+  const retried = surface
+    .locator(".agent-markdown", { hasText: "echo: again" })
+    .locator(".agent-image");
+  await expect(retried.locator(".agent-image-status")).not.toHaveText("Loading image…");
+  await expect(retried).not.toContainText("Remote images are off");
 });

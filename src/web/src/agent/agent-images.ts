@@ -6,12 +6,14 @@ import { AGENT_IMAGE_HEIGHT } from "./AgentPaneEstimate";
 import { cropPng, type Rect, sourceRect } from "./agent-crop";
 
 // Each image loads once per session as a same-origin object URL, so a streaming or remounted reply never fetches it
-// again, even after a failure; a workspace file that changes is fetched again by the next reply that shows it.
+// again; a workspace file that changes is fetched again by the next reply that shows it. A failure is kept only for
+// the mounted reply that saw it, so its streamed re-renders don't refetch, while a new or remounted reply retries.
 interface SessionImages {
   outcomes: Map<string, Promise<string>>;
   ready: Map<string, string>;
   off: () => void;
 }
+const failures = new WeakMap<HTMLElement, Map<string, string>>();
 const loaded = createSessionOwnedResource<SessionImages>(
   (session) => {
     const outcomes = new Map<string, Promise<string>>();
@@ -41,6 +43,12 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
   let live = true;
   const images = loaded.get(session);
   if (images === undefined) return () => {};
+  let failed = failures.get(root);
+  if (failed === undefined) {
+    failed = new Map();
+    failures.set(root, failed);
+  }
+  const seen = failed;
   for (const holder of root.querySelectorAll<HTMLElement>("span.agent-image[data-src]")) {
     holder.style.height = `${AGENT_IMAGE_HEIGHT}px`;
     const source = holder.dataset.src ?? "";
@@ -65,6 +73,11 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
       status.textContent = "Image unavailable: the workspace folder isn't known yet.";
       continue;
     }
+    const reason = seen.get(source);
+    if (reason !== undefined) {
+      status.textContent = reason;
+      continue;
+    }
     let outcome = images.outcomes.get(source);
     if (outcome === undefined) {
       const fetched = fetchImage(session, source);
@@ -73,7 +86,9 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
         (url) => {
           if (images.outcomes.get(source) === fetched) images.ready.set(source, url);
         },
-        () => {},
+        () => {
+          if (images.outcomes.get(source) === fetched) images.outcomes.delete(source);
+        },
       );
       outcome = fetched;
     }
@@ -82,8 +97,9 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
         if (live) show(url);
       })
       .catch((error: unknown) => {
-        if (live)
-          status.textContent = `Image unavailable: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `Image unavailable: ${error instanceof Error ? error.message : String(error)}`;
+        seen.set(source, message);
+        if (live) status.textContent = message;
       });
   }
   return () => {
@@ -91,13 +107,35 @@ export function hydrateAgentImages(root: HTMLElement, session: ClientSession): (
   };
 }
 
-/** Crops `region`, in the image element's CSS pixels, out of a loaded agent image; a same-origin URL never taints. */
-export function cropAgentImage(image: HTMLImageElement, region: Rect): Promise<Blob> {
+/** How a loaded agent image is drawn in its frame, measured while it is on screen. */
+export interface ImageFrame {
+  width: number;
+  height: number;
+  position: { x: number; y: number };
+}
+
+export function imageFrame(image: HTMLImageElement): ImageFrame {
   const [x = 50, y = 50] = getComputedStyle(image).objectPosition.split(" ").map(Number.parseFloat);
+  return {
+    width: image.clientWidth,
+    height: image.clientHeight,
+    position: { x: x / 100, y: y / 100 },
+  };
+}
+
+/**
+ * Crops `region`, in `frame`'s CSS pixels, out of a loaded agent image. The frame is measured when the gesture
+ * starts, so a reply re-rendering mid-drag can't change it; a same-origin URL never taints the canvas.
+ */
+export function cropAgentImage(
+  image: HTMLImageElement,
+  frame: ImageFrame,
+  region: Rect,
+): Promise<Blob> {
   const area = sourceRect(
-    { width: image.clientWidth, height: image.clientHeight },
+    frame,
     { width: image.naturalWidth, height: image.naturalHeight },
-    { x: x / 100, y: y / 100 },
+    frame.position,
     region,
   );
   return area === null

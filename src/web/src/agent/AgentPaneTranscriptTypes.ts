@@ -30,6 +30,7 @@ export interface AgentTranscriptEntry {
     | "aside"
     | "message"
     | "thought"
+    | "thought-history"
     | "notice"
     | "plan"
     | "request"
@@ -41,6 +42,10 @@ export interface AgentTranscriptEntry {
   summary: string | null;
   text: string | null;
   tone: AgentTranscriptTone;
+  exchangeStart?: true;
+  thoughtCollapsed?: true;
+  thoughts?: readonly AgentTranscriptEntry[];
+  thoughtOpen?: boolean;
   turnStart?: true;
   promptTurnId?: string;
   conversation?: AgentConversationProjection;

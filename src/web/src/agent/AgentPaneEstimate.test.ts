@@ -29,7 +29,11 @@ function entry(over: Partial<AgentTranscriptEntry>): AgentTranscriptEntry {
 
 describe("estimateEntrySize", () => {
   it("does not reserve hidden thought text as scroll space before the row mounts", () => {
-    const thought = entry({ kind: "thought", text: "A long thought.\n".repeat(200) });
+    const thought = entry({
+      kind: "thought",
+      thoughtCollapsed: true,
+      text: "A long thought.\n".repeat(200),
+    });
     expect(estimateEntrySize(thought)).toBe(29);
   });
 

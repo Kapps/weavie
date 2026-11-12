@@ -102,6 +102,7 @@ export class HostConnection {
   private readonly sessionsByAddress = new Map<string, ClientSession>();
   private readonly catalogListeners = new Set<CatalogListener>();
   private readonly helloListeners = new Set<HostHelloListener>();
+  private readonly initializingListeners = new Set<HostHelloListener>();
   private catalog: SessionCatalogEntry[] = [];
   private hello: HostHello | null = null;
   private connectTask: Promise<HostHello> | null = null;
@@ -218,16 +219,37 @@ export class HostConnection {
     return () => this.catalogListeners.delete(listener);
   }
 
+  /** Initializes host-owned state before the hello catalog installs session features. */
+  onInitializing(listener: HostHelloListener): () => void {
+    return this.subscribeHello(this.initializingListeners, listener);
+  }
+
   onHello(listener: HostHelloListener): () => void {
-    this.helloListeners.add(listener);
-    if (this.hello !== null) {
+    return this.subscribeHello(this.helloListeners, listener);
+  }
+
+  private subscribeHello(
+    listeners: Set<HostHelloListener>,
+    listener: HostHelloListener,
+  ): () => void {
+    listeners.add(listener);
+    if (this.hello !== null) this.notifyHello(listeners, [listener], this.hello);
+    return () => listeners.delete(listener);
+  }
+
+  private notifyHello(
+    registered: ReadonlySet<HostHelloListener>,
+    listeners: HostHelloListener[],
+    hello: HostHello,
+  ): void {
+    for (const listener of listeners) {
+      if (!registered.has(listener)) continue;
       try {
-        listener(this.hello);
+        listener(hello);
       } catch (error) {
         this.reportError(error);
       }
     }
-    return () => this.helloListeners.delete(listener);
   }
 
   send(json: string): void {
@@ -248,22 +270,14 @@ export class HostConnection {
     const hello = await this.host.feature("connection").request<HostHello>("hello", {});
     this.hello = hello;
     const helloListeners = [...this.helloListeners];
+    this.notifyHello(this.initializingListeners, [...this.initializingListeners], hello);
     this.applyCatalog(hello.sessions);
     this.transportReady = true;
     this.flushSessionMessages();
     for (const session of this.sessionsByAddress.values()) {
       session.sync();
     }
-    for (const listener of helloListeners) {
-      if (!this.helloListeners.has(listener)) {
-        continue;
-      }
-      try {
-        listener(hello);
-      } catch (error) {
-        this.reportError(error);
-      }
-    }
+    this.notifyHello(this.helloListeners, helloListeners, hello);
     return hello;
   }
 

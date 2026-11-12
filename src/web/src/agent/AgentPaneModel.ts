@@ -1,4 +1,4 @@
-import { type Accessor, batch, createSignal } from "solid-js";
+import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
@@ -12,6 +12,7 @@ import type {
   AgentTranscriptEntry,
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
+import type { ThoughtDisplay } from "./AgentThoughtPresentation";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import type { PendingRequest, PendingRequestKind } from "./turn-progress";
@@ -57,7 +58,10 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
   reset(): void;
 }
 
-export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
+export function createAgentPaneModel(
+  session: ClientSession,
+  thoughtDisplay: Accessor<ThoughtDisplay>,
+): MutableAgentPaneModel {
   const [cardChanges, setCardChanges] = createSignal<readonly { id: string; delta: number }[]>([]);
   const [generation, setGeneration] = createSignal(0);
   const [latestOutput, setLatestOutput] = createSignal(0);
@@ -72,7 +76,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const expanded = new Set<string>();
-  const main = new AgentConversationProjection(expanded);
+  const main = new AgentConversationProjection(expanded, thoughtDisplay);
   const views = new Map<string, AgentConversationProjection>([["", main]]);
   const byId = new Map<
     string,
@@ -88,7 +92,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   };
   const pending = new Map<string, { request: PendingRequest; index: number }>();
   const active = new Set<string>();
-  let source: AgentPaneConversationRows;
+  let source = new AgentPaneConversationRows([]);
   let outputChanged = false;
   let pendingChanged = false;
   let resized = new Map<string, number>();
@@ -96,7 +100,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const viewFor = (scope: ConversationRows): AgentConversationProjection => {
     let view = views.get(scope.key);
     if (view === undefined) {
-      view = new AgentConversationProjection(expanded);
+      view = new AgentConversationProjection(expanded, thoughtDisplay);
       views.set(scope.key, view);
     }
     view.bind(scope.marker);
@@ -233,6 +237,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
         setLiveReplyId(live ? replyId : null);
       }
     });
+
+  createEffect(on(createMemo(thoughtDisplay), () => apply(source, [], false), { defer: true }));
 
   const model: MutableAgentPaneModel = {
     cardChanges,

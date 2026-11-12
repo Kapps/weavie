@@ -815,7 +815,8 @@ a:has(> .agent-path-dir) {
   content: "v";
 }
 
-.agent-entry-thought {
+.agent-entry-thought,
+.agent-entry-thought-history {
   padding: 0 8px;
 }
 
@@ -855,7 +856,7 @@ a:has(> .agent-path-dir) {
   transform: rotate(90deg);
 }
 
-.agent-thought > .agent-markdown {
+.agent-thought-body {
   padding: 4px 8px 8px;
   overflow-wrap: anywhere;
 }
@@ -1568,4 +1569,8 @@ label.agent-input-choice:hover {
 
 .agent-code-copy.copied {
   color: var(--accent);
+}
+
+.agent-thought-history .agent-markdown + .agent-markdown {
+  margin-top: 8px;
 }

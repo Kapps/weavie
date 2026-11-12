@@ -81,6 +81,9 @@ export function projectAgentTranscript(
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
+      if (isUserInput(message) && !message.sender && message.status !== "attached") {
+        durable.exchangeStart = true;
+      }
       if (startsTurn) {
         durable.turnStart = true;
       }

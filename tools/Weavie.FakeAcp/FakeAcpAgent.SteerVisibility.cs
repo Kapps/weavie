@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace Weavie.FakeAcp;
 
 internal sealed partial class FakeAcpAgent {
-	private async Task<JsonNode> SteerVisibilityAsync(bool sharedMessageId, CancellationToken ct) {
+	private async Task<JsonNode> SteerVisibilityAsync(bool sharedMessageId, string replyKind, CancellationToken ct) {
 		string? messageId = sharedMessageId ? "shared-response" : null;
 		var steered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) (_heldPrompt, _heldMode) = (steered, "steer-visibility");
@@ -14,9 +14,9 @@ internal sealed partial class FakeAcpAgent {
 		lock (_gate) _heldPrompt = null;
 		// The test releases this after observing the accepted steer, so transport timing cannot reorder the fixture.
 		await HoldOnceAsync("steer-reply", ct).ConfigureAwait(false);
-		VisibilityContent("agent_thought_chunk", "I'm running the build directly ", messageId);
+		VisibilityContent(replyKind, "I'm running the build directly ", messageId);
 		VisibilityTool("build", "tool_call_update", "completed");
-		VisibilityContent("agent_thought_chunk", "in this session.", messageId);
+		VisibilityContent(replyKind, "in this session.", messageId);
 		VisibilityTool("verify", "tool_call", "in_progress");
 		VisibilityContent("agent_thought_chunk", "Checking the build result.", messageId);
 		await HoldOnceAsync("steer-finish", ct).ConfigureAwait(false);

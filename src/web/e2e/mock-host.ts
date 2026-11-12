@@ -142,7 +142,7 @@ const DEFAULT_LAYOUT = {
 const MOCK_AGENT_DEFAULTS = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
-  thoughtDisplay: "collapsed",
+  thoughtDisplay: "current",
   providers: [
     {
       id: "claude",

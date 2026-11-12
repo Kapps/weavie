@@ -14,13 +14,21 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (entry === undefined) {
     return 48;
   }
-  if (entry.kind === "thought") return 29;
+  if (entry.kind === "thought-history")
+    return (
+      29 +
+      (entry.thoughtOpen
+        ? (entry.thoughts ?? []).reduce((sum, thought) => sum + estimateEntrySize(thought), 0)
+        : 0)
+    );
+  if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {
     return cached;
   }
-  const prose = entry.kind === "message" && entry.tone === "assistant";
+  const prose =
+    entry.kind === "thought" || (entry.kind === "message" && entry.tone === "assistant");
   if (entry.kind === "aside" || entry.kind === "subagent") {
     const children =
       entry.kind === "subagent"

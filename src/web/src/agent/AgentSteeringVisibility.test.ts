@@ -10,7 +10,7 @@ vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 
 it("keeps Thinking after its steer and owns late tool updates in the original segment", () =>
   createRoot((dispose) => {
-    const model = createAgentPaneModel({} as ClientSession);
+    const model = createAgentPaneModel({} as ClientSession, () => "all");
     let flush = () => {};
     const accumulator = new AgentPaneAccumulator((callback) => {
       flush = callback;

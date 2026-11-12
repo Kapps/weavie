@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
 import { type AgentActivitySegment, AgentActivitySegments } from "./AgentActivitySegments";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
@@ -11,6 +11,7 @@ import {
 } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
+import { presentThoughts, type ThoughtDisplay } from "./AgentThoughtPresentation";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
 import { activeTurnStartedAt, hasActiveTurn, pendingRequest } from "./turn-progress";
@@ -34,7 +35,10 @@ export class AgentConversationProjection {
   estimatedHeight = 76;
   startedAt: number | null = null;
 
-  constructor(private readonly expanded: Set<string>) {
+  constructor(
+    private readonly expanded: Set<string>,
+    private readonly thoughtDisplay: Accessor<ThoughtDisplay>,
+  ) {
     const view = this;
     this.linked = {
       conversation: view,
@@ -128,8 +132,9 @@ export class AgentConversationProjection {
           if (activity !== undefined) entry.details = activity.materialize();
         }
       }
-      const turnStartId = latestAgentTurnStartId(projection.entries);
-      const ordered = orderPendingRequests(projection.entries);
+      const presented = presentThoughts(projection.entries, this.thoughtDisplay(), this.expanded);
+      const turnStartId = latestAgentTurnStartId(presented);
+      const ordered = orderPendingRequests(presented);
       this.activities.clear();
       this.entryIndexes = new Map();
       ordered.entries.forEach((entry, index) => {
@@ -211,14 +216,21 @@ export class AgentConversationProjection {
 
   setExpanded(id: string, expanded: boolean): boolean {
     const activity = this.activities.get(id);
-    if (activity === undefined && this.card()?.id !== id) return false;
+    const index = this.entryIndexes.get(id);
+    const thought =
+      index !== undefined &&
+      (this.transcript().entries[index]?.kind === "thought-history" ||
+        this.transcript().entries[index]?.thoughtCollapsed === true);
+    if (activity === undefined && this.card()?.id !== id && !thought) return false;
     if (expanded) this.expanded.add(id);
     else this.expanded.delete(id);
     if (activity !== undefined)
-      this.updateActivity(activity, (entry) => ({
+      this.updateEntry(activity, (entry) => ({
         ...entry,
         details: expanded ? activity.projection.materialize() : [],
       }));
+    if (thought)
+      this.updateEntry({ index: index! }, (entry) => ({ ...entry, thoughtOpen: expanded }));
     this.measure();
     return true;
   }
@@ -249,7 +261,7 @@ export class AgentConversationProjection {
       changed.set(activity, indexes);
     }
     for (const [activity, indexes] of changed) {
-      this.updateActivity(activity, (entry) => {
+      this.updateEntry(activity, (entry) => {
         const details = this.expanded.has(entry.id) ? [...entry.details] : entry.details;
         if (details !== entry.details)
           for (const index of indexes) details[index] = activity.projection.materializeAt(index);
@@ -264,7 +276,7 @@ export class AgentConversationProjection {
     return true;
   }
 
-  private updateActivity(
+  private updateEntry(
     activity: { index: number },
     update: (entry: AgentTranscriptEntry) => AgentTranscriptEntry,
   ): void {

@@ -1808,6 +1808,24 @@ test.describe("ACP composer", () => {
 
       const first = page.getByRole("button", { name: /^Model / });
       const last = page.getByRole("button", { name: /^Mode / });
+      if (width < 760) {
+        // Compact controls are touch targets spanning the pane head, on the label's baseline.
+        const head = page.locator(".agent-surface .pane-head");
+        expect((await head.boundingBox())?.height).toBe(44);
+        expect((await first.boundingBox())?.height).toBeGreaterThanOrEqual(39);
+        const textBottom = (selector: string): Promise<number> =>
+          head
+            .locator(selector)
+            .first()
+            .evaluate((element) => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              return range.getBoundingClientRect().bottom;
+            });
+        expect(await textBottom(".agent-status-axis .agent-status-value")).toBe(
+          await textBottom(".pane-label"),
+        );
+      }
       // Fractional text widths must stay fully visible at the browser's integer scroll limit.
       await last.evaluate((element) => {
         element.style.width = `${Math.floor(element.getBoundingClientRect().width) + 0.375}px`;

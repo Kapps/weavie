@@ -89,7 +89,7 @@
   }
 
   .app.compact .pane-head {
-    --pane-head-h: 36px;
+    --pane-head-h: var(--touch-target);
     position: relative;
     z-index: 5;
     padding-inline: 12px;
@@ -189,16 +189,22 @@
   }
 
   .app.compact .agent-working-compact .agent-working-time {
-    font-size: var(--font-chrome-secondary-size);
+    font-size: var(--font-chrome-size);
   }
 
+  /* Spans the head's padding so each segment is a full-height tap target on the head's baseline. */
   .app.compact .agent-status-line-compact {
     z-index: 2;
     flex: 1 1 auto;
     min-width: 0;
+    margin-block: calc(-1 * var(--pane-head-pad)) calc(1px - var(--pane-head-pad));
     padding: 0;
     background: transparent;
-    font-size: var(--font-chrome-secondary-size);
+    font: var(--font-chrome-body);
+  }
+
+  .app.compact .agent-status-line-compact .agent-status-segment {
+    padding: calc(var(--pane-head-pad) - 2px) 8px calc(var(--pane-head-pad) - 3px);
   }
 
   .app.compact .agent-status-line-compact .agent-control-picker {

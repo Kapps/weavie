@@ -18,23 +18,12 @@
   pointer-events: none;
 }
 
-.session-composer-control:has(textarea) {
-  font: var(--font-content);
-}
-
-.session-composer-control:has(textarea) > .session-composer-control-icon {
-  --row-line: 1lh;
-  top: 12px;
-  left: 12px;
-  transform: none;
-}
-
 .session-composer textarea {
   display: block;
   width: 100%;
   min-height: 78px;
   resize: none;
-  padding: 12px 12px 12px calc(20px + var(--icon-size));
+  padding: 12px;
   border: 0;
   outline: 0;
   background: transparent;

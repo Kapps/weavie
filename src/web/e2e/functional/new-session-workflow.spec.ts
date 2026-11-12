@@ -201,8 +201,15 @@ test("session controls align with inset icons that preserve native input on desk
         footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
           [...footer.querySelectorAll(".ui-field, .session-composer-submit")].map(rect),
         ),
+        promptTextLeft: (() => {
+          const prompt = element.querySelector(".session-composer textarea")!;
+          return (
+            prompt.getBoundingClientRect().x +
+            Number.parseFloat(getComputedStyle(prompt).paddingLeft)
+          );
+        })(),
         icons: [...element.querySelectorAll(".session-composer-control")].map((wrapper) => {
-          const control = wrapper.querySelector("textarea, .ui-field")!;
+          const control = wrapper.querySelector(".ui-field")!;
           const icon = wrapper.querySelector(".session-composer-control-icon")!;
           const bounds = icon.getBoundingClientRect();
           return {
@@ -222,6 +229,7 @@ test("session controls align with inset icons that preserve native input on desk
     });
     expect(geometry.fields.length).toBe(4);
     expect(new Set(geometry.fields.map((field) => field.x)).size).toBe(1);
+    expect(geometry.promptTextLeft).toBe(geometry.fields[0].x);
     expect(geometry.suggestions).toHaveLength(2);
     for (const { button, field } of geometry.suggestions) {
       expect(button.height).toBe(field.height);
@@ -237,7 +245,7 @@ test("session controls align with inset icons that preserve native input on desk
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
-    expect(geometry.icons).toHaveLength(9);
+    expect(geometry.icons).toHaveLength(8);
     for (const { icon, control, textLeft, hit } of geometry.icons) {
       expect(icon.x).toBeGreaterThanOrEqual(control.x);
       expect(icon.y).toBeGreaterThanOrEqual(control.y);
@@ -249,7 +257,6 @@ test("session controls align with inset icons that preserve native input on desk
     expect(geometry.width).toBe(geometry.visibleWidth);
     const workflow = inbox.getByRole("button", { name: /^Workflow / });
     for (const control of [
-      inbox.getByRole("textbox", { name: "Prompt for a new session" }),
       inbox.getByRole("textbox", { name: "Branch for the new session" }),
       workflow,
     ]) {

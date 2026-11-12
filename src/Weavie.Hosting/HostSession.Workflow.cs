@@ -85,7 +85,6 @@ public sealed partial class HostSession {
 
 	private WorkflowConversationOwner ConversationOwner(string runId, WorkflowStage opener) {
 		lock (_workflowConversations) {
-			if (_workflowConversations.Values.FirstOrDefault() is { } existing && existing.Key.Scope != runId) EndWorkflowConversations();
 			if (_workflowConversations.TryGetValue(opener.Id, out var owner)) return owner;
 			if (_workflowConversations.Count == 0) ForgetWorkflowConversations(key => key.Scope != runId);
 			owner = new WorkflowConversationOwner(this, runId, opener, Workflow.AgentOf(opener.Id));
@@ -112,9 +111,9 @@ public sealed partial class HostSession {
 	}
 
 	// Runner callbacks hold its lock, which comes after the agent's; forgetting takes the agent's, so it runs apart.
-	private void ForgetWorkflowConversations(Func<AgentConversationKey, bool> owners) => _ = Background.Run(_ => {
+	private void ForgetWorkflowConversations(Func<AgentConversationKey, bool> owners) => _ = Background.Run(async _ => {
+		await Task.Yield();
 		if (Agent.Session is IStructuredAgentConversations conversations) conversations.Forget(owners);
-		return Task.CompletedTask;
 	});
 
 	private void MarkRuntimeActivated() => Volatile.Write(ref _runtimeActivated, 1);
@@ -122,8 +121,11 @@ public sealed partial class HostSession {
 	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
 		try {
-			if (Workflow.Execution is { Opener: not null } execution && Workflow.Current?.Kickoff is null) {
-				execution.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
+			bool lent;
+			lock (_workflowConversations) lent = Workflow.Execution is { Opener: { } opener } execution
+				&& _workflowConversations.GetValueOrDefault(opener.Id)?.Lends(execution) == true;
+			if (lent && Workflow.Current?.Kickoff is null) {
+				Workflow.Execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
 			}
 		} finally {
 			Workflow.Dispose();

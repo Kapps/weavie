@@ -18,12 +18,15 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 	public async Task<IAgentConversation?> RestoreAsync(AgentConversationBinding binding, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(binding);
 		AcpConversationState? kept;
+		bool restorable;
 		lock (_turnTransitionGate) {
 			kept = binding.Owner is { } key ? _sideConversations.Values.FirstOrDefault(state => state.Owner == key && Continuable(state)) : null;
-			if (kept is null) {
-				Forget(owner => owner == binding.Owner);
-				return null;
-			}
+			restorable = (_runtime.Features.Load || _runtime.Features.Resume) && !(kept?.SessionId is { } id && _runtime.Bound(id));
+			if (kept is null || !restorable) Forget(owner => owner == binding.Owner);
+		}
+		if (kept is null || !restorable) {
+			await binding.Tools.DisposeAsync().ConfigureAwait(false);
+			return kept is null ? null : throw new InvalidOperationException($"{_definition.Name} cannot restore this conversation in its current process.");
 		}
 		return await OpenOwnedAsync(binding,
 			_ => new(AcpConversationHandoff.Fresh(kept), AcpConversationOpening.Continue, AcpConversationRole.Independent), ct).ConfigureAwait(false);
@@ -48,6 +51,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 
 	// A new conversation replaces any its owner kept before.
 	private AcpConversationSpec NewChild(AcpConversation primary, bool fork, AgentConversationBinding binding) {
+		if (fork) EnsureSideConversationSupport(primary);
 		if (binding.Owner is { } key) Forget(owner => owner == key);
 		var spec = ChildSpec(primary, fork, binding.Title, AcpConversationRole.Independent);
 		return spec with { Seed = spec.Seed with { Continuation = spec.Seed.Continuation with { Owner = binding.Owner } } };
@@ -56,6 +60,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 	private async Task<IAgentConversation> OpenOwnedAsync(AgentConversationBinding binding, Func<AcpConversation, AcpConversationSpec> spec, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(binding);
 		AcpConversationHandle? handle = null;
+		bool restoring = false;
 		try {
 			ct.ThrowIfCancellationRequested();
 			AcpConversation primary;
@@ -71,7 +76,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 				if (!primary.Live || !primary.Ready) throw new InvalidOperationException("The conversation was replaced while opening owned work.");
 				if (!_runtime.Features.Close) throw new InvalidOperationException($"{_definition.Name} cannot close independently owned conversations.");
 				var opening = spec(primary);
-				if (opening.Opening is ForkFromOpening) EnsureSideConversationSupport(primary);
+				restoring = opening.Seed.Continuation.SessionId is not null;
 				var controls = primary.Snapshot.Axes.ToDictionary(axis => axis.Id, axis => axis.Value, StringComparer.Ordinal);
 				foreach (var (axis, value) in overrides) controls[axis] = value;
 				handle = StartOwned(opening, binding with { ControlHold = new CapturedControls(controls) });
@@ -80,7 +85,10 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 			return handle;
 		} catch {
 			if (handle is null) await binding.Tools.DisposeAsync().ConfigureAwait(false);
-			else {
+			else if (restoring && ct.IsCancellationRequested) {
+				// Its owner stopped waiting, as when the session unloads; the conversation stays kept for the next load.
+				lock (_turnTransitionGate) Suspend(handle.Conversation, "Restore cancelled.");
+			} else {
 				var closing = handle.DisposeAsync();
 				if (!ct.IsCancellationRequested) await closing.ConfigureAwait(false);
 			}

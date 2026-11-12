@@ -93,6 +93,15 @@ stages:
   await expect(
     mainRows.filter({ hasText: "echo: Publish after cancellation checked" }),
   ).toHaveCount(1);
+
+  // Between visits the card stays open and answers a reply.
+  await scrollToChild();
+  const reply = child.getByRole("textbox", { name: "Reply to BTW" });
+  if (!(await reply.isVisible()))
+    await child.getByRole("button", { name: "Reply", exact: true }).click();
+  await reply.fill("between visits");
+  await reply.press("Enter");
+  await expect(child).toContainText("echo: between visits");
   const publish = async (choice: string) => {
     await followMain();
     await workflowTool(surface, "completeStage", {

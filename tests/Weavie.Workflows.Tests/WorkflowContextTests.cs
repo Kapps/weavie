@@ -79,6 +79,22 @@ public sealed partial class WorkflowRunnerTests {
 	}
 
 	[Fact]
+	public void AContinuingSkillStageSaysSoInItsBlockAfterItsCommand() {
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", """
+			id: flow
+			description: Skill reuse.
+			stages:
+			  - id: review
+			    run: { context: fresh, skill: review, args: the change }
+			""");
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		Assert.Equal("/review the change", run.Kickoff!.Text);
+		Assert.Contains("Stage \"review\" has opened again", runner.Execution!.Compose(true));
+		Assert.DoesNotContain("/review", runner.Execution.Compose(true));
+	}
+
+	[Fact]
 	public void ConsecutiveIndependentStagesAccumulateReportsAndPreserveTheNextMainSkill() {
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", """
 			id: flow

@@ -121,6 +121,11 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 		lock (TransitionGate) if (_generation > 0) _connection.TerminateGeneration(_generation, reason);
 	}
 
+	/// <summary>Whether the running process already held <paramref name="sessionId"/>, so it can't be opened there again.</summary>
+	internal bool Bound(string sessionId) {
+		lock (TransitionGate) return _generation > 0 && _connection.Bound(_generation, sessionId);
+	}
+
 	internal AcpConversation[] Conversations {
 		get { lock (TransitionGate) return [.. _conversations]; }
 	}

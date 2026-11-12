@@ -18,6 +18,8 @@ public sealed partial class HostSession {
 		private Weavie.Core.Mcp.CapabilityRegistryGrant? _tools;
 		private IAgentConversation? _conversation;
 		private bool _held;
+		private bool _refork;
+		private bool _turned;
 		private bool _promptImagesSent;
 
 		public AgentConversationKey Key { get; }
@@ -32,6 +34,9 @@ public sealed partial class HostSession {
 		/// <summary>The run ended; <paramref name="completed"/> when it finished, so the last completion reply is delivered first.</summary>
 		public void End(bool completed) => _ended.TrySetResult(completed);
 
+		/// <summary>Whether <paramref name="visit"/> borrows the conversation.</summary>
+		public bool Lends(WorkflowStageExecution visit) => _lease.Visit == visit;
+
 		public async Task RunLifetimeAsync(CancellationToken ct) {
 			await Task.Yield();
 			try {
@@ -39,11 +44,11 @@ public sealed partial class HostSession {
 				await _lifetime.CancelAsync().ConfigureAwait(false);
 				await _delivery.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 				try {
-					if (_tools is { } tools) {
+					if (completed && _tools is { } tools) {
 						await tools.DisposeAsync().ConfigureAwait(false);
-						if (completed) await tools.CompletionResponses.WaitAsync(ct).ConfigureAwait(false);
+						await tools.CompletionResponses.WaitAsync(ct).ConfigureAwait(false);
 					}
-					if (_conversation is { } conversation) await conversation.DisposeAsync().ConfigureAwait(false);
+					await CloseAsync().ConfigureAwait(false);
 				} catch (Exception ex) when (ex is not OperationCanceledException) {
 					_session.Notify("error", $"Couldn't close workflow stage {_opener.Id}: {ex.Message}");
 				} finally {
@@ -64,25 +69,26 @@ public sealed partial class HostSession {
 				await _delivery.WaitAsync(stopping.Token).ConfigureAwait(false);
 				try {
 					if (!_session.Workflow.Owes(kickoff)) return;
-					bool reopened = false;
 					if (_lease.Visit != visit) {
+						if (_lease.Visit is { } previous) Release(previous);
 						await _session.ReturnMainForChildAsync(visit, stopping.Token).ConfigureAwait(false);
 						if (_opener.Run.Context == WorkflowContext.Fork && visit.Stage == _opener) {
 							await CloseAsync().ConfigureAwait(false);
-							reopened = true;
+							_refork = true;
 						} else if (Live is { } live) {
 							await live.ApplyControlsAsync(MainMode(live)).WaitAsync(stopping.Token).ConfigureAwait(false);
 						}
 						_lease.Visit = visit;
 						_ = _session.Background.Run(token => ReturnAsync(visit, token));
 					}
-					bool opened = Live is null && await EnsureAsync(visit, reopened, stopping.Token).ConfigureAwait(false);
-					if (kickoff.Opens.Length > 0) _lease.Continues = !opened;
+					if (Live is null) await EnsureAsync(visit, stopping.Token).ConfigureAwait(false);
+					if (kickoff.Opens.Length > 0) _lease.Continues = _turned;
 					if (!_promptImagesSent && owed.Refusal is { } refusal) throw new WorkflowException(refusal);
 					if (_session.Workflow.TryClaimKickoff(kickoff)) {
 						try {
 							var submission = kickoff.Submission(_promptImagesSent ? [] : owed.Images);
 							_conversation!.Submit(submission);
+							_turned = true;
 							_promptImagesSent |= submission.Attachments.Count > 0;
 						} catch (Exception ex) { visit.ConversationEnded(ex.Message); }
 					}
@@ -97,37 +103,42 @@ public sealed partial class HostSession {
 
 		private IAgentConversation? Live => _conversation is { Completion.IsCompleted: false } live ? live : null;
 
-		// Restores the kept conversation or opens a new one; true when it opened one.
-		private async Task<bool> EnsureAsync(WorkflowStageExecution visit, bool reopened, CancellationToken ct) {
+		// Restores the kept conversation or opens a new one on the stage's agent; a conversation that can't take it closes.
+		private async Task EnsureAsync(WorkflowStageExecution visit, CancellationToken ct) {
 			if (_session.Agent.Session is not IStructuredAgentConversations conversations) {
 				throw new WorkflowException("This agent cannot open a separate workflow conversation.");
 			}
 			await CloseAsync().ConfigureAwait(false);
 			string? lost = null;
-			if (!reopened) {
+			if (!_refork) {
 				try {
 					_conversation = await conversations.RestoreAsync(Binding(), ct).ConfigureAwait(false);
+					_turned = _conversation is not null;
 				} catch (Exception ex) when (ex is not OperationCanceledException) {
 					lost = $"its earlier one could not be restored: {ex.Message}";
 				}
 			}
-			bool opened = _conversation is null;
-			if (opened) {
+			if (_conversation is null) {
 				_conversation = await (_opener.Run.Context == WorkflowContext.Fork
 					? conversations.OpenForkAsync(Binding(), ct)
 					: conversations.OpenFreshAsync(Binding(), ct)).ConfigureAwait(false);
-				_promptImagesSent = false;
-				lost ??= reopened ? null
+				_turned = _promptImagesSent = false;
+				lost ??= _refork ? null
 					: _held ? "its earlier one ended"
 					: visit.Stage != _opener ? $"stage \"{_opener.Id}\" has no conversation to continue"
 					: null;
 				if (lost is not null) _session.Agent.Structured?.Notice($"Workflow: {visit.Stage.Id} opened a new conversation; {lost}");
 			}
 			_held = true;
-			await ApplyAgentAsync(_conversation!, ct).ConfigureAwait(false);
-			var current = _conversation!;
+			_refork = false;
+			try {
+				await ApplyAgentAsync(_conversation, ct).ConfigureAwait(false);
+			} catch {
+				await CloseAsync().ConfigureAwait(false);
+				throw;
+			}
+			var current = _conversation;
 			_ = _session.Background.Run(token => ObserveAsync(current, token));
-			return opened;
 		}
 
 		private AgentConversationBinding Binding() => new() {
@@ -162,21 +173,26 @@ public sealed partial class HostSession {
 			_conversation = null;
 		}
 
-		// The visit ends: a visit that didn't complete stops its turn; the conversation stays for the next one.
+		// The visit ends, whether this or the next visit's hand-over sees it first; the conversation stays for the next one.
 		private async Task ReturnAsync(WorkflowStageExecution visit, CancellationToken ct) {
 			using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
 			try {
-				bool completed = await visit.Retired.WaitAsync(stopping.Token).ConfigureAwait(false);
+				await visit.Retired.WaitAsync(stopping.Token).ConfigureAwait(false);
 				await _delivery.WaitAsync(stopping.Token).ConfigureAwait(false);
 				try {
-					if (_lease.Visit != visit) return;
-					_lease.Visit = null;
-					if (!completed) Live?.Interrupt();
+					Release(visit);
 				} finally {
 					_delivery.Release();
 				}
 			} catch (OperationCanceledException) when (stopping.IsCancellationRequested) {
 			}
+		}
+
+		// A visit left by a jump or cancel stops its turn, so nothing it still does reaches the next visit.
+		private void Release(WorkflowStageExecution visit) {
+			if (_lease.Visit != visit) return;
+			_lease.Visit = null;
+			if (visit.Retired is not { IsCompleted: true, Result: true }) Live?.Interrupt();
 		}
 
 		private async Task ObserveAsync(IAgentConversation conversation, CancellationToken ct) {

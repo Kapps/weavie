@@ -242,7 +242,8 @@ history. `fresh` is for deliberate independence (a reviewer that must not inheri
 - Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. A conversation
   stays open between visits, takes the user's replies, and closes when the run ends. Each visit runs in main's
   permission mode, and a turn that continues earlier work says so in its stage block. Losing it during a visit
-  pauses the run; Resume restores it after an agent restart or reload. One that can't be continued is replaced by a
+  pauses the run; Resume restores it after an agent restart or reload, except that a `fork` stage reloaded mid-visit
+  forks main again. One that can't be continued is replaced by a
   new one, with a line in main's transcript. Terminal Claude refuses both contexts.
 - All three share the worktree; files are never forked.
 

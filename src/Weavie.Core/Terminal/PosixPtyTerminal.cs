@@ -146,7 +146,15 @@ public sealed class PosixPtyTerminal : ITerminal {
 			posix_spawn_file_actions_addopen(fileActions, 0, slavePath, O_RDWR, 0);
 			posix_spawn_file_actions_adddup2(fileActions, 0, 1);
 			posix_spawn_file_actions_adddup2(fileActions, 0, 2);
-			posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID);
+			// A PTY child owns its signals; host threads may have blocked them while handling runtime work.
+			if (sigemptyset(out var signalMask) != 0) {
+				throw new IOException($"sigemptyset failed (errno {Marshal.GetLastPInvokeError()}).");
+			}
+			int maskError = posix_spawnattr_setsigmask(attr, ref signalMask);
+			if (maskError != 0) {
+				throw new IOException($"posix_spawnattr_setsigmask failed with code {maskError}.");
+			}
+			posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID | POSIX_SPAWN_SETSIGMASK);
 
 			var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 			argvItems.AddRange(startInfo.Arguments);

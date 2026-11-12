@@ -55,9 +55,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter handling inbound
-	/// tool calls, and the advertised workspace folders. A <paramref name="settings"/> store adds the settings
-	/// tools, which keep workspace-scoped keys in <paramref name="settingsWorkspaceRoot"/>'s overlay (empty for
-	/// none): the workspace every reader resolves them against, not the session's own worktree.
+	/// tool calls, the advertised workspace folders, and the <paramref name="capabilities"/> it offers.
+	/// <paramref name="registryMode"/> makes it the model-facing registry; otherwise it is the IDE server.
 	/// Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
@@ -65,50 +64,36 @@ public sealed partial class McpServer : IAsyncDisposable {
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
-		SettingsStore? settings,
-		string settingsWorkspaceRoot,
 		bool registryMode,
-		bool exposeIdeTools,
-		LayoutStore? layout,
-		EditorStore? editor,
-		CommandDispatcher? commands,
-		KeybindingStore? keybindings,
-		ThemeOverridesStore? themeOverrides,
-		ISessionPeers sessions,
-		AgentConsultation agents,
-		IReviewHintSink reviewHints,
-		IWorkflowRegistry workflows) {
+		McpCapabilities capabilities) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
-		ArgumentNullException.ThrowIfNull(sessions);
-		ArgumentNullException.ThrowIfNull(agents);
-		ArgumentNullException.ThrowIfNull(reviewHints);
-		ArgumentNullException.ThrowIfNull(workflows);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
-		if (registryMode && settings is null) {
-			throw new ArgumentNullException(nameof(settings), "Registry-mode server requires a settings store.");
+		ArgumentNullException.ThrowIfNull(capabilities);
+		if (registryMode && capabilities.Settings is null) {
+			throw new ArgumentNullException(nameof(capabilities), "Registry-mode server requires a settings store.");
 		}
-		if (registryMode && exposeIdeTools && editor is null) {
-			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
+		if (registryMode && capabilities.ExposeIdeTools && capabilities.Editor is null) {
+			throw new ArgumentNullException(nameof(capabilities), "A registry exposing IDE tools requires an editor store.");
 		}
 
-		AddGrant(new AgentSessionCredential { Token = authToken }, workflows.CaptureStageCall, sessions);
+		AddGrant(new AgentSessionCredential { Token = authToken }, capabilities.Workflows.CaptureStageCall, capabilities.Sessions);
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
-		_settings = settings;
-		_settingsWorkspaceRoot = settingsWorkspaceRoot;
-		_layout = layout;
-		_editor = editor;
-		_commands = commands;
-		_keybindings = keybindings;
-		_themeOverrides = themeOverrides;
-		_sessions = sessions;
-		_agents = agents;
-		_reviewHints = reviewHints;
-		_workflows = workflows;
+		_settings = capabilities.Settings;
+		_settingsWorkspaceRoot = capabilities.SettingsWorkspaceRoot;
+		_layout = capabilities.Layout;
+		_editor = capabilities.Editor;
+		_commands = capabilities.Commands;
+		_keybindings = capabilities.Keybindings;
+		_themeOverrides = capabilities.ThemeOverrides;
+		_sessions = capabilities.Sessions;
+		_agents = capabilities.Agents;
+		_reviewHints = capabilities.ReviewHints;
+		_workflows = capabilities.Workflows;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude knows what they're looking at.
-		editor?.Changed += OnActiveEditorChanged;
+		_editor?.Changed += OnActiveEditorChanged;
 
 		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
 		_prompts = registryMode ? McpPromptCatalog.All : [];
@@ -122,26 +107,26 @@ public sealed partial class McpServer : IAsyncDisposable {
 				OpenFileToolEntry, SettingsToolEntries, SessionToolEntries, AgentToolEntries, ReviewHintToolEntries, WorkflowToolEntries,
 				BuildPromptToolEntry(),
 			};
-			if (exposeIdeTools) {
+			if (capabilities.ExposeIdeTools) {
 				parts.Add(IdeToolEntries);
 			}
 
-			if (layout is not null) {
+			if (_layout is not null) {
 				parts.Add(LayoutToolEntries);
 			}
 
-			if (commands is not null) {
+			if (_commands is not null) {
 				parts.Add(CommandToolEntries);
 			}
 
-			if (themeOverrides is not null) {
+			if (_themeOverrides is not null) {
 				parts.Add(ThemeToolEntries);
 			}
 
 			entries = string.Join(",", parts);
 		} else {
 			string ide = OpenFileToolEntry + "," + IdeToolEntries;
-			entries = settings is null ? ide : ide + "," + SettingsToolEntries;
+			entries = _settings is null ? ide : ide + "," + SettingsToolEntries;
 		}
 
 		_toolsListJson = "{\"tools\":[" + entries + "]}";

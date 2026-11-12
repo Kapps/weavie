@@ -513,18 +513,20 @@ public sealed partial class AgentSessionHostTests {
 			FakeDiffPresenter.AlwaysKeep(),
 			[dir.Path],
 			"weavie",
-			settings,
-			dir.Path,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
-			new EditorStore(),
-			exposeIdeTools: true,
-			new CommandDispatcher(commandRegistry),
-			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			NoSessionPeers.Instance,
-			AgentConsultation.None,
-			ReviewHintSink.None,
-			WorkflowRegistry.None);
+			new McpCapabilities {
+				ExposeIdeTools = true,
+				Settings = settings,
+				SettingsWorkspaceRoot = dir.Path,
+				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
+				Editor = new EditorStore(),
+				Commands = new CommandDispatcher(commandRegistry),
+				Keybindings = new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
+				ThemeOverrides = new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
+				Sessions = NoSessionPeers.Instance,
+				Agents = AgentConsultation.None,
+				ReviewHints = ReviewHintSink.None,
+				Workflows = WorkflowRegistry.None,
+			});
 		var session = new FakeStructuredSession { Saved = saved };
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(

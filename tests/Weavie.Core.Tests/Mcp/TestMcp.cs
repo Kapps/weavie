@@ -41,7 +41,20 @@ internal static class TestMcp {
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, settingsWorkspaceRoot ?? workspaceFolders.FirstOrDefault() ?? "", registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
+		new(authToken, presenter, workspaceFolders, ideName, registryMode, new McpCapabilities {
+			ExposeIdeTools = exposeIdeTools,
+			Settings = settings,
+			SettingsWorkspaceRoot = settingsWorkspaceRoot ?? workspaceFolders.FirstOrDefault() ?? "",
+			Layout = layout,
+			Editor = editor,
+			Commands = commands,
+			Keybindings = keybindings,
+			ThemeOverrides = themeOverrides,
+			Sessions = sessions ?? NoSessionPeers.Instance,
+			Agents = agents ?? AgentConsultation.None,
+			ReviewHints = reviewHints ?? ReviewHintSink.None,
+			Workflows = workflows ?? WorkflowRegistry.None,
+		});
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -56,18 +69,20 @@ internal static class TestMcp {
 			presenter,
 			workspaceFolders,
 			"weavie",
-			settings,
-			workspaceFolders[0],
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
-			new EditorStore(),
-			exposeIdeTools: false,
-			new CommandDispatcher(registry),
-			new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
-			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			NoSessionPeers.Instance,
-			AgentConsultation.None,
-			ReviewHintSink.None,
-			WorkflowRegistry.None);
+			new McpCapabilities {
+				ExposeIdeTools = false,
+				Settings = settings,
+				SettingsWorkspaceRoot = workspaceFolders[0],
+				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
+				Editor = new EditorStore(),
+				Commands = new CommandDispatcher(registry),
+				Keybindings = new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
+				ThemeOverrides = new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
+				Sessions = NoSessionPeers.Instance,
+				Agents = AgentConsultation.None,
+				ReviewHints = ReviewHintSink.None,
+				Workflows = WorkflowRegistry.None,
+			});
 	}
 
 	/// <summary>The JSON-RPC response carried by an MCP event-stream reply (the event with an <c>id</c>).</summary>

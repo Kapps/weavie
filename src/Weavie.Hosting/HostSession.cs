@@ -205,18 +205,20 @@ public sealed partial class HostSession : IAsyncDisposable {
 			agentDiffPresenter,
 			[workspaceRoot],
 			"weavie",
-			settings,
-			paths.SettingsWorkspaceRoot,
-			services.Layout,
-			Editor,
-			exposeRegistryIdeTools,
-			Commands,
-			services.Keybindings,
-			services.ThemeOverrides,
-			owner.Peers,
-			services.AgentConsultation,
-			ReviewHints,
-			new SessionWorkflowRegistry(WorkflowCatalog, Workflow, services.Workflow.Roles));
+			new McpCapabilities {
+				ExposeIdeTools = exposeRegistryIdeTools,
+				Settings = settings,
+				SettingsWorkspaceRoot = paths.SettingsWorkspaceRoot,
+				Layout = services.Layout,
+				Editor = Editor,
+				Commands = Commands,
+				Keybindings = services.Keybindings,
+				ThemeOverrides = services.ThemeOverrides,
+				Sessions = owner.Peers,
+				Agents = services.AgentConsultation,
+				ReviewHints = ReviewHints,
+				Workflows = new SessionWorkflowRegistry(WorkflowCatalog, Workflow, services.Workflow.Roles),
+			});
 
 		Agent = new AgentSessionHost(
 			agentProvider,

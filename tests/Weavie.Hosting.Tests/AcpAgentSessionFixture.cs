@@ -426,18 +426,20 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			FakeDiffPresenter.AlwaysKeep(),
 			[workspace],
 			"weavie-test",
-			settings,
-			workspace,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
-			editor,
-			exposeIdeTools: true,
-			new CommandDispatcher(commandRegistry),
-			keybindings,
-			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
-			NoSessionPeers.Instance,
-			AgentConsultation.None,
-			reviewHints,
-			new SessionWorkflowRegistry(workflowCatalog, workflow, new WorkflowRoleStore(fileSystem, directory.Combine("workflow-roles.json"))));
+			new McpCapabilities {
+				ExposeIdeTools = true,
+				Settings = settings,
+				SettingsWorkspaceRoot = workspace,
+				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
+				Editor = editor,
+				Commands = new CommandDispatcher(commandRegistry),
+				Keybindings = keybindings,
+				ThemeOverrides = new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
+				Sessions = NoSessionPeers.Instance,
+				Agents = AgentConsultation.None,
+				ReviewHints = reviewHints,
+				Workflows = new SessionWorkflowRegistry(workflowCatalog, workflow, new WorkflowRoleStore(fileSystem, directory.Combine("workflow-roles.json"))),
+			});
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createNavHistory,
+  type NavDestination,
   type NavHistory,
   type NavLocation,
   type TextLocation,
@@ -11,16 +12,20 @@ import {
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve));
 
 let nav: NavHistory;
-let visited: NavLocation[];
+let visited: NavDestination[];
+let fullscreen: boolean;
+const reachable = (loc: NavDestination): boolean => !("pane" in loc) || fullscreen;
 
 beforeEach(() => {
   visited = [];
+  fullscreen = true;
   nav = createNavHistory(
     (loc) => {
       visited.push(loc);
       return Promise.resolve();
     },
     () => {},
+    reachable,
   );
 });
 
@@ -90,6 +95,7 @@ describe("createNavHistory", () => {
         });
       },
       () => {},
+      reachable,
     );
     nav.record(location({ kind: "file", path: "/a.ts", line: 1 }));
     nav.record(location({ kind: "file", path: "/b.ts", line: 1 })); // [a, b], at b
@@ -145,21 +151,71 @@ describe("surface navigation", () => {
     expect(visited.at(-1)).toEqual(origin);
     await settle();
     expect(nav.forward()).toBe(true);
-    expect(visited.at(-1)?.tab.kind).toBe("file");
+    expect(visited.at(-1)).toMatchObject({ tab: { kind: "file" } });
   });
 
   it("explicit nearby jumps preserve the origin despite cursor coalescing", () => {
     nav.record(location({ kind: "review", path: "/a.ts", line: 8 }));
     nav.push(location({ kind: "review", path: "/a.ts", line: 9 }));
     expect(nav.back()).toBe(true);
-    expect(visited.at(-1)?.view.text?.line).toBe(8);
+    expect(visited.at(-1)).toMatchObject({ view: { text: { line: 8 } } });
+  });
+
+  it("a fullscreen pane is one entry however often it is recorded", async () => {
+    nav.record(location({ kind: "file", path: "/a.ts", line: 1 }));
+    nav.record({ pane: "agent" });
+    nav.record({ pane: "agent" });
+    nav.record({ pane: "terminal:shell" });
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toEqual({ pane: "agent" });
+    await settle();
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ tab: { path: "/a.ts" } });
+    await settle();
+    expect(nav.back()).toBe(false);
+  });
+
+  it("steps over a pane entry once fullscreen no longer shows it", async () => {
+    nav.record(location({ kind: "file", path: "/a.ts", line: 1 }));
+    nav.record({ pane: "agent" });
+    nav.record(location({ kind: "file", path: "/b.ts", line: 1 }));
+    fullscreen = false;
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ tab: { path: "/a.ts" } });
+    await settle();
+    expect(nav.canBack()).toBe(false);
+    expect(nav.forward()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ tab: { path: "/b.ts" } });
+    await settle();
+    nav.record({ pane: "agent" });
+    nav.record(location({ kind: "file", path: "/c.ts", line: 1 }));
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ tab: { path: "/b.ts" } });
+  });
+
+  it("offers no step to the same place across a pane entry fullscreen no longer shows", () => {
+    for (const line of [1, 2, 3]) {
+      nav.record(location({ kind: "file", path: "/a.ts", line }));
+      nav.record({ pane: "agent" });
+    }
+    fullscreen = false;
+    nav.record(location({ kind: "file", path: "/a.ts", line: 4 }));
+    expect(nav.canBack()).toBe(false);
+    expect(nav.back()).toBe(false);
+    nav.push(location({ kind: "file", path: "/a.ts", line: 5 }));
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ view: { text: { line: 4 } } });
   });
 
   it("failed restoration retains the actual current location and notifies after rollback", async () => {
     const changed = vi.fn();
-    const history = createNavHistory(async () => {
-      throw new Error("review removed");
-    }, changed);
+    const history = createNavHistory(
+      async () => {
+        throw new Error("review removed");
+      },
+      changed,
+      reachable,
+    );
     history.record(location({ kind: "review", path: "/a.ts", line: 8 }));
     history.record(location({ kind: "file", path: "/b.ts", line: 1 }));
     expect(history.back()).toBe(true);
@@ -173,7 +229,7 @@ describe("surface navigation", () => {
 it("a completed replacement traversal releases recording while an obsolete read remains unresolved", async () => {
   let release!: () => void;
   let calls = 0;
-  const visited: NavLocation[] = [];
+  const visited: NavDestination[] = [];
   const delayed = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -183,6 +239,7 @@ it("a completed replacement traversal releases recording while an obsolete read 
       if (++calls === 1) await delayed;
     },
     () => {},
+    reachable,
   );
   history.record(location({ kind: "review", path: "/a.ts", line: 8 }));
   history.record(location({ kind: "file", path: "/b.ts", line: 1 }));
@@ -196,7 +253,7 @@ it("a completed replacement traversal releases recording while an obsolete read 
   await settle();
   expect(history.canForward()).toBe(false);
   expect(history.back()).toBe(true);
-  expect(visited.at(-1)?.view.text?.path).toBe("/a.ts");
+  expect(visited.at(-1)).toMatchObject({ view: { text: { path: "/a.ts" } } });
 });
 
 function location(value: TextLocation & { kind: "file" | "review" }): NavLocation {

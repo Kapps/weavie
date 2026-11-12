@@ -1,9 +1,15 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { createEditorNavigation } from "./editor-navigation";
-import type { NavLocation, TextLocation } from "./nav-history";
+import type { NavDestination, NavLocation, TextLocation } from "./nav-history";
 
-afterEach(() => vi.useRealTimers());
+let pane: string | null = null;
+let fullscreen = false;
+afterEach(() => {
+  vi.useRealTimers();
+  pane = null;
+  fullscreen = false;
+});
 
 it("an explicit same-file jump discards cursor snapshots captured before its reveal settled", async () => {
   vi.useFakeTimers();
@@ -27,6 +33,8 @@ it("an explicit same-file jump discards cursor snapshots captured before its rev
   });
   const restore = vi.fn(async () => {});
   const navigation = createEditorNavigation({
+    pane: () => pane,
+    reachable: (_session, location) => !("pane" in location) || fullscreen,
     capture: () => destination,
     restore,
     changed: () => {},
@@ -50,8 +58,10 @@ function fixture() {
   const delayed = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const restored: NavLocation[] = [];
+  const restored: NavDestination[] = [];
   const navigation = createEditorNavigation({
+    pane: () => pane,
+    reachable: (_session, location) => !("pane" in location) || fullscreen,
     capture: () => destination,
     restore: async (_session, location) => {
       restored.push(location);
@@ -115,3 +125,33 @@ function location(value: TextLocation & { kind: "file" | "review" }): NavLocatio
     view: { state: text.viewState ?? null, text },
   };
 }
+
+it("a fullscreen pane is the location Back returns to after a file opens from it", async () => {
+  const { owner, destination, navigation, restored, release } = fixture();
+  release();
+  fullscreen = true;
+  pane = "agent";
+  navigation.depart(owner);
+  pane = null;
+  navigation.record(owner, destination);
+  navigation.history(owner).back();
+  expect(restored).toEqual([{ pane: "agent" }]);
+  await Promise.resolve();
+  navigation.dispose();
+});
+
+it("an editor moving behind a fullscreen pane records nothing", async () => {
+  vi.useFakeTimers();
+  const { owner, origin, navigation, restored, release } = fixture();
+  release();
+  const hidden = location({ kind: "file", path: "/hidden.ts", line: 1 });
+  pane = "agent";
+  navigation.record(owner, hidden);
+  navigation.push(owner, hidden);
+  navigation.schedule(owner, hidden, owner.signal);
+  await vi.runAllTimersAsync();
+  expect(navigation.history(owner).canForward()).toBe(false);
+  navigation.history(owner).back();
+  expect(restored).toEqual([origin]);
+  navigation.dispose();
+});

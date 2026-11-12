@@ -6,6 +6,7 @@ import {
   For,
   type JSX,
   lazy,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -311,6 +312,8 @@ export default function App(): JSX.Element {
   // The last pane the user actually worked in (claude/shell/editor). Unlike focusedKind it survives focus
   // moving to the omnibar / a dialog, so it's the stable fullscreen target and the pane Ctrl+N switches show.
   const [activePane, setActivePane] = createSignal<string | null>(null);
+  const desktopFullscreen = (): boolean => fullscreen() && !compact();
+  const fullscreenPane = (): string | null => (desktopFullscreen() ? activePane() : null);
   // Compact surfaces are history entries, so the browser navigates them too (its own edge gesture, the OS
   // back button). Following the surface keeps the active pane right however it changed.
   createEffect(() => {
@@ -474,8 +477,8 @@ export default function App(): JSX.Element {
       const kind = surface === "inbox" ? (activePane() ?? AGENT_PANE_KIND) : surface;
       return { type: "pane", id: "compact", kind };
     }
-    const kind = activePane();
-    return fullscreen() && kind !== null ? { type: "pane", id: "fullscreen", kind } : layoutRoot();
+    const kind = fullscreenPane();
+    return kind === null ? layoutRoot() : { type: "pane", id: "fullscreen", kind };
   });
   createEffect(() => {
     const enabled = compact();
@@ -711,12 +714,16 @@ export default function App(): JSX.Element {
         drillMobileSurface("editor");
       }
     },
+    fullscreenPane,
+    showPane: (kind) => focusPane(kind),
     confirmDiscard,
     confirm,
     promptScratchName,
     promptRevision,
   });
   const editorCommands = createEditorCommands(editor, setContextMenu);
+  // Entering or leaving fullscreen changes which location the session is at.
+  createEffect(on(desktopFullscreen, () => editor.nav.capture(), { defer: true }));
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
@@ -754,11 +761,19 @@ export default function App(): JSX.Element {
     }
   });
 
+  // Fullscreen shows one pane at a time, so leaving one for another is a Back/Forward step.
+  const switchPane = (kind: string): void => {
+    const from = fullscreenPane();
+    const step = from !== null && from !== kind;
+    if (step) editor.nav.capture();
+    setActivePane(kind);
+    if (step) editor.nav.capture();
+  };
   const focusPane = (kind: string): void => {
     deferredFocus.invalidate();
     // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
-    setActivePane(kind);
+    switchPane(kind);
     if (compact() && (kind === AGENT_PANE_KIND || kind === "terminal:shell" || kind === "editor")) {
       navigateMobileSurface(kind);
     }
@@ -805,6 +820,8 @@ export default function App(): JSX.Element {
       navigateMobileSurface(AGENT_PANE_KIND);
     }
     if (pane !== null) {
+      // The session arrives at this pane; it left no other, so this is no Back/Forward step.
+      setActivePane(pane);
       focusPane(pane);
     }
   };
@@ -1889,7 +1906,7 @@ export default function App(): JSX.Element {
       setFocusedKind(kind);
       // Remember the last real pane (survives focus moving to the omnibar / a dialog) as the fullscreen target.
       if (kind !== null) {
-        setActivePane(kind);
+        switchPane(kind);
       }
       for (const [key, value] of Object.entries(focus)) {
         setContext(key, value);
@@ -2039,7 +2056,7 @@ export default function App(): JSX.Element {
           inert={sessionsModalActive()}
           classList={{
             offline: activeBackendOffline(),
-            fullscreen: fullscreen() && !compact(),
+            fullscreen: desktopFullscreen(),
           }}
           style={fullscreenColumn.style()}
           on:touchstart={mobileBackSwipe.onTouchStart}
@@ -2053,7 +2070,7 @@ export default function App(): JSX.Element {
             onResize={onLayoutResize}
             floating={(kind) => isTool(kind) && toolPanels.floating(kind)}
           />
-          <Show when={fullscreen() && !compact()}>
+          <Show when={desktopFullscreen()}>
             <For each={["left", "right"]}>
               {(side) => (
                 <div

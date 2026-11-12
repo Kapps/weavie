@@ -374,10 +374,10 @@ public static partial class CoreCommands {
 	/// <summary>Reopens the most recently closed editor tab; bound to <c>Ctrl+Shift+T</c>.</summary>
 	public const string ReopenClosed = "weavie.editor.reopenClosed";
 
-	/// <summary>Goes back to the previous editor location in the navigation history; bound to <c>Alt+Left</c> and the back mouse button.</summary>
+	/// <summary>Goes back to the previous editor location or fullscreen pane in the navigation history; bound to <c>Alt+Left</c> and the back mouse button.</summary>
 	public const string NavigateBack = "weavie.navigation.back";
 
-	/// <summary>Goes forward to the next editor location in the navigation history; bound to <c>Alt+Right</c> and the forward mouse button.</summary>
+	/// <summary>Goes forward to the next editor location or fullscreen pane in the navigation history; bound to <c>Alt+Right</c> and the forward mouse button.</summary>
 	public const string NavigateForward = "weavie.navigation.forward";
 
 	/// <summary>Copies an editor tab's file name to the clipboard (the active tab, or <c>path</c>).</summary>
@@ -2015,7 +2015,8 @@ public static partial class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+t" }],
 		});
 
-		// Back / forward through visited editor locations — a browser/IDE-style navigation history. Web-handled.
+		// Back / forward through visited editor locations and fullscreen panes — a browser/IDE-style navigation
+		// history. Web-handled.
 		// The traditional bindings: the back/forward mouse buttons (the MouseBack / MouseForward key tokens,
 		// resolved by the web's mousedown resolver) plus Alt+Left / Alt+Right. The Alt chords carry a per-binding
 		// `!terminalFocused` guard so a focused terminal keeps its Alt+arrow word-nav; the mouse buttons conflict
@@ -2026,7 +2027,7 @@ public static partial class CoreCommands {
 			Title = "Go Back",
 			RunsIn = CommandLocation.Web,
 			Category = "Navigation",
-			Description = "Go back to the previous editor location (file + line) in the navigation history. "
+			Description = "Go back to the previous editor location (file + line) or fullscreen pane in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
 			When = "navigationBackAvailable",
@@ -2041,7 +2042,7 @@ public static partial class CoreCommands {
 			Title = "Go Forward",
 			RunsIn = CommandLocation.Web,
 			Category = "Navigation",
-			Description = "Go forward to the next editor location (file + line) in the navigation history. "
+			Description = "Go forward to the next editor location (file + line) or fullscreen pane in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
 			When = "navigationForwardAvailable",

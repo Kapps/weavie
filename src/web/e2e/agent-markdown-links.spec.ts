@@ -22,6 +22,10 @@ const ABS_TSX_PATH = `/repo/${TSX_PATH}`;
 const ABS_AT_PATH = `/repo/${AT_PATH}`;
 const FULLSCREEN_COMMAND = "weavie.pane.toggleFullscreen";
 const TOGGLE_MERMAID_COMMAND = "weavie.agent.toggleMermaidPreview";
+const HISTORY_COMMANDS = [
+  { id: "weavie.navigation.back", key: "alt+Left", when: "navigationBackAvailable" },
+  { id: "weavie.navigation.forward", key: "alt+Right", when: "navigationForwardAvailable" },
+];
 const MERMAID_MARKDOWN = [
   "```mermaid",
   "flowchart LR",
@@ -107,10 +111,27 @@ test.describe("AgentMarkdown transcript links", () => {
           when: "agentFocused",
           keys: [mermaidKey],
         } satisfies CommandInfo,
+        ...HISTORY_COMMANDS.map(
+          ({ id, key, when }) =>
+            ({
+              id,
+              title: id,
+              runsIn: "web",
+              owner: "backend",
+              executionLane: id,
+              scope: "session",
+              description: "",
+              aliases: [],
+              showInPalette: true,
+              when,
+              keys: [key],
+            }) satisfies CommandInfo,
+        ),
       ],
       keybindings: [
         { key: "alt+shift+enter", command: FULLSCREEN_COMMAND },
         { key: mermaidKey, command: TOGGLE_MERMAID_COMMAND, when: "agentFocused" },
+        ...HISTORY_COMMANDS.map(({ id, key }) => ({ key, command: id })),
       ],
     });
   }
@@ -278,8 +299,19 @@ test.describe("AgentMarkdown transcript links", () => {
         () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,
       ),
     ).toBe("editor");
-    await expect(page.locator(".editor-surface")).toBeVisible();
-    await expect(page.locator(".agent-surface")).toBeHidden();
+    const editorSurface = page.locator(".editor-surface");
+    const agentSurface = page.locator(".agent-surface");
+    await expect(editorSurface).toBeVisible();
+    await expect(agentSurface).toBeHidden();
+
+    // A fullscreen pane change is a history step: Back returns to the conversation, Forward to the file.
+    await page.keyboard.press("Alt+ArrowLeft");
+    await expect(agentSurface).toBeVisible();
+    await expect(editorSurface).toBeHidden();
+    await expect(composer).toBeFocused();
+    await page.keyboard.press("Alt+ArrowRight");
+    await expect(editorSurface).toBeVisible();
+    await expect(agentSurface).toBeHidden();
     await page.locator(".editor-surface .pane-fullscreen").click();
 
     // An already-mounted media destination also regains focus when its link is opened again.

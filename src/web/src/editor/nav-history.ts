@@ -1,4 +1,4 @@
-// Session-local Back/Forward over file and review locations, independent of their mounted widgets.
+// Session-local Back/Forward over file, review and fullscreen-pane locations, independent of their widgets.
 
 import type * as monaco from "monaco-editor";
 import { samePath } from "./fs-path";
@@ -23,10 +23,13 @@ export interface NavLocation {
   view: TabViewState;
 }
 
-/** Back/forward navigation over recorded editor locations, exposed to the Go Back / Go Forward commands. */
+/** An editor location, or the pane fullscreen shows in its place. */
+export type NavDestination = NavLocation | { pane: string };
+
+/** Back/forward navigation over recorded destinations, exposed to the Go Back / Go Forward commands. */
 export interface NavHistory {
-  /** Record the editor settling at `loc`; a small move within the current region updates the entry in place. */
-  record(loc: NavLocation): void;
+  /** Record the view settling at `loc`; a small move within the current region updates the entry in place. */
+  record(loc: NavDestination): void;
   /** Whether cursor events may enter history outside traversal and temporary previews. */
   canRecord(): boolean;
   /** Suspends recording during an explicitly owned preview. */
@@ -34,7 +37,7 @@ export interface NavHistory {
   /** Cancels pending traversal immediately, preserving the last settled destination. */
   cancel(): void;
   /** Records an explicit jump even within the same nearby region. */
-  push(loc: NavLocation): void;
+  push(loc: NavDestination): void;
   /** Step to the previous location; false when there's nothing behind (so the keybinding falls through). */
   back(): boolean;
   /** Step to the next location; false when there's nothing ahead. */
@@ -51,17 +54,32 @@ const JUMP_LINES = 10;
 // Cap the history so a long session can't grow it without bound; the oldest entries fall off the front.
 const LIMIT = 50;
 
+const sameRegion = (a: NavDestination, b: NavDestination): boolean => {
+  if ("pane" in a || "pane" in b) return "pane" in a && "pane" in b && a.pane === b.pane;
+  return (
+    tabResourceKey({ ...a.tab, viewState: null }) ===
+      tabResourceKey({ ...b.tab, viewState: null }) &&
+    ((a.view.text === null && b.view.text === null) ||
+      (a.view.text !== null &&
+        b.view.text !== null &&
+        samePath(a.view.text.path, b.view.text.path) &&
+        Math.abs(a.view.text.line - b.view.text.line) < JUMP_LINES))
+  );
+};
+
 /**
- * Creates the navigation history. `navigateTo` drives the editor to a recorded location and resolves once the
+ * Creates the navigation history. `navigateTo` drives the view to a recorded location and resolves once the
  * (async) model swap has landed. Records are suppressed for the whole span of that swap: mid-swap the editor
  * still reports the *previous* file, so an un-guarded settle-record would look like a fresh jump and truncate
- * the forward history — so this promise being awaited is load-bearing, not decorative.
+ * the forward history — so this promise being awaited is load-bearing, not decorative. Back and Forward step
+ * over entries that are not `reachable`: a fullscreen pane's entry outlives fullscreen.
  */
 export function createNavHistory(
-  navigateTo: (loc: NavLocation) => Promise<void>,
+  navigateTo: (loc: NavDestination) => Promise<void>,
   changed: () => void,
+  reachable: (loc: NavDestination) => boolean,
 ): NavHistory {
-  const entries: NavLocation[] = [];
+  const entries: NavDestination[] = [];
   // Index of the current location in `entries`; -1 until the first record.
   let index = -1;
   let settledIndex = -1;
@@ -71,22 +89,12 @@ export function createNavHistory(
   const navigating = new Set<number>();
   let traversal = 0;
 
-  const record = (loc: NavLocation, explicit: boolean): void => {
+  const record = (loc: NavDestination, explicit: boolean): void => {
     if (navigating.size > 0 || suspended > 0) {
       return;
     }
     const current = entries[index];
-    if (
-      !explicit &&
-      current !== undefined &&
-      tabResourceKey({ ...current.tab, viewState: null }) ===
-        tabResourceKey({ ...loc.tab, viewState: null }) &&
-      ((current.view.text === null && loc.view.text === null) ||
-        (current.view.text !== null &&
-          loc.view.text !== null &&
-          samePath(current.view.text.path, loc.view.text.path) &&
-          Math.abs(current.view.text.line - loc.view.text.line) < JUMP_LINES))
-    ) {
+    if (!explicit && current !== undefined && sameRegion(current, loc)) {
       // Same region: keep the entry anchored to the latest position so Back returns precisely here.
       entries[index] = loc;
       return;
@@ -101,6 +109,18 @@ export function createNavHistory(
     settledIndex = index;
   };
 
+  // Past an unreachable entry, an entry in the region being left is no step either.
+  const step = (direction: -1 | 1): number => {
+    const from = entries[index];
+    let target = index + direction;
+    let skipped = false;
+    for (let loc = entries[target]; loc !== undefined; loc = entries[target]) {
+      if (reachable(loc) && !(skipped && from !== undefined && sameRegion(loc, from))) break;
+      skipped = true;
+      target += direction;
+    }
+    return target;
+  };
   const go = (target: number): boolean => {
     const loc = entries[target];
     if (loc === undefined) {
@@ -144,9 +164,9 @@ export function createNavHistory(
     },
     record: (loc) => record(loc, false),
     push: (loc) => record(loc, true),
-    back: () => go(index - 1),
-    forward: () => go(index + 1),
-    canBack: () => index > 0,
-    canForward: () => index >= 0 && index < entries.length - 1,
+    back: () => go(step(-1)),
+    forward: () => go(step(1)),
+    canBack: () => entries[step(-1)] !== undefined,
+    canForward: () => entries[step(1)] !== undefined,
   };
 }

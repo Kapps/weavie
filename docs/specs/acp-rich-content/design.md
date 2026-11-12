@@ -165,12 +165,13 @@ provider Weavie ships a recipe for gets the real-agent run before blocks are rel
 milliseconds or ISO 8601 and is stored as milliseconds. A comparison series is sent already shifted onto
 the same x values. Column `type` is `time | number | text | level`.
 
-**`updateBlock`** — `replace` swaps the named series or all rows; `append` adds to them and trims to `keep`.
+**`updateBlock`** — a whole new `chart` or `table` replaces the block's data; `append` adds points to existing
+series, or rows, and keeps the newest `keep`.
 
 ```json
-{ "id": "p95", "mode": "append", "keep": 60,
-  "series": [{ "name": "now", "points": [[1794490800000, 371]] },
-             { "name": "24h ago", "points": [[1794490800000, 259]] }] }
+{ "id": "p95", "keep": 60,
+  "append": { "series": [{ "name": "now", "points": [[1794490800000, 371]] },
+                         { "name": "24h ago", "points": [[1794490800000, 259]] }] } }
 ```
 
 **Tool result** (the model reads the sentence; Weavie reads the token):
@@ -457,7 +458,7 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 ### Chart — `charts.ts`, `AgentChart.tsx` (new)
 
 - `echarts/core` with line, bar and scatter charts and the grid, tooltip, legend, mark-line, mark-area
-  and brush components, SVG renderer, loaded by a memoized dynamic import as Mermaid is in
+  and brush components, canvas renderer (12 series of 5,000 points is too many SVG nodes), loaded by a memoized dynamic import as Mermaid is in
   `editor/preview/diagrams.ts`.
 - `chartOption(chart, palette)` is a pure function: `animationDuration: 0`, `animationDurationUpdate: 300`,
   comparison series dashed and dim, `thresholds` as `markLine`, `bands` as `markArea`, `y2` as a second
@@ -468,11 +469,12 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 
 ### Table — `AgentTable.tsx` (new)
 
-- Rows are `.ui-row-content`, virtualized with `@tanstack/solid-virtual`; columns are one grid on the
-  scroller with `subgrid` rows; the filter is a `.ui-field`; sortable headers are `.ui-button`.
-- `level` cells take `--ok`, `--warn`, `--bad`. `time` cells render in local time.
-- Click selects a cell, a row from its gutter, a column from its header; shift extends. Enter on a focused
-  row attaches it.
+- Rows are `.ui-row-content`, virtualized with `@tanstack/solid-virtual`; header and rows share explicit column
+  widths sized from the data, because virtualized rows can't join one grid; the filter is a `.ui-field`;
+  sortable headers are `.ui-button`.
+- `level` cells take `--warn`, `--bad`, `--dim`. `time` cells render in local time.
+- Dragging across cells attaches that rectangle; the row number attaches its row. The gesture attaches when it
+  ends, like a chart brush.
 
 ### Selection attachments
 
@@ -514,10 +516,10 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 
 ### Agent guidance
 
-`EmbeddedAgentGuidance` gains a native-pane section, composed only in `AcpConversation.PromptBuilder.cs`
-(terminal Claude shares the base text and cannot show blocks): use `showBlock` for data worth seeing as a
-chart or a large or live table; use a markdown table for a small static one; update an existing block in
-place with `append` instead of resending or reprinting it; one update per id at a time.
+The guidance lives in the two tools' descriptions: use `showBlock` for data worth seeing as a chart or a large
+or live table; use a markdown table for a small static one; update in place instead of resending or reprinting;
+one update per block at a time. Every agent that lists the tools reads it, whereas the embedded instructions
+reach only agents with embedded context; terminal Claude never lists the tools.
 
 ## Error handling
 
@@ -543,7 +545,7 @@ No timeouts are added. A remote image fetch ends with its request or its session
 | --- | --- |
 | `tests/Weavie.Core.Tests` | `AgentBlockValidator` (each limit names itself), `AgentBlockOps` (replace, append, trim), `AgentBlockClaims` (single use, unbound, cleared), `AcpSessionStore` (upsert, prune in `Replace`, `ClearWorkspace`), `McpServer` (errors, per-grant `tools/list`), `AgentPaneLedger` (tool row to block row in place), `ConversationOutput` (history with blocks, block dropped on retraction), `AgentImageFetcher` with a stub handler |
 | `tests/Weavie.Hosting.Tests`, new `AcpBlockTests` | Show claims its own row with no extra journal event; update retracts and leaves no dataset in `pane_events`; Claude-shaped and Codex-shaped results; two parallel calls whose results arrive swapped; two appends applied in row order; subagent refused; no relay; restart; `/clear`; Rewind; `/btw` and workflow-thread isolation; refused turn deletes its block. Selection attachments beside `AcpSideAttachmentTests` |
-| Fake agent | `CallWeavieToolAsync` (`tools/Weavie.FakeAcp/FakeAcpAgent.WeavieTools.cs:14`) narrates a `tool_call` before the POST and a `tool_call_update` after, with one variant per row of both tables in "What the link depends on": each field and shape, fenced, truncated, result on the first `tool_call`, result after completion, repeated, swapped parallel results, no narration, no result, altered token, and a call narrated on a subagent session |
+| Fake agent | `block:<relay>:<tool>:<json>`, `block-parallel:…` and `block-subagent:…` (`tools/Weavie.FakeAcp/FakeAcpAgent.Blocks.cs`) narrate the call with one relay per row of both tables in "What the link depends on": Claude and Codex shapes, JSON-escaped, content-only, fenced, truncated, result on the first `tool_call`, result after completion, repeated, swapped parallel results, no narration, no result, altered token, and a call narrated on a subagent session. Plain `mcp:` calls stay un-narrated |
 | Vitest | `AgentPaneMessages`, `AgentPaneEstimate`, `AgentPaneAccumulator`, `block-store`, `chartOption`, table sort, filter and selection, selection text composition, `composer-state` |
 | e2e headless (`src/web/e2e/functional`) | `agent-blocks.spec.ts`: a block between two pieces of reply text; in-place update with many small appends; reload with the history response held, row offsets unchanged when blocks land; Rewind; `/clear`. `agent-attachments.spec.ts`: each gesture, stacked chips, the prompt the fake receives. `agent-images.spec.ts`: workspace image, region crop, the setting-off message |
 | e2e remote | One test: cropping an image across origins |
@@ -561,7 +563,7 @@ agent exercise the whole path.
 | --- | --- |
 | `src/Weavie.Core/Agents/AgentBlock.cs` (new) | Block, chart, table, operation, state and record types; `AgentBlockJson` |
 | `src/Weavie.Core/Agents/AgentBlockClaims.cs` (new) | Stage, take, bind |
-| `src/Weavie.Core/Agents/AgentBlockValidator.cs`, `AgentBlockOps.cs`, `AgentBlockLimits.cs` (new) | Validation, apply, limits |
+| `src/Weavie.Core/Agents/AgentBlockRules.cs`, `AgentBlockReferences.cs` (new) | Validation, apply, limits; which rows keep which blocks |
 | `src/Weavie.Core/Mcp/McpServer.BlockTools.cs` (new) | Handlers and schemas |
 | `src/Weavie.Core/Mcp/McpServer.cs`, `McpServer.Cancellation.cs`, `CapabilityRegistryGrant.cs` | Dispatch, `Blocks` |
 | `src/Weavie.Core/Sessions/AcpSessionStore.Blocks.cs` (new), `AcpSessionStore.cs` | Table, upsert, prune, delete |

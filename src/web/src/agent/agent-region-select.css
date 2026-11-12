@@ -1,0 +1,11 @@
+.agent-region-box {
+  position: fixed;
+  z-index: 1000;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
+.agent-markdown .agent-mermaid-block svg {
+  cursor: crosshair;
+}

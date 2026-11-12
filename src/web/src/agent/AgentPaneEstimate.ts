@@ -14,6 +14,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (entry === undefined) {
     return 48;
   }
+  if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {
@@ -31,7 +32,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return size;
   }
   const size =
-    (prose && entry.kind !== "thought" ? 12 : 34) +
+    (prose ? 12 : 34) +
     (entry.summary === null
       ? 0
       : entry.kind === "activity"

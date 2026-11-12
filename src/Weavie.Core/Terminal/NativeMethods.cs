@@ -17,6 +17,7 @@ internal static partial class NativeMethods {
 
 	// Linux spawn path; macOS uses the native launcher.
 	internal const short POSIX_SPAWN_SETSID = 0x80;
+	internal const short POSIX_SPAWN_SETSIGMASK = 0x08;
 
 	// fcntl(2) for the Linux close-on-exec path described above.
 	internal const int F_SETFD = 2;
@@ -34,6 +35,10 @@ internal static partial class NativeMethods {
 	// Caller-allocated storage for posix_spawn_file_actions_t / posix_spawnattr_t, oversized vs. either
 	// platform's struct (glibc's is ~336 bytes; macOS an 8-byte pointer) so *_init can't overrun the buffer.
 	internal const int SpawnObjectSize = 1024;
+
+	// glibc sigset_t stores 1024 signal bits; only the Linux spawn path uses this type.
+	[StructLayout(LayoutKind.Sequential, Size = 128)]
+	internal struct LinuxSignalSet;
 
 	[StructLayout(LayoutKind.Sequential)]
 	internal struct Winsize {
@@ -82,6 +87,12 @@ internal static partial class NativeMethods {
 
 	[LibraryImport("libc", SetLastError = true)]
 	internal static partial int posix_spawnattr_setflags(IntPtr attr, short flags);
+
+	[LibraryImport("libc", SetLastError = true)]
+	internal static partial int sigemptyset(out LinuxSignalSet set);
+
+	[LibraryImport("libc")]
+	internal static partial int posix_spawnattr_setsigmask(IntPtr attr, ref LinuxSignalSet mask);
 
 	[LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial int posix_spawn(

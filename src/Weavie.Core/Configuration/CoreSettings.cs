@@ -176,11 +176,11 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
-			Description = "Show agent thought text inline or in separate collapsed Thinking entries. Thought text can include replies and reasoning summaries.",
+			Description = "Show all agent thinking, the latest reasoning summary in a compact status row, or individual collapsed Thinking rows. Ordinary agent replies remain visible.",
 			Aliases = ["show thinking", "collapse thinking", "thought display"],
 			Apply = ApplyMode.Live,
-			Default = "inline",
-			AllowedValues = ["inline", "collapsed"],
+			Default = "current",
+			AllowedValues = ["all", "current", "collapsed"],
 		});
 
 		InferenceSettings.Register(registry);

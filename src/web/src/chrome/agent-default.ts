@@ -20,7 +20,7 @@ declare global {
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
-  thoughtDisplay: "inline",
+  thoughtDisplay: "current",
   providers: [
     {
       id: "claude",
@@ -99,7 +99,7 @@ registerHostFeature((connection) => {
   const update = (defaults: AgentDefaults): void => {
     setByBackend((previous) => new Map(previous).set(connection.id, defaults));
   };
-  const offHello = connection.onHello((hello) => update(hello.agentDefaults));
+  const offHello = connection.onInitializing((hello) => update(hello.agentDefaults));
   const offSettings = connection.host
     .feature("settings")
     .on<AgentDefaults>("agent-defaults", update);

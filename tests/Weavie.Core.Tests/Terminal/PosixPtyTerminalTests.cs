@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using Weavie.Core.Terminal;
 using Xunit;
+using static Weavie.Core.Terminal.NativeMethods;
 
 namespace Weavie.Core.Tests;
 
@@ -64,15 +66,37 @@ public sealed class PosixPtyTerminalTests {
 	public void Dispose_HangsUpAnInteractiveShell_InsteadOfKillingIt() {
 		if (OperatingSystem.IsWindows()) return;
 
-		int exitCode = StopOnceReady(new TerminalStartInfo {
-			Command = "/bin/bash",
-			// Builtins check pending HUP without bash's signal-before-input-wait race.
-			Arguments = ["--noprofile", "--norc", "-i", "-c", "printf ready; while :; do :; done"],
-			HangUpOnStop = true,
-		});
+		int exitCode = StopOnceReady(InteractiveShell());
 
 		Assert.Equal(129, exitCode);
 	}
+
+	[Fact]
+	public void Start_ClearsTheLaunchingThreadsBlockedHangupSignal() {
+		if (!OperatingSystem.IsLinux()) return;
+
+		Assert.Equal(0, sigemptyset(out var blocked));
+		Assert.Equal(0, sigaddset(ref blocked, SIGHUP));
+		Assert.Equal(0, pthread_sigmask(0, ref blocked, out var previous));
+		try {
+			Assert.Equal(129, StopOnceReady(InteractiveShell()));
+		} finally {
+			Assert.Equal(0, pthread_sigmask(2, ref previous, out _));
+		}
+	}
+
+	private static TerminalStartInfo InteractiveShell() => new() {
+		Command = "/bin/bash",
+		// Builtins check pending HUP without bash's signal-before-input-wait race.
+		Arguments = ["--noprofile", "--norc", "-i", "-c", "printf ready; while :; do :; done"],
+		HangUpOnStop = true,
+	};
+
+	[DllImport("libc")]
+	private static extern int sigaddset(ref LinuxSignalSet set, int signal);
+
+	[DllImport("libc")]
+	private static extern int pthread_sigmask(int how, ref LinuxSignalSet set, out LinuxSignalSet previous);
 
 	[Fact]
 	public void Dispose_DoesNotHangUpAChildThatStopsOnSigterm() {

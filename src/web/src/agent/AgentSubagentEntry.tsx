@@ -68,8 +68,9 @@ export function AgentSubagentEntry(props: {
         <div class="agent-entry-summary" title={info().task ?? undefined}>
           {info().name}
         </div>
-        <Show when={entries().length > 0}>
+        <Show when={entries().length > 0 || props.entry.currentThought}>
           <NestedTranscript
+            currentThought={props.entry.currentThought ?? null}
             entries={entries()}
             pendingOnly={collapsed()}
             expandedDetails={props.expandedDetails}

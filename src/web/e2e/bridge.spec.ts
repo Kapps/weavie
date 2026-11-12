@@ -783,6 +783,77 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
+  test("remote thought preferences initialize before existing sessions and survive disconnect cleanup", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    const local = mockSession("local", "local", "acp");
+    const remoteSession = mockSession("remote-acp", "acp", "acp");
+    host.setSessions([local]);
+    const remote = await MockHost.start({ distDir, sessions: [remoteSession] });
+    remote.setAgentHistory(remoteSession.address, {
+      generation: 1,
+      batchSize: 100,
+      messages: [
+        {
+          providerId: "acp",
+          type: "item-completed",
+          itemId: "thought",
+          itemType: "thought",
+          status: "completed",
+          text: "Remote thought restored before selection",
+        },
+      ],
+    });
+    await page.routeWebSocket(`${remote.bridgeUrl}*`, (socket) => {
+      const server = socket.connectToServer();
+      server.onMessage((data) => {
+        const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
+        if (
+          message.kind === "response" &&
+          message.feature === "connection" &&
+          message.name === "hello"
+        ) {
+          (message.payload as HostHello).agentDefaults.thoughtDisplay = "collapsed";
+          socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
+        } else socket.send(data);
+      });
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("remoteAgents", "changed", {
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitUntilConnected();
+      await page.locator(".session-chip.remote").click();
+      const thought = page.locator(".agent-entry-thought");
+      await expect(thought.locator("summary")).toContainText(
+        "Remote thought restored before selection",
+      );
+      await expect(thought.locator("details[open]")).toHaveCount(0);
+      await thought.locator("summary").click();
+      await expect(thought.locator(".agent-markdown")).toBeVisible();
+
+      host.publishHost("remoteAgents", "changed", { agents: [] });
+      await expect(page.locator(".session-chip.remote")).toHaveCount(0);
+      await page.locator(".session-chip").click();
+      await expect(page.locator(".session-chip.active")).toHaveAttribute(
+        "data-session-slot",
+        local.id,
+      );
+      await expect(page.locator('[data-surface="structured-agent"]')).toBeVisible();
+      await frames(page, 2);
+      expect(errors).toEqual([]);
+    } finally {
+      await remote.close();
+    }
+  });
+
   test("client-owned font zoom stays on the local host with a remote session selected", async ({
     page,
   }) => {

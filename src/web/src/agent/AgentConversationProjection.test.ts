@@ -36,7 +36,7 @@ function answer(conversationId: string | null, itemId: string, text: string): Ag
   };
 }
 function fixture(history: number, siblings: number) {
-  const model = createAgentPaneModel({} as ClientSession);
+  const model = createAgentPaneModel({} as ClientSession, () => "all");
   const accumulator = new AgentPaneAccumulator((callback) => {
     flush = callback;
   });
@@ -184,7 +184,7 @@ describe("conversation projection locality", () => {
 
   it("places a descendant loaded before its parent announcement", () =>
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+      const model = createAgentPaneModel({} as ClientSession, () => "all");
       const accumulator = new AgentPaneAccumulator((callback) => {
         flush = callback;
       });
@@ -220,7 +220,7 @@ describe("conversation projection locality", () => {
 
   it("updates a tab opened before history arrives and removes it on reset", () =>
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+      const model = createAgentPaneModel({} as ClientSession, () => "all");
       const seen: Array<string | undefined> = [];
       createComputed(() => seen.push(model.conversation("child")?.id));
       const accumulator = new AgentPaneAccumulator((callback) => callback());

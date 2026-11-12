@@ -1014,9 +1014,9 @@ export function disconnectBackend(id: string): void {
   if (backend === undefined) {
     return;
   }
-  removeHostFeatures(backend.connection);
   backend.transport.dispose();
   backend.connection.disconnect();
+  removeHostFeatures(backend.connection);
   backends.delete(id);
   if (preferredSelection()?.backendId === id) {
     const fallback = defaultSession();

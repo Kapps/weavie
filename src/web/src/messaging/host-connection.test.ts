@@ -57,7 +57,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   agentDefaults: {
     defaultProvider: "acp",
     replyStartOffset: 0.5,
-    thoughtDisplay: "inline",
+    thoughtDisplay: "all",
     providers: [],
   },
   commandCatalog: { commands: [], keybindings: [] },
@@ -128,6 +128,29 @@ function harness(initialHello: HostHello) {
 }
 
 describe("HostConnection session ownership", () => {
+  it("initializes host defaults before installing sessions, including reconnects", async () => {
+    const primary = address("primary", "one");
+    const initial = hello("host-one", [entry("primary", primary)]);
+    const host = harness(initial);
+    let defaults: HostHello["agentDefaults"] | undefined;
+    const seen: string[] = [];
+    host.connection.onCatalog((_catalog, sessions) => {
+      if (sessions.length > 0) seen.push(defaults!.thoughtDisplay);
+    });
+    host.connection.onInitializing((value) => {
+      defaults = value.agentDefaults;
+    });
+    await host.connection.connect();
+    expect(seen).toEqual(["all"]);
+    host.connection.transportDropped();
+    const next = hello("host-two", [entry("primary", address("primary", "two"))]);
+    next.agentDefaults.thoughtDisplay = "current";
+    host.setHello(next);
+    await host.connection.connect();
+    expect(seen).toEqual(["all", "current"]);
+    expect(host.errors).toEqual([]);
+  });
+
   it("buffers exact-session events until the hello catalog creates their owner", async () => {
     const primary = address("primary", "one");
     const host = harness(hello("host-one", [entry("primary", primary)]));

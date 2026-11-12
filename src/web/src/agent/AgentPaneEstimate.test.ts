@@ -28,6 +28,15 @@ function entry(over: Partial<AgentTranscriptEntry>): AgentTranscriptEntry {
 }
 
 describe("estimateEntrySize", () => {
+  it("does not reserve hidden thought text as scroll space before the row mounts", () => {
+    const thought = entry({
+      kind: "thought",
+      thoughtCollapsed: true,
+      text: "A long thought.\n".repeat(200),
+    });
+    expect(estimateEntrySize(thought)).toBe(29);
+  });
+
   it("wraps assistant prose at the markdown measure, not at 48 columns", () => {
     expect(estimateEntrySize(entry({ text: "x".repeat(96) }))).toBe(PROSE_CHROME + PROSE_LINE);
     expect(estimateEntrySize(entry({ text: "y".repeat(97) }))).toBe(PROSE_CHROME + PROSE_LINE * 2);

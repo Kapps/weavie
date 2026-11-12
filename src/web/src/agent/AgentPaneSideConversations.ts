@@ -79,9 +79,7 @@ export function sideConversationEntry(
     .reverse()
     .find((message) => message.type === "side-conversation-collapsed");
   const state = sideConversationState(messages);
-  const childMessages = messages.filter(
-    (message) => !message.type.startsWith("side-conversation-"),
-  );
+  const childMessages = [...messages];
   if (!childMessages.some((message) => message.type === "user-message") && marker?.text) {
     childMessages.unshift({
       type: "user-message",

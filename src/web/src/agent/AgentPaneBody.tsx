@@ -2,6 +2,7 @@ import { createEffect, createMemo, type JSX, on, onCleanup } from "solid-js";
 import { setContext } from "../commands/context";
 import { AgentBackgroundTray } from "./AgentBackgroundTray";
 import { AgentComposer } from "./AgentComposer";
+import { AgentCurrentThought } from "./AgentCurrentThought";
 import { AgentTranscriptViewport } from "./AgentTranscriptViewport";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
@@ -43,6 +44,7 @@ export function AgentPaneBody(props: {
     <>
       {viewport()}
       <AgentBackgroundTray session={props.model.session} />
+      <AgentCurrentThought text={props.model.transcript().currentThought} />
       <AgentComposer
         active={props.active}
         compact={props.compact}

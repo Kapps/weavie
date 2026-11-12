@@ -1,9 +1,11 @@
+import { createRoot } from "solid-js";
 import {
   type AgentPaneUpdate,
   type AgentPaneWireUpdate,
   type ClientSession,
   sessionResourceUrl,
 } from "../bridge";
+import { agentThoughtDisplay } from "../chrome/agent-default";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -25,7 +27,14 @@ import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
-const models = createSessionOwnedState(createAgentPaneModel);
+const models = createSessionOwnedResource(
+  (session) =>
+    createRoot((dispose) => ({
+      ...createAgentPaneModel(session, () => agentThoughtDisplay(session.connection.id)),
+      dispose,
+    })),
+  (_session, model) => model.dispose(),
+);
 const authenticationTerminals = createSessionOwnedState(() => false);
 
 const histories = createSessionOwnedResource(createHistory, (_session, history) =>

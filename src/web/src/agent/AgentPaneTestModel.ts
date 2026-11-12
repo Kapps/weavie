@@ -11,7 +11,7 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 /** Test callers providing folded snapshots use the same membership index as the live accumulator. */
 export function createTestAgentPaneModel(session: ClientSession) {
-  const model = createAgentPaneModel(session);
+  const model = createAgentPaneModel(session, () => "all");
   const publish = (messages: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void => {
     const rows = new AgentPaneConversationRows(messages);
     messages.forEach((_, index) => {
@@ -26,7 +26,7 @@ export function createTestAgentPaneModel(session: ClientSession) {
 /** Raw journal fixtures enter the real fold once, just as history reconstruction does. */
 export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
   return createRoot((dispose) => {
-    const model = createAgentPaneModel({} as ClientSession);
+    const model = createAgentPaneModel({} as ClientSession, () => "all");
     let flush = () => {};
     const accumulator = new AgentPaneAccumulator((callback) => {
       flush = callback;

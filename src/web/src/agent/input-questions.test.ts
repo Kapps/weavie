@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { inputQuestions, sharedKeyPrefix } from "./input-questions";
+import {
+  inputQuestions,
+  inputRequestContext,
+  questionDescription,
+  questionTitle,
+} from "./input-questions";
 
 describe("inputQuestions", () => {
   it("reads normalized provider-neutral questions", () => {
@@ -31,14 +36,43 @@ describe("inputQuestions", () => {
   });
 });
 
-describe("sharedKeyPrefix", () => {
-  it("finds the modifier of keys numbered in option order", () => {
-    expect(sharedKeyPrefix(["Alt+1", "Alt+2", "Alt+3"])).toBe("Alt+");
+describe("question presentation", () => {
+  const question = {
+    id: "answer",
+    header: "Which view?",
+    question: "",
+    allowsOther: true,
+    kind: "string" as const,
+    required: false,
+    format: null,
+    initialValues: [],
+    minimum: null,
+    maximum: null,
+    minimumLength: null,
+    maximumLength: null,
+    pattern: null,
+    options: [],
+  };
+  const message = {
+    type: "input-requested",
+    providerId: "acp",
+    summary: "Answers expire when the turn ends",
+    questions: [question],
+  };
+
+  it("keeps the field title visible and request context separate with no description", () => {
+    expect(questionTitle(question)).toBe("Which view?");
+    expect(questionDescription(question, message)).toBe("");
+    expect(inputRequestContext(message)).toEqual([message.summary]);
   });
 
-  it("refuses rebound or missing keys, which rows must show in full", () => {
-    expect(sharedKeyPrefix(["Alt+1", "Ctrl+Q"])).toBeNull();
-    expect(sharedKeyPrefix(["Alt+1", "Alt+3"])).toBeNull();
-    expect(sharedKeyPrefix([])).toBeNull();
+  it("shows distinct field guidance but not an exact repetition of title or request context", () => {
+    expect(questionDescription({ ...question, question: "Choose the scope" }, message)).toBe(
+      "Choose the scope",
+    );
+    expect(questionDescription({ ...question, question: question.header }, message)).toBe("");
+    expect(questionDescription({ ...question, question: message.summary }, message)).toBe("");
+    expect(inputRequestContext({ ...message, text: message.summary })).toEqual([message.summary]);
+    expect(inputRequestContext({ ...message, summary: question.header })).toEqual([]);
   });
 });

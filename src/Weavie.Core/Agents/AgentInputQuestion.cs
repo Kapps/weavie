@@ -5,10 +5,10 @@ public sealed record AgentInputQuestion {
 	/// <summary>The stable answer key expected by the provider.</summary>
 	public required string Id { get; init; }
 
-	/// <summary>A short label for the question.</summary>
+	/// <summary>The field title, shown as the question's heading.</summary>
 	public required string Header { get; init; }
 
-	/// <summary>The full prompt shown to the user.</summary>
+	/// <summary>Supplementary field description; empty when the provider supplies none.</summary>
 	public required string Question { get; init; }
 
 	/// <summary>Whether the provider accepts a free-form answer in addition to its advertised choices.</summary>

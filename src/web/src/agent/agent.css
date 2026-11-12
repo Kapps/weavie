@@ -579,8 +579,8 @@ a:has(> .agent-path-dir) {
   background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
-/* A request waiting on the user: a --warn frame with a tinted header band over a neutral body. */
-.agent-entry-request.agent-entry-waiting {
+/* Permissions, authentication and link requests use a warning frame. */
+.agent-entry-request.agent-entry-waiting:not(.agent-entry-question) {
   padding: 0;
   border: 2px solid var(--warn);
   background: color-mix(in srgb, var(--bar) 58%, var(--bg));
@@ -588,7 +588,7 @@ a:has(> .agent-path-dir) {
   box-shadow: inset 0 0 10px color-mix(in srgb, var(--warn) 22%, transparent);
 }
 
-.agent-entry-waiting .agent-entry-head {
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-head {
   font: var(--font-chrome-body);
   margin: 0;
   padding: 3px 9px;
@@ -596,7 +596,7 @@ a:has(> .agent-path-dir) {
   border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
 
-.agent-entry-waiting .agent-entry-head::before {
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-head::before {
   content: "";
   flex: none;
   align-self: center;
@@ -606,7 +606,7 @@ a:has(> .agent-path-dir) {
   background: var(--warn);
 }
 
-.agent-entry-waiting .agent-entry-label {
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-label {
   font: var(--font-chrome-body);
   font-weight: var(--font-weight-emphasis);
   color: var(--warn);
@@ -614,124 +614,19 @@ a:has(> .agent-path-dir) {
   text-transform: none;
 }
 
-.agent-entry-waiting .agent-entry-status {
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-status {
   font: var(--font-chrome-secondary);
   margin-left: auto;
 }
 
-.agent-entry-waiting .agent-entry-main {
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-main {
   font: var(--font-chrome-body-wrap);
   padding: 7px 10px 9px;
 }
 
-/* Rows run edge to edge like a palette list; the gutter holds each option's key. */
-.agent-choice-request {
-  font: var(--font-chrome-body-wrap);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  margin: 0 -10px -9px;
-}
-
-.agent-choice-head {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 10px 7px;
-}
-
-.agent-choice-prompt {
-  min-width: 0;
-  margin: 0;
-  color: var(--fg);
-  overflow-wrap: break-word;
-}
-
-.agent-choice-keys {
-  flex: none;
-}
-
-.agent-choice-row {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  gap: 0 12px;
-  padding-right: 10px;
-  border-left: 2px solid transparent;
-}
-
-.agent-choice-row.default {
-  border-left-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
-}
-
-.agent-choice-row:hover,
-.agent-choice-row:focus-visible {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
-}
-
-/* Holds its width while empty, so labels stay put when a card takes over the keys. */
-.agent-choice-key {
-  grid-area: 1 / 1;
-  min-width: 1ch;
-}
-
-.agent-choice-label {
-  grid-area: 1 / 2;
-}
-
-.agent-choice-description {
-  grid-area: 2 / 2;
-}
-
-.agent-choice-request form {
-  grid-column: 1 / -1;
-}
-
-.agent-choice-other {
-  margin-top: 4px;
-  padding: 0 10px;
-  border-width: 1px 0 0;
-  border-color: color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
-.agent-choice-other:focus {
-  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
-}
-
-.agent-choice-dismiss {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
-}
-
-.agent-choice-dismiss button {
-  font: var(--font-chrome-secondary);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--dim);
-  cursor: pointer;
-}
-
-.agent-choice-dismiss button:hover {
-  color: var(--fg);
-}
-
-/* The command under review stays code; a question's own text reads as prose. */
-.agent-entry-waiting .agent-entry-text {
+/* The command under review stays code. */
+.agent-entry-waiting:not(.agent-entry-question) .agent-entry-text {
   font: var(--font-content);
-}
-
-.agent-entry-question.agent-entry-waiting .agent-entry-text {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
 }
 
 .agent-entry-notice.agent-tone-system {
@@ -867,104 +762,6 @@ a:has(> .agent-path-dir) {
 
 .agent-step-actions {
   justify-self: end;
-}
-
-.agent-input-question {
-  display: grid;
-  gap: 3px;
-  min-inline-size: 0;
-  margin-top: 5px;
-  padding: 0;
-  border: 0;
-}
-
-.agent-input-question legend {
-  padding: 0;
-}
-
-.agent-input-question small {
-  font: var(--font-chrome-secondary);
-  color: var(--dim);
-}
-
-.agent-input-question > input[type="checkbox"] {
-  justify-self: start;
-}
-
-.agent-input-choices {
-  display: grid;
-  gap: 1px;
-}
-
-.agent-input-choice {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 6px;
-  padding: 2px 4px;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-label.agent-input-choice:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.agent-input-choice small {
-  grid-column: 2;
-}
-
-.agent-input-review {
-  display: grid;
-  gap: 5px;
-  margin-top: 3px;
-  padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  color: var(--dim);
-}
-
-.agent-input-reviewed-question {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.agent-input-reviewed-prompt {
-  color: color-mix(in srgb, var(--fg) 76%, var(--dim));
-  overflow-wrap: break-word;
-}
-
-.agent-input-review .agent-input-choice {
-  cursor: default;
-}
-
-.agent-input-review small {
-  font-size: var(--font-content-secondary-size);
-}
-
-.agent-input-reviewed-answer,
-.agent-input-review .agent-input-choice small {
-  color: var(--dim);
-}
-
-.agent-input-review .agent-input-choice::before {
-  color: var(--dim);
-  content: "\25cb";
-}
-
-.agent-input-review .agent-input-choice.chosen {
-  color: var(--fg);
-}
-
-.agent-input-review .agent-input-choice.chosen::before {
-  color: var(--accent);
-  content: "\25cf";
-}
-
-.agent-input-question textarea {
-  font: var(--font-chrome-body-wrap);
-  height: auto;
-  padding: 4px 8px;
 }
 
 .agent-compose {
@@ -1159,11 +956,11 @@ label.agent-input-choice:hover {
   justify-content: flex-end;
 }
 
-.agent-entry-waiting .agent-approval-actions {
+.agent-entry-waiting:not(.agent-entry-question) .agent-approval-actions {
   margin-top: 7px;
 }
 
-.agent-entry-waiting .agent-approval-actions button.default {
+.agent-entry-waiting:not(.agent-entry-question) .agent-approval-actions button.default {
   border-color: var(--warn);
 }
 

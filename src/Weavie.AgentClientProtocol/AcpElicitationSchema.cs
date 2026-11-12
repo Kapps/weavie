@@ -10,7 +10,7 @@ namespace Weavie.AgentClientProtocol;
 
 /// <summary>Reads ACP elicitation schemas and validates the user's answers against them.</summary>
 internal static class AcpElicitationSchema {
-	public static IReadOnlyList<AgentInputQuestion> ReadQuestions(JsonElement schema, string? message) {
+	public static IReadOnlyList<AgentInputQuestion> ReadQuestions(JsonElement schema) {
 		var properties = ReadObjectSchemaProperties(schema);
 		var required = ReadRequiredProperties(schema);
 		var propertyNames = properties.Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
@@ -41,7 +41,7 @@ internal static class AcpElicitationSchema {
 			result.Add(new AgentInputQuestion {
 				Id = property.Name,
 				Header = title,
-				Question = OptionalString(value, "description") ?? message ?? title,
+				Question = OptionalString(value, "description") ?? string.Empty,
 				AllowsOther = companions.ContainsKey(property.Name),
 				Kind = kind,
 				Required = required.Contains(property.Name),

@@ -15,10 +15,30 @@ export function singleChoiceQuestion(message: AgentPaneUpdate): AgentInputQuesti
     : null;
 }
 
-/** The modifier shared by keys that run 1, 2, 3… in option order ("Alt+"), so rows can show just the digit. */
-export function sharedKeyPrefix(keys: readonly string[]): string | null {
-  const prefix = keys[0]?.slice(0, -1);
-  return prefix !== undefined && keys.every((key, index) => key === `${prefix}${index + 1}`)
-    ? prefix
-    : null;
+export function isStructuredInput(
+  message: AgentPaneUpdate | null | undefined,
+): message is AgentPaneUpdate & { type: "input-requested" } {
+  return message?.type === "input-requested" && message.itemType !== "url";
+}
+
+export function questionTitle(question: AgentInputQuestion): string {
+  return question.header || question.question;
+}
+
+export function questionDescription(
+  question: AgentInputQuestion,
+  message: AgentPaneUpdate,
+): string {
+  return [questionTitle(question), message.summary, message.text].includes(question.question)
+    ? ""
+    : question.question;
+}
+
+/** Request context belongs to the card once, independently of its fields. */
+export function inputRequestContext(message: AgentPaneUpdate): string[] {
+  const titles = inputQuestions(message).map(questionTitle);
+  return [...new Set([message.summary, message.text])].filter(
+    (text): text is string =>
+      typeof text === "string" && text.trim().length > 0 && !titles.includes(text),
+  );
 }

@@ -4,7 +4,7 @@ import { setContext } from "../commands/context";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
-import { sharedKeyPrefix } from "./input-questions";
+import { QuestionFooter, QuestionHeading } from "./AgentQuestionPresentation";
 import {
   type InputRequestProps,
   ownedKeyLabel,
@@ -50,19 +50,12 @@ export function ChoiceRequestActions(
 
   const indexKey = (index: number): string =>
     props.answersToKeys ? liveIndexedKeyLabel(CommandIds.agentAnswerByIndex, index + 1) : "";
-  const boundKeys = (): string[] =>
-    props.question.options.map((_, index) => indexKey(index)).filter((key) => key !== "");
-  const keyPrefix = (): string | null => sharedKeyPrefix(boundKeys());
-  const gutterKey = (index: number): string => indexKey(index).slice(keyPrefix()?.length ?? 0);
-  const keyRange = (): string => {
-    const [first, ...rest] = boundKeys();
-    if (first === undefined || keyPrefix() === null) return "";
-    return rest.length === 0 ? first : `${first}–${rest.length + 1}`;
-  };
   const rowKeys = (index: number, value: string): string =>
     [
       indexKey(index),
-      value === preferred() ? ownedKeyLabel(props, CommandIds.agentAcceptInput) : "",
+      value === preferred() && other().trim() === ""
+        ? ownedKeyLabel(props, CommandIds.agentAcceptInput)
+        : "",
     ]
       .filter((key) => key !== "")
       .join(", ");
@@ -70,12 +63,7 @@ export function ChoiceRequestActions(
   return (
     <div class="agent-choice-request">
       <div class="agent-choice-head">
-        <p class="agent-choice-prompt" title={props.question.header}>
-          {props.question.question}
-        </p>
-        <Show when={keyRange()}>
-          {(range) => <small class="agent-choice-keys ui-kbd ui-kbd-plain">{range()}</small>}
-        </Show>
+        <QuestionHeading question={props.question} message={props.message} />
       </div>
       <For each={props.question.options}>
         {(option, index) => (
@@ -83,22 +71,28 @@ export function ChoiceRequestActions(
             type="button"
             class="agent-choice-row ui-row ui-row-stack"
             classList={{ default: option.value === preferred() }}
-            title={withKey(
-              [option.label, option.description].filter(Boolean).join(" — "),
-              rowKeys(index(), option.value),
-            )}
+            title={withKey(option.label, rowKeys(index(), option.value))}
             onClick={() => answer(option.value)}
           >
-            <kbd class="agent-choice-key ui-kbd ui-kbd-plain">{gutterKey(index())}</kbd>
-            <span class="agent-choice-label">{option.label}</span>
-            <Show when={option.description}>
-              <span class="agent-choice-description ui-row-desc">{option.description}</span>
+            <span class="ui-row-text">
+              <span class="agent-choice-label">{option.label}</span>
+              <Show when={option.description}>
+                <span class="ui-row-desc">{option.description}</span>
+              </Show>
+            </span>
+            <Show when={indexKey(index())}>
+              {(key) => (
+                <span class="agent-choice-key ui-kbd" aria-hidden="true">
+                  {key()}
+                </span>
+              )}
             </Show>
           </button>
         )}
       </For>
       <Show when={props.question.allowsOther}>
         <form
+          class="agent-choice-custom"
           onSubmit={(event) => {
             event.preventDefault();
             if (other().trim() !== "") answer(other().trim());
@@ -108,12 +102,21 @@ export function ChoiceRequestActions(
             class="agent-choice-other ui-field"
             type="text"
             placeholder="Other…"
-            title="Type another answer (Enter)"
+            aria-label="Other answer"
             value={other()}
             onInput={(event) => draft.setAnswers({ [id]: [event.currentTarget.value] })}
           />
+          <button
+            type="submit"
+            class="ui-button ui-button-lg"
+            disabled={other().trim() === ""}
+            title={withKey("Send answer", ownedKeyLabel(props, CommandIds.agentAcceptInput))}
+          >
+            Send
+          </button>
         </form>
       </Show>
+      <QuestionFooter {...props}>{null}</QuestionFooter>
     </div>
   );
 }

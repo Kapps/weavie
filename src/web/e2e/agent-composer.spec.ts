@@ -1070,17 +1070,16 @@ test.describe("ACP composer", () => {
     );
 
     const card = page.locator(".agent-body .agent-entry-waiting", {
-      has: page.locator(".agent-choice-prompt"),
+      has: page.locator(".agent-choice-head"),
     });
     const rows = page.locator(".agent-choice-row");
-    await expect(card.locator(".agent-entry-label")).toHaveText("Question");
-    await expect(card.locator(".agent-choice-prompt")).toHaveText("Where should the session live?");
-    await expect(card.locator(".agent-choice-prompt")).toHaveAttribute("title", "Session store");
+    await expect(card.locator(".agent-entry-head")).toHaveCount(0);
+    await expect(card.locator(".agent-question-title")).toHaveText("Session store");
+    await expect(card.getByText("Where should the session live?", { exact: true })).toHaveCount(1);
     await expect(card.locator(".agent-entry-text")).toHaveCount(0);
     await expect(rows.first()).toHaveClass(/default/);
     // The newer form owns the keys, so the older card advertises none.
-    await expect(card.locator(".agent-choice-key")).toHaveText(["", ""]);
-    await expect(card.locator(".agent-choice-keys")).toHaveCount(0);
+    await expect(card.locator(".agent-choice-key")).toHaveCount(0);
     await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(1);
     const labelLeft = async (): Promise<number | undefined> =>
       (await card.locator(".agent-choice-label").first().boundingBox())?.x;
@@ -1094,13 +1093,9 @@ test.describe("ACP composer", () => {
     });
     publishPane(paneMessage({ type: "input-resolved", itemId: "form-newer", status: "declined" }));
 
-    await expect(card.locator(".agent-choice-key")).toHaveText(["1", "2"]);
+    await expect(card.locator(".agent-choice-key")).toHaveText(["Alt+1", "Alt+2"]);
     expect(await labelLeft()).toBe(unkeyedLeft);
-    await expect(card.locator(".agent-choice-keys")).toHaveText("Alt+1–2");
-    await expect(rows.first()).toHaveAttribute(
-      "title",
-      "Cookie — Signed, httpOnly cookie. (Alt+1, Alt+Enter)",
-    );
+    await expect(rows.first()).toHaveAttribute("title", "Cookie (Alt+1, Alt+Enter)");
     await expect(card.getByRole("button", { name: "Decline", exact: true })).toHaveAttribute(
       "title",
       "Decline request (Alt+N)",
@@ -1140,6 +1135,71 @@ test.describe("ACP composer", () => {
       requestId: "choice-click",
       answers: { store: ["cookie"] },
     });
+  });
+
+  test("schema titles stay visible and request context appears once in questions and history", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const title =
+      "Given that distinction, what should ‘Current’ show? Actual message replies will stay visible in either case.";
+    const notice =
+      "Codex keeps working while you answer. An answer sent after it finishes is not delivered.";
+    for (const description of ["", notice]) {
+      const id = description === "" ? "title-only" : "repeated-context";
+      publishPane(
+        paneMessage({
+          type: "input-requested",
+          itemId: id,
+          requestId: id,
+          status: "pending",
+          summary: notice,
+          questions: [
+            {
+              ...freeformQuestion,
+              header: title,
+              question: description,
+              allowsOther: true,
+              options: [
+                {
+                  value: "latest",
+                  label: "Latest reasoning summary as one compact status row (recommended)",
+                  description: "",
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      const card = page.locator(".agent-entry-question.agent-entry-waiting");
+      await expect(card.locator(".agent-question-title")).toHaveText(title);
+      await expect(card.getByText(notice, { exact: true })).toHaveCount(1);
+      await expect(card.locator(".agent-question-description")).toHaveCount(0);
+      expect(await card.evaluate((element) => getComputedStyle(element).boxShadow)).toBe("none");
+      const send = card.getByRole("button", { name: "Send", exact: true });
+      await expect(send).toBeDisabled();
+      await card.getByRole("textbox", { name: "Other answer" }).fill("Keep both");
+      const checkpoint = host.checkpoint();
+      await send.click();
+      expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
+        requestId: id,
+        answers: { answer: ["Keep both"] },
+      });
+      publishPane(
+        paneMessage({
+          type: "input-resolved",
+          itemId: id,
+          status: "accepted",
+          answers: { answer: ["Keep both"] },
+        }),
+      );
+      const answered = page.locator(".agent-entry-question").last();
+      await answered.getByText("show prompt and options").click();
+      await expect(answered.locator(".agent-question-title")).toHaveText(title);
+      await expect(answered.getByText(notice, { exact: true })).toHaveCount(1);
+      await expect(answered.locator(".agent-input-choice.chosen")).toContainText("Keep both");
+    }
   });
 
   test("a resolved input request reopens its prompt, options, and answer", async ({ page }) => {

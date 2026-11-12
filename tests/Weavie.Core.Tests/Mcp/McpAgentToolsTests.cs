@@ -27,7 +27,7 @@ public sealed partial class McpAgentToolsTests : IAsyncLifetime {
 		providers.Register(_codex);
 		_models = new AgentModelCatalog(providers);
 		_server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", _settings, registryMode: true,
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], _settings,
 			agents: new AgentConsultation(providers, _models));
 		_server.Start();
 	}

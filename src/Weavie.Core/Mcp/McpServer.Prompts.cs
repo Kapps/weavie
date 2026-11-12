@@ -3,7 +3,7 @@ using Weavie.Core.Json;
 
 namespace Weavie.Core.Mcp;
 
-// The bundled prompts (registry mode only): prompts/list + prompts/get for user-invoked slash commands, and the
+// The bundled prompts (registry only): prompts/list + prompts/get for user-invoked slash commands, and the
 // runPrompt tool so an agent can start the same prompt when the user asks for it in plain language.
 public sealed partial class McpServer {
 	private string BuildPromptsListJson() => JsonWrite.Object(writer => {

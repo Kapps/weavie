@@ -27,7 +27,7 @@ public sealed partial class RegistryMcpTests {
 		using var outputs = JsonDocument.Parse("{}");
 		runner.Start("grant", outputs.RootElement);
 		var execution = runner.Execution!;
-		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: workflows);
+		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, workflows: workflows);
 		server.Start();
 		await using var ordinary = server.CreateGrant(() => null);
 		await using var stage = server.CreateGrant(execution.Capture);
@@ -85,7 +85,7 @@ public sealed partial class RegistryMcpTests {
 		using var outputs = JsonDocument.Parse("{}");
 		var run = runner.Start("grant", outputs.RootElement);
 		var execution = runner.Execution!;
-		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: workflows);
+		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, workflows: workflows);
 		server.Start();
 		int admissions = 0;
 		await using var stage = server.CreateGrant(() => {

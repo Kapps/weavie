@@ -1,12 +1,4 @@
 using Weavie.Core.Agents;
-using Weavie.Core.Commands;
-using Weavie.Core.Configuration;
-using Weavie.Core.Editor;
-using Weavie.Core.Layout;
-using Weavie.Core.Review.Hints;
-using Weavie.Core.Sessions;
-using Weavie.Core.Theming;
-using Weavie.Core.Workflows;
 using Weavie.Workflows;
 
 namespace Weavie.Core.Mcp;
@@ -14,42 +6,21 @@ namespace Weavie.Core.Mcp;
 /// <summary>The provider-neutral, model-facing Weavie capability registry for one loaded session.</summary>
 public sealed class CapabilityRegistryHost : IAsyncDisposable {
 	/// <summary>
-	/// Starts the standard MCP capability server with <paramref name="credential"/>; workspace-scoped settings live
-	/// in <paramref name="settingsWorkspaceRoot"/>'s overlay.
+	/// Starts the standard MCP capability server with <paramref name="credential"/>, offering
+	/// <paramref name="capabilities"/>.
 	/// </summary>
 	public CapabilityRegistryHost(
 		AgentSessionCredential credential,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName,
-		SettingsStore settings,
-		string settingsWorkspaceRoot,
-		LayoutStore layout,
-		EditorStore editor,
-		bool exposeIdeTools,
-		CommandDispatcher commands,
-		KeybindingStore keybindings,
-		ThemeOverridesStore themeOverrides,
-		ISessionPeers sessions,
-		AgentConsultation agents,
-		IReviewHintSink reviewHints,
-		IWorkflowRegistry workflows) {
+		McpCapabilities capabilities) {
 		ArgumentNullException.ThrowIfNull(credential);
-		ArgumentNullException.ThrowIfNull(presenter);
-		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		ArgumentException.ThrowIfNullOrEmpty(ideName);
-		ArgumentNullException.ThrowIfNull(settings);
-		ArgumentException.ThrowIfNullOrEmpty(settingsWorkspaceRoot);
-		ArgumentNullException.ThrowIfNull(layout);
-		ArgumentNullException.ThrowIfNull(editor);
-		ArgumentNullException.ThrowIfNull(commands);
-		ArgumentNullException.ThrowIfNull(keybindings);
-		ArgumentNullException.ThrowIfNull(themeOverrides);
-		ArgumentNullException.ThrowIfNull(sessions);
+		ArgumentNullException.ThrowIfNull(capabilities);
+		ArgumentException.ThrowIfNullOrEmpty(capabilities.SettingsWorkspaceRoot);
 		Credential = credential;
-		Server = new McpServer(
-			credential.Token, presenter, workspaceFolders, ideName, settings, settingsWorkspaceRoot, registryMode: true, exposeIdeTools,
-			layout, editor, commands, keybindings, themeOverrides, sessions, agents, reviewHints, workflows);
+		Server = new McpServer(credential.Token, presenter, workspaceFolders, ideName, capabilities);
 		Port = Server.Start();
 	}
 

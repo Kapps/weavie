@@ -9,12 +9,12 @@ memorizing a config file's shape.
 Both are `Weavie.Core/Mcp/McpServer.cs` (loopback WebSocket, JSON-RPC, one shared per-session token),
 but they reach Claude two different ways — and only one is model-facing:
 
-- **IDE server** — discovered via the `~/.claude/ide/<port>.lock` file. Carries the *harness RPC*
+- **IDE server** *(`McpServer.Ide`)* — discovered via the `~/.claude/ide/<port>.lock` file. Carries the *harness RPC*
   tools (openDiff/openFile/getDiagnostics/…). **Claude Code filters the IDE tool list down to a fixed
   allowlist before it reaches the model** (essentially just `getDiagnostics`/`executeCode`), so custom
   tools added here are invisible to the model. This server is for the CLI's own UI, not for
   user-facing capabilities. `openFile` is therefore advertised on the registry server too.
-- **Registry server** *(`registryMode: true`)* — advertised to the spawned `claude` via a generated
+- **Registry server** *(an `McpServer` built from `McpCapabilities`)* — advertised to the spawned `claude` via a generated
   `--mcp-config` file (`~/.weavie/internals/mcp/weavie-<port>.mcp.json`, a `ws://` + Bearer-token
   entry; port-scoped so concurrent instances don't collide). Carries **the capability tools and `openFile`**,
   which **do** reach the model as `mcp__weavie__*`. This is the channel that makes *"set my weavie
@@ -45,7 +45,7 @@ MCP tools *on the registry server*. There are three kinds.
 ```mermaid
 flowchart LR
     D["register(declaration)"] --> R[Core registry]
-    R --> M["registry MCP server<br/>(McpServer, registryMode)"]
+    R --> M["registry MCP server<br/>(McpServer over McpCapabilities)"]
     M -. "--mcp-config at spawn" .-> C["embedded Claude<br/>(mcp__weavie__*)"]
 ```
 

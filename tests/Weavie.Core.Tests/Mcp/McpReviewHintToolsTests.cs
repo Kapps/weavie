@@ -26,9 +26,9 @@ public sealed class McpReviewHintToolsTests : IAsyncLifetime {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(Path.Combine(_dir.Path, "a.cs"), "one\ntwo\n");
 		_hints = new ReviewHintStore(fs, _dir.Path, new MemoryReviewPersistence(), "Codex", _ => { }, _ => { });
-		_registry = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", _settings, registryMode: true, reviewHints: _hints);
+		_registry = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], _settings, reviewHints: _hints);
 		_registry.Start();
-		_ide = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", exposeIdeTools: true);
+		_ide = TestMcp.Ide(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path]);
 		_ide.Start();
 	}
 

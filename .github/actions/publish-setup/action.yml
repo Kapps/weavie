@@ -11,7 +11,7 @@ runs:
     - name: Set up .NET
       uses: actions/setup-dotnet@v4
       with:
-        # Latest 10.0 SDK — see ci.yml: global.json pins "10.0.0", which setup-dotnet 404s on.
+        # Latest 10.0 SDK; global.json then selects the newest stable 10.0 SDK on the runner.
         dotnet-version: '10.0.x'
 
     - name: Set up pnpm

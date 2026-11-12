@@ -1,5 +1,6 @@
 import { createRoot } from "solid-js";
 import {
+  type AgentBlockRecord,
   type AgentPaneUpdate,
   type AgentPaneWireUpdate,
   type ClientSession,
@@ -22,6 +23,7 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import type { AgentPaneConversationRows } from "./AgentPaneConversationRows";
+import { clearBlocks, putBlocks } from "./block-store";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
 import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
@@ -60,6 +62,7 @@ function createHistory(session: ClientSession) {
     count: number;
     complete: boolean;
     messages: AgentPaneWireUpdate[];
+    blocks: AgentBlockRecord[];
   }
 
   const startHistory = (): void => {
@@ -123,6 +126,7 @@ function createHistory(session: ClientSession) {
       }
       accumulator.mergeHistory("pane", batch.generation, batch.messages, batch.complete, load);
       if (batch.complete) {
+        putBlocks(session, batch.blocks);
         historyGeneration = batch.generation;
         historyRevision = batch.revision;
         model.setHistoryComplete(true);
@@ -176,6 +180,7 @@ function createHistory(session: ClientSession) {
     accumulator.ingest("pane", message, publish);
   };
   const offPane = feature.on<AgentPaneWireUpdate>("pane", ingest);
+  const offBlock = feature.on<AgentBlockRecord>("block", (record) => putBlocks(session, [record]));
   const offAuthenticationTerminal = feature.on<{ active: boolean }>(
     "authenticationTerminal",
     ({ active }) => {
@@ -198,6 +203,7 @@ function createHistory(session: ClientSession) {
     historyGeneration = null;
     historyRevision = null;
     appliedDrafts = 0;
+    clearBlocks(session);
     clearReplyComposers(session);
     accumulator.reset("pane", () => model.reset());
     startHistory();
@@ -217,6 +223,7 @@ function createHistory(session: ClientSession) {
       historyAbort?.abort();
       clearNotification(errorKey);
       offPane();
+      offBlock();
       offAuthenticationTerminal();
       offBatch();
       offReset();

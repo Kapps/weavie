@@ -132,8 +132,58 @@ export interface AgentPaneUpdate {
   mediaData?: string | null;
   resourceUri?: string | null;
   planPath?: string | null;
+  /** The block a block row shows; its data arrives separately as an `AgentBlockRecord`. */
+  blockId?: string | null;
   /** The session that sent a submitted prompt, when another session's agent sent it. */
   sender?: AgentMessageSender | null;
+}
+
+/** A JSON scalar in a block: a number, a string, or null. Times are Unix milliseconds. */
+export type AgentBlockValue = number | string | null;
+
+export interface AgentChartAxis {
+  type?: "time" | "category" | "number";
+  label?: string;
+  unit?: string;
+}
+
+export interface AgentChartSeries {
+  name: string;
+  style?: "solid" | "comparison";
+  axis?: "y" | "y2";
+  points: [AgentBlockValue, AgentBlockValue][];
+}
+
+export interface AgentChart {
+  kind: "line" | "area" | "bar" | "scatter";
+  x: AgentChartAxis;
+  y?: AgentChartAxis;
+  y2?: AgentChartAxis;
+  series: AgentChartSeries[];
+  thresholds?: { label?: string; axis?: "y" | "y2"; value: number }[];
+  bands?: { label?: string; axis?: "x" | "y" | "y2"; from: AgentBlockValue; to: AgentBlockValue }[];
+}
+
+export interface AgentTable {
+  columns: { name: string; type: "time" | "number" | "text" | "level" }[];
+  rows: AgentBlockValue[][];
+}
+
+/** A chart or table an agent shows in its pane; only its latest state exists. */
+export interface AgentBlock {
+  id: string;
+  title: string;
+  updatedAtMs?: number;
+  chart?: AgentChart;
+  table?: AgentTable;
+}
+
+/** A block's latest state at the output revision that last changed it. */
+export interface AgentBlockRecord {
+  revision: number;
+  providerId: string;
+  conversationId: string | null;
+  block: AgentBlock;
 }
 
 export interface AgentPaneContent {

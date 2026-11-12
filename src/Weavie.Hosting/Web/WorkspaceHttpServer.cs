@@ -118,6 +118,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		app.MapMethods("/weavie-media/{fileName}", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
 		app.MapMethods(WorkspaceFileRoutes.PreviewPrefix + "{grant}/{**path}", [HttpMethods.Get, HttpMethods.Head], ServePreviewAssetAsync);
 		app.MapGet("/weavie-agent-history", ServeAgentHistoryAsync);
+		app.MapGet("/weavie-agent-image", ServeAgentImageAsync);
 		if (_bridge.Available) {
 			app.Map("/weavie-bridge", ServeBridgeAsync);
 		}

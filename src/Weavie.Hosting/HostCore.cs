@@ -576,6 +576,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);
 		_spellLanguages.Dispose();
 		_spellingHttp.Dispose();
+		_agentImages.Dispose();
 		await AttemptAsync(() => _http.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {
 			throw new AggregateException("One or more host shutdown operations failed.", failures);

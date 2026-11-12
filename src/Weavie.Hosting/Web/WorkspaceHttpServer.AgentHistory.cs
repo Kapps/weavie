@@ -6,13 +6,7 @@ namespace Weavie.Hosting.Web;
 
 public sealed partial class WorkspaceHttpServer {
 	private async Task ServeAgentHistoryAsync(HttpContext context) {
-		if (_authentication.TransportTokenMatches(context)) {
-			context.Response.Headers.AccessControlAllowOrigin = "*";
-		} else if (context.Request.Headers.Origin.Count > 0
-			&& !_authentication.CookieWebSocketOriginMatches(context)) {
-			context.Response.StatusCode = StatusCodes.Status403Forbidden;
-			return;
-		}
+		if (!AllowSessionResourceOrigin(context)) return;
 
 		string slot = context.Request.Query["slot"].ToString();
 		string incarnation = context.Request.Query["incarnation"].ToString();

@@ -5,6 +5,8 @@ namespace Weavie.Hosting.Web;
 
 public sealed partial class WorkspaceHttpServer {
 	private Task ServeMediaAsync(HttpContext context) {
+		// A remote client reads media cross-origin to crop it, which needs CORS rather than an <img>.
+		if (!AllowSessionResourceOrigin(context)) return Task.CompletedTask;
 		string fileName = context.Request.RouteValues["fileName"]?.ToString() ?? string.Empty;
 		string path = context.Request.Query["path"].ToString();
 		var resource = string.Equals(fileName, Path.GetFileName(path), StringComparison.Ordinal)

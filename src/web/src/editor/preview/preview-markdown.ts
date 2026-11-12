@@ -2,7 +2,7 @@ import { createMarkdownEngine } from "./markdown-renderer";
 
 export const previewEngine = createMarkdownEngine({
   html: "any",
-  allowImages: true,
+  images: "direct",
   allowMermaid: true,
   safeLinksOnly: false,
 });

@@ -27,6 +27,24 @@ maintain competing validators. The content-type gate is the security-relevant on
 (HTML, SVG) being served same-origin regardless of where the file lives. Missing, unloaded, malformed, and
 non-media requests all return 404.
 
+A token-authenticated media request also answers `Access-Control-Allow-Origin: *`, as `/weavie-agent-history` does,
+so a remote client can fetch an image into a same-origin blob and crop it; a cookie-only request from another origin
+is refused.
+
+## Agent images
+
+Images in an agent's reply render as inert placeholders that the pane loads into same-origin blob URLs. A workspace
+path loads from `/weavie-media`. An `https` address loads from `/weavie-agent-image?slot&incarnation&url`, which
+requires the token (or same-origin cookie) and the exact loaded session, and fetches the image from the host, the
+machine the agent runs on:
+
+- https only, on the default port, with no user name;
+- the response must be `image/*` other than `image/svg+xml`, and at most 20 MiB;
+- the `agent.remoteImages` setting, on by default, is read per fetch.
+
+A refusal answers 422 with its reason as plain text, which the pane shows in the image's place. The fetch ends with
+the request or the session, never on a timer.
+
 ## HTML preview assets
 
 An `.html` preview renders the live working copy in `<iframe sandbox="allow-scripts" srcdoc>` — no

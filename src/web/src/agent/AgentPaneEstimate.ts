@@ -6,6 +6,8 @@ import { blockHeight } from "./agent-block-layout";
 // (`.agent-markdown` is `max-width: 96ch`); fenced code and tool output are preformatted, so each
 // source line is exactly one rendered line at the content role's smaller leading.
 const proseColumns = 96;
+/** Every agent image sits in a frame this tall, so loading one never moves the transcript. */
+export const AGENT_IMAGE_HEIGHT = 240;
 const proseLineHeight = 27;
 const monoLineHeight = 18;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
@@ -57,7 +59,9 @@ function markdownHeight(text: string): number {
     if (line.startsWith("```")) {
       fenced = !fenced;
     } else {
-      height += fenced ? monoLineHeight : wrappedHeight(line);
+      height += fenced
+        ? monoLineHeight
+        : wrappedHeight(line) + (line.match(/!\[[^\]]*\]\(/g)?.length ?? 0) * AGENT_IMAGE_HEIGHT;
     }
   }
   return height;

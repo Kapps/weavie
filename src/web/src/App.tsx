@@ -6,6 +6,7 @@ import {
   For,
   type JSX,
   lazy,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -721,6 +722,8 @@ export default function App(): JSX.Element {
     promptRevision,
   });
   const editorCommands = createEditorCommands(editor, setContextMenu);
+  // Entering or leaving fullscreen changes which location the session is at.
+  createEffect(on(desktopFullscreen, () => editor.nav.capture(), { defer: true }));
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
@@ -817,6 +820,8 @@ export default function App(): JSX.Element {
       navigateMobileSurface(AGENT_PANE_KIND);
     }
     if (pane !== null) {
+      // The session arrives at this pane; it left no other, so this is no Back/Forward step.
+      setActivePane(pane);
       focusPane(pane);
     }
   };

@@ -109,9 +109,14 @@ export function createNavHistory(
     settledIndex = index;
   };
 
+  // Past an unreachable entry, an entry in the region being left is no step either.
   const step = (direction: -1 | 1): number => {
+    const from = entries[index];
     let target = index + direction;
-    for (let loc = entries[target]; loc !== undefined && !reachable(loc); loc = entries[target]) {
+    let skipped = false;
+    for (let loc = entries[target]; loc !== undefined; loc = entries[target]) {
+      if (reachable(loc) && !(skipped && from !== undefined && sameRegion(loc, from))) break;
+      skipped = true;
       target += direction;
     }
     return target;

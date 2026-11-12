@@ -193,6 +193,20 @@ describe("surface navigation", () => {
     expect(visited.at(-1)).toMatchObject({ tab: { path: "/b.ts" } });
   });
 
+  it("offers no step to the same place across a pane entry fullscreen no longer shows", () => {
+    for (const line of [1, 2, 3]) {
+      nav.record(location({ kind: "file", path: "/a.ts", line }));
+      nav.record({ pane: "agent" });
+    }
+    fullscreen = false;
+    nav.record(location({ kind: "file", path: "/a.ts", line: 4 }));
+    expect(nav.canBack()).toBe(false);
+    expect(nav.back()).toBe(false);
+    nav.push(location({ kind: "file", path: "/a.ts", line: 5 }));
+    expect(nav.back()).toBe(true);
+    expect(visited.at(-1)).toMatchObject({ view: { text: { line: 4 } } });
+  });
+
   it("failed restoration retains the actual current location and notifies after rollback", async () => {
     const changed = vi.fn();
     const history = createNavHistory(

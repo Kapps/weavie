@@ -155,18 +155,3 @@ it("an editor moving behind a fullscreen pane records nothing", async () => {
   expect(restored).toEqual([origin]);
   navigation.dispose();
 });
-
-it("Back steps past a fullscreen pane's entry once fullscreen ends", async () => {
-  const { owner, origin, destination, navigation, restored, release } = fixture();
-  release();
-  pane = "agent";
-  navigation.depart(owner);
-  pane = null;
-  for (let press = 0; press < 2; press++) {
-    navigation.capture(owner);
-    navigation.history(owner).back();
-    await new Promise((resolve) => setTimeout(resolve));
-  }
-  expect(restored).toEqual([destination, origin]);
-  navigation.dispose();
-});

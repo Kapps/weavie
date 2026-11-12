@@ -155,7 +155,6 @@ export function NewSessionWorkflowField(props: {
   return (
     <>
       <NewSessionPicker
-        id="new-session-workflow"
         label="Workflow"
         value={state().workflow ?? "No workflow"}
         selected={state().workflow ?? NONE}

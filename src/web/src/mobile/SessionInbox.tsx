@@ -292,8 +292,7 @@ export function SessionInbox(props: {
               void openExisting();
             }}
           >
-            <label class="session-composer-field session-composer-branch">
-              <span>Branch</span>
+            <div class="session-composer-field session-composer-branch">
               <input
                 class="ui-field ui-field-mono"
                 type="text"
@@ -315,7 +314,7 @@ export function SessionInbox(props: {
               <Show when={branchListError() !== ""}>
                 <small role="alert">{branchListError()}</small>
               </Show>
-            </label>
+            </div>
             <div class="session-composer-options">
               {destinationFields("Open on", "Open with")}
               <button

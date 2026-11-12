@@ -83,22 +83,20 @@ export function NewSessionBranchField(props: {
   const placeholder = (): string => {
     switch (state().status) {
       case "loading":
-        return "Suggesting…";
+        return "Suggesting branch…";
       case "needsDetail":
-        return "Say more, or type a name";
+        return "Say more, or type a branch name";
       case "error":
-        return "Preview unavailable";
+        return "Branch suggestion unavailable";
       default:
-        return "Name from prompt";
+        return "Branch name from prompt";
     }
   };
 
   return (
     <div class="session-composer-field session-composer-branch">
-      <label for="new-session-branch">Branch</label>
       <input
         class="ui-field ui-field-mono"
-        id="new-session-branch"
         type="text"
         aria-label="Branch for the new session"
         autocapitalize="none"

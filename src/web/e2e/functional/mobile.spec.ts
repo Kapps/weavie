@@ -213,7 +213,7 @@ test.describe("vague branch inference", () => {
     await composer.fill(VAGUE_DRAFT);
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
-    await expect(branch).toHaveAttribute("placeholder", "Say more, or type a name");
+    await expect(branch).toHaveAttribute("placeholder", "Say more, or type a branch name");
 
     await composer.fill(`${VAGUE_DRAFT} when the compact branch field is used`);
     await expect(branch).toHaveValue("fix/mobile-branch-inference");

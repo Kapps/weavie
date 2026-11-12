@@ -213,20 +213,19 @@ export function NewSessionComposer(props: {
           </div>
         )}
       </Show>
-      <label class="session-composer-field session-composer-source">
-        <span>From</span>
+      <div class="session-composer-field session-composer-source">
         <select
           class="ui-field"
           aria-label="Branch starting point"
           value={props.base}
           onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
         >
-          <option value="main">Main branch</option>
+          <option value="main">From main branch</option>
           <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
-            Current session
+            From current session
           </option>
         </select>
-      </label>
+      </div>
       <NewSessionBranchField
         active={props.active}
         backendId={props.backendId}

@@ -3,10 +3,8 @@ import { createEffect, createSignal, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ControlMenu, type ControlMenuOption, controlMenuPlacement } from "../chrome/ControlMenu";
 
-/** One composer field that opens a menu: its label, the value shown, a busy note, and the problem line under it. */
+/** A composer menu field with its current value, busy status, and problem line. */
 export function NewSessionPicker(props: {
-  /** Unique within the composer; names the label and value for assistive tech. */
-  id: string;
   label: string;
   value: string;
   /** The picked option's id, highlighted in the menu. */
@@ -28,11 +26,10 @@ export function NewSessionPicker(props: {
 
   return (
     <div class="session-composer-field session-composer-workflow">
-      <span id={`${props.id}-label`}>{props.label}</span>
       <button
         type="button"
         class="session-composer-workflow-toggle ui-field"
-        aria-labelledby={`${props.id}-label ${props.id}-value`}
+        aria-label={`${props.label} ${props.value}`}
         aria-haspopup="listbox"
         aria-expanded={anchor() !== null}
         aria-busy={props.busy !== null}
@@ -49,9 +46,7 @@ export function NewSessionPicker(props: {
           }
         }}
       >
-        <span id={`${props.id}-value`} class="session-composer-workflow-value">
-          {props.value}
-        </span>
+        <span class="session-composer-workflow-value">{props.value}</span>
         <Show when={props.busy}>{(busy) => <span class="ui-row-desc">{busy()}</span>}</Show>
         <span class="ui-icon" aria-hidden="true">
           <ChevronDown />

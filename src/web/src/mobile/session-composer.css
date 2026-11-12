@@ -42,7 +42,7 @@
 
 .session-composer-field {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 6px 10px;
   padding: 8px 12px;
@@ -50,12 +50,12 @@
 }
 
 .session-composer-field > .ui-field {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
 }
 
 .session-composer-field:has(.session-composer-resuggest) > .ui-field {
-  grid-column: 2;
+  grid-column: 1;
 }
 
 .session-composer-resuggest {

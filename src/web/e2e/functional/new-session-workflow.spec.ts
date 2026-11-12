@@ -212,6 +212,7 @@ test("session fields and compact footers align on desktop and phone", async ({ p
     expect(geometry.footers).toHaveLength(2);
     for (const footer of geometry.footers) {
       expect(footer).toHaveLength(3);
+      expect(footer[0].x).toBe(geometry.fields[0].x);
       expect(new Set(footer.map((control) => control.y)).size).toBe(1);
       expect(new Set(footer.map((control) => control.height)).size).toBe(1);
       expect(footer[0].width).toBe(footer[1].width);

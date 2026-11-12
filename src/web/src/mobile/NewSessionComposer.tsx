@@ -1,4 +1,4 @@
-import { ArrowUp } from "lucide-solid";
+import { ArrowUp, GitFork, MessageCircle } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { type RolePick, selectedSession } from "../bridge";
@@ -11,6 +11,7 @@ import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { MobileActionLabel } from "./MobileActionLabel";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
+import { NewSessionControl } from "./NewSessionControl";
 import { type NewSessionWorkflowActions, NewSessionWorkflowField } from "./NewSessionWorkflowField";
 import {
   createNewSessionAttachments,
@@ -192,17 +193,19 @@ export function NewSessionComposer(props: {
         }
       }}
     >
-      <textarea
-        ref={promptInput}
-        aria-label="Prompt for a new session"
-        placeholder="What do you want to work on?"
-        rows={3}
-        value={prompt()}
-        onFocus={() => setContext("newSessionPromptFocused", props.active)}
-        onBlur={() => setContext("newSessionPromptFocused", false)}
-        onInput={(event) => setPrompt(event.currentTarget.value)}
-        onPaste={attachmentStore.capturePaste}
-      />
+      <NewSessionControl icon={<MessageCircle />}>
+        <textarea
+          ref={promptInput}
+          aria-label="Prompt for a new session"
+          placeholder="What do you want to work on?"
+          rows={3}
+          value={prompt()}
+          onFocus={() => setContext("newSessionPromptFocused", props.active)}
+          onBlur={() => setContext("newSessionPromptFocused", false)}
+          onInput={(event) => setPrompt(event.currentTarget.value)}
+          onPaste={attachmentStore.capturePaste}
+        />
+      </NewSessionControl>
       <Show when={attachments().length > 0}>
         <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
       </Show>
@@ -214,17 +217,19 @@ export function NewSessionComposer(props: {
         )}
       </Show>
       <div class="session-composer-field session-composer-source">
-        <select
-          class="ui-field"
-          aria-label="Branch starting point"
-          value={props.base}
-          onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
-        >
-          <option value="main">From main branch</option>
-          <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
-            From current session
-          </option>
-        </select>
+        <NewSessionControl icon={<GitFork />}>
+          <select
+            class="ui-field"
+            aria-label="Branch starting point"
+            value={props.base}
+            onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
+          >
+            <option value="main">From main branch</option>
+            <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
+              From current session
+            </option>
+          </select>
+        </NewSessionControl>
       </div>
       <NewSessionBranchField
         active={props.active}

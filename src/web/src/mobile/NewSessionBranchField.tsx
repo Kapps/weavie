@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-solid";
+import { GitBranch, RefreshCw } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { backendPhase, type EncodedImageAttachment, requestBranchPreview } from "../bridge";
 import {
@@ -8,6 +8,8 @@ import {
 import { keyHint } from "../commands/key-hint";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+
+import { NewSessionControl } from "./NewSessionControl";
 
 export interface NewSessionBranchActions {
   flush: () => void;
@@ -95,19 +97,21 @@ export function NewSessionBranchField(props: {
 
   return (
     <div class="session-composer-field session-composer-branch">
-      <input
-        class="ui-field ui-field-mono"
-        type="text"
-        aria-label="Branch for the new session"
-        autocapitalize="none"
-        autocomplete="off"
-        spellcheck={false}
-        placeholder={placeholder()}
-        value={state().branch}
-        onInput={(event) => preview.edit(event.currentTarget.value)}
-        onFocus={() => preview.claim()}
-        onBlur={() => preview.release()}
-      />
+      <NewSessionControl icon={<GitBranch />}>
+        <input
+          class="ui-field ui-field-mono"
+          type="text"
+          aria-label="Branch for the new session"
+          autocapitalize="none"
+          autocomplete="off"
+          spellcheck={false}
+          placeholder={placeholder()}
+          value={state().branch}
+          onInput={(event) => preview.edit(event.currentTarget.value)}
+          onFocus={() => preview.claim()}
+          onBlur={() => preview.release()}
+        />
+      </NewSessionControl>
       <button
         type="button"
         class="session-composer-resuggest ui-icon-button"

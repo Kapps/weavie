@@ -175,12 +175,15 @@ test("workflow refresh reconsiders the current prompt after a suggestion or manu
   await expect(refresh).toBeDisabled();
 });
 
-test("session fields and compact footers align on desktop and phone", async ({ page }) => {
+test("session controls align with inset icons that preserve native input on desktop and phone", async ({
+  page,
+}) => {
   await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
   for (const viewport of [
     { width: 1280, height: 800 },
     { width: 390, height: 844 },
+    { width: 320, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
     await expect(inbox).toBeVisible();
@@ -190,7 +193,7 @@ test("session fields and compact footers align on desktop and phone", async ({ p
         return { x, y, width, height };
       };
       return {
-        fields: [...element.querySelectorAll(".session-composer-field > .ui-field")].map(rect),
+        fields: [...element.querySelectorAll(".session-composer-field .ui-field")].map(rect),
         suggestions: [...element.querySelectorAll(".session-composer-resuggest")].map((button) => ({
           button: rect(button),
           field: rect(button.parentElement!.querySelector(".ui-field")!),
@@ -198,6 +201,21 @@ test("session fields and compact footers align on desktop and phone", async ({ p
         footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
           [...footer.querySelectorAll(".ui-field, .session-composer-submit")].map(rect),
         ),
+        icons: [...element.querySelectorAll(".session-composer-control")].map((wrapper) => {
+          const control = wrapper.querySelector("textarea, .ui-field")!;
+          const icon = wrapper.querySelector(".session-composer-control-icon")!;
+          const bounds = icon.getBoundingClientRect();
+          return {
+            icon: rect(icon),
+            control: rect(control),
+            textLeft:
+              control.getBoundingClientRect().x +
+              Number.parseFloat(getComputedStyle(control).paddingLeft),
+            hit: control.contains(
+              document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2),
+            ),
+          };
+        }),
         width: element.scrollWidth,
         visibleWidth: element.clientWidth,
       };
@@ -219,7 +237,34 @@ test("session fields and compact footers align on desktop and phone", async ({ p
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
+    expect(geometry.icons).toHaveLength(9);
+    for (const { icon, control, textLeft, hit } of geometry.icons) {
+      expect(icon.x).toBeGreaterThanOrEqual(control.x);
+      expect(icon.y).toBeGreaterThanOrEqual(control.y);
+      expect(icon.x + icon.width).toBeLessThanOrEqual(control.x + control.width);
+      expect(icon.y + icon.height).toBeLessThanOrEqual(control.y + control.height);
+      expect(textLeft).toBeGreaterThan(icon.x + icon.width);
+      expect(hit).toBe(true);
+    }
     expect(geometry.width).toBe(geometry.visibleWidth);
+    const workflow = inbox.getByRole("button", { name: /^Workflow / });
+    for (const control of [
+      inbox.getByRole("textbox", { name: "Prompt for a new session" }),
+      inbox.getByRole("textbox", { name: "Branch for the new session" }),
+      workflow,
+    ]) {
+      const point = await control
+        .locator("..")
+        .locator(".session-composer-control-icon")
+        .evaluate((icon) => {
+          const bounds = icon.getBoundingClientRect();
+          return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        });
+      await page.mouse.click(point.x, point.y);
+      await expect(control).toBeFocused();
+    }
+    await expect(page.getByRole("listbox", { name: "Workflow" })).toBeVisible();
+    await page.keyboard.press("Escape");
   }
 });
 

@@ -1,9 +1,40 @@
+.session-composer-control {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.session-composer-control > .ui-field {
+  min-width: 0;
+  padding-left: calc(16px + var(--icon-size));
+}
+
+.session-composer-control-icon {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  color: var(--dim);
+  pointer-events: none;
+}
+
+.session-composer-control:has(textarea) {
+  font: var(--font-content);
+}
+
+.session-composer-control:has(textarea) > .session-composer-control-icon {
+  --row-line: 1lh;
+  top: 12px;
+  left: 12px;
+  transform: none;
+}
+
 .session-composer textarea {
   display: block;
   width: 100%;
   min-height: 78px;
   resize: none;
-  padding: 12px;
+  padding: 12px 12px 12px calc(20px + var(--icon-size));
   border: 0;
   outline: 0;
   background: transparent;
@@ -18,10 +49,6 @@
   gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
-}
-
-.session-composer-options > .ui-field {
-  min-width: 0;
 }
 
 .session-composer-destination-error {
@@ -49,12 +76,12 @@
   border-top: 1px solid var(--border);
 }
 
-.session-composer-field > .ui-field {
+.session-composer-field > .session-composer-control {
   grid-column: 1 / -1;
   min-width: 0;
 }
 
-.session-composer-field:has(.session-composer-resuggest) > .ui-field {
+.session-composer-field:has(.session-composer-resuggest) > .session-composer-control {
   grid-column: 1;
 }
 

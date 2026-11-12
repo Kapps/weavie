@@ -1,7 +1,9 @@
-import { ChevronDown } from "lucide-solid";
+import { ChevronDown, Workflow } from "lucide-solid";
 import { createEffect, createSignal, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ControlMenu, type ControlMenuOption, controlMenuPlacement } from "../chrome/ControlMenu";
+
+import { NewSessionControl } from "./NewSessionControl";
 
 /** A composer menu field with its current value, busy status, and problem line. */
 export function NewSessionPicker(props: {
@@ -26,32 +28,36 @@ export function NewSessionPicker(props: {
 
   return (
     <div class="session-composer-field session-composer-workflow">
-      <button
-        type="button"
-        class="session-composer-workflow-toggle ui-field"
-        aria-label={`${props.label} ${props.value}`}
-        aria-haspopup="listbox"
-        aria-expanded={anchor() !== null}
-        aria-busy={props.busy !== null}
-        disabled={props.disabled}
-        onFocus={() => props.onFocus()}
-        onBlur={() => props.onBlur()}
-        onClick={(event) =>
-          setAnchor((open) => (open === null ? event.currentTarget.getBoundingClientRect() : null))
-        }
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" && anchor() === null) {
-            event.preventDefault();
-            setAnchor(event.currentTarget.getBoundingClientRect());
+      <NewSessionControl icon={<Workflow />}>
+        <button
+          type="button"
+          class="session-composer-workflow-toggle ui-field"
+          aria-label={`${props.label} ${props.value}`}
+          aria-haspopup="listbox"
+          aria-expanded={anchor() !== null}
+          aria-busy={props.busy !== null}
+          disabled={props.disabled}
+          onFocus={() => props.onFocus()}
+          onBlur={() => props.onBlur()}
+          onClick={(event) =>
+            setAnchor((open) =>
+              open === null ? event.currentTarget.getBoundingClientRect() : null,
+            )
           }
-        }}
-      >
-        <span class="session-composer-workflow-value">{props.value}</span>
-        <Show when={props.busy}>{(busy) => <span class="ui-row-desc">{busy()}</span>}</Show>
-        <span class="ui-icon" aria-hidden="true">
-          <ChevronDown />
-        </span>
-      </button>
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && anchor() === null) {
+              event.preventDefault();
+              setAnchor(event.currentTarget.getBoundingClientRect());
+            }
+          }}
+        >
+          <span class="session-composer-workflow-value">{props.value}</span>
+          <Show when={props.busy}>{(busy) => <span class="ui-row-desc">{busy()}</span>}</Show>
+          <span class="ui-icon" aria-hidden="true">
+            <ChevronDown />
+          </span>
+        </button>
+      </NewSessionControl>
       {props.action}
       <Show when={props.problem}>{(problem) => <small role="alert">{problem()}</small>}</Show>
       <Show when={anchor()} keyed>

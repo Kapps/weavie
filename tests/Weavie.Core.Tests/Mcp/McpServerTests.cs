@@ -19,7 +19,7 @@ public sealed class McpServerTests {
 	private const string Token = "0123456789abcdef0123456789abcdef";
 
 	private static McpServer NewServer(IDiffPresenter presenter) =>
-		TestMcp.Server(Token, presenter, ["/workspace"]);
+		TestMcp.Ide(Token, presenter, ["/workspace"]);
 
 	private static async Task<ClientWebSocket> ConnectAsync(int port, string? token) {
 		var client = new ClientWebSocket();
@@ -268,7 +268,7 @@ public sealed class McpServerTests {
 		using var dir = new TempDirectory("weavie-mcp-run-command");
 		using var settings = CoreSettings.CreateStore(dir.Combine("settings.toml"), enableWatcher: false);
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [dir.Path], settings: settings, registryMode: true, commands: dispatcher);
+			Token, FakeDiffPresenter.AlwaysKeep(), [dir.Path], settings, commands: dispatcher);
 
 		await Assert.ThrowsAsync<IOException>(() =>
 			server.HandleRunCommandAsync(

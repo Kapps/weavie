@@ -22,18 +22,18 @@ namespace Weavie.Core.Tests;
 /// to test projects.
 /// </summary>
 internal static class TestMcp {
-	/// <summary>
-	/// Builds the IDE server over <paramref name="editor"/>, or with <paramref name="registryMode"/> a registry
-	/// whose unspecified stores are isolated in-memory ones. An IDE server takes no registry capability.
-	/// </summary>
+	/// <summary>Builds the IDE server over <paramref name="editor"/>, or over an empty editor store.</summary>
+	internal static McpServer Ide(
+		string authToken, IDiffPresenter presenter, IReadOnlyList<string> workspaceFolders, EditorStore? editor = null) =>
+		McpServer.Ide(authToken, presenter, workspaceFolders, "weavie", editor ?? new EditorStore());
+
+	/// <summary>Builds a registry server whose unspecified stores are isolated in-memory ones.</summary>
 	internal static McpServer Server(
 		string authToken,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
+		SettingsStore settings,
 		string? settingsWorkspaceRoot = null,
-		bool registryMode = false,
 		bool exposeIdeTools = false,
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
@@ -44,27 +44,19 @@ internal static class TestMcp {
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null) {
-		if (registryMode) {
-			var defaults = Defaults(
-				settings ?? throw new ArgumentNullException(nameof(settings), "A registry needs a settings store."),
-				settingsWorkspaceRoot ?? workspaceFolders[0]);
-			return new McpServer(authToken, presenter, workspaceFolders, ideName, defaults with {
-				ExposeIdeTools = exposeIdeTools,
-				Layout = layout ?? defaults.Layout,
-				Editor = editor ?? defaults.Editor,
-				Commands = commands ?? defaults.Commands,
-				Keybindings = keybindings ?? defaults.Keybindings,
-				ThemeOverrides = themeOverrides ?? defaults.ThemeOverrides,
-				Sessions = sessions ?? defaults.Sessions,
-				Agents = agents ?? defaults.Agents,
-				ReviewHints = reviewHints ?? defaults.ReviewHints,
-				Workflows = workflows ?? defaults.Workflows,
-			});
-		}
-		object?[] registryOnly = [settings, settingsWorkspaceRoot, layout, commands, keybindings, themeOverrides, sessions, agents, reviewHints, workflows];
-		return registryOnly.All(value => value is null)
-			? McpServer.Ide(authToken, presenter, workspaceFolders, ideName, editor ?? new EditorStore())
-			: throw new ArgumentException("An IDE server offers only its editor; pass registryMode: true for registry capabilities.");
+		var defaults = Defaults(settings, settingsWorkspaceRoot ?? workspaceFolders[0]);
+		return new McpServer(authToken, presenter, workspaceFolders, "weavie", defaults with {
+			ExposeIdeTools = exposeIdeTools,
+			Layout = layout ?? defaults.Layout,
+			Editor = editor ?? defaults.Editor,
+			Commands = commands ?? defaults.Commands,
+			Keybindings = keybindings ?? defaults.Keybindings,
+			ThemeOverrides = themeOverrides ?? defaults.ThemeOverrides,
+			Sessions = sessions ?? defaults.Sessions,
+			Agents = agents ?? defaults.Agents,
+			ReviewHints = reviewHints ?? defaults.ReviewHints,
+			Workflows = workflows ?? defaults.Workflows,
+		});
 	}
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>

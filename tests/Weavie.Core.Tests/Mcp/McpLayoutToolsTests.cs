@@ -11,7 +11,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Drives the layout MCP tools (<c>getLayout</c>/<c>setLayout</c>) over a loopback WebSocket on the
-/// registry-mode server — the surface the embedded <c>claude</c> reaches as <c>mcp__weavie__*</c> —
+/// registry server — the surface the embedded <c>claude</c> reaches as <c>mcp__weavie__*</c> —
 /// covering the path that backs <em>"split my view into left terminal, right editor"</em>.
 /// </summary>
 public sealed class McpLayoutToolsTests : IDisposable {
@@ -23,7 +23,7 @@ public sealed class McpLayoutToolsTests : IDisposable {
 	private McpServer NewRegistryServer(LayoutStore layout) {
 		var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		return TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings, registryMode: true, layout: layout);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], settings, layout: layout);
 	}
 
 	[Fact]
@@ -41,7 +41,7 @@ public sealed class McpLayoutToolsTests : IDisposable {
 		Assert.Contains("getLayout", names);
 		Assert.Contains("setLayout", names);
 		Assert.Contains("setSetting", names); // settings tools advertised alongside
-		Assert.DoesNotContain("openDiff", names); // registry mode omits IDE tools
+		Assert.DoesNotContain("openDiff", names); // a registry omits the IDE tools unless asked
 	}
 
 	[Fact]

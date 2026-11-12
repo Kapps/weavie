@@ -52,7 +52,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_AdvertisesOnlySettingsTools() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -73,7 +73,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools(bool focus) {
 		using var store = NewStore();
 		var presenter = FakeDiffPresenter.AlwaysKeep();
-		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], "weavie", store, registryMode: true);
+		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], store);
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -105,7 +105,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 			"selected",
 			new EditorSelection(new EditorPosition(3, 1), new EditorPosition(3, 9), IsEmpty: false)));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store,
 			exposeIdeTools: true, editor: editor);
 		int port = server.Start();
 
@@ -130,7 +130,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_BearerAuth_AcceptsCorrect_RejectsWrong() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectBearerAsync(port, "wrong-token"));
@@ -143,7 +143,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -169,7 +169,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_SetSetting_OverBearer_Persists() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -187,7 +187,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -209,7 +209,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -283,7 +283,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_Initialize_AdvertisesPromptsCapability() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -297,7 +297,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_ListsAndGetsWorkspaceSetupPrompt() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -321,7 +321,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task ReportingPromptsUseTheSharedCatalogAndIncludePublicationPrivacy(string name) {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 		await SendAsync(ws, Request(1, "prompts/list", "{}"));
 		using var list = await ReceiveAsync(ws);
@@ -348,7 +348,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RunPromptAdvertisesEveryCatalogPromptAndRejectsUnknownNames() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
 		using var list = await ReceiveAsync(ws);
@@ -373,7 +373,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		Directory.CreateDirectory(personal);
 		File.WriteAllText(Path.Combine(personal, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: NewWorkflows(personal));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, workflows: NewWorkflows(personal));
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -449,7 +449,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		string personal = Path.Combine(_dir.Path, "personal");
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: NewWorkflows(personal));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, workflows: NewWorkflows(personal));
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -495,7 +495,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task WorkflowToolsAreUnavailableWithoutARegistry() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 		await SendAsync(ws, Request(1, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
 		using var called = await ReceiveAsync(ws);
@@ -509,7 +509,7 @@ public sealed partial class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_GetUnknownPrompt_Errors() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -520,8 +520,8 @@ public sealed partial class RegistryMcpTests : IDisposable {
 
 	[Fact]
 	public async Task IdeMode_ListsNoPrompts() {
-		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings: null, registryMode: false);
+		await using var server = TestMcp.Ide(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path]);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 

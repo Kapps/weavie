@@ -25,7 +25,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	private SettingsStore NewStore() => CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
 	private McpServer NewServer(SettingsStore store) =>
-		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, exposeIdeTools: true);
+		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 
 	// A shell that validates on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {
@@ -34,24 +34,6 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		}
 
 		return OperatingSystem.IsWindows() ? "cmd" : "/bin/sh";
-	}
-
-	[Fact]
-	public async Task ToolsList_AdvertisesSettingsTools() {
-		using var store = NewStore();
-		await using var server = NewServer(store);
-		int port = server.Start();
-		using var ws = await ConnectAsync(port);
-
-		await SendAsync(ws, Request(1, "tools/list", "{}"));
-		using var response = await ReceiveAsync(ws);
-
-		var names = response.RootElement.GetProperty("result").GetProperty("tools")
-			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
-		Assert.Contains("listSettings", names);
-		Assert.Contains("getSetting", names);
-		Assert.Contains("setSetting", names);
-		Assert.Contains("openDiff", names); // IDE tools present too
 	}
 
 	[Fact]
@@ -159,7 +141,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		using var store = NewStore();
 		string worktree = _dir.Combine("worktree");
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [worktree], "weavie", store, settingsWorkspaceRoot: _dir.Path, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [worktree], store, settingsWorkspaceRoot: _dir.Path);
 		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 

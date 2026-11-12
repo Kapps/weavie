@@ -822,10 +822,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty,isPinned,isPreview}] }.
 	// languageId is filled only for the active tab; isDirty is always false (Weavie auto-saves on a debounce).
-	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab>? tabs, ActiveEditor? active) =>
+	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab> tabs, ActiveEditor? active) =>
 		JsonWrite.Object(writer => {
 			writer.WriteStartArray("tabs");
-			foreach (var tab in tabs ?? []) {
+			foreach (var tab in tabs) {
 				writer.WriteStartObject();
 				writer.WriteString("uri", PathToFileUri(tab.FilePath));
 				writer.WriteBoolean("isActive", tab.IsActive);
@@ -845,8 +845,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	// Resolves a close_tab `tab_name` (a label or full path) to the open tab's path: exact path first, then
 	// basename (label), preferring the active tab on a label tie. Null when nothing matches.
-	private static string? ResolveTabPath(string? tabName, IReadOnlyList<OpenEditorTab>? tabs) {
-		if (string.IsNullOrEmpty(tabName) || tabs is null || tabs.Count == 0) {
+	private static string? ResolveTabPath(string? tabName, IReadOnlyList<OpenEditorTab> tabs) {
+		if (string.IsNullOrEmpty(tabName) || tabs.Count == 0) {
 			return null;
 		}
 

@@ -306,6 +306,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		WireMessages(inputFrozen, acceptTerminalInput);
 		WireWorkflowHold();
+		WireWorkflowConversations();
 		Workflow.Activate();
 	}
 

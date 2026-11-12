@@ -48,12 +48,13 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await Eventually(() => fixture.Messages.Count(message => Conversation(message) is null
 			&& Type(message) == "item-completed" && Text(message).Contains("now asks the user: Accept reviewed change?", StringComparison.Ordinal)) == 2);
 		session.Workflow.Answer(runId, "approve", "");
-		await fixture.ClosedAsync(child);
 		await fixture.ReplyAsync(null, "echo: publish reviewed change");
-		Assert.Throws<InvalidOperationException>(() => fixture.Send(child, "stale stage input"));
+		Assert.DoesNotContain(fixture.Messages, message => Type(message) == "side-conversation-closed" && Conversation(message) == child);
 		session.SendAgentPrompt("mcp:completeStage:{\"outputs\":{},\"summary\":\"Published\"}");
 		await fixture.ReplyAsync(null, "completeStage: Complete.");
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
+		await fixture.ClosedAsync(child);
+		Assert.Throws<InvalidOperationException>(() => fixture.Send(child, "stale stage input"));
 	}
 
 	[Theory]

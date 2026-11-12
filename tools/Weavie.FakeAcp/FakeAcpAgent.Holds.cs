@@ -8,6 +8,12 @@ internal sealed partial class FakeAcpAgent {
 	// A test opts into holding the next opening by creating hold-open; the hold consumes it.
 	private async Task<JsonObject> OpenAsync(JsonElement parameters, string sessionId, bool replay, CancellationToken ct) {
 		await HoldOnceAsync("open", ct).ConfigureAwait(false);
+		// A test makes the next load or resume fail by creating fail-restore; the failure consumes it.
+		string fail = StatePath("fail-restore");
+		if (parameters.TryGetProperty("sessionId", out _) && File.Exists(fail)) {
+			File.Delete(fail);
+			throw new AcpAdapterException(-32603, "Synthetic restore failure.", null);
+		}
 		return Open(parameters, sessionId, replay);
 	}
 

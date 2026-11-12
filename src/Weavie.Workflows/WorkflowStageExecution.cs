@@ -7,16 +7,19 @@ public sealed class WorkflowStageExecution {
 	private readonly WorkflowRunner _runner;
 	private readonly TaskCompletionSource<bool> _retired = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-	internal WorkflowStageExecution(WorkflowRunner runner, string runId, WorkflowStage stage) {
+	internal WorkflowStageExecution(WorkflowRunner runner, string runId, WorkflowStage stage, WorkflowStage? opener) {
 		_runner = runner;
 		RunId = runId;
 		Stage = stage;
+		Opener = opener;
 	}
 
 	/// <summary>The run that owns this visit.</summary>
 	public string RunId { get; }
 	/// <summary>The stage definition for this visit.</summary>
 	public WorkflowStage Stage { get; }
+	/// <summary>The stage whose conversation this visit uses: itself, the stage it reuses, or null for main.</summary>
+	public WorkflowStage? Opener { get; }
 	/// <summary>Completes on leaving the visit; true for normal progression, false for cancellation or a jump.</summary>
 	public Task<bool> Retired => _retired.Task;
 	internal int Round { get; set; }
@@ -24,8 +27,8 @@ public sealed class WorkflowStageExecution {
 
 	/// <summary>Captures this visit and its current completion round for one admitted tool call.</summary>
 	public WorkflowStageCall Capture() => _runner.Capture(this);
-	/// <summary>The stage instructions while this execution remains current.</summary>
-	public string Compose() => _runner.StageBlock(this);
+	/// <summary>The stage instructions while this execution remains current; <paramref name="continues"/> when its conversation already holds earlier work.</summary>
+	public string Compose(bool continues) => _runner.StageBlock(this, continues);
 	/// <summary>Pauses this visit if its conversation ends while the visit is still current.</summary>
 	public void ConversationEnded(string reason) => _runner.ConversationEnded(this, reason);
 }

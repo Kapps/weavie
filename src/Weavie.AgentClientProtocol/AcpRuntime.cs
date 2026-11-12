@@ -130,6 +130,7 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 				if (conversation.Live) conversation.TerminalizeForRestart(clearSubmissions: true, "Conversation closed.");
 				conversation.SettleInteractions();
 				conversation.Observe(new AgentConversationRemoved(conversation.ConversationId));
+				conversation.Forget();
 				conversation.Retire();
 				conversation.RaiseBackground();
 			}

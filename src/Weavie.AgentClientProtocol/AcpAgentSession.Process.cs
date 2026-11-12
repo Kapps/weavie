@@ -39,6 +39,7 @@ public sealed partial class AcpAgentSession {
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
 				SuspendSides("ACP agent restarted.");
+				SuspendIndependent("ACP agent restarted.");
 				_primary.SettleInteractions();
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error);

@@ -195,6 +195,53 @@ public sealed class AcpOwnedConversationTests {
 		Assert.Equal("true", Assert.Single(child.ControlState.Axes, axis => axis.Id == "fast").Value);
 	}
 
+	[Fact]
+	public async Task AKeptConversationIsRestoredOnlyByItsOwnerAfterARestartAndForgottenWhenClosed() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		var key = new AgentConversationKey("r-1", "review");
+		var child = await fixture.Session.OpenFreshAsync(Binding(fixture) with { Owner = key }, CancellationToken.None);
+		child.Submit(AgentTurnSubmission.Prompt("before restart"));
+		var first = await fixture.WaitForMessageAsync(message => message.ConversationId == child.Id && message.Text == "echo: before restart");
+		Assert.Contains(fixture.Sessions.ReadConversations("fake", fixture.Workspace), state => state.ConversationId == child.Id && state.Owner == key);
+		Assert.DoesNotContain(fixture.Session.Asides, aside => aside.Id == child.Id);
+
+		fixture.Session.Restart();
+		Assert.Equal("closed", (await child.Completion).Reason);
+		Assert.Throws<InvalidOperationException>(() => fixture.Session.ReplyAside(child.Id, AgentTurnSubmission.Prompt("as an aside")));
+		Assert.Null(await fixture.Session.RestoreAsync(Binding(fixture) with { Owner = key with { Name = "other" } }, CancellationToken.None));
+		await using var restored = (await fixture.Session.RestoreAsync(Binding(fixture) with { Owner = key }, CancellationToken.None))!;
+		Assert.Equal(child.Id, restored.Id);
+		restored.Submit(AgentTurnSubmission.Prompt("after restart"));
+		var second = await fixture.WaitForMessageAsync(message => message.ConversationId == child.Id && message.Text == "echo: after restart");
+		Assert.Equal(first.ThreadId, second.ThreadId);
+		Assert.Single(fixture.Messages, message => message.Type == "side-conversation-started" && message.ConversationId == child.Id);
+
+		await restored.DisposeAsync();
+		Assert.Contains(fixture.Messages, message => message.Type == "side-conversation-closed" && message.ConversationId == child.Id);
+		Assert.DoesNotContain(fixture.Sessions.ReadConversations("fake", fixture.Workspace), state => state.ConversationId == child.Id);
+		Assert.Null(await fixture.Session.RestoreAsync(Binding(fixture) with { Owner = key }, CancellationToken.None));
+	}
+
+	[Fact]
+	public async Task ForgettingAnOwnerEndsTheCardOfAKeptConversationThatIsNotLive() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		var kept = new AgentConversationKey("r-1", "review");
+		var child = await fixture.Session.OpenFreshAsync(Binding(fixture) with { Owner = kept }, CancellationToken.None);
+		var live = await fixture.Session.OpenFreshAsync(Binding(fixture) with { Owner = kept with { Name = "verify" } }, CancellationToken.None);
+		child.Submit(AgentTurnSubmission.Prompt("kept"));
+		await fixture.WaitForMessageAsync(message => message.ConversationId == child.Id && message.Type == "turn-completed");
+		fixture.Session.Restart();
+		await child.Completion;
+		await using var restored = (await fixture.Session.RestoreAsync(Binding(fixture) with { Owner = kept with { Name = "verify" } }, CancellationToken.None))!;
+		fixture.Session.Forget(owner => owner.Scope == "r-1");
+		Assert.Contains(fixture.Messages, message => message.Type == "side-conversation-closed" && message.ConversationId == child.Id);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "side-conversation-closed" && message.ConversationId == restored.Id);
+		Assert.Equal([restored.Id], fixture.Sessions.ReadConversations("fake", fixture.Workspace).Where(state => state.Owner is not null).Select(state => state.ConversationId));
+		await live.DisposeAsync();
+	}
+
 	private static AgentConversationBinding Binding(AcpAgentSessionFixture fixture) => new() {
 		Tools = fixture.Registry.CreateGrant(() => null),
 		Title = "Owned conversation",

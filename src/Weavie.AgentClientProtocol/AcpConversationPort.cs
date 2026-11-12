@@ -83,6 +83,11 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 		lock (transitionGate) if (Publishing) OnClosed(state);
 	}
 
+	/// <summary>The owner closed this conversation, so nothing restores it later.</summary>
+	public void Forget(AcpConversationState state) {
+		lock (transitionGate) if (Publishing) OnForget(state);
+	}
+
 	public void Detach() {
 		lock (transitionGate) Detached = true;
 	}
@@ -91,6 +96,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 
 	protected virtual void OnOpened() { }
 	protected virtual void OnClosed(AcpConversationState state) { }
+	protected virtual void OnForget(AcpConversationState state) { }
 
 	protected abstract AgentEventFeedback OnObserve(AgentEvent value);
 	protected abstract void OnEmit(AcpConversationState state, AgentPaneMessage message);

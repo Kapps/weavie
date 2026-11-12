@@ -30,7 +30,10 @@ public static class AuthorWorkflowPrompt {
 			   Choose `run.context` deliberately: `continue` (default) works in the main conversation, `fork`
 			   gives a separate stage the main conversation's history, and `fresh` receives only its stage
 			   instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
-			   judgment; both keep main available and return outputs and a summary to it. They use the session's
+			   judgment; both keep main available and return outputs and a summary to it. A fresh stage keeps one
+			   conversation for the run, so a return visit continues it: say in its prompt what a return checks. For
+			   a return with its own prompt or limit, add a stage with `context: { reuse: <stage> }` and no agent or
+			   role. A fork copies main again on every visit. They use the session's
 			   provider; a fresh stage is not a way to switch providers. When stages need different strengths, give
 			   each a `run.role` (prefer `planner`, `builder`, `reviewer`): the user picks each role's model per
 			   provider, so the workflow stays portable. Pin an `agents` entry only when the user names a model.

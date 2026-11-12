@@ -37,9 +37,18 @@ public sealed record WorkflowDefinition {
 	public WorkflowAgent? AgentOf(WorkflowStage stage, IReadOnlyList<WorkflowAgent> roles) {
 		ArgumentNullException.ThrowIfNull(stage);
 		ArgumentNullException.ThrowIfNull(roles);
+		stage = Opener(stage) ?? stage;
 		return stage.Run.Agent is { } name ? Agents.First(a => a.Name == name)
 			: stage.Run.Role is { } role ? roles.FirstOrDefault(a => a.Name == role)
 			: null;
+	}
+
+	/// <summary>The stage whose conversation runs <paramref name="stage"/>: itself, the stage it reuses, or null for main.</summary>
+	public WorkflowStage? Opener(WorkflowStage stage) {
+		ArgumentNullException.ThrowIfNull(stage);
+		return stage.Run.Context == WorkflowContext.Continue ? null
+			: stage.Run.Reuse is { } reused ? Stages.First(s => s.Id == reused)
+			: stage;
 	}
 }
 
@@ -114,8 +123,11 @@ public sealed record WorkflowStage {
 
 /// <summary>A stage's work: a prompt, or a skill run as its slash command.</summary>
 public sealed record WorkflowWork {
-	/// <summary>The conversation that runs this step.</summary>
+	/// <summary>How the conversation that runs this step opens; a reusing step has the context of the stage it reuses.</summary>
 	public required WorkflowContext Context { get; init; }
+
+	/// <summary>The stage whose conversation this step continues, or <see langword="null"/>.</summary>
+	public required string? Reuse { get; init; }
 
 	/// <summary>The instruction text, or <see langword="null"/> for a skill.</summary>
 	public required WorkflowTemplate? Prompt { get; init; }

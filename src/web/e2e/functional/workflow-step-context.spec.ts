@@ -4,7 +4,7 @@ import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 import { workflowTool, writeWorkflowSource } from "../harness/workflows";
 
-test("a fresh workflow child keeps revisions while main receives its report and next stage", async ({
+test("a fresh workflow child keeps revisions and return visits while main receives its reports", async ({
   page,
   weavie,
 }) => {
@@ -23,6 +23,10 @@ stages:
       choices: { revise: review, approve: publish }
   - id: publish
     run: { prompt: "Publish after {{review.note}}" }
+    then:
+      ask: "Review again?"
+      by: user
+      choices: { again: review, finish: done }
 `,
   );
   const started = await workflowTool(surface, "runCommand", {
@@ -89,11 +93,39 @@ stages:
   await expect(
     mainRows.filter({ hasText: "echo: Publish after cancellation checked" }),
   ).toHaveCount(1);
+  const publish = async (choice: string) => {
+    await followMain();
+    await workflowTool(surface, "completeStage", {
+      outputs: {},
+      summary: "Published after review",
+    });
+    await workflowTool(surface, "runCommand", {
+      id: "weavie.workflow.answer",
+      args: { run, choice, feedback: "" },
+    });
+  };
+
+  // Returning to the stage continues the same conversation in the same card.
+  await publish("again");
   await scrollToChild();
+  await expect(child).toHaveCount(1);
   await expect(child).toHaveAttribute("data-agent-aside", identity!);
+  await expect(child.getByText("echo: Review cancellation")).toHaveCount(2);
+  await complete();
+  await followMain();
+  await expect(surface.locator(".pane-head .pane-run")).toHaveAttribute(
+    "title",
+    /needs your answer/,
+  );
+  await workflowTool(surface, "runCommand", {
+    id: "weavie.workflow.answer",
+    args: { run, choice: "approve", feedback: "" },
+  });
+  await followMain();
+  await expect(mainRows.last()).toContainText("echo: Publish after cancellation checked");
+  await publish("finish");
+  await expect(surface.locator(".pane-head .pane-run")).toBeHidden();
+  await scrollToChild();
   await expect(child.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await expect(child.getByRole("textbox")).toHaveCount(0);
-  await followMain();
-  await workflowTool(surface, "completeStage", { outputs: {}, summary: "Published after review" });
-  await expect(surface.locator(".pane-head .pane-run")).toBeHidden();
 });

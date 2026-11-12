@@ -9,7 +9,7 @@ public sealed partial class AcpAgentSession {
 	public IReadOnlyList<AgentAside> Asides {
 		get {
 			lock (_turnTransitionGate) {
-				return [.. _sideConversations.Values.Where(side => Continuable(side) || _sides.ContainsKey(side.ConversationId))
+				return [.. _sideConversations.Values.Where(side => side.Owner is null && (Continuable(side) || _sides.ContainsKey(side.ConversationId)))
 					.Select(side => new AgentAside(side.ConversationId, side.InitialPrompt, _sides.GetValueOrDefault(side.ConversationId) is { Settled: false }))];
 			}
 		}
@@ -44,7 +44,7 @@ public sealed partial class AcpAgentSession {
 				conversation.Submit(submission);
 				return;
 			}
-			if (_sideConversations.GetValueOrDefault(conversationId) is not { } state || !Continuable(state)) {
+			if (_sideConversations.GetValueOrDefault(conversationId) is not { Owner: null } state || !Continuable(state)) {
 				throw new InvalidOperationException("That side conversation is no longer available.");
 			}
 			EnsureSideConversationSupport(_primary);
@@ -85,14 +85,23 @@ public sealed partial class AcpAgentSession {
 
 	private void SuspendSides(string reason) {
 		foreach (var side in Sides()) {
-			side.Conversation.TerminalizeForRestart(clearSubmissions: true, reason);
-			side.Conversation.Save([]);
 			lock (_turnTransitionGate) _sides.Remove(side.Id);
-			side.Conversation.SettleInteractions();
-			side.Conversation.Retire();
+			Suspend(side.Conversation, reason);
 			if (side.Conversation.ThreadId is null) PublishSideTerminal(Side(side.Conversation.Continuation));
 			DisposeSide(side);
 		}
+	}
+
+	// Ends the incarnation with its continuation saved, so a later one restores it on a new process.
+	private static void Suspend(AcpConversation conversation, string reason) {
+		conversation.TerminalizeForRestart(clearSubmissions: true, reason);
+		conversation.Save([]);
+		conversation.SettleInteractions();
+		conversation.Retire();
+	}
+
+	private void SuspendIndependent(string reason) {
+		foreach (var conversation in _runtime.Conversations.Where(conversation => conversation.Independent)) Suspend(conversation, reason);
 	}
 
 	private void DisposeSide(AcpConversationHandle runtime) {

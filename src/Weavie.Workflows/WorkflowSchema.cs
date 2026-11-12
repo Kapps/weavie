@@ -34,7 +34,12 @@ public static partial class WorkflowSchema {
 			"Typed values the step must report when it completes, by name. Files must be worktree-relative or absolute within {{run.documents}}.",
 			NamePattern(), nameHint, new EnumShape("The value's type.", ValueTypes));
 		var work = new ObjectShape("The work step: a prompt, or a skill run as its real slash command.", [
-			new("context", new EnumShape("continue (default) uses main; fork copies its conversation; fresh owns a new conversation. All share the worktree.", ["continue", "fork", "fresh"]), false),
+			new("context", new TextOrObjectShape(
+				"continue (default) uses main; fork copies main's conversation on every visit; fresh opens one conversation on the stage's first visit and continues it on every return; { reuse: <stage> } continues that fork or fresh stage's conversation. All share the worktree.",
+				new EnumShape("continue, fork, or fresh.", ["continue", "fork", "fresh"]),
+				new ObjectShape("Continue another stage's conversation.", [
+					new("reuse", new TextShape("The id of a fork or fresh stage whose conversation this step continues, on its agent.", IdPattern(), idHint), true),
+				])), false),
 			new("prompt", new TextShape("Instruction text sent as the stage's turn; references: {{run.prompt}} (what the run was started with), {{inputs.name}}, {{stage.output}}, {{run.documents}} (shared documents directory)."), false),
 			new("skill", new TextShape(
 				"A skill or slash command the agent already has, without the leading slash.",

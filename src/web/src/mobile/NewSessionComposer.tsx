@@ -1,4 +1,4 @@
-import { ArrowUp, GitFork, MessageCircle } from "lucide-solid";
+import { ArrowUp, GitFork } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { type RolePick, selectedSession } from "../bridge";
@@ -193,19 +193,17 @@ export function NewSessionComposer(props: {
         }
       }}
     >
-      <NewSessionControl icon={<MessageCircle />}>
-        <textarea
-          ref={promptInput}
-          aria-label="Prompt for a new session"
-          placeholder="What do you want to work on?"
-          rows={3}
-          value={prompt()}
-          onFocus={() => setContext("newSessionPromptFocused", props.active)}
-          onBlur={() => setContext("newSessionPromptFocused", false)}
-          onInput={(event) => setPrompt(event.currentTarget.value)}
-          onPaste={attachmentStore.capturePaste}
-        />
-      </NewSessionControl>
+      <textarea
+        ref={promptInput}
+        aria-label="Prompt for a new session"
+        placeholder="What do you want to work on?"
+        rows={3}
+        value={prompt()}
+        onFocus={() => setContext("newSessionPromptFocused", props.active)}
+        onBlur={() => setContext("newSessionPromptFocused", false)}
+        onInput={(event) => setPrompt(event.currentTarget.value)}
+        onPaste={attachmentStore.capturePaste}
+      />
       <Show when={attachments().length > 0}>
         <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
       </Show>

@@ -13,7 +13,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession {
 	private readonly IdleTurnDelivery<OwedWorkflowTurn> _workflowTurns;
 	private int _runtimeActivated;
-	private WorkflowStageOwner? _workflowConversation;
+	private readonly Dictionary<string, WorkflowConversationOwner> _workflowConversations = new(StringComparer.Ordinal);
 
 	internal string? InheritedWorkflowDocuments { get; set; }
 
@@ -46,13 +46,9 @@ public sealed partial class HostSession {
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(OwedWorkflowTurn owed) {
 		var kickoff = owed.Kickoff;
-		if (kickoff.Context != WorkflowContext.Continue && Workflow.Execution is { } execution) {
-			if (_workflowConversation?.Execution != execution) {
-				_workflowConversation = new WorkflowStageOwner(this, execution, Workflow.AgentOf(execution.Stage.Id));
-				_ = Background.Run(_workflowConversation.RunLifetimeAsync);
-			}
-			var conversation = _workflowConversation;
-			_ = Background.Run(ct => conversation.SendAsync(owed, ct));
+		if (kickoff.Context != WorkflowContext.Continue && Workflow.Execution is { Opener: { } opener } execution) {
+			var conversation = ConversationOwner(execution.RunId, opener);
+			_ = Background.Run(ct => conversation.SendAsync(execution, owed, ct));
 			return;
 		}
 		lock (_initialInputGate) {
@@ -86,13 +82,51 @@ public sealed partial class HostSession {
 		}
 	}
 
+	private WorkflowConversationOwner ConversationOwner(string runId, WorkflowStage opener) {
+		lock (_workflowConversations) {
+			if (_workflowConversations.TryGetValue(opener.Id, out var owner)) return owner;
+			if (_workflowConversations.Count == 0) ForgetWorkflowConversations(key => key.Scope != runId);
+			owner = new WorkflowConversationOwner(this, runId, opener, Workflow.AgentOf(opener.Id));
+			_workflowConversations.Add(opener.Id, owner);
+			_ = Background.Run(owner.RunLifetimeAsync);
+			return owner;
+		}
+	}
+
+	// The run ended or was replaced: its conversations close, and any it kept that aren't live are forgotten.
+	private void WireWorkflowConversations() => Workflow.Changed += () => {
+		string? live = Workflow.Current is { IsFinished: false } run ? run.Id : null;
+		lock (_workflowConversations) {
+			if (live is not null && _workflowConversations.Values.All(owner => owner.Key.Scope == live)) return;
+			EndWorkflowConversations();
+		}
+		ForgetWorkflowConversations(key => key.Scope != live);
+	};
+
+	private void EndWorkflowConversations() {
+		bool completed = Workflow.Current?.Phase == WorkflowPhase.Done;
+		foreach (var owner in _workflowConversations.Values) owner.End(completed);
+		_workflowConversations.Clear();
+	}
+
+	// Runner callbacks hold its lock, which comes after the agent's; forgetting takes the agent's, so it runs apart.
+	private void ForgetWorkflowConversations(Func<AgentConversationKey, bool> owners) => _ = Background.Run(async _ => {
+		await Task.Yield();
+		if (Agent.Session is IStructuredAgentConversations conversations) conversations.Forget(owners);
+	});
+
 	private void MarkRuntimeActivated() => Volatile.Write(ref _runtimeActivated, 1);
 
 	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
 		try {
-			if (_workflowConversation is { Execution: var execution } && Workflow.Execution == execution) {
-				execution.ConversationEnded("The stage conversation ended when the session unloaded. Resume to open a new conversation.");
+			// The runner's lock comes before the owners', so the visit is read before the owners are.
+			var execution = Workflow.Execution;
+			bool lent;
+			lock (_workflowConversations) lent = execution is { Opener: { } opener }
+				&& _workflowConversations.GetValueOrDefault(opener.Id)?.Lends(execution) == true;
+			if (lent && Workflow.Current?.Kickoff is null) {
+				execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
 			}
 		} finally {
 			Workflow.Dispose();

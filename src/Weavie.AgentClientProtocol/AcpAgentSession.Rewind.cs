@@ -24,6 +24,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			primary.Rewinding = true;
 			try {
 				foreach (var child in _runtime.Conversations.Where(conversation => conversation.Independent)) _ = _runtime.CloseAsync(child);
+				Forget(_ => true);
 				if (plan.ForkMessageId is not { } messageId) {
 					CommitRewind(primary, plan, rewind: null);
 					primary.Rewinding = false;

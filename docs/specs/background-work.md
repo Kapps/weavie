@@ -74,6 +74,8 @@ stateDiagram-v2
 
 The root's failure ends its subagents and tasks as failed; a restart, `/clear`, or Rewind ends them as stopped.
 Running work keeps the session status on Waiting unless it works or needs input, which holds the update drain.
+The runtime reports whether work runs in the transition that records it, so a turn ending over running work
+settles straight to Waiting; only the item list sent to the pane is coalesced.
 
 ## Presentation
 

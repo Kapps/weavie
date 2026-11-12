@@ -90,7 +90,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 			if (_execution.Stage.Run.Context != WorkflowContext.Continue && run.Phase != WorkflowPhase.Paused
 				&& run.Decision != WorkflowDecisionKind.If
 				&& run.Kickoff is not { Context: not WorkflowContext.Continue }) {
-				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to open a new conversation.");
+				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to continue.");
 				return;
 			}
 			if (run.Kickoff is { } kickoff) Deliver(run, kickoff);
@@ -103,7 +103,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The stage block for the agent's next turn, or empty.</summary>
 	public string StageBlock() {
 		lock (_gate) {
-			return WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: false);
+			return WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: false, continued: null);
 		}
 	}
 

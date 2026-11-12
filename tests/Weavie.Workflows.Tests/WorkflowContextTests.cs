@@ -15,7 +15,7 @@ public sealed partial class WorkflowRunnerTests {
 		Assert.True(runner.TryClaimKickoff(run.Kickoff));
 		Assert.Contains("runs in its own conversation", runner.StageBlock());
 		Assert.DoesNotContain("Do the stage's work", runner.StageBlock());
-		Assert.Contains("Do the stage's work", execution.Compose());
+		Assert.Contains("Do the stage's work", execution.Compose(false));
 		var rejected = execution.Capture();
 		Assert.Contains("missing output", rejected.Complete(Json("{}"), "invalid"));
 		Assert.Empty(runner.Current!.Unreported);
@@ -30,7 +30,7 @@ public sealed partial class WorkflowRunnerTests {
 		Assert.Contains("Summary: Checked the implementation", question.Text);
 		Assert.Contains("now asks the user: approve review findings?", question.Text);
 		Assert.Contains("approve review findings?", runner.StageBlock());
-		Assert.Contains("asking the user in the main conversation", execution.Compose());
+		Assert.Contains("asking the user in the main conversation", execution.Compose(false));
 		Assert.Equal(runner.Current.Unreported, _store.Run!.Unreported);
 		Assert.True(runner.TryClaimKickoff(question));
 		Assert.Empty(_store.Run!.Unreported);
@@ -46,6 +46,52 @@ public sealed partial class WorkflowRunnerTests {
 		Assert.Same(execution, runner.Execution);
 		Assert.Equal(context, runner.Current!.Kickoff!.Context);
 		Assert.Equal("a", runner.Current.Kickoff.Opens);
+	}
+
+	[Fact]
+	public void EachVisitNamesTheConversationItUsesAndSaysWhenThatConversationContinues() {
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", """
+			id: flow
+			description: Reuse.
+			stages:
+			  - id: review
+			    run: { context: fresh, prompt: Review., outputs: { report: text } }
+			  - id: fix
+			    run: { prompt: Fix. }
+			  - id: recheck
+			    run: { context: { reuse: review }, prompt: Recheck., outputs: { report: text } }
+			""");
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		var review = runner.Execution!;
+		Assert.Equal("review", review.Opener!.Id);
+		Assert.DoesNotContain("opened again", review.Compose(false));
+		Assert.Contains("Stage \"review\" has opened again; your earlier work on it is above.", review.Compose(true));
+		runner.Jump(run.Id, "fix");
+		Assert.Null(runner.Execution!.Opener);
+		Assert.Equal("", review.Compose(true));
+		runner.Jump(run.Id, "recheck");
+		var recheck = runner.Execution!;
+		Assert.Equal(WorkflowContext.Fresh, runner.Current!.Kickoff!.Context);
+		Assert.Equal("review", recheck.Opener!.Id);
+		Assert.Contains("Stage \"recheck\" continues the conversation of stage \"review\"; that work is above.", recheck.Compose(true));
+		Assert.DoesNotContain("continues the conversation", runner.StageBlock());
+	}
+
+	[Fact]
+	public void AContinuingSkillStageSaysSoInItsBlockAfterItsCommand() {
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", """
+			id: flow
+			description: Skill reuse.
+			stages:
+			  - id: review
+			    run: { context: fresh, skill: review, args: the change }
+			""");
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		Assert.Equal("/review the change", run.Kickoff!.Text);
+		Assert.Contains("Stage \"review\" has opened again", runner.Execution!.Compose(true));
+		Assert.DoesNotContain("/review", runner.Execution.Compose(true));
 	}
 
 	[Fact]

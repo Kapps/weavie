@@ -10,6 +10,11 @@ public sealed partial class AcpJsonRpcConnection {
 	private readonly List<(long Generation, AcpSessionEndpoint Endpoint)> _endpoints = [];
 	private readonly Dictionary<(long Generation, string Id), AcpSessionEndpoint> _incomingOwners = [];
 
+	/// <summary>Whether an endpoint of <paramref name="generation"/> has held <paramref name="sessionId"/>; a process binds each session once.</summary>
+	internal bool Bound(long generation, string sessionId) {
+		lock (_endpointGate) return _endpoints.Any(entry => entry.Generation == generation && entry.Endpoint.SessionId == sessionId);
+	}
+
 	private bool HasEndpoints(long generation) {
 		lock (_endpointGate) return _endpoints.Any(entry => entry.Generation == generation && entry.Endpoint.Opened);
 	}

@@ -45,7 +45,13 @@ public sealed record AgentConversationBinding {
 
 	/// <summary>The controls required when this conversation opens.</summary>
 	public required IAgentControlHold ControlHold { get; init; }
+
+	/// <summary>Who keeps this independently owned conversation for later restoring, or null when nobody does.</summary>
+	public AgentConversationKey? Owner { get; init; }
 }
+
+/// <summary>Who keeps an independently owned conversation: a scope, such as a workflow run, and a name within it.</summary>
+public sealed record AgentConversationKey(string Scope, string Name);
 
 /// <summary>Creates independently owned conversations on a structured session's provider runtime.</summary>
 public interface IStructuredAgentConversations {
@@ -54,4 +60,13 @@ public interface IStructuredAgentConversations {
 
 	/// <summary>Forks the current main incarnation, captured when opening is admitted.</summary>
 	Task<IAgentConversation> OpenForkAsync(AgentConversationBinding binding, CancellationToken ct);
+
+	/// <summary>
+	/// Restores the conversation kept for the binding's owner by an earlier agent process; null when none can be
+	/// restored. A kept conversation whose restore fails is forgotten and the failure thrown.
+	/// </summary>
+	Task<IAgentConversation?> RestoreAsync(AgentConversationBinding binding, CancellationToken ct);
+
+	/// <summary>Forgets every kept conversation that is not live and whose owner <paramref name="owners"/> selects, ending its card.</summary>
+	void Forget(Func<AgentConversationKey, bool> owners);
 }

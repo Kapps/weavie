@@ -12,6 +12,7 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 	private readonly AcpConversationHost _host;
 	private readonly Action _backgroundChanged;
 	private IReadOnlyList<AgentBackgroundItem> _background = [];
+	private bool _backgroundRunning;
 	private readonly HashSet<AcpConversation> _conversations = [];
 	private readonly HashSet<Task> _closing = [];
 	private AcpConversation? _ingress;
@@ -120,6 +121,11 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 		lock (TransitionGate) if (_generation > 0) _connection.TerminateGeneration(_generation, reason);
 	}
 
+	/// <summary>Whether the running process already held <paramref name="sessionId"/>, so it can't be opened there again.</summary>
+	internal bool Bound(string sessionId) {
+		lock (TransitionGate) return _generation > 0 && _connection.Bound(_generation, sessionId);
+	}
+
 	internal AcpConversation[] Conversations {
 		get { lock (TransitionGate) return [.. _conversations]; }
 	}
@@ -130,6 +136,7 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 				if (conversation.Live) conversation.TerminalizeForRestart(clearSubmissions: true, "Conversation closed.");
 				conversation.SettleInteractions();
 				conversation.Observe(new AgentConversationRemoved(conversation.ConversationId));
+				conversation.Forget();
 				conversation.Retire();
 				conversation.RaiseBackground();
 			}
@@ -158,8 +165,17 @@ internal sealed class AcpRuntime : IAsyncDisposable {
 		}
 	}
 
+	// Recording the work and reporting whether any runs are one transition, so no turn stops ahead of work it started.
 	internal void UpdateBackground() {
-		lock (TransitionGate) Volatile.Write(ref _background, [.. _conversations.Where(conversation => conversation.OwnsWork).SelectMany(conversation => conversation.Background.Items)]);
+		lock (TransitionGate) {
+			IReadOnlyList<AgentBackgroundItem> items = [.. _conversations.Where(conversation => conversation.OwnsWork).SelectMany(conversation => conversation.Background.Items)];
+			Volatile.Write(ref _background, items);
+			bool running = items.Any(item => item.Running);
+			if (running != _backgroundRunning) {
+				_backgroundRunning = running;
+				_context.Events.Observe(new AgentBackgroundChanged(running));
+			}
+		}
 		_backgroundChanged();
 	}
 

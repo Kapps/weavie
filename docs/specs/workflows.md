@@ -13,7 +13,9 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
 - **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
   `args`, `outputs`, `agent` or `role`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
   `confidence`). Every other field is rejected as an unknown key.
-- **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation.
+- **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation,
+  which a `fresh` stage keeps for the run and `{ reuse: <stage> }` continues
+  ([workflow-context-reuse](workflow-context-reuse/brief.md)).
   A stage's `agent` selects its model and options on the session's provider before prompting; a stage's `role` does
   the same with the agent the user saved for that role and provider. Stage results and user questions return to main. See
   [workflow-agent-selection.md](workflow-agent-selection.md), [workflow-roles](workflow-roles/design.md), and
@@ -212,7 +214,7 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | `args` | text passed to the skill |
 | `agent` | the name of an entry in the workflow's `agents` ([workflow-agent-selection.md](workflow-agent-selection.md)) |
 | `role` | a role the user fills per provider, e.g. `planner`; a step takes `agent` or `role`, not both |
-| `context` | `continue`, `fork`, or `fresh` |
+| `context` | `continue`, `fork`, `fresh`, or `{ reuse: <stage> }` naming a `fork` or `fresh` stage; a reusing step takes no `agent` or `role` |
 | `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
 Templates reference `{{run.prompt}}` (what the run was started with), `{{inputs.<name>}}`, `{{<stage>.<output>}}`,
@@ -232,11 +234,17 @@ Nothing defaults to `fresh`: a step missing context it needed fails invisibly, w
 history. `fresh` is for deliberate independence (a reviewer that must not inherit the author's assumptions).
 
 - `continue` runs in the session's conversation.
-- `fork` copies the native ACP conversation with `session/fork`; its outputs and summary return to main.
-- `fresh` starts a conversation seeded with the step's prompt or skill, arguments, and stage context.
-- Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. The stage owns
-  the thread through revisions and pauses; leaving the stage closes it. Losing it pauses the run, and Resume
-  creates a new incarnation. Terminal Claude refuses both contexts.
+- `fork` copies the native ACP conversation with `session/fork` on every visit; its outputs and summary return to main.
+- `fresh` starts a conversation seeded with the step's prompt or skill, arguments, and stage context on the stage's
+  first visit, and continues it on every later visit, however the run arrives.
+- `{ reuse: <stage> }` continues the conversation that stage last opened, on that stage's agent, for a return with
+  its own prompt or `limit`. Arriving first, it opens one as that stage would.
+- Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. A conversation
+  stays open between visits, takes the user's replies, and closes when the run ends. Each visit runs in main's
+  permission mode, and a turn that continues earlier work says so in its stage block. Losing it during a visit
+  pauses the run; Resume restores it after an agent restart or reload, except that a `fork` stage reloaded mid-visit
+  forks main again. One that can't be continued is replaced by a
+  new one, with a line in main's transcript. Terminal Claude refuses both contexts.
 - All three share the worktree; files are never forked.
 
 #### Choosing context
@@ -248,6 +256,7 @@ Ask whether later steps — and the user — need *how* the step did its work, o
 | `continue` | the user converses in the step, or later steps build on its reasoning | spec interview, implement, fix review findings |
 | `fork` | the step needs everything so far, but only its result matters afterward | record videos, gather review findings, research, a check |
 | `fresh` | the step must not inherit the author's assumptions, or its inputs fully describe it | an independent review, one `foreach` item whose context is on disk |
+| `{ reuse: <stage> }` | a later step checks or extends that stage's own work | re-check fixes against the review that found them |
 
 The user can reply in an independent step's card. Prefer `continue` when that conversation's reasoning belongs
 in main's continuing context.

@@ -195,8 +195,8 @@ test("session fields have aligned labels and matching suggestion controls on des
     }
     const geometry = await inbox.evaluate((element) => {
       const rect = (node: Element) => {
-        const { x, width, height } = node.getBoundingClientRect();
-        return { x, width, height };
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height };
       };
       return {
         fields: [...element.querySelectorAll(".session-composer-field > .ui-field")].map(rect),
@@ -204,16 +204,28 @@ test("session fields have aligned labels and matching suggestion controls on des
           button: rect(button),
           field: rect(button.parentElement!.querySelector(".ui-field")!),
         })),
+        footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
+          [...footer.querySelectorAll(".ui-field, .session-composer-submit")].map(rect),
+        ),
         width: element.scrollWidth,
         visibleWidth: element.clientWidth,
       };
     });
-    expect(geometry.fields.length).toBe(8);
+    expect(geometry.fields.length).toBe(4);
     expect(new Set(geometry.fields.map((field) => field.x)).size).toBe(1);
     expect(geometry.suggestions).toHaveLength(2);
     for (const { button, field } of geometry.suggestions) {
       expect(button.height).toBe(field.height);
       expect(button.width).toBe(button.height);
+    }
+    expect(geometry.footers).toHaveLength(2);
+    for (const footer of geometry.footers) {
+      expect(footer).toHaveLength(3);
+      expect(new Set(footer.map((control) => control.y)).size).toBe(1);
+      expect(new Set(footer.map((control) => control.height)).size).toBe(1);
+      expect(footer[0].width).toBe(footer[1].width);
+      expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
+      expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
     expect(geometry.width).toBe(geometry.visibleWidth);
   }

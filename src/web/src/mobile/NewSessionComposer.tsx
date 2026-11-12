@@ -9,6 +9,7 @@ import { keyHint } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
+import { MobileActionLabel } from "./MobileActionLabel";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import { type NewSessionWorkflowActions, NewSessionWorkflowField } from "./NewSessionWorkflowField";
 import {
@@ -251,8 +252,8 @@ export function NewSessionComposer(props: {
           workflowActions = actions;
         }}
       />
-      {props.destination}
       <div class="session-composer-options">
+        {props.destination}
         <button
           type="submit"
           class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
@@ -260,10 +261,9 @@ export function NewSessionComposer(props: {
           title={`Start${keyHint(CommandIds.submitNewSession)}`}
           disabled={!canStart()}
         >
-          <span class="ui-icon" aria-hidden="true">
-            <ArrowUp />
-          </span>
-          {props.starting ? "Starting…" : "Start"}
+          <MobileActionLabel icon={<ArrowUp />}>
+            {props.starting ? "Starting…" : "Start"}
+          </MobileActionLabel>
         </button>
       </div>
     </form>

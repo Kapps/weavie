@@ -14,6 +14,7 @@ import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
+import { MobileActionLabel } from "./MobileActionLabel";
 import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
 import { SessionInboxRow } from "./SessionInboxRow";
 
@@ -190,7 +191,7 @@ export function SessionInbox(props: {
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
-      <label class="session-composer-field">
+      <label class="session-composer-destination">
         <span>Location</span>
         <select
           class="ui-field"
@@ -205,7 +206,7 @@ export function SessionInbox(props: {
           </For>
         </select>
       </label>
-      <label class="session-composer-field">
+      <label class="session-composer-destination">
         <span>Agent</span>
         <select
           class="ui-field"
@@ -227,15 +228,19 @@ export function SessionInbox(props: {
             )}
           </For>
         </select>
-        <Show
-          when={
-            agentProviders(backendId()).find((provider) => provider.id === providerId())
-              ?.unavailableReason
-          }
-        >
-          {(reason) => <small role="alert">{reason()}</small>}
-        </Show>
       </label>
+      <Show
+        when={
+          agentProviders(backendId()).find((provider) => provider.id === providerId())
+            ?.unavailableReason
+        }
+      >
+        {(reason) => (
+          <small class="session-composer-destination-error" role="alert">
+            {reason()}
+          </small>
+        )}
+      </Show>
     </>
   );
 
@@ -317,18 +322,17 @@ export function SessionInbox(props: {
                 <small role="alert">{branchListError()}</small>
               </Show>
             </label>
-            {destinationFields("Open on", "Open with")}
             <div class="session-composer-options">
+              {destinationFields("Open on", "Open with")}
               <button
                 type="submit"
                 class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
                 disabled={submitting() !== null || existingBranch().trim().length === 0}
               >
-                <span class="ui-icon" aria-hidden="true">
-                  <ArrowUp />
-                </span>
-                {submitting() === "existing" ? "Opening…" : "Open"}
+                <MobileActionLabel icon={<ArrowUp />}>
+                  {submitting() === "existing" ? "Opening…" : "Open"}
+                </MobileActionLabel>
               </button>
             </div>
           </form>

@@ -12,10 +12,32 @@
 }
 
 .session-composer-options {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 64px;
+  grid-template-rows: auto auto;
+  align-items: baseline;
+  gap: 4px 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
+}
+
+.session-composer-destination {
+  display: grid;
+  grid-row: 1 / 3;
+  grid-template-rows: subgrid;
+  min-width: 0;
+  color: var(--dim);
+  font: var(--font-chrome-secondary);
+}
+
+.session-composer-destination > .ui-field {
+  min-width: 0;
+}
+
+.session-composer-destination-error {
+  grid-column: 1 / -1;
+  color: var(--bad);
+  font: var(--font-chrome-secondary);
 }
 
 .session-composer .agent-attachments {
@@ -135,5 +157,6 @@
   border-color: var(--accent);
   color: var(--accent);
   font-weight: var(--font-weight-emphasis);
-  min-width: 96px;
+  grid-column: 3;
+  grid-row: 2;
 }

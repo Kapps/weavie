@@ -11,7 +11,7 @@ fixed in the review itself; see [Resolution](#resolution).
 ## Verdict
 
 No bug or warning is open. The recheck of `7c2c01ed` found B5 and W10, introduced by the fixes, and reopened W8 for
-one missing test; all three are fixed in the commit after it. The first review's four bugs and the other warnings are fixed or rejected; see
+one missing test; all three are fixed in `cd287371`, and a second recheck confirmed them. The first review's four bugs and the other warnings are fixed or rejected; see
 [Recheck](#recheck). The engine half (reader, schema, diagnostics, `Opener`, the stage-block sentence) conforms to the
 design.
 
@@ -47,6 +47,7 @@ design.
 | N11 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:90` | A restore cancelled by the run ending leaves its record until the next sweep |
 | N12 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:29` | The refusal says "in its current process" for a provider that can't restore at all |
 | N13 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:116` | Any restored conversation is treated as having taken a stage turn |
+| N14 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:139` | A restored conversation closed by a failed agent apply is replaced on Resume with no transcript line |
 | R1 | bug | rejected | `src/Weavie.Hosting/HostSession.Workflow.cs:87` | Lock inversion between the owner dictionary and the runner |
 | R2 | bug | rejected | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:105` | Closing a suspended conversation before restoring deletes its record |
 | R3 | nit | rejected | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:17` | The owner never disposes `_lifetime` |
@@ -136,6 +137,28 @@ W3 and W9 stay rejected for the reasons in [Resolution](#resolution).
 | W10 | The `catch` that closes a conversation whose agent can't be applied now skips cancellation, so an unload during the apply leaves the conversation kept. No test: the window is two control round trips, and the fake agent can't hold a control change. |
 | W8 | `EachVisitRunsInMainsPermissionMode`: main switches to plan mode between visits, and the next visit's conversation reports plan. It fails with the mode copy removed. |
 | N10 | `_held` and `_refork` are set only after the agent applies, so Resume after a failed apply posts no line. |
+
+## Second recheck
+
+Recheck of `cd287371` from its diff alone. Line numbers are at `cd287371`.
+
+| Id | Confirmed by |
+| --- | --- |
+| B5 | Read. `DisposeWorkflow` reads `Workflow.Execution` once, before `lock (_workflowConversations)`; inside that lock it calls only `Lends`, and `Current` and `ConversationEnded` run after it. The order is runner, then owners. Still no test. |
+| W10 | Read. The `catch` in `EnsureAsync` is filtered on `!ct.IsCancellationRequested`, so a cancelled apply leaves `_conversation` open and kept. Still no test. |
+| W8 | Read. The test sets main's `mode` to `plan` between visits and reads `alpha/plan/` back from the stage conversation, which opened in `default`. The fix stage ran it with the mode copy removed and it failed. |
+| N10 | Read. `_held` and `_refork` are set after `ApplyAgentAsync` returns. |
+
+One new nit, from the N10 change:
+
+- **N14, nit.** `_held` is now set only after the agent applies (line 139). When a restore succeeds and the apply then
+  fails, the restored conversation is closed and forgotten, and the run pauses with the apply's reason. On Resume a new
+  conversation opens, and with `_held` still false no "its earlier one ended" line is posted. The brief asks for that
+  line whenever a kept conversation is replaced.
+
+No bug or warning is open. Nits N1, N3, N4, N7, N8, and N11 to N14 are open.
+
+**CI.** Every check but `platforms` was still pending on `cd287371` when this was written.
 
 ## Bugs
 

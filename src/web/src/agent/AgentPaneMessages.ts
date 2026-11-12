@@ -16,6 +16,7 @@ import type {
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
 import { planIdentity } from "./agent-plan";
+import { blockKey } from "./block-store";
 
 export interface AgentTranscriptProjection {
   currentThought: string | null;
@@ -170,6 +171,23 @@ function durableEntry(
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "agent-message-delta":
     case "item-completed":
+      if (message.itemType === "block" && message.blockId) {
+        const kind = message.category === "table" ? "table" : "chart";
+        return {
+          ...entry(
+            message,
+            sequence,
+            "block",
+            "assistant",
+            kind === "table" ? "Table" : "Chart",
+            null,
+          ),
+          block: {
+            key: blockKey(message.providerId, message.conversationId, message.blockId),
+            kind,
+          },
+        };
+      }
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
       }

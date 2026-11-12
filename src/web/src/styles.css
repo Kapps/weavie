@@ -22,6 +22,12 @@
   --warn: #ffb74d;
   --bad: #e07a7a;
   --busy: #5fa9f0;
+  --chart-1: #6fa8e0;
+  --chart-2: #ffb74d;
+  --chart-3: #6fdc66;
+  --chart-4: #c08cff;
+  --chart-5: #e07a7a;
+  --chart-6: #5fd0c0;
   /* Destructive-action fill (delete buttons). Distinct from --bad: that's the "error status" FOREGROUND,
      kept light/rosy so error text reads on black — too pale for a solid button. This is a deeper, saturated
      red that carries white text and reads as a real danger affordance. */

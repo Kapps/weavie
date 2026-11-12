@@ -26,6 +26,12 @@ text or data-URL representation in adapter replay.
 The journal records activity observed by Weavie. It does not import older provider history or automatically
 merge changes made in another client. The terminal pane keeps its existing provider-owned history behavior.
 
+Agent blocks (charts and tables) hold only their latest state, so they live in a `blocks` table beside the journal,
+keyed by conversation and block id; the journal holds one reference row per block. A block lives while its row
+does: restore and `Replace` delete blocks no kept row shows. History sends every block on its final batch, and a
+live `block` message carries each update, revisioned with the ledger. See
+[rich content](acp-rich-content/design.md).
+
 ## Generations
 
 A record is addressed by `(generation, ordinal, revision)`. Clearing the pane restarts ordinals, so the

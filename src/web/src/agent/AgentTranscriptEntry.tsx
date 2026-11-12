@@ -8,6 +8,7 @@ import { displayPath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
+import { AgentBlockEntry } from "./AgentBlockEntry";
 import { Disclosure } from "./AgentDisclosure";
 import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
@@ -36,6 +37,10 @@ export function TranscriptEntry(props: {
 }): JSX.Element {
   if (props.entry.kind === "thought") {
     return <AgentThoughtEntry {...props} />;
+  }
+  const block = props.entry.block;
+  if (block !== undefined) {
+    return <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} />;
   }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;

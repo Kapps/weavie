@@ -12,7 +12,10 @@ export function blockKey(
 }
 
 interface BlockSignals {
-  blocks: Map<string, [Accessor<AgentBlockRecord | undefined>, Setter<AgentBlockRecord | undefined>]>;
+  blocks: Map<
+    string,
+    [Accessor<AgentBlockRecord | undefined>, Setter<AgentBlockRecord | undefined>]
+  >;
   dispose: () => void;
 }
 
@@ -25,7 +28,9 @@ const stores = createSessionOwnedResource<BlockSignals>(
 function signal(store: BlockSignals, key: string) {
   let entry = store.blocks.get(key);
   if (entry === undefined) {
-    entry = createRoot(() => createSignal<AgentBlockRecord | undefined>(undefined, { equals: false }));
+    entry = createRoot(() =>
+      createSignal<AgentBlockRecord | undefined>(undefined, { equals: false }),
+    );
     store.blocks.set(key, entry);
   }
   return entry;

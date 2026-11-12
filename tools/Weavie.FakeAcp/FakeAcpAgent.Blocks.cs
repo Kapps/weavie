@@ -12,6 +12,7 @@ internal sealed partial class FakeAcpAgent {
 
 	private async Task<JsonNode> BlockCallAsync(string text, CancellationToken ct) {
 		string[] parts = text.Split(':', 4);
+		Message("block call starting");
 		if (parts[0] == "block-subagent") {
 			string child = NextSubagent();
 			SpawnSubagent(_sessionId!, child, "Charter", "Chart the data");

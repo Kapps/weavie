@@ -37,6 +37,13 @@ export const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--warn": ["terminal.ansiYellow", "charts.yellow", "editorWarning.foreground"],
   "--bad": ["errorForeground", "terminal.ansiRed", "editorError.foreground"],
   "--busy": ["terminal.ansiBlue", "charts.blue", "focusBorder"],
+  // Agent chart series, in draw order.
+  "--chart-1": ["charts.blue", "terminal.ansiBlue"],
+  "--chart-2": ["charts.orange", "terminal.ansiYellow"],
+  "--chart-3": ["charts.green", "terminal.ansiGreen"],
+  "--chart-4": ["charts.purple", "terminal.ansiMagenta"],
+  "--chart-5": ["charts.red", "terminal.ansiRed"],
+  "--chart-6": ["terminal.ansiCyan", "charts.foreground"],
   // Diff surfaces (inline change review) mapped to the standard VS Code diff color ids so they track the
   // active theme instead of hardcoding green/red: solid markers from the gutter ids, line/char washes from
   // the diffEditor ids. diff.css consumes these.

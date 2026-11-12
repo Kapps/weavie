@@ -28,6 +28,7 @@ export interface AgentTranscriptEntry {
   kind:
     | "activity"
     | "aside"
+    | "block"
     | "message"
     | "thought"
     | "notice"
@@ -54,6 +55,7 @@ export interface AgentTranscriptEntry {
   asideReplyable?: boolean | undefined;
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
+  block?: { key: string; kind: "chart" | "table" } | undefined;
 }
 
 /** What a subagent card shows beyond its nested transcript. */

@@ -102,6 +102,10 @@ registry's `runPrompt` tool when the user asks for one in plain language.
 executes through the fork's normal prompt path, validated against its own command catalog. Main-conversation
 actions such as `/clear` are excluded from this nested command surface.
 
+Agent blocks depend on one behaviour ACP does not oblige: the agent reports a Weavie tool's result on that call's
+own row, in `content` or `rawOutput`. An agent that does not gets a notice instead of a block (see
+[rich content](../specs/acp-rich-content/design.md)).
+
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 

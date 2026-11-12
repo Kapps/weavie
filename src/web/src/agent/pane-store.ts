@@ -23,8 +23,8 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import type { AgentPaneConversationRows } from "./AgentPaneConversationRows";
-import { clearBlocks, putBlocks } from "./block-store";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
+import { clearBlocks, putBlocks } from "./block-store";
 import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";

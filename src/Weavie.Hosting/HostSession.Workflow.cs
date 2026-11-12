@@ -121,11 +121,13 @@ public sealed partial class HostSession {
 	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
 		try {
+			// The runner's lock comes before the owners', so the visit is read before the owners are.
+			var execution = Workflow.Execution;
 			bool lent;
-			lock (_workflowConversations) lent = Workflow.Execution is { Opener: { } opener } execution
+			lock (_workflowConversations) lent = execution is { Opener: { } opener }
 				&& _workflowConversations.GetValueOrDefault(opener.Id)?.Lends(execution) == true;
 			if (lent && Workflow.Current?.Kickoff is null) {
-				Workflow.Execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
+				execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
 			}
 		} finally {
 			Workflow.Dispose();

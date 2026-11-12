@@ -130,6 +130,26 @@ public sealed partial class HostCoreWorkflowConversationTests {
 	}
 
 	[Fact]
+	public async Task EachVisitRunsInMainsPermissionMode() {
+		await using var fixture = await ConversationFixture.StartAsync(Loop.Replace("CONTEXT", "fresh", StringComparison.Ordinal));
+		var workflow = fixture.Session.Workflow;
+		workflow.Start("conversation", Json("{}"));
+		await fixture.ReplyAsync(null, "fix the change");
+		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		string child = await fixture.WaitForReviewAsync();
+		fixture.Send(child, Completion);
+		await Eventually(() => workflow.Current!.Stage == "fix");
+
+		await fixture.Session.SetAgentControlAsync("mode", "plan");
+		await Eventually(() => fixture.Session.Agent.Controls!.ControlState.Axes.Single(axis => axis.Id == "mode").Value == "plan");
+		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		await Eventually(() => fixture.Messages.Count(message => Conversation(message) == child
+			&& Type(message) == "item-completed" && Text(message) == "echo: review the change") == 2);
+		fixture.Send(child, "control-state");
+		await fixture.ReplyAsync(child, "control state: alpha/plan/");
+	}
+
+	[Fact]
 	public async Task CancellingTheRunClosesItsStageConversations() {
 		await using var fixture = await ConversationFixture.StartAsync(Review.Replace("CONTEXT", "fresh", StringComparison.Ordinal));
 		string child = await fixture.StartReviewAsync();

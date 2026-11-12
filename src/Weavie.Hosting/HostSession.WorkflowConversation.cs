@@ -129,14 +129,15 @@ public sealed partial class HostSession {
 					: null;
 				if (lost is not null) _session.Agent.Structured?.Notice($"Workflow: {visit.Stage.Id} opened a new conversation; {lost}");
 			}
-			_held = true;
-			_refork = false;
 			try {
 				await ApplyAgentAsync(_conversation, ct).ConfigureAwait(false);
-			} catch {
+			} catch when (!ct.IsCancellationRequested) {
+				// Unloading cancels instead, and leaves the conversation kept for the next load.
 				await CloseAsync().ConfigureAwait(false);
 				throw;
 			}
+			_held = true;
+			_refork = false;
 			var current = _conversation;
 			_ = _session.Background.Run(token => ObserveAsync(current, token));
 		}

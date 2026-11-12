@@ -10,8 +10,8 @@ fixed in the review itself; see [Resolution](#resolution).
 
 ## Verdict
 
-After the recheck of `7c2c01ed`, one bug and two warnings are open: B5 and W10, which the fixes introduced, and
-W8, reopened for one missing test. The first review's four bugs and the other warnings are fixed or rejected; see
+No bug or warning is open. The recheck of `7c2c01ed` found B5 and W10, introduced by the fixes, and reopened W8 for
+one missing test; all three are fixed in the commit after it. The first review's four bugs and the other warnings are fixed or rejected; see
 [Recheck](#recheck). The engine half (reader, schema, diagnostics, `Opener`, the stage-block sentence) conforms to the
 design.
 
@@ -30,10 +30,10 @@ design.
 | W5 | warn | fixed | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:145` | Restoring on a provider with neither `session/load` nor `session/resume` fails the whole agent |
 | W6 | warn | fixed | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:74` | The fork-support check no longer runs when main has no turns |
 | W7 | warn | fixed | `tests/Weavie.Hosting.Tests/AcpOwnedConversationTests.cs:211` | The tests for "only the owner restores" pass with the guard removed |
-| W8 | warn | open | `tests/` | Eleven tests the design lists are missing; one still is (recheck) |
+| W8 | warn | fixed | `tests/` | Eleven tests the design lists are missing; one still is (recheck) |
 | W9 | warn | rejected | CI | `.NET tests` failed on `83117465`, so the hosting tests never ran in CI |
-| B5 | bug | open | `src/Weavie.Hosting/HostSession.Workflow.cs:125` | Unload takes the owners lock, then the runner lock, the reverse of every run transition: a deadlock |
-| W10 | warn | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:135` | Unloading while a restored conversation's agent is being applied forgets the conversation |
+| B5 | bug | fixed | `src/Weavie.Hosting/HostSession.Workflow.cs:125` | Unload takes the owners lock, then the runner lock, the reverse of every run transition: a deadlock |
+| W10 | warn | fixed | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:135` | Unloading while a restored conversation's agent is being applied forgets the conversation |
 | N1 | nit | open | `src/Weavie.Workflows/WorkflowRunner.cs:93` | Pause and diagnostic texts differ from the design's |
 | N2 | nit | fixed | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:121` | A `fork` whose second fork failed posts "its earlier one ended" on Resume |
 | N3 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:45` | A store failure while forgetting skips the archive-failure path |
@@ -43,7 +43,7 @@ design.
 | N7 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:136` | `IndependentPort.Store` repeats `SidePort.Store` |
 | N8 | nit | open | `src/Weavie.Workflows/WorkflowReader.cs:65` | Stage lookup by id is written three more times, and the valid-reuse rule twice |
 | N9 | nit | fixed | `tests/Weavie.Hosting.Tests/HostCoreWorkflowConversationTests.Reuse.cs:37` | Repeated test scaffolding |
-| N10 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:132` | After a failed agent apply, Resume posts "its earlier one ended" |
+| N10 | nit | fixed | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:132` | After a failed agent apply, Resume posts "its earlier one ended" |
 | N11 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:90` | A restore cancelled by the run ending leaves its record until the next sweep |
 | N12 | nit | open | `src/Weavie.AgentClientProtocol/AcpAgentSession.Conversations.cs:29` | The refusal says "in its current process" for a provider that can't restore at all |
 | N13 | nit | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:116` | Any restored conversation is treated as having taken a stage turn |
@@ -127,6 +127,15 @@ W3 and W9 stay rejected for the reasons in [Resolution](#resolution).
   "has opened again; your earlier work on it is above" over nothing.
 
 **CI.** `.NET tests` and the builds were still pending on `7c2c01ed` when this was written.
+
+**Resolution of the recheck**
+
+| Id | Resolution |
+| --- | --- |
+| B5 | `DisposeWorkflow` reads the visit before it takes the owners' lock and uses that one read throughout, so the order is runner, then owners, as everywhere else. No test: the deadlock needs an unload racing a run transition, which no deterministic test controls. |
+| W10 | The `catch` that closes a conversation whose agent can't be applied now skips cancellation, so an unload during the apply leaves the conversation kept. No test: the window is two control round trips, and the fake agent can't hold a control change. |
+| W8 | `EachVisitRunsInMainsPermissionMode`: main switches to plan mode between visits, and the next visit's conversation reports plan. It fails with the mode copy removed. |
+| N10 | `_held` and `_refork` are set only after the agent applies, so Resume after a failed apply posts no line. |
 
 ## Bugs
 

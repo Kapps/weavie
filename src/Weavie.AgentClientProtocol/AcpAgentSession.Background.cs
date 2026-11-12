@@ -3,7 +3,6 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
-	private bool _backgroundRunning;
 	private int _backgroundQueued;
 	private readonly Lock _backgroundGate = new();
 
@@ -29,22 +28,12 @@ public sealed partial class AcpAgentSession {
 	private AcpConversation? NestedConversation(string conversationId) =>
 		_runtime.Conversations.FirstOrDefault(conversation => conversation.ConversationId == conversationId);
 
+	// Coalesces the item list for presentation; the runtime reports whether work runs to the status machine itself.
 	private void QueueBackground() {
 		if (Interlocked.Exchange(ref _backgroundQueued, 1) != 0) return;
 		ThreadPool.QueueUserWorkItem(_ => {
 			Interlocked.Exchange(ref _backgroundQueued, 0);
-			PublishBackground();
+			lock (_backgroundGate) BackgroundWorkChanged?.Invoke(BackgroundWork);
 		});
-	}
-
-	private void PublishBackground() {
-		lock (_backgroundGate) {
-			var items = BackgroundWork;
-			BackgroundWorkChanged?.Invoke(items);
-			bool running = items.Any(item => item.Running);
-			if (running == _backgroundRunning) return;
-			_backgroundRunning = running;
-			_context.Events.Observe(new AgentBackgroundChanged(running));
-		}
 	}
 }

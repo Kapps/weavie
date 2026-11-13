@@ -39,6 +39,7 @@ export class AgentActivitySegments {
       projection: new ProjectedAgentActivity(),
       entry: {
         id,
+        turnKey: turn,
         kind: "activity",
         label: "Working",
         tone: "activity",

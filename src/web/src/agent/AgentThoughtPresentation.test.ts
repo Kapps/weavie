@@ -52,7 +52,7 @@ function fixture() {
   return createRoot((dispose) => {
     disposers.push(dispose);
     const [display, setDisplay] = createSignal<ThoughtDisplay>("current");
-    const model = createAgentPaneModel({} as ClientSession, display);
+    const model = createAgentPaneModel({} as ClientSession, display, () => "all");
     let flush = () => {};
     const accumulator = new AgentPaneAccumulator((callback) => {
       flush = callback;

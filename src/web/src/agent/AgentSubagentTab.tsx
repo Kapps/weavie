@@ -48,6 +48,9 @@ export default function AgentSubagentTab(props: {
               entries={subagent().asideEntries ?? []}
               expandedDetails={expanded()}
               keyboardRequestKey={null}
+              onUpdatesToggle={(id, open) =>
+                agentPaneModel(props.session)!.setActivityExpanded(id, open)
+              }
               onDetailsToggle={(id, open) => {
                 const next = new Set(expanded());
                 if (open) next.add(id);

@@ -20,7 +20,14 @@ export function ActivityDetails(props: {
   return (
     <Disclosure
       class="agent-activity-details"
-      label={activityDetailsSummary(props.entry, props.entry.detailCount)}
+      label={
+        <span
+          class="agent-activity-summary ui-row ui-row-compact"
+          title={props.entry.summary ?? undefined}
+        >
+          <span>{props.entry.summary ?? props.entry.label}</span>
+        </span>
+      }
       open={props.expanded}
       onToggle={props.onToggle}
     >
@@ -185,11 +192,4 @@ export function AgentRichContent(props: {
       }}
     </For>
   );
-}
-
-function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Edits") {
-    return `show ${count} edit${count === 1 ? "" : "s"}`;
-  }
-  return count === 1 ? "history" : `history ${count}`;
 }

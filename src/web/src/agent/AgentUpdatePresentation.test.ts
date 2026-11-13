@@ -4,6 +4,7 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import * as projection from "./AgentPaneMessages";
 import { createAgentPaneModel } from "./AgentPaneModel";
+import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { ProgressDisplay } from "./AgentUpdatePresentation";
 
 vi.mock("solid-js", async () => await vi.importActual("solid-js/dist/solid.js"));
@@ -246,5 +247,34 @@ it("folds completed subagents while preserving live descendants and pending requ
     expect(parent.transcript().entries.map((entry) => entry.kind)).toEqual(["updates"]);
     expect(parent.estimatedHeight).toBe(foldedHeight);
     expect(model.transcript().pendingRowIndexes).toHaveLength(0);
+    dispose();
+  }));
+
+it("keeps all explicitly opened subagent history and its collapse control in the card", () =>
+  createRoot((dispose) => {
+    const { model, send } = fixture();
+    send(
+      { ...base, type: "subagent-started", conversationId: "child" },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        ...reply(`child-${index}`, `Update ${index}`),
+        conversationId: "child",
+      })),
+      { ...base, conversationId: "child", type: "turn-completed", status: "completed" },
+    );
+    const child = model.conversation("child")!;
+    model.setActivityExpanded(child.id, true);
+    const preview = () => subagentCardEntries(child.asideEntries!, true);
+    const group = preview()[0]!;
+    const height = child.conversation!.estimatedHeight;
+    expect(preview().map((entry) => entry.kind)).toEqual(["updates", "message"]);
+    model.setActivityExpanded(group.id, true);
+    expect(preview()).toHaveLength(9);
+    expect(preview()[0]!.updatesOpen).toBe(true);
+    expect(preview()[1]!.text).toBe("Update 0");
+    expect(child.conversation!.estimatedHeight).toBeGreaterThan(height);
+    expect(subagentCardEntries(child.asideEntries!, false)).toEqual([]);
+    model.setActivityExpanded(group.id, false);
+    expect(preview().map((entry) => entry.kind)).toEqual(["updates", "message"]);
+    expect(child.conversation!.estimatedHeight).toBe(height);
     dispose();
   }));

@@ -39,6 +39,9 @@ internal sealed partial class FakeAcpAgent {
 			["status"] = "completed",
 			["content"] = new JsonArray(Content(Text("Build output: 12 checks passed."))),
 		});
+		UpdateOn(child, MessageUpdate("Checked the build diagnostics."));
+		UpdateOn(child, MessageUpdate("Confirmed the test results."));
+		UpdateOn(child, MessageUpdate("Preparing the review summary."));
 		UpdateOn(child, MessageUpdate("Reviewed the build output."));
 		FinishSubagent(_sessionId!, child, "completed");
 		Message("Ready for review.");

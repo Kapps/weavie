@@ -157,13 +157,15 @@ export function subagentEntry(
 
 const subagentCardTail = 4;
 
-/** Expanded cards show their latest entries; requests remain visible when collapsed. */
+/** Cards preview recent entries until history is explicitly opened; collapsed cards retain requests. */
 export function subagentCardEntries(
   entries: readonly AgentTranscriptEntry[],
   expanded: boolean,
 ): AgentTranscriptEntry[] {
+  const historyOpen = entries.some((entry) => entry.kind === "updates" && entry.updatesOpen);
   return entries.filter(
     (entry, index) =>
-      (expanded && index >= entries.length - subagentCardTail) || entry.kind === "request",
+      (expanded && (historyOpen || index >= entries.length - subagentCardTail)) ||
+      entry.kind === "request",
   );
 }

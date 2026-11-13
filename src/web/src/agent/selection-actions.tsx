@@ -17,11 +17,7 @@ let releaseCurrent: (() => void) | null = null;
 export function createSelectionActions(host: HTMLElement, session: ClientSession) {
   let release: (() => void) | null = null;
   const clear = (): void => release?.();
-  const show = (
-    selection: AgentSelection,
-    point: { x: number; y: number },
-    preview: string,
-  ): void => {
+  const show = (selection: AgentSelection, point: { x: number; y: number }): void => {
     releaseCurrent?.();
     if (session.closed || modalActive()) return;
     const above = point.y > window.innerHeight / 2;
@@ -95,7 +91,6 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
-            <pre class="selection-comment-excerpt">{preview}</pre>
             <textarea
               class="selection-comment-input ui-field"
               aria-label="Comment"

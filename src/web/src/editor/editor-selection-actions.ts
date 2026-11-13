@@ -34,7 +34,6 @@ export function connectSelectionActions(connection: TextEditorConnection): () =>
     actions.show(
       { label, text: `${source}\n${text}` },
       { x: rect.left + position.left, y: rect.top + position.top + position.height },
-      `${label}\n${text}`,
     );
   };
   const selection = editor.onDidChangeCursorSelection(() => {

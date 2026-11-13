@@ -28,16 +28,6 @@
   padding: 10px;
 }
 
-.selection-comment-excerpt {
-  font: var(--font-content);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  overflow: auto;
-  max-height: 80px;
-  margin: 0 0 8px;
-  color: var(--dim);
-}
-
 .selection-comment-input {
   --control-h: auto;
   padding: 4px 8px;

@@ -415,7 +415,7 @@ describe("toAgentTranscript", () => {
     ]);
   });
 
-  it("keeps failed work visible as an error-toned activity", () => {
+  it("counts failed commands as ordinary activity", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-started",
@@ -436,9 +436,9 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.tone).toBe("error");
-    expect(transcript[0]?.status).toBe("failed");
-    expect(transcript[0]?.summary).toBe("command failed: git diff --check");
+    expect(transcript[0]?.tone).toBe("activity");
+    expect(transcript[0]?.status).toBeNull();
+    expect(transcript[0]?.summary).toBe("ran 1 command");
   });
 
   it("keeps failed command output with the failed activity", () => {
@@ -456,6 +456,8 @@ describe("toAgentTranscript", () => {
 
     expect(transcript[0]?.details[0]).toMatchObject({
       detailText: "src/App.cs: trailing whitespace",
+      status: "failed",
+      tone: "muted",
     });
   });
 

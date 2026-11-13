@@ -42,8 +42,8 @@ export function NestedTranscript(props: {
     <div class="agent-aside-transcript">
       <ForEachId each={props.entries}>
         {(entry) => (
-          <div
-            hidden={
+          <CollapsibleCardContent
+            collapsed={
               props.pendingOnly &&
               !isPendingRequest(entry()) &&
               (entry().pendingEntries?.length ?? 0) === 0
@@ -59,10 +59,28 @@ export function NestedTranscript(props: {
               sectionLabel={null}
               session={props.session}
             />
-          </div>
+          </CollapsibleCardContent>
         )}
       </ForEachId>
-      <AgentCurrentThought text={props.pendingOnly ? null : props.currentThought} />
+      <CollapsibleCardContent collapsed={props.pendingOnly}>
+        <AgentCurrentThought text={props.currentThought} />
+      </CollapsibleCardContent>
+    </div>
+  );
+}
+
+export function CollapsibleCardContent(props: {
+  collapsed: boolean;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <div
+      class="agent-card-content"
+      classList={{ collapsed: props.collapsed }}
+      inert={props.collapsed}
+      aria-hidden={props.collapsed}
+    >
+      <div>{props.children}</div>
     </div>
   );
 }

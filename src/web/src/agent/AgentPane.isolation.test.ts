@@ -100,9 +100,9 @@ describe("agent pane model isolation", () => {
       expect(model.transcript().entries[1]?.details).toEqual([]);
       expect(model.activityStep("command-500")?.label).toContain("command-500");
       expect(model.activityStep("command-missing")).toBeUndefined();
-      model.setActivityExpanded(model.transcript().entries[1]!.id, true);
-      expect(model.transcript().entries[1]?.details).toHaveLength(1_000);
-      model.setActivityExpanded(model.transcript().entries[1]!.id, false);
+      const reader = model.transcript().entries[1]!.activityDetails!.retain();
+      expect(reader.steps()).toHaveLength(1_000);
+      reader.release();
       expect(model.transcript().entries[1]?.details).toEqual([]);
       dispose();
     });
@@ -133,19 +133,19 @@ describe("agent pane model isolation", () => {
           .entries[index]!.asideEntries!.find((entry) => entry.kind === "activity")!;
       expect(activity(0).details).toEqual([]);
       expect(activity(1).details).toEqual([]);
-      model.setActivityExpanded(activity(0).id, true);
-      expect(activity(0).details[0]?.detailText).toBe("first output");
+      const first = activity(0).activityDetails!.retain();
+      expect(first.steps()[0]?.detailText).toBe("first output");
       expect(activity(1).details).toEqual([]);
-      model.setActivityExpanded(activity(1).id, true);
-      expect(activity(1).details[0]?.detailText).toBe("second output");
+      const second = activity(1).activityDetails!.retain();
+      expect(second.steps()[0]?.detailText).toBe("second output");
       const next = { ...updates[1]!, text: "first updated output" };
       updates[1] = next;
       model.publish([...updates], [next]);
-      expect(activity(0).details[0]?.detailText).toBe("first updated output");
-      expect(activity(1).details[0]?.detailText).toBe("second output");
-      model.setActivityExpanded(activity(0).id, false);
+      expect(first.steps()[0]?.detailText).toBe("first updated output");
+      expect(second.steps()[0]?.detailText).toBe("second output");
+      first.release();
       expect(activity(0).details).toEqual([]);
-      expect(activity(1).details[0]?.detailText).toBe("second output");
+      expect(second.steps()[0]?.detailText).toBe("second output");
       dispose();
     });
   });
@@ -195,8 +195,8 @@ describe("agent pane model isolation", () => {
 
       expect(transcriptCalls).not.toHaveBeenCalled();
       expect(model.transcript().entries[1]?.details).toEqual([]);
-      model.setActivityExpanded(model.transcript().entries[1]!.id, true);
-      expect(model.transcript().entries[1]?.details[0]).toMatchObject({
+      const reader = model.transcript().entries[1]!.activityDetails!.retain();
+      expect(reader.steps()[0]).toMatchObject({
         detailText: "x".repeat(999),
         status: "running",
       });
@@ -208,7 +208,7 @@ describe("agent pane model isolation", () => {
       };
       updates[1] = finalDelta;
       model.publish([...updates], [finalDelta]);
-      expect(model.transcript().entries[1]?.details[0]).toMatchObject({
+      expect(reader.steps()[0]).toMatchObject({
         detailText: "x".repeat(1_000),
         status: "running",
       });

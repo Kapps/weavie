@@ -124,6 +124,10 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
   return {
     ...snapshot,
     entries: snapshot.entries.map((entry) => {
+      if (entry.activityDetails !== undefined) {
+        const { activityDetails, ...held } = entry;
+        return { ...held, details: activityDetails.snapshot() };
+      }
       const view = entry.conversation;
       if (view === undefined) return entry;
       const held = holdTranscript(view.transcript());

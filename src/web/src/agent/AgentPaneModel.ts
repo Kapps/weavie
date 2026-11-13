@@ -169,7 +169,7 @@ export function createAgentPaneModel(
   };
 
   const resizeAncestors = (scope: ConversationRows, delta: number): void => {
-    if (delta === 0 || scope.container === null) return;
+    if (scope.container === null) return;
     let child = scope;
     while (child.container !== null && child.container.key !== "") {
       const parent = viewFor(child.container);

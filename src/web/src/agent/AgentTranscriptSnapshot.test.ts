@@ -47,12 +47,12 @@ describe("transcript snapshots", () => {
       const updates: AgentPaneUpdate[] = [user("prompt"), command("c0"), answer("first")];
       model.replace(updates);
       const held = model.transcript();
-      const frozen = structuredClone(held.entries);
+      const frozen = held.entries.map((entry) => ({ ...entry }));
       for (let index = 1; index < 20; index++) {
         updates.push(command(`c${index}`), answer(`reply ${index}`));
         model.publish([...updates], updates.slice(-2));
       }
-      model.setActivityExpanded(held.entries[1]!.id, true);
+      held.entries[1]!.activityDetails!.retain();
       expect(held.entries).toEqual(frozen);
       const live = model.transcript();
       expect(live.entries[0]).toBe(held.entries[0]);
@@ -81,16 +81,15 @@ describe("transcript snapshots", () => {
     withModel((model) => {
       const updates: AgentPaneUpdate[] = [user("prompt"), answer("first"), command("c0")];
       model.replace(updates);
-      const id = model.transcript().entries[2]!.id;
-      model.setActivityExpanded(id, true);
-      const before = model.transcript().entries[2]!;
+      const reader = model.transcript().entries[2]!.activityDetails!.retain();
+      const before = reader.steps();
       const batch = [command("c1"), command("c2")];
       updates.push(...batch);
       model.publish([...updates], batch);
       const after = model.transcript().entries[2]!;
       expect(after.detailCount).toBe(3);
-      expect(after.details).toHaveLength(3);
-      expect(after.details[0]).toBe(before.details[0]);
+      expect(reader.steps()).toHaveLength(3);
+      expect(reader.steps()[0]).toBe(before[0]);
     });
   });
 
@@ -99,7 +98,7 @@ describe("transcript snapshots", () => {
       const updates: AgentPaneUpdate[] = [user("prompt"), command("c0")];
       model.replace(updates);
       const start = model.latestOutput();
-      model.setActivityExpanded(model.transcript().entries[1]!.id, true);
+      model.transcript().entries[1]!.activityDetails!.retain();
       expect(model.latestOutput()).toBe(start);
       model.publish([...updates], []);
       expect(model.latestOutput()).toBe(start);

@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-solid";
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 
@@ -18,9 +19,18 @@ export function Disclosure(props: {
           props.onToggle(!props.open);
         }}
       >
+        <DisclosureIcon />
         {props.label}
       </summary>
       <Show when={props.open}>{props.children}</Show>
     </details>
+  );
+}
+
+export function DisclosureIcon(): JSX.Element {
+  return (
+    <span class="ui-icon agent-disclosure-icon">
+      <ChevronRight aria-hidden="true" />
+    </span>
   );
 }

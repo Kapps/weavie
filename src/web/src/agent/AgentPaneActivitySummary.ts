@@ -7,7 +7,7 @@ import type { AgentActivityStep } from "./AgentPaneTranscriptTypes";
 export interface AgentActivitySummary {
   status: string | null;
   summary: string | null;
-  tone: "activity" | "error";
+  tone: "activity";
 }
 
 export class ProjectedAgentActivity {
@@ -15,7 +15,6 @@ export class ProjectedAgentActivity {
   private readonly indexes = new Map<string, number>();
   private readonly categoryCounts = new Map<string, number>();
   private readonly active = new MaximumIndex();
-  private readonly failed = new MaximumIndex();
 
   get count(): number {
     return this.sources.length;
@@ -82,16 +81,6 @@ export class ProjectedAgentActivity {
   }
 
   summary(): AgentActivitySummary {
-    const failed = this.sourceAt(this.failed.maximum());
-    if (failed !== null) {
-      const category = requiredActivityCategory(failed);
-      return {
-        status: "failed",
-        summary: `${category} failed: ${activitySubject(failed, category)}`,
-        tone: "error",
-      };
-    }
-
     const active = this.sourceAt(this.active.maximum());
     if (active !== null) {
       const category = requiredActivityCategory(active);
@@ -113,16 +102,12 @@ export class ProjectedAgentActivity {
 
   private addStatus(message: AgentPaneUpdate, index: number): void {
     const tone = activityTone(message);
-    if (tone === "failed") {
-      this.failed.add(index);
-    }
     if (tone === "running" || tone === "pending") {
       this.active.add(index);
     }
   }
 
   private removeStatus(index: number): void {
-    this.failed.delete(index);
     this.active.delete(index);
   }
 
@@ -246,9 +231,6 @@ function activityTone(message: AgentPaneUpdate): AgentActivityStep["tone"] {
       : "muted";
   }
   const status = normalizeStatus(message.status);
-  if (status === "failed" || status === "error") {
-    return "failed";
-  }
   if (status === "pending") {
     return "pending";
   }

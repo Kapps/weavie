@@ -4,7 +4,7 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
-test("earlier updates fold away while live work and failures remain inspectable", async ({
+test("earlier updates fold away while live work stays visible and tool failures stay in history", async ({
   page,
   weavie,
 }) => {
@@ -68,16 +68,18 @@ test("earlier updates fold away while live work and failures remain inspectable"
   await expect(activities).toHaveCount(1);
 
   await writeFile(join(workspace, "release-activity-progress"), "");
-  const failed = surface.locator(".agent-entry-activity.agent-tone-error");
-  await expect(failed.locator("summary").first()).toContainText(
-    "search failed: Verify application",
-  );
+  const failed = activities.last();
   await expect(surface.locator(".agent-entry-result")).toContainText(
     "The verification needs attention",
   );
+  await expect(activities).toHaveCount(0);
+  await earlier.click();
+  await expect(failed).not.toHaveClass(/agent-tone-error/);
+  await expect(failed.locator("summary").first()).toHaveText("searched 1 time");
   await failed.locator("summary").first().focus();
   await page.keyboard.press("Enter");
   await expect(failed.locator(".agent-activity-step")).toContainText("Verify application");
+  await expect(failed.locator(".agent-step-status")).toHaveText("failed");
   await failed.locator(".agent-tool-output-details > summary").press("Enter");
   await expect(failed.locator(".agent-tool-output")).toContainText(
     "Verification output: one assertion needs attention.",
@@ -87,15 +89,15 @@ test("earlier updates fold away while live work and failures remain inspectable"
   await surface.locator(".pane-fullscreen").click();
   await expect(earlier).toHaveAttribute("aria-expanded", "false");
   await expect(firstUpdate).toHaveCount(0);
-  await expect(activities).toHaveCount(1);
-  await expect(failed.locator("summary").first()).toContainText(
-    "search failed: Verify application",
-  );
+  await expect(activities).toHaveCount(0);
+  await earlier.click();
+  await expect(failed.locator("summary").first()).toHaveText("searched 1 time");
   await failed.locator("summary").first().click();
   await failed.locator(".agent-tool-output-details > summary").click();
   await expect(failed.locator(".agent-tool-output")).toContainText(
     "Verification output: one assertion needs attention.",
   );
+  await earlier.click();
 
   await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.progressDisplay","value":"all"}');
   await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
@@ -105,9 +107,7 @@ test("earlier updates fold away while live work and failures remain inspectable"
   await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.progressDisplay","value":"latest"}');
   await expect(earlier).toHaveAttribute("aria-expanded", "false");
   await expect(firstUpdate).toHaveCount(0);
-  await expect(failed.locator("summary").first()).toContainText(
-    "search failed: Verify application",
-  );
+  await expect(failed).toHaveCount(0);
 });
 
 for (const side of [false, true]) {
@@ -121,7 +121,7 @@ for (const side of [false, true]) {
     await writeFile(join(workspace, "hold-activity-progress"), "");
     await submitAcpDraft(surface, `${side ? "/btw " : ""}activity-progress-long`);
     const conversation = side ? surface.locator(".agent-aside") : surface;
-    const earlier = conversation.getByRole("button", { name: "Earlier updates · 24" });
+    const earlier = conversation.getByRole("button", { name: "Earlier updates · 48" });
     await expect(earlier).toBeInViewport();
     await earlier.click();
     await expect(earlier).toHaveAttribute("aria-expanded", "true");

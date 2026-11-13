@@ -3,7 +3,8 @@ import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentAsideReply } from "./AgentAsideReply";
-import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
+import { DisclosureIcon } from "./AgentDisclosure";
+import { CollapsibleCardContent, NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { replyComposer } from "./composer-store";
 
@@ -44,9 +45,8 @@ export function AsideEntry(props: {
         title={toggleTitle()}
         onClick={toggle}
       >
-        <span>
-          {collapsed() ? "▸" : "▾"} {props.entry.label}
-        </span>
+        <DisclosureIcon />
+        <span>{props.entry.label}</span>
         <Show when={props.entry.status !== null}>
           <small>{props.entry.status}</small>
         </Show>
@@ -62,27 +62,29 @@ export function AsideEntry(props: {
           onUpdatesToggle={props.onUpdatesToggle}
           session={props.session}
         />
-        <Show when={!collapsed() && props.entry.asideReplyable !== false}>
-          <Show
-            when={replying()}
-            fallback={
-              <button
-                type="button"
-                class="agent-aside-reply-button ui-button ui-button-content"
-                disabled={props.entry.asideActive === true}
-                onClick={() => composer.setOpen(true)}
-              >
-                Reply
-              </button>
-            }
-          >
-            <AgentAsideReply
-              session={props.session}
-              conversationId={conversationId}
-              onClose={() => composer.setOpen(false)}
-            />
+        <CollapsibleCardContent collapsed={collapsed()}>
+          <Show when={props.entry.asideReplyable !== false}>
+            <Show
+              when={replying()}
+              fallback={
+                <button
+                  type="button"
+                  class="agent-aside-reply-button ui-button ui-button-content"
+                  disabled={props.entry.asideActive === true}
+                  onClick={() => composer.setOpen(true)}
+                >
+                  Reply
+                </button>
+              }
+            >
+              <AgentAsideReply
+                session={props.session}
+                conversationId={conversationId}
+                onClose={() => composer.setOpen(false)}
+              />
+            </Show>
           </Show>
-        </Show>
+        </CollapsibleCardContent>
       </div>
     </article>
   );

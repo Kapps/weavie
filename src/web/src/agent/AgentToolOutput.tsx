@@ -3,6 +3,7 @@ import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { DisclosureIcon } from "./AgentDisclosure";
 import { intersectsViewport, newestVisibleAgentElement } from "./AgentViewport";
 
 interface MountedDisclosure {
@@ -67,6 +68,7 @@ export function AgentToolOutput(props: { renderOutput: () => JSX.Element }): JSX
           void runCommandWithFeedback(CommandIds.toggleAgentToolOutput, { outputId });
         }}
       >
+        <DisclosureIcon />
         {expanded() ? "hide output" : "show output"}
       </summary>
       <Show when={expanded()} keyed>

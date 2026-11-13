@@ -42,14 +42,21 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
     });
     accumulator.ingestBatch("test", messages, model.publish);
     flush();
-    const expand = (entries: readonly AgentTranscriptEntry[]): void => {
-      for (const entry of entries) {
-        if (entry.kind === "activity") model.setActivityExpanded(entry.id, true);
-        if (entry.asideEntries !== undefined) expand(entry.asideEntries);
-      }
-    };
-    expand(model.transcript().entries);
-    const entries = [...model.transcript().entries];
+    const materialize = (entries: readonly AgentTranscriptEntry[]): AgentTranscriptEntry[] =>
+      entries.map((entry) => {
+        const { activityDetails, ...snapshot } = entry;
+        const reader = activityDetails?.retain();
+        const details = reader?.steps() ?? entry.details;
+        reader?.release();
+        return {
+          ...snapshot,
+          details,
+          ...(entry.asideEntries === undefined
+            ? {}
+            : { asideEntries: materialize(entry.asideEntries) }),
+        };
+      });
+    const entries = materialize(model.transcript().entries);
     dispose();
     return entries;
   });

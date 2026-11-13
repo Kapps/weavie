@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import type { ActivityDetailsSource } from "./AgentActivityDetailsSource";
 import type { AgentConversationProjection } from "./AgentConversationProjection";
 
 export type AgentTranscriptTone =
@@ -17,13 +18,14 @@ export interface AgentActivityStep {
   id: string;
   label: string;
   status: string | null;
-  tone: "failed" | "muted" | "pending" | "running";
+  tone: "muted" | "pending" | "running";
 }
 
 export interface AgentTranscriptEntry {
   actionMessage: AgentPaneUpdate | null;
   detailCount: number;
   details: AgentActivityStep[];
+  activityDetails?: ActivityDetailsSource;
   id: string;
   kind:
     | "updates"

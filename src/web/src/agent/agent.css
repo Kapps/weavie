@@ -264,7 +264,7 @@
   cursor: pointer;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 4px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--dim);
@@ -306,6 +306,7 @@
 }
 
 .agent-aside-head small {
+  margin-left: auto;
   font: var(--font-chrome-secondary);
 }
 
@@ -664,8 +665,7 @@ a:has(> .agent-path-dir) {
   white-space: nowrap;
 }
 
-.agent-tone-error .agent-entry-label,
-.agent-step-failed .agent-step-status {
+.agent-tone-error .agent-entry-label {
   color: var(--bad);
 }
 
@@ -677,6 +677,24 @@ a:has(> .agent-path-dir) {
   color: var(--warn);
 }
 
+.agent-card-content {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 120ms ease-out,
+    visibility 120ms;
+}
+
+.agent-card-content.collapsed {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+}
+
+.agent-card-content > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .agent-disclosure {
   margin-top: 3px;
   color: var(--dim);
@@ -684,6 +702,7 @@ a:has(> .agent-path-dir) {
 
 .agent-disclosure > summary {
   display: inline-flex;
+  align-items: baseline;
   gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
   cursor: pointer;
@@ -694,12 +713,14 @@ a:has(> .agent-path-dir) {
   display: none;
 }
 
-.agent-disclosure > summary::before {
-  content: ">";
+.agent-disclosure-icon > svg,
+.agent-updates-toggle .ui-icon > svg {
+  transition: transform 120ms ease-out;
 }
 
-.agent-disclosure[open] > summary::before {
-  content: "v";
+.agent-disclosure[open] > summary > .agent-disclosure-icon > svg,
+[aria-expanded="true"] > .agent-disclosure-icon > svg {
+  transform: rotate(90deg);
 }
 
 .agent-entry-thought {
@@ -727,12 +748,8 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-thought > summary {
-  display: block;
+  display: flex;
   color: var(--dim);
-}
-
-.agent-disclosure.agent-thought > summary::before {
-  content: none;
 }
 
 .agent-thought-row {
@@ -761,10 +778,6 @@ a:has(> .agent-path-dir) {
   transform: rotate(90deg);
 }
 
-.agent-thought[open] > summary .ui-icon > svg {
-  transform: rotate(90deg);
-}
-
 .agent-thought-body {
   padding: 4px 8px 8px;
   overflow-wrap: anywhere;
@@ -789,10 +802,6 @@ a:has(> .agent-path-dir) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.agent-entry-activity.agent-tone-error > .agent-activity-details > summary {
-  color: var(--bad);
 }
 
 .agent-activity-list {
@@ -984,6 +993,12 @@ a:has(> .agent-path-dir) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-card-content,
+  .agent-disclosure-icon > svg,
+  .agent-updates-toggle .ui-icon > svg {
+    transition: none;
+  }
+
   .agent-working-spinner {
     animation: none;
   }

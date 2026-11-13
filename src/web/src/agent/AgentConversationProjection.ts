@@ -1,5 +1,9 @@
 import { type Accessor, createRoot, createSignal } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
+import {
+  type ActivityDetailsSource,
+  createActivityDetailsSource,
+} from "./AgentActivityDetailsSource";
 import { type AgentActivitySegment, AgentActivitySegments } from "./AgentActivitySegments";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { estimateEntrySize } from "./AgentPaneEstimate";
@@ -23,7 +27,14 @@ export class AgentConversationProjection {
   private readonly caption = createSignal<AgentTranscriptEntry | null>(null);
   private readonly projected = createSignal(undefined, { equals: false });
   private segments = new AgentActivitySegments();
-  private activities = new Map<string, { index: number; projection: ProjectedAgentActivity }>();
+  private activities = new Map<
+    string,
+    {
+      index: number;
+      projection: ProjectedAgentActivity;
+      details: ActivityDetailsSource;
+    }
+  >();
   private readonly presentation;
   readonly transcript;
   readonly dispose: () => void;
@@ -41,7 +52,7 @@ export class AgentConversationProjection {
   constructor(
     private readonly expanded: Set<string>,
     private readonly thoughtDisplay: Accessor<ThoughtDisplay>,
-    progressDisplay: Accessor<ProgressDisplay>,
+    private readonly progressDisplay: Accessor<ProgressDisplay>,
   ) {
     this.presentation = createRoot((dispose) => ({
       ...createUpdatePresentation(this.state[0], progressDisplay, expanded),
@@ -139,21 +150,22 @@ export class AgentConversationProjection {
       if (!changedState && this.upsert(changes)) return [];
       const projection = projectAgentTranscript(messages, cards);
       this.segments = projection.segments;
-      for (const entry of projection.entries) {
-        if (this.expanded.has(entry.id)) {
-          const activity = projection.segments.groups.get(entry.id)?.projection;
-          if (activity !== undefined) entry.details = activity.materialize();
-        }
-      }
       const presented = presentThoughts(projection.entries, this.thoughtDisplay(), this.expanded);
       const turnStartId = latestAgentTurnStartId(presented);
       const ordered = orderPendingRequests(presented);
-      this.activities.clear();
+      const previousActivities = this.activities;
+      this.activities = new Map();
       this.entryIndexes = new Map();
       ordered.entries.forEach((entry, index) => {
         this.entryIndexes.set(entry.id, index);
         const activity = projection.segments.groups.get(entry.id)?.projection;
-        if (activity !== undefined) this.activities.set(entry.id, { index, projection: activity });
+        if (activity !== undefined) {
+          const details =
+            previousActivities.get(entry.id)?.details ?? createActivityDetailsSource(activity);
+          details.replace(activity);
+          entry.activityDetails = details;
+          this.activities.set(entry.id, { index, projection: activity, details });
+        }
       });
       this.state[1]((previous) =>
         shareTranscript(previous, {
@@ -202,7 +214,8 @@ export class AgentConversationProjection {
   }
 
   childResized(id: string, delta: number): void {
-    if (this.card()?.asideCollapsed !== true || this.pendingCards.has(id))
+    if (this.progressDisplay() === "latest") this.measure();
+    else if (this.card()?.asideCollapsed !== true || this.pendingCards.has(id))
       this.estimatedHeight += delta;
   }
 
@@ -221,7 +234,7 @@ export class AgentConversationProjection {
       }
       return { ...previous, pendingRowIndexes: [...indexes].sort((a, b) => a - b) };
     });
-    if (this.card()?.asideCollapsed) this.measure();
+    if (this.progressDisplay() === "latest" || this.card()?.asideCollapsed) this.measure();
   }
 
   activityStep(id: string) {
@@ -238,18 +251,12 @@ export class AgentConversationProjection {
       this.measure();
       return true;
     }
-    const activity = this.activities.get(id);
     const index = this.entryIndexes.get(id);
     const thought =
       index !== undefined && this.state[0]().entries[index]?.thoughtCollapsed === true;
-    if (activity === undefined && this.card()?.id !== id && !thought) return false;
+    if (this.card()?.id !== id && !thought) return false;
     if (expanded) this.expanded.add(id);
     else this.expanded.delete(id);
-    if (activity !== undefined)
-      this.updateEntry(activity, (entry) => ({
-        ...entry,
-        details: expanded ? activity.projection.materialize() : [],
-      }));
     if (thought)
       this.updateEntry({ index: index! }, (entry) => ({ ...entry, thoughtOpen: expanded }));
     this.measure();
@@ -259,7 +266,11 @@ export class AgentConversationProjection {
   private upsert(changes: AgentPaneUpdate[]): boolean {
     if (changes.length === 0) return false;
     const mutations: Array<{
-      activity: { index: number; projection: ProjectedAgentActivity };
+      activity: {
+        index: number;
+        projection: ProjectedAgentActivity;
+        details: ActivityDetailsSource;
+      };
       message: AgentPaneUpdate;
       segment: AgentActivitySegment;
     }> = [];
@@ -282,15 +293,12 @@ export class AgentConversationProjection {
       changed.set(activity, indexes);
     }
     for (const [activity, indexes] of changed) {
+      activity.details.update(indexes);
       this.updateEntry(activity, (entry) => {
-        const details = this.expanded.has(entry.id) ? [...entry.details] : entry.details;
-        if (details !== entry.details)
-          for (const index of indexes) details[index] = activity.projection.materializeAt(index);
         return {
           ...entry,
           ...activity.projection.summary(),
           detailCount: activity.projection.count,
-          details,
         };
       });
     }

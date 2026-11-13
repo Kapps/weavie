@@ -1,5 +1,18 @@
-import { createResource, For, type JSX, Match, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import type { ActivityDetailsReader } from "./AgentActivityDetailsSource";
 import { Disclosure } from "./AgentDisclosure";
 import { EditLocationActions } from "./AgentPaneEditActions";
 import { deferredToolOutput } from "./AgentPaneHistoryAccumulator";
@@ -17,6 +30,15 @@ export function ActivityDetails(props: {
   session: ClientSession;
   steps: AgentActivityStep[];
 }): JSX.Element {
+  const [reader, setReader] = createSignal<ActivityDetailsReader>();
+  const source = createMemo(() => (props.expanded ? props.entry.activityDetails : undefined));
+  createEffect(
+    on(source, (source) => {
+      const next = source?.retain();
+      setReader(next);
+      if (next !== undefined) onCleanup(next.release);
+    }),
+  );
   return (
     <Disclosure
       class="agent-activity-details"
@@ -32,7 +54,7 @@ export function ActivityDetails(props: {
       onToggle={props.onToggle}
     >
       <div class="agent-activity-list">
-        <ForEachId each={props.steps}>
+        <ForEachId each={reader()?.steps() ?? props.steps}>
           {(step) => (
             <div class={`agent-activity-step agent-step-${step().tone}`}>
               <span class="agent-step-status">{step().status ?? "done"}</span>

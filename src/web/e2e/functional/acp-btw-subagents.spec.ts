@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -19,6 +20,12 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
   await toggle.click();
   await expect(card.getByText("counting", { exact: true })).toBeVisible();
   await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
+  await expect(card).toBeHidden();
+  await surface.locator("[data-agent-composer] textarea").focus();
+  await runCommand(page, "Toggle BTW Conversation");
+  await expect(aside.getByRole("button", { name: "Collapse BTW", exact: true })).toBeVisible();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);
   const identity = await card.getAttribute("data-agent-subagent");
@@ -40,6 +47,10 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
   await expect(transcript).toContainText("counting");
 
   await writeFile(join(sessionWorktrees(weavie.workspace)[0]!, "release-subagent"), "");
+  await aside
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(transcript).toContainText("held subagent finished");
@@ -51,6 +62,10 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
 
   await page.reload();
   await expect(page.locator("#splash")).toHaveCount(0);
+  await aside
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-agent-subagent", identity!);
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);
@@ -73,7 +88,12 @@ test.describe("BTW child ownership", () => {
     const surface = await createAcpSession(page, "btw-subagent-children");
     await submitAcpDraft(surface, "/btw subagent-nested");
     const first = surface.locator(".agent-aside").nth(0);
+    await first
+      .getByRole("button", { name: /Earlier updates/ })
+      .first()
+      .click();
     const children = first.locator("[data-agent-subagent]");
+    await children.first().locator(".agent-entry-toggle").click();
     await expect(children).toHaveCount(2);
     await expect(children.nth(0)).toContainText("Planner");
     await expect(children.nth(1)).toContainText("Reader");
@@ -91,6 +111,10 @@ test.describe("BTW child ownership", () => {
     await expect(first.locator(".agent-entry-request")).toHaveCount(0);
     await expect(surface.locator("[data-agent-subagent]")).toHaveCount(3);
     await approval.getByRole("button", { name: "Allow" }).click();
+    await second
+      .getByRole("button", { name: /Earlier updates/ })
+      .first()
+      .click();
     await expect(child).toHaveAttribute("data-state", "completed");
     await child.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.locator(".editor-agent-view")).toContainText("child permission: allow");

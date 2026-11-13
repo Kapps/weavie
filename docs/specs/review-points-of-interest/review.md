@@ -20,22 +20,25 @@ reopened W3 in a new form. Nothing was fixed in the recheck.
 W11, W12, W13 and N14 hold. The W3 fix moved the stepper's count 1px below the text beside it in the hint popover
 (W14). Nothing was fixed in the recheck.
 
+**Recheck at `aa3912bf`.** The diff was read and the header, card and popover measured again. W14's target holds
+(the popover's count is level with the text beside it) and the two test fixes hold. The same change moved the
+stepper's arrows 1px low in all three places and made the header 1px taller (W16). Nothing was fixed in the recheck.
+
 ## Summary
 
 | Severity | Open | Fixed | Rejected |
 | --- | --- | --- | --- |
 | bug | 0 | 8 | 0 |
-| warn | 0 | 15 | 0 |
+| warn | 0 | 16 | 0 |
 | nit | 9 | 5 | 0 |
 
-- **No open bugs or warnings.** W14 is fixed, and two test flakes found while fixing it are root-caused and fixed
-  (W15, and the rename test in B6). 9 nits stay open.
-- **The header holds**: one baseline at the top and scrolled, 33px tall, the pending count beside the Review icon,
-  and the hover border back on Keep file and Revert file.
-- **The user approved shipping** once the header warnings were done ("much better. When you're ready you can ship
-  this."). 
-- **CI**: green at `2c154ad3` (23 checks); at `e1689e89` `web checks` passed and the rest was still running when
-  this was written.
+- **No open bugs or warnings.** W16 is fixed by choosing the construction per row and checking header, card and
+  popover together; 9 nits stay open.
+- **Otherwise holding**: one text baseline in the header at the top and scrolled, the pending count beside the
+  Review icon, the hover border on Keep file and Revert file, and the two test flakes (W15, and B6's rename test).
+- **The user approved shipping** once the header warnings were done; they have not seen the W16 fix.
+- **CI**: green at `2c154ad3` (23 checks); at `aa3912bf` the first six checks passed and the rest were still running
+  when this was written.
 
 ## Findings
 
@@ -71,6 +74,7 @@ W11, W12, W13 and N14 hold. The W3 fix moved the stepper's count 1px below the t
 | W13 | `src/web/src/editor/review-items/review-items.css:2` | **New at `2c154ad3`: `.review-tool` restyles a button from scratch.** It repeats `.ui-icon-button` (`src/web/src/primitives.css:153`: a square, borderless, grid-centred button sized by `--icon-button-size`) and adds its own hover, disabled and focus rules. `AGENTS.md` says to build chrome from the primitives and never restyle a button from scratch; the same result is `.ui-icon-button` with `--icon-button-size` set per row. | fixed: the review tools are `.ui-icon-button`s sized by `--icon-button-size` per row (24px in the header, the primitive's 20px in the card and popover); `.review-tool` keeps only colour, hover, disabled and focus |
 | W14 | `src/web/src/editor/review-items/review-items.css:45`, `:6` | **New at `e1689e89`, from the W3 fix: in the hint popover the stepper's count sits 1px below the text beside it.** *Measured* glyph ink: the count `3 of 3` at 671.0–679.3px; `✦ Claude Code` at 670.0–678.3px; the BUG pill's text at 670.3–678.3px. At `2c154ad3` the count measured 670.0–678.3px, level with them. The count now sits on its arrows' baseline, and the arrows' icon box takes the body font set on `.review-tool`; the popover's row is the smaller secondary role, centred, so the two baselines differ by 1px. The header's row is body text, so it is level there, and the thread card has no text beside its stepper. Visible in `temp/recheck4/popover.png` (gitignored). | fixed: `.review-tool` inherits its row's font (`font: inherit`) instead of setting the body role, so its icon box's baseline is the row's own: body text in the header, secondary in the hint popover. e2e: in the hint popover the count's baseline is within 0.5px of the agent name's |
 | W15 | `src/web/e2e/functional/pr-review-finish.spec.ts:16`, `src/web/e2e/functional/pr-comments.spec.ts:12`, `src/web/e2e/functional/review-items.spec.ts:319` | **Found in the fix stage after the fourth recheck: "comments queue as drafts" failed 1 of 2 and 1 of 6 locally, always on its first run.** Its helper clicks Monaco's `.view-lines` container, which Playwright reveals by scrolling it natively; Monaco folds that into its own scroll and the editor ends at its maximum (`scrollTop` 334 in a 7-line file), so the thread card on line 2 was off screen. `e2e/harness/actions.ts:216` documents exactly this and provides `clickIntoEditor`. The new header test had copied the pattern. | fixed: every `.view-lines` container click in the e2e and tour specs is now `clickIntoEditor`; the draft-queue test passes 12 of 12 |
+| W16 | `src/web/src/editor/review-items/review-items.css:6`, `:45` | **New at `aa3912bf`, from the W14 fix: the stepper's arrows sit 1px below its count, and the header is 1px taller.** *Measured* glyph ink, arrows against count: header 80.8–89.3 against 80.0–88.3px; thread card 468.3–476.5 against 467.3–475.5px; hint popover 670.8–679.3 against 670.0–678.3px. At `e1689e89` the header and card pairs were level (79.8–88.3 against 80.3–88.3, and 467.8–476.0 for both). In the header the arrows are also 1px below the icons beside them (centre 85.0 against 84.0 for filter, undo and Overview), and the header is 34px tall where `e1689e89` and `main` have 33px; it is 34px in both states, so the scroll extent does not shift. Cause: with `font: inherit` the arrows' icon boxes take the stepper's secondary role, so their line box sits lower than the body-role boxes beside it once baselines are aligned. Screenshots: `temp/recheck5/scrolled-header.png`, `card.png`, `popover.png` (gitignored). | fixed: the position control picks its construction from its row. The arrows are tools in the row's font and the count carries its own secondary role; the control centres by default (card, popover) and baseline-aligns in the header. In centred rows the count's box is trimmed to its digits (`text-box: trim-both cap alphabetic`), so centring it centres the digits rather than a box with unused descender room. *Measured* ink centres: header arrows 84.0, filter 84.0, count 84.1, `#101` 84.25, 33px tall at the top and scrolled; card arrows 471.9, count 472.0; popover count 674.5, agent name 674.2, arrows 675.05. e2e: header arrows level with the filter tool and the header the same height in both states; card count centred with its arrows; popover count within a pixel of the agent name's baseline. `text-box` support in WebKitGTK is not verified; without it the card and popover count sit about 1px above the arrows, as at `aa3912bf` |
 
 ### Nits
 
@@ -115,6 +119,8 @@ These were raised during the review and did not hold up.
 
 | Check | Result |
 | --- | --- |
+| PR CI at `aa3912bf` | six checks passed; the e2e shards, `.NET tests` and native builds were still running when this was written |
+| Recheck probe, run locally on the `aa3912bf` build | popover count level with its text (W14 holds); arrows 1px low in header, card and popover, header 34px (W16) |
 | PR CI at `e1689e89` | `web checks` passed; the e2e shards, `.NET tests` and native builds were still running when this was written |
 | Recheck probe, run locally on the `e1689e89` build | card stepper level (ink centres 471.8–471.9px); popover count 1px low (W14); header as the fix stage measured |
 | PR CI at `2c154ad3` | green, 23 checks |

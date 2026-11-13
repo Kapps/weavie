@@ -37,19 +37,30 @@
   color: var(--diff-removed);
 }
 
-/* `‹ 3 of 8 ›`: the count sits on the arrows' baseline, the one their icon boxes give, so it reads on the line of the
-   text beside it wherever the control is. */
+/* `‹ 3 of 8 ›`: the arrows are tools in their row's font, and the count carries its own smaller role. In a centred row
+   (a thread card, the hint popover) both are centred, as every icon and label there is. */
 .review-item-position {
   display: inline-flex;
   flex: none;
-  align-items: baseline;
+  align-items: center;
   height: var(--icon-button-size);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
-  font-variant-numeric: tabular-nums;
+}
+
+/* The review header lines its row up on one baseline, so there the count sits on it with the text beside it. */
+.unified-review-header .review-item-position {
+  align-items: baseline;
 }
 
 .review-item-count {
   padding-inline: 2px;
   color: var(--fg);
+  font: var(--font-chrome-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Centred beside the arrows, the count's box is trimmed to its digits (cap height to baseline): an untrimmed box
+   holds descender room the digits never use, which sat them a pixel above the arrows. */
+.review-item-position:not(.unified-review-header *) .review-item-count {
+  text-box: trim-both cap alphabetic;
 }

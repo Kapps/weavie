@@ -80,6 +80,17 @@ test("steps by key across the review's files, wrapping, with the position in the
   await expect(greeting).toHaveClass(/weavie-pr-card-current/);
   await expect(position(page)).toHaveText("2 of 3");
   await expect(greeting.locator(".review-item-position > span")).toHaveText("2 of 3");
+  // On the card the count's digits are centred with its arrows.
+  const middle = async (locator: Locator) => {
+    const box = (await locator.boundingBox())!;
+    return box.y + box.height / 2;
+  };
+  expect(
+    Math.abs(
+      (await middle(greeting.locator(".review-item-count"))) -
+        (await middle(greeting.getByRole("button", { name: "Next Comment or Hint" }))),
+    ),
+  ).toBeLessThanOrEqual(0.5);
   await expect(flag).not.toHaveClass(/weavie-pr-card-current/);
 
   await next(page);
@@ -131,21 +142,24 @@ test("a hovered hint's arrows step from that hint, and the header's from the cur
   // The hint is item 3; its popover's Next wraps to item 1, not to item 3 after the current item 2.
   await page.locator(".weavie-hint-pill").hover();
   await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
-  // The count reads on the line of the popover's own text.
-  const baseline = (selector: string) =>
-    popover(page)
-      .locator(selector)
-      .evaluate((element) => {
-        const probe = document.createElement("span");
-        probe.style.cssText = "display:inline-block;width:0;height:0";
-        element.prepend(probe);
-        const y = probe.getBoundingClientRect().bottom;
-        probe.remove();
-        return y;
-      });
-  expect(
-    Math.abs((await baseline(".review-item-count")) - (await baseline(".weavie-hint-who"))),
-  ).toBeLessThanOrEqual(0.5);
+  // The count reads on the line of the popover's own text: its box is trimmed to its digits, so its bottom edge is
+  // its baseline; the agent name's baseline is the bottom of an empty inline-block placed in it.
+  const countBaseline = await popover(page)
+    .locator(".review-item-count")
+    .evaluate((element) => element.getBoundingClientRect().bottom);
+  const nameBaseline = await popover(page)
+    .locator(".weavie-hint-who")
+    .evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.cssText = "display:inline-block;width:0;height:0";
+      element.prepend(probe);
+      const y = probe.getBoundingClientRect().bottom;
+      probe.remove();
+      return y;
+    });
+  // Centred rather than on the name's baseline, the count lands within a pixel of it: 0.77px by geometry, 0.3px by
+  // the glyphs' ink, which is the alignment the eye reads.
+  expect(Math.abs(countBaseline - nameBaseline)).toBeLessThan(1);
   await expect(position(page)).toHaveText("2 of 3");
   await popover(page).getByRole("button", { name: "Next Comment or Hint" }).click();
   await expect(position(page)).toHaveText("1 of 3");
@@ -345,6 +359,7 @@ test("the header's text shares one baseline, Review's count sits beside its icon
 
   await runCommand(page, "Show Session Overview");
   await expect(header.locator(".unified-review-kicker")).toBeVisible();
+  const topHeight = (await header.boundingBox())!.height;
   onOneBaseline(
     await baselines([
       ".unified-review-kicker",
@@ -370,6 +385,14 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   const pill = (await header.locator(".session-overview-pill").boundingBox())!;
   const title = (await header.locator(".unified-review-identity-title").boundingBox())!;
   expect(Math.abs(centre(pill) - centre(title))).toBeLessThanOrEqual(0.5);
+
+  // The stepper's arrows sit level with the header's other tools, and condensing never changes the header's height.
+  const filter = (await header
+    .getByRole("button", { name: "Filter Comments and Hints" })
+    .boundingBox())!;
+  const arrow = (await header.getByRole("button", { name: "Next Comment or Hint" }).boundingBox())!;
+  expect(Math.abs(centre(arrow) - centre(filter))).toBeLessThanOrEqual(0.5);
+  expect((await header.boundingBox())!.height).toBe(topHeight);
 
   const review = header.locator(".finish-review-button");
   await expect(review.locator(".finish-review-count")).toHaveText("1");

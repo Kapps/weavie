@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Sessions;
 using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
@@ -66,6 +67,7 @@ internal sealed partial class AcpConversation {
 			SettleInteractions();
 			_terminals.Close();
 			ObserveTerminalizedTools(tools);
+			Observe(new AgentTurnStopped(WillResume: false));
 			CompleteContentStreams();
 			PublishTerminalizedToolMessages(tools);
 			Emit(new AgentPaneMessage {

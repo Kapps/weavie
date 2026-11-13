@@ -69,6 +69,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			background.BackgroundWorkChanged += PublishBackground;
 		}
 		SideConversations = Session as IStructuredAgentSideConversations;
+		Cards = Session as IStructuredAgentCards;
 		Rewind = Session as IStructuredAgentRewind;
 	}
 
@@ -101,6 +102,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The context-preserving side-conversation surface, when the structured agent supports it.</summary>
 	public IStructuredAgentSideConversations? SideConversations { get; }
+
+	/// <summary>The transcript's collapsible cards, when the structured agent has them.</summary>
+	public IStructuredAgentCards? Cards { get; }
 
 	/// <summary>The conversation-rewind surface, when the structured agent supports it.</summary>
 	public IStructuredAgentRewind? Rewind { get; }

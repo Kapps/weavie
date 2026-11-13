@@ -1560,6 +1560,7 @@ test.describe("ACP composer", () => {
       host.publishSession(agentSession.address, "editor", "openOverlay", {
         path: planPath,
         kind: "plan",
+        intent: "navigation",
       });
     };
 

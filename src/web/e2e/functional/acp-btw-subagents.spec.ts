@@ -24,7 +24,7 @@ test("BTW keeps its subagent card and result through completion, tab navigation,
   await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
   await expect(card).toBeHidden();
   await surface.locator("[data-agent-composer] textarea").focus();
-  await runCommand(page, "Toggle BTW Conversation");
+  await runCommand(page, "Collapse or Expand Card");
   await expect(aside.getByRole("button", { name: "Collapse BTW", exact: true })).toBeVisible();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(surface.locator("[data-agent-subagent]")).toHaveCount(1);

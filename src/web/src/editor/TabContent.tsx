@@ -13,6 +13,7 @@ import {
   Suspense,
   Switch,
 } from "solid-js";
+import type { BlocksTabViewState } from "../agent/AgentBlocksTab";
 import { type ClientSession, selectedSession } from "../bridge";
 import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
@@ -26,7 +27,8 @@ import { focusTabContent, type TabOwner } from "./tab-owner";
 import { isPreviewMode } from "./view-mode-store";
 
 const PlanView = lazy(() => import("./plan/PlanView"));
-const AgentSubagentTab = lazy(() => import("../agent/AgentSubagentTab"));
+const AgentConversationTab = lazy(() => import("../agent/AgentConversationTab"));
+const AgentBlocksTab = lazy(() => import("../agent/AgentBlocksTab"));
 const AgentTaskTab = lazy(() => import("../agent/AgentTaskTab"));
 const PreviewPane = lazy(() => import("./preview/PreviewPane"));
 const SourceView = lazy(() => import("./source/SourceView"));
@@ -43,6 +45,8 @@ function ActiveTabContent(props: {
   const file = kind === "file";
   const media = file && mediaTypeOf(tab.entry.path) !== null;
   const [view, setView] = createSignal<HTMLElement>();
+  // An overlay's saved view state: what it hands back on capture, and what a blocks tab sizes its rows from.
+  const [viewState, setViewState] = createSignal<unknown>(tab.entry.viewState);
   const bind = (element: HTMLElement): (() => void) => {
     setView(element);
     return () => {
@@ -76,7 +80,7 @@ function ActiveTabContent(props: {
           )
         : {
             text: false,
-            capture: () => ({ state: null, text: null }),
+            capture: () => ({ state: viewState(), text: null }),
             restore: async () => ready.clear(),
             focus: () => {
               focusTabContent(view()!);
@@ -130,8 +134,26 @@ function ActiveTabContent(props: {
               bind={bind}
             />
           </Match>
-          <Match when={kind === "subagent"}>
-            <AgentSubagentTab session={tab.session} path={tab.entry.path} bind={bind} />
+          <Match when={kind === "subagent" || kind === "aside"}>
+            <AgentConversationTab
+              session={tab.session}
+              kind={kind as "subagent" | "aside"}
+              path={tab.entry.path}
+              bind={bind}
+            />
+          </Match>
+          <Match when={kind === "dashboard" || kind === "block"}>
+            <AgentBlocksTab
+              session={tab.session}
+              kind={kind as "dashboard" | "block"}
+              path={tab.entry.path}
+              viewState={() => viewState() as BlocksTabViewState | null}
+              setViewState={(state) => {
+                setViewState(state);
+                controller.captureTab(tab);
+              }}
+              bind={bind}
+            />
           </Match>
           <Match when={kind === "task"}>
             <AgentTaskTab session={tab.session} path={tab.entry.path} bind={bind} />

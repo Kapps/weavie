@@ -23,6 +23,12 @@ public interface IDiffPresenter {
 
 	/// <summary>Closes the editor tab for <paramref name="filePath"/> (the MCP <c>close_tab</c> tool).</summary>
 	Task CloseTabAsync(string filePath, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// Opens a tab of <paramref name="kind"/> at <paramref name="path"/> that renders state the session owns, such as an
+	/// agent's dashboard. Without <paramref name="focus"/> it never takes the editor from what the user is doing in it.
+	/// </summary>
+	Task OpenTabAsync(string path, string kind, bool focus, CancellationToken cancellationToken);
 }
 
 /// <summary>Scripted <see cref="IDiffPresenter"/> for tests: returns a preset outcome and records calls.</summary>
@@ -50,6 +56,9 @@ public sealed class FakeDiffPresenter : IDiffPresenter {
 	/// <summary>Every path passed to <see cref="CloseTabAsync"/>, in order, for test assertions.</summary>
 	public List<string> ClosedTabs { get; } = [];
 
+	/// <summary>Every request passed to <see cref="OpenTabAsync"/>, in order, for test assertions.</summary>
+	public List<(string Path, string Kind, bool Focus)> OpenedTabs { get; } = [];
+
 	/// <inheritdoc/>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
 		Presented.Add(proposal);
@@ -65,6 +74,12 @@ public sealed class FakeDiffPresenter : IDiffPresenter {
 	/// <inheritdoc/>
 	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) {
 		ClosedTabs.Add(filePath);
+		return Task.CompletedTask;
+	}
+
+	/// <inheritdoc/>
+	public Task OpenTabAsync(string path, string kind, bool focus, CancellationToken cancellationToken) {
+		OpenedTabs.Add((path, kind, focus));
 		return Task.CompletedTask;
 	}
 }

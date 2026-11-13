@@ -54,14 +54,22 @@ public sealed partial class AcpAgentSession {
 	}
 
 	/// <inheritdoc/>
-	public void SetAsideCollapsed(string conversationId, bool collapsed) {
-		ArgumentException.ThrowIfNullOrEmpty(conversationId);
+	public void SetCardCollapsed(AgentCardRef card, bool collapsed) {
+		ArgumentNullException.ThrowIfNull(card);
 		lock (_turnTransitionGate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			var marker = Output.View(_definition.Id, conversationId).Rows
-				.FirstOrDefault(message => message.Type == "side-conversation-started")
-				?? throw new InvalidOperationException("That side conversation is no longer available.");
-			_primary.Publish(marker with { Type = "side-conversation-collapsed", Text = null, Summary = null, Status = collapsed ? "collapsed" : "expanded" });
+			var view = Output.View(_definition.Id, card.ConversationId);
+			var marker = (card.DashboardId is { } dashboard
+				? view.Dashboard(dashboard)
+				: card.ConversationId is null ? null : view.Rows.FirstOrDefault(message => message.Type == "side-conversation-started"))
+				?? throw new InvalidOperationException("That card is no longer in this conversation.");
+			// Its own row type, never the card's row again: a re-emitted item row would join the publishing turn's items.
+			_primary.Publish(marker with {
+				Type = card.DashboardId is null ? "side-conversation-collapsed" : AgentDashboards.Collapsed,
+				Text = null,
+				Summary = null,
+				Status = collapsed ? "collapsed" : "expanded",
+			});
 		}
 	}
 

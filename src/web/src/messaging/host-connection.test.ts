@@ -59,7 +59,6 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
     replyStartOffset: 0.5,
     progressDisplay: "all",
     thoughtDisplay: "all",
-    attachOnSelect: true,
     providers: [],
   },
   commandCatalog: { commands: [], keybindings: [] },

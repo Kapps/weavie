@@ -1,0 +1,44 @@
+.selection-actions,
+.selection-comment {
+  position: fixed;
+  z-index: 100;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px #0004;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+.selection-actions .ui-icon-button:hover,
+.selection-actions .ui-icon-button:focus-visible {
+  background: var(--list-active-bg);
+  color: var(--list-active-fg);
+  border-radius: 4px;
+}
+
+.selection-comment {
+  width: min(360px, calc(100vw - 16px));
+  overflow: auto;
+  padding: 10px;
+}
+
+.selection-comment-input {
+  --control-h: auto;
+  padding: 4px 8px;
+  display: block;
+  width: 100%;
+  resize: vertical;
+}
+
+.selection-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}

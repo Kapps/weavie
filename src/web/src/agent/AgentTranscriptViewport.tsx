@@ -196,6 +196,7 @@ export function AgentTranscriptViewport(props: {
             })
           }
           providerName={props.providerName}
+          revealEntry={scroll.revealEntry}
           session={props.model.session}
           transcript={scroll.shown()}
           virtualizer={virtualizer}

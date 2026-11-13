@@ -7,10 +7,20 @@ export type EditorViewState = unknown;
 
 export interface EditorSessionEntry {
   path: string;
-  // Tab kind: a file, iframe web tab, fetched source document, read-only transient plan, subagent transcript, or
-  // background task.
+  // Tab kind: a file, iframe web tab, fetched source document, read-only transient plan, a card of the agent pane
+  // (subagent, BTW, dashboard, lone block), or background task.
   // Overlay kinds are session-owned and round-trip with the tab set. Absent ⇒ "file".
-  kind?: "file" | "web" | "source" | "plan" | "review" | "subagent" | "task";
+  kind?:
+    | "file"
+    | "web"
+    | "source"
+    | "plan"
+    | "review"
+    | "subagent"
+    | "aside"
+    | "dashboard"
+    | "block"
+    | "task";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a
   // persistent tab by editing or double-clicking. Absent ⇒ false.

@@ -17,7 +17,12 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
 import { presentThoughts, type ThoughtDisplay } from "./AgentThoughtPresentation";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
+import {
+  cardIndexes,
+  emptyTranscript,
+  latestResultIndex,
+  shareTranscript,
+} from "./AgentTranscriptSnapshot";
 import { createUpdatePresentation, type ProgressDisplay } from "./AgentUpdatePresentation";
 import { activeTurnStartedAt, hasActiveTurn, pendingRequest } from "./turn-progress";
 
@@ -176,6 +181,7 @@ export class AgentConversationProjection {
           currentThought: this.thoughtDisplay() === "current" ? projection.currentThought : null,
           entries: ordered.entries,
           entryIndexes: this.entryIndexes,
+          cardIndexes: cardIndexes(ordered.entries),
           latestResultIndex: latestResultIndex(ordered.entries),
           pendingRowIndexes: ordered.pendingRowIndexes,
           sectionLabels: computeSectionLabels(ordered.entries, active),

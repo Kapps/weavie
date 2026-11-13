@@ -1,3 +1,4 @@
+using Weavie.Core.Editor;
 using Weavie.Core.Sources;
 using Weavie.Hosting.Messaging;
 
@@ -20,7 +21,7 @@ public sealed partial class HostCore {
 		}
 
 		if (_sources.IdFor(url) is not { } sourceId) {
-			session.OpenEditorOverlay(url, "web");
+			session.OpenEditorOverlay(url, "web", EditorOpenIntent.Navigation);
 		} else if (_sources.IsConnected(url)) {
 			OpenSourceTab(session, url, sourceId);
 		} else {
@@ -29,7 +30,7 @@ public sealed partial class HostCore {
 	}
 
 	private void OpenSourceTab(HostSession session, string url, string sourceId) {
-		session.OpenEditorOverlay(url, "source");
+		session.OpenEditorOverlay(url, "source", EditorOpenIntent.Navigation);
 		_ = session.Background.Run(ct => FetchSourceForWebAsync(session, url, sourceId, ct));
 	}
 

@@ -6,7 +6,7 @@ namespace Weavie.AgentClientProtocol;
 // row into the block (show) or removes it (update). See docs/specs/acp-rich-content/design.md.
 internal sealed partial class AcpConversation {
 	private void BindBlocks() {
-		if (_ownsBinding) _binding.Tools.Blocks.Bind(_port.Block);
+		if (_ownsBinding) _binding.Tools.Blocks.Bind(_port.Block, _port.Dashboard);
 	}
 
 	private void ClaimBlock(AcpToolState tool) {
@@ -32,8 +32,13 @@ internal sealed partial class AcpConversation {
 				Content = null,
 			}
 			: retraction;
-		TrackTurnItem(row);
-		if (_port.CommitBlock(Continuation, operation, row)) return;
+		var rows = operation is AgentBlockOperation.Show { Dashboard: { } dashboard }
+			? AgentDashboards.Rows(_port.Dashboard(dashboard.Id), dashboard, row)
+			: AgentDashboards.Loose(row);
+		if (_port.CommitBlock(Continuation, operation, rows)) {
+			foreach (var written in rows) TrackTurnItem(written);
+			return;
+		}
 		Emit(retraction);
 		Notice(operation is AgentBlockOperation.Show
 			? $"Block '{operation.Id}' was already shown, so this call changed nothing."

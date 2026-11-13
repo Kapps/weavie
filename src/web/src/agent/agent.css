@@ -258,16 +258,32 @@
 
 .agent-aside-head {
   font: var(--font-chrome-body);
-  width: 100%;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 10px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--dim);
+}
+
+/* A row primitive with no padding of its own; the head pads it. */
+.agent-aside-toggle {
+  --row-pad: 0px;
+  --row-pad-x: 0px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The row is a flex container, so the label is the item that ellipsizes. */
+.agent-aside-toggle-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-aside-head .agent-entry-open {
+  margin-left: 0;
+  opacity: 1;
 }
 
 .editor-agent-view {
@@ -1177,8 +1193,7 @@ a:has(> .agent-path-dir) {
   --fade-right: 1.5em;
 }
 
-.agent-background-label {
-  flex: 0 0 auto;
+.agent-strip-collapse {
   color: var(--dim);
 }
 

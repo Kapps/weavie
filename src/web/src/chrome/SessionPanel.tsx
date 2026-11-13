@@ -11,6 +11,7 @@ import {
   setPanelWidth,
   setParkedCollapsed,
 } from "./rail-state";
+import { createResizeDrag } from "./resize-drag";
 import { type SessionListHandlers, SessionRail } from "./SessionRail";
 import {
   createSessionMenu,
@@ -23,7 +24,6 @@ import {
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import { SESSION_GROUPS, sessionGroup, switchShortcut } from "./session-summary";
-import { createWidthDrag } from "./width-drag";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 520;
@@ -148,7 +148,7 @@ export function SessionPanel(props: {
     props.onSwitch(session);
   };
 
-  const resize = createWidthDrag({
+  const resize = createResizeDrag({
     saved: panelWidth,
     save: setPanelWidth,
     measure: () => {
@@ -194,7 +194,7 @@ export function SessionPanel(props: {
       <nav
         {...list}
         class="session-panel"
-        style={`width:${resize.width()}px`}
+        style={`width:${resize.size()}px`}
         inert={props.inert}
         aria-label="Sessions"
       >

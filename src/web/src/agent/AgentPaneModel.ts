@@ -10,6 +10,7 @@ import {
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
+import { dashboardEntryId } from "./AgentPaneBlocks";
 import {
   AgentPaneConversationRows,
   type ConversationRows,
@@ -51,6 +52,12 @@ export interface AgentPaneModel {
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
   conversation(id: string): AgentTranscriptEntry | undefined;
+  /** Dashboard `dashboardId`'s card in one conversation, tracked reactively. */
+  dashboard(conversationId: string | null, dashboardId: string): AgentTranscriptEntry | undefined;
+  /** Block `blockId`'s entry in one conversation, loose or in a dashboard, tracked reactively. */
+  block(conversationId: string | null, blockId: string): AgentTranscriptEntry | undefined;
+  /** The expanded cards, in transcript order; a side conversation's own dashboards follow it. */
+  readonly cards: Accessor<readonly AgentTranscriptEntry[]>;
   setActivityExpanded(id: string, expanded: boolean): void;
   /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
   activityStep(itemId: string): AgentActivityStep | undefined;
@@ -263,6 +270,16 @@ export function createAgentPaneModel(
     ),
   );
 
+  const transcriptOf = (conversationId: string | null): AgentTranscriptSnapshot | undefined =>
+    conversationId === null ? main.transcript() : membership(conversationId)[0]()?.transcript();
+  const expandedCards = (snapshot: AgentTranscriptSnapshot): AgentTranscriptEntry[] =>
+    snapshot.cardIndexes.flatMap((index) => {
+      const card = snapshot.entries[index]!;
+      if (card.asideCollapsed) return [];
+      const nested = card.conversation?.transcript();
+      return [card, ...(nested === undefined ? [] : expandedCards(nested))];
+    });
+
   const model: MutableAgentPaneModel = {
     cardChanges,
     generation,
@@ -286,6 +303,20 @@ export function createAgentPaneModel(
     conversation(id) {
       return membership(id)[0]()?.linked;
     },
+    dashboard(conversationId, dashboardId) {
+      const snapshot = transcriptOf(conversationId);
+      const index = snapshot?.entryIndexes.get(dashboardEntryId(conversationId, dashboardId));
+      return index === undefined ? undefined : snapshot!.entries[index];
+    },
+    block(conversationId, blockId) {
+      for (const entry of transcriptOf(conversationId)?.entries ?? []) {
+        for (const block of entry.kind === "dashboard" ? entry.asideEntries! : [entry]) {
+          if (block.block?.id === blockId) return block;
+        }
+      }
+      return undefined;
+    },
+    cards: () => expandedCards(main.transcript()),
     setHistoryComplete(complete) {
       batch(() => {
         setHistoryComplete(complete);

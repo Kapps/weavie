@@ -33,6 +33,8 @@ export interface AgentTranscriptEntry {
     | "activity"
     | "aside"
     | "block"
+    | "block-added"
+    | "dashboard"
     | "message"
     | "thought"
     | "notice"
@@ -61,8 +63,15 @@ export interface AgentTranscriptEntry {
   asideReplyable?: boolean | undefined;
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
-  block?: { key: string; kind: "chart" | "table" } | undefined;
+  block?: { id: string; key: string; kind: "chart" | "table" } | undefined;
+  /** The dashboard a dashboard card shows, a block belongs to, or a block-added line points at. */
+  dashboardId?: string;
 }
+
+/** A chart or table entry. */
+export type AgentBlockTranscriptEntry = AgentTranscriptEntry & {
+  block: NonNullable<AgentTranscriptEntry["block"]>;
+};
 
 /** What a subagent card shows beyond its nested transcript. */
 export interface AgentSubagentInfo {
@@ -83,6 +92,8 @@ export interface AgentTranscriptSnapshot {
   readonly currentThought: string | null;
   readonly entries: readonly AgentTranscriptEntry[];
   readonly entryIndexes: ReadonlyMap<string, number>;
+  /** The entries that are cards a user can open and collapse: side conversations and dashboards. */
+  readonly cardIndexes: readonly number[];
   readonly latestResultIndex: number | null;
   readonly pendingRowIndexes: readonly number[];
   readonly sectionLabels: ReadonlyMap<string, AgentSectionLabel>;

@@ -4,12 +4,20 @@ import { createHorizontalOverflow, scrollWheelHorizontally } from "../chrome/hor
 import { liveKeyHint } from "../commands/keys-live";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
+import { cardName, cardOf, openCard, openCardTitle } from "./agent-cards";
 import { backgroundStatus, rovingTarget } from "./background-format";
 import { liveNow } from "./live-clock";
 
-/** Everything still running beside the session's turns, as a roving-focus toolbar above the composer. */
-export function AgentBackgroundTray(props: { session: ClientSession }): JSX.Element {
+/**
+ * A roving-focus toolbar above the composer: everything still running beside the session's turns, then every
+ * expanded dashboard and BTW, which ✕ collapses.
+ */
+export function AgentStrip(props: {
+  session: ClientSession;
+  cards: readonly AgentTranscriptEntry[];
+}): JSX.Element {
   const items = () => agentBackground(props.session);
   const now = liveNow(() => items().some(backgroundRunning));
   let tray: HTMLDivElement | undefined;
@@ -45,15 +53,14 @@ export function AgentBackgroundTray(props: { session: ClientSession }): JSX.Elem
   );
 
   return (
-    <Show when={items().length > 0}>
+    <Show when={items().length > 0 || props.cards.length > 0}>
       <div
         ref={tray}
         class="agent-status-line agent-background-tray"
         role="toolbar"
-        aria-label="Background work"
+        aria-label="Running work and cards"
         onKeyDown={onKeyDown}
       >
-        <span class="agent-background-label">Background</span>
         <div
           ref={track}
           class="agent-status-scroll"
@@ -104,6 +111,36 @@ export function AgentBackgroundTray(props: { session: ClientSession }): JSX.Elem
                     Stop
                   </button>
                 </Show>
+              </span>
+            )}
+          </For>
+          <For each={props.cards}>
+            {(entry, index) => (
+              <span class="agent-background-item" data-strip-card={entry.id}>
+                <button
+                  type="button"
+                  class="agent-status-segment"
+                  tabIndex={items().length === 0 && index() === 0 ? 0 : -1}
+                  title={openCardTitle()}
+                  onClick={() => void openCard(cardOf(entry)!)}
+                >
+                  <span class="agent-status-value agent-background-name">{cardName(entry)}</span>
+                </button>
+                <button
+                  type="button"
+                  class="agent-status-segment agent-strip-collapse"
+                  tabIndex={-1}
+                  aria-label={`Collapse ${cardName(entry)}`}
+                  title="Collapse or Expand Card"
+                  onClick={() =>
+                    void runCommandWithFeedback(CommandIds.toggleAgentAside, {
+                      ...cardOf(entry),
+                      collapsed: true,
+                    })
+                  }
+                >
+                  ✕
+                </button>
               </span>
             )}
           </For>

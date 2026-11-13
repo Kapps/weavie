@@ -1,31 +1,46 @@
 import { Paperclip } from "lucide-solid";
-import { type JSX, Match, onCleanup, Show, Switch } from "solid-js";
+import { type JSX, Match, onCleanup, Show, Switch, useContext } from "solid-js";
 import "./agent-blocks.css";
 import type { ClientSession } from "../bridge";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { AgentChart } from "./AgentChart";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentBlockTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTable } from "./AgentTable";
 import { chartHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
+import { blockUpdatedAt, cardOf, ownCardOnFocus } from "./agent-cards";
 import { ownCommand, ownsCommand } from "./agent-command-owner";
+import { AgentCardToggleContext, AgentRowContext } from "./agent-row-context";
 import { agentBlock, tableView } from "./block-store";
 import type { AgentSelection } from "./composer-state";
 import { attachAgentSelection } from "./composer-store";
 
-/** A chart or table row: a fixed frame whose contents follow the block's latest state. */
+/**
+ * A chart or table: a fixed frame whose contents follow the block's latest state. `height` is the frame's height in
+ * an editor tab, where the user sizes it; null keeps the transcript's.
+ */
 export function AgentBlockEntry(props: {
-  entry: AgentTranscriptEntry & { block: NonNullable<AgentTranscriptEntry["block"]> };
+  entry: AgentBlockTranscriptEntry;
   session: ClientSession;
+  height: number | null;
 }): JSX.Element {
+  const row = useContext(AgentRowContext);
+  // A block outside a dashboard opens alone from the pane's transcript; a dashboard's opens with its card, and
+  // one in a tab, where there is no transcript row, is already open.
+  const card =
+    props.entry.dashboardId === undefined && row !== undefined ? cardOf(props.entry) : null;
   const record = () => agentBlock(props.session, props.entry.block.key);
   const view =
     props.entry.block.kind === "table" ? tableView(props.session, props.entry.id) : undefined;
   const title = () => record()?.block.title ?? props.entry.summary ?? "";
   const select = (selection: AgentSelection): void =>
     attachAgentSelection(props.session, selection);
-  const selecting = (active: boolean): void => noteBlockSelecting(props.entry.id, active);
+  // The row holding the block stays mounted mid-gesture; in a tab nothing unmounts it.
+  const selecting = (active: boolean): void => {
+    if (row !== undefined) noteBlockSelecting(row.rowId, active);
+  };
   const attachAll = (): boolean => {
     const block = record()?.block;
     if (block === undefined) return false;
@@ -45,13 +60,30 @@ export function AgentBlockEntry(props: {
     );
   };
   onCleanup(() => release?.());
+  // A lone block has no collapsed state; Alt+B over it acts on the card around it, a BTW's.
+  const enclosing = useContext(AgentCardToggleContext);
+  const ownCard = ownCardOnFocus(() =>
+    card === null ? null : { session: props.session, card, toggle: enclosing ?? null },
+  );
+  const press = (event: Event): void => {
+    own(event);
+    ownCard(event);
+  };
   return (
     <div
       class="agent-entry agent-entry-block"
       data-block={props.entry.block.kind}
-      style={{ height: props.entry.block.kind === "chart" ? `${chartHeight}px` : undefined }}
-      onFocusIn={own}
-      onPointerDown={own}
+      data-sized={props.height === null ? undefined : ""}
+      style={{
+        height:
+          props.height !== null
+            ? `${props.height}px`
+            : props.entry.block.kind === "chart"
+              ? `${chartHeight}px`
+              : undefined,
+      }}
+      onFocusIn={press}
+      onPointerDown={press}
     >
       <div class="agent-entry-head">
         <span class="agent-block-title">{title()}</span>
@@ -66,13 +98,9 @@ export function AgentBlockEntry(props: {
             <Paperclip />
           </span>
         </button>
+        <Show when={card}>{(open) => <AgentCardOpenButton card={open()} />}</Show>
         <Show when={record()?.block.updatedAtMs}>
-          {(time) => (
-            <span class="agent-entry-status">
-              updated{" "}
-              {new Date(time()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          )}
+          {(time) => <span class="agent-entry-status">{blockUpdatedAt(time())}</span>}
         </Show>
       </div>
       <div class="agent-block-body">

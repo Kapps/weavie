@@ -15,25 +15,30 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly FileProviderService _files;
 	private readonly FileOpener _fileOpener;
 	private readonly Action<string> _closeFile;
+	private readonly Action<string, string, EditorOpenIntent> _openOverlay;
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, PendingDiff> _pending = new(StringComparer.Ordinal);
 	private int _counter;
 
 	/// <summary>Renders diffs through the owning session's <paramref name="editor"/> channel, reads the baseline
-	/// through <paramref name="files"/>, and delegates file opens to <paramref name="fileOpener"/>.</summary>
+	/// through <paramref name="files"/>, and delegates file opens to <paramref name="fileOpener"/> and tab opens to
+	/// <paramref name="openOverlay"/>.</summary>
 	public McpDiffPresenter(
 		MessageFeatureChannel editor,
 		FileProviderService files,
 		FileOpener fileOpener,
-		Action<string> closeFile) {
+		Action<string> closeFile,
+		Action<string, string, EditorOpenIntent> openOverlay) {
 		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(files);
 		ArgumentNullException.ThrowIfNull(fileOpener);
 		ArgumentNullException.ThrowIfNull(closeFile);
+		ArgumentNullException.ThrowIfNull(openOverlay);
 		_editor = editor;
 		_files = files;
 		_fileOpener = fileOpener;
 		_closeFile = closeFile;
+		_openOverlay = openOverlay;
 	}
 
 	/// <summary>
@@ -85,6 +90,12 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>
 	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) {
 		_closeFile(filePath);
+		return Task.CompletedTask;
+	}
+
+	/// <inheritdoc/>
+	public Task OpenTabAsync(string path, string kind, bool focus, CancellationToken cancellationToken) {
+		_openOverlay(path, kind, focus ? EditorOpenIntent.Navigation : EditorOpenIntent.Background);
 		return Task.CompletedTask;
 	}
 

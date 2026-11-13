@@ -7,6 +7,11 @@
   overflow: hidden;
 }
 
+/* Inside a dashboard's card, the card's border already sets the blocks apart. */
+.agent-dashboard-blocks .agent-entry-block {
+  border-left: 0;
+}
+
 .agent-block-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -172,4 +177,37 @@
 
 .agent-table-cell[data-level="dim"] {
   color: var(--dim);
+}
+
+/* A table the user sized in a tab fills that height, its rows included; one never sized keeps its own. */
+.agent-entry-block[data-sized][data-block="table"] .agent-block-body {
+  flex: 1 1 0;
+}
+
+.agent-entry-block[data-sized] .agent-table {
+  height: 100%;
+}
+
+.agent-entry-block[data-sized] .agent-table-body {
+  max-height: 100%;
+}
+
+.agent-blocks-tab {
+  overflow: auto;
+}
+
+.agent-blocks-tab-handle {
+  display: block;
+  width: 100%;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: row-resize;
+}
+
+.agent-blocks-tab-handle:hover,
+.agent-blocks-tab-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  outline: none;
 }

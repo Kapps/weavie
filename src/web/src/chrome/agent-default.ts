@@ -22,7 +22,6 @@ const DEFAULT: AgentDefaults = {
   replyStartOffset: 0.5,
   progressDisplay: "latest",
   thoughtDisplay: "current",
-  attachOnSelect: true,
   providers: [
     {
       id: "claude",
@@ -62,11 +61,6 @@ export function agentThoughtDisplay(backendId: string): AgentDefaults["thoughtDi
 /** The progress presentation selected on the session's own backend. */
 export function agentProgressDisplay(backendId: string): AgentDefaults["progressDisplay"] {
   return byBackend().get(backendId)!.progressDisplay;
-}
-
-/** Whether highlighting reply text on the session's own backend attaches it to the next prompt. */
-export function agentAttachOnSelect(backendId: string): boolean {
-  return byBackend().get(backendId)!.attachOnSelect;
 }
 
 /** The provider the New Session prompt should preselect. */

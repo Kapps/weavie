@@ -489,6 +489,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.publishSession(session.address, "editor", "openOverlay", {
       path: "typography-source",
       kind: "source",
+      intent: "navigation",
     });
     host.publishSession(session.address, "sources", "loading", {
       target: "typography-source",

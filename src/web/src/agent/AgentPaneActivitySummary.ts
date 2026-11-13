@@ -177,10 +177,11 @@ function activityCategory(message: AgentPaneUpdate): string | null {
     case "file-patch-updated":
       return "edit";
     case "item-completed":
-      // A block row is a durable entry of its own, never a step folded into the Working group.
+      // Block and dashboard rows are durable entries of their own, never steps folded into the Working group.
       return message.itemType === "agentMessage" ||
         message.itemType === "plan" ||
-        message.itemType === "block"
+        message.itemType === "block" ||
+        message.itemType === "dashboard"
         ? null
         : activityPrefix(message);
     case "item-started":

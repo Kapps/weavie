@@ -1,4 +1,4 @@
-import { ArrowUp, Check, CheckCheck, CircleX, RotateCcw, Undo2 } from "lucide-solid";
+import { ArrowUp, CheckCheck, CircleX, RotateCcw, Undo2 } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
@@ -6,6 +6,7 @@ import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { FinishReview } from "../pr-comments/FinishReview";
 import { prCommentsFor } from "../pr-comments/pr-comments-store";
+import { reviewHintsFor } from "../review-hints/review-hints-store";
 import { ReviewItemStepper } from "../review-items/ReviewItemStepper";
 import { DiffStats } from "./DiffStats";
 import { PrStatePill } from "./overview/OverviewTitle";
@@ -13,8 +14,8 @@ import { prOverviewFor } from "./overview/overview-data";
 import type { ReviewOverview } from "./review-store";
 
 /**
- * Review-wide actions and heading. Once the overview title scrolls away it carries the session's identity, and the
- * actions condense to icons so the PR's name keeps its room.
+ * Review-wide actions, as one row of icon tools, and the heading. Once the overview title scrolls away the heading
+ * carries the session's identity and the row adds the review-submit control.
  */
 export function UnifiedReviewHeader(props: {
   overview: () => ReviewOverview;
@@ -24,49 +25,41 @@ export function UnifiedReviewHeader(props: {
 }): JSX.Element {
   const detail = () => prOverviewFor(props.session)?.detail ?? null;
   const failing = () => detail()?.checks.filter((check) => check.state === "failure").length ?? 0;
-  const compact = () => props.showIdentity();
-  const action = (spec: {
+  const items = () =>
+    prCommentsFor(props.session)?.set != null || (reviewHintsFor(props.session)?.length ?? 0) > 0;
+  const tool = (spec: {
     label: string;
-    title: string;
     command: string;
     tone: "" | "keep" | "revert";
     disabled: () => boolean;
     icon: JSX.Element;
-    /** The icon once condensed, when the labelled one would read differently alone. */
-    compactIcon?: JSX.Element;
   }) => (
     <button
       type="button"
-      class={`unified-review-action ui-button ${spec.tone}`}
+      class={`review-tool ${spec.tone}`}
       disabled={spec.disabled()}
-      title={`${spec.title}${keyHint(spec.command)}`}
+      title={`${spec.label}${keyHint(spec.command)}`}
       aria-label={spec.label}
       onClick={() => void runCommandWithFeedback(spec.command)}
     >
-      <span class="ui-icon">{compact() ? (spec.compactIcon ?? spec.icon) : spec.icon}</span>
-      <Show when={!compact()}> {spec.label}</Show>
+      {spec.icon}
     </button>
   );
   return (
-    <header
-      class="unified-review-header"
-      classList={{ "unified-review-header-compact": compact() }}
-    >
+    <header class="unified-review-header">
       <div class="unified-review-heading">
         <Show
-          when={compact()}
+          when={props.showIdentity()}
           fallback={<span class="unified-review-kicker">{props.overview().label || "Review"}</span>}
         >
           <button
             type="button"
-            class="unified-review-action ui-button"
-            title={`Show the session overview${keyHint(CommandIds.reviewOverview)}`}
+            class="review-tool"
+            title={`Show Session Overview${keyHint(CommandIds.reviewOverview)}`}
             aria-label="Overview"
             onClick={() => props.onOverview()}
           >
-            <span class="ui-icon">
-              <ArrowUp />
-            </span>
+            <ArrowUp />
           </button>
           <Show when={detail()}>
             {(pull) => (
@@ -90,7 +83,7 @@ export function UnifiedReviewHeader(props: {
           </Show>
         </Show>
         {/* The PR's name takes the counts' room; the overview and each file header still carry them. */}
-        <Show when={!compact() || detail() === null}>
+        <Show when={!props.showIdentity() || detail() === null}>
           <strong>
             {props.overview().files.length} changed file
             {props.overview().files.length === 1 ? "" : "s"}
@@ -99,36 +92,35 @@ export function UnifiedReviewHeader(props: {
         </Show>
       </div>
       <div class="unified-review-header-actions">
-        <ReviewItemStepper session={props.session} />
-        {action({
-          label: "Undo rejection",
-          title: "Undo rejection",
+        <Show when={items()}>
+          <ReviewItemStepper session={props.session} />
+          <span class="unified-review-header-rule" />
+        </Show>
+        {tool({
+          label: "Undo Revert (Review)",
           command: CommandIds.undoRevert,
           tone: "",
           disabled: () =>
             !props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0),
           icon: <Undo2 />,
         })}
-        {action({
-          label: "Revert pending",
-          title: "Revert every pending change",
+        {tool({
+          label: "Undo All Changes",
           command: CommandIds.undoChange,
           tone: "revert",
           disabled: () => !props.overview().fullyLoaded() || !props.overview().hasPending(),
           icon: <RotateCcw />,
         })}
-        {action({
-          label: "Keep all",
-          title: "Keep all changes and close diff",
+        {tool({
+          label: "Keep All Changes (Review)",
           command: CommandIds.keepAll,
           tone: "keep",
           disabled: () => !props.overview().fullyLoaded(),
-          icon: <Check />,
-          compactIcon: <CheckCheck />,
+          icon: <CheckCheck />,
         })}
-        <Show when={compact() && prCommentsFor(props.session)?.set != null}>
+        <Show when={props.showIdentity() && prCommentsFor(props.session)?.set != null}>
           <span class="unified-review-header-rule" />
-          <FinishReview session={props.session} />
+          <FinishReview session={props.session} iconOnly={true} />
         </Show>
       </div>
     </header>

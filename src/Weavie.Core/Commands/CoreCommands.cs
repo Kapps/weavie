@@ -344,7 +344,7 @@ public static partial class CoreCommands {
 	/// <summary>Closes the focused PR comment box, keeping its draft; bound to <c>Escape</c> while it has focus.</summary>
 	public const string PullRequestCancelComment = "weavie.pullRequest.cancelComment";
 
-	/// <summary>Shows or hides PR review comments in every editor; bound to <c>$mod+alt+Shift+c</c>.</summary>
+	/// <summary>Shows or hides PR review comments in every editor.</summary>
 	public const string PullRequestToggleComments = "weavie.pullRequest.toggleComments";
 
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
@@ -1918,7 +1918,6 @@ public static partial class CoreCommands {
 			ArgsSchemaJson = Configuration.ReviewItemCommands.ArgsSchemaJson,
 			Aliases = ["toggle pr comments", "show pr comments", "hide pr comments", "toggle review comments",
 				"pull request comments"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+Shift+c" }],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab are gated to editor focus (a tab key shouldn't act while a

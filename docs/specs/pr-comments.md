@@ -53,7 +53,7 @@ visible code width instead of the longest line.
 | `weavie.pullRequest.submitComment` — adds the comment or reply to the pending review (saves an edit) | `$mod+Enter` | `prCommentFocused` |
 | `weavie.pullRequest.postCommentNow` — posts immediately instead | — | `prCommentFocused && !prReviewPending` |
 | `weavie.pullRequest.cancelComment` — closes the box; its draft is kept for reopening | `Escape` | `prCommentFocused` |
-| `weavie.pullRequest.toggleComments` — hide/show inline threads and their stepping (flips `editor.reviewComments`) | `$mod+alt+Shift+c` | — |
+| `weavie.pullRequest.toggleComments` — hide/show inline threads and their stepping (flips `editor.reviewComments`) | — | — |
 
 Threads are stepped through with review hints by Next/Previous Comment or Hint (`$mod+alt+]` / `$mod+alt+[`), across
 files; see [review-points-of-interest](review-points-of-interest/design.md). A thread resolved on the forge (read,

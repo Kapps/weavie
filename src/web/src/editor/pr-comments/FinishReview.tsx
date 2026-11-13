@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-solid";
+import { ChevronDown, ClipboardCheck } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
@@ -63,9 +63,10 @@ export async function requestFinishReview(session: ClientSession, kind: Request)
 
 /**
  * The session's review-submit control: a header button carrying the pending count, opening a panel to write a
- * summary, pick a verdict, and submit or discard the pending review. Self-contained, so any surface can host it.
+ * summary, pick a verdict, and submit or discard the pending review. Self-contained, so any surface can host it;
+ * `iconOnly` makes the button one of a row of icon tools.
  */
-export function FinishReview(props: { session: ClientSession }): JSX.Element {
+export function FinishReview(props: { session: ClientSession; iconOnly: boolean }): JSX.Element {
   const [open, setOpen] = heldBy(props.session, openFor);
   const [confirming, setConfirming] = heldBy(props.session, confirmingFor);
   const set = () => prCommentsFor(props.session)?.set ?? null;
@@ -88,22 +89,42 @@ export function FinishReview(props: { session: ClientSession }): JSX.Element {
         const count = () => pendingDrafts(active()).length;
         return (
           <div class="finish-review" ref={root}>
-            <button
-              type="button"
-              class="finish-review-button ui-button"
-              classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
-              aria-expanded={open()}
-              title={`Finish your review of PR #${active().number}${keyHint(CommandIds.prFinishReview)}`}
-              onClick={() => setOpen(!open())}
+            <Show
+              when={props.iconOnly}
+              fallback={
+                <button
+                  type="button"
+                  class="finish-review-button ui-button"
+                  classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
+                  aria-expanded={open()}
+                  title={`Finish your review of PR #${active().number}${keyHint(CommandIds.prFinishReview)}`}
+                  onClick={() => setOpen(!open())}
+                >
+                  {count() > 0 ? "Finish review" : "Review"}
+                  <Show when={count() > 0}>
+                    <span class="finish-review-count">{count()}</span>
+                  </Show>
+                  <span class="ui-icon">
+                    <ChevronDown />
+                  </span>
+                </button>
+              }
             >
-              {count() > 0 ? "Finish review" : "Review"}
-              <Show when={count() > 0}>
-                <span class="finish-review-count">{count()}</span>
-              </Show>
-              <span class="ui-icon">
-                <ChevronDown />
-              </span>
-            </button>
+              <button
+                type="button"
+                class="finish-review-button review-tool"
+                classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
+                aria-expanded={open()}
+                aria-label="Finish Review…"
+                title={`Finish Review…${keyHint(CommandIds.prFinishReview)}`}
+                onClick={() => setOpen(!open())}
+              >
+                <ClipboardCheck />
+                <Show when={count() > 0}>
+                  <span class="finish-review-count finish-review-dot">{count()}</span>
+                </Show>
+              </button>
+            </Show>
             <Show when={open()}>
               <ReviewPanel
                 session={props.session}

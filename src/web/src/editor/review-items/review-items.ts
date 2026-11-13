@@ -160,14 +160,16 @@ export const reviewItems = {
     if (items !== undefined) items.landing = { key, path, line };
   },
   /**
-   * Where a step from `location` starts: the item the last step went to while the cursor is still on its line, so
-   * Escape followed by a step moves on rather than reopening it; otherwise the location itself.
+   * Where a step from `location` starts: the item the last step went to while the cursor is still on its line and the
+   * item is still listed, so Escape followed by a step moves on rather than reopening it; otherwise the location
+   * itself, so a step after a dismiss goes on to the item after the one dismissed.
    */
   resumeFrom(session: ClientSession, location: ItemLocation): ItemKey | ItemLocation {
     const landing = roots.get(session)?.landing;
     return landing != null &&
       landing.line === location.line &&
-      samePath(landing.path, location.path)
+      samePath(landing.path, location.path) &&
+      reviewItems.sequence(session).some((item) => item.key === landing.key)
       ? landing.key
       : location;
   },

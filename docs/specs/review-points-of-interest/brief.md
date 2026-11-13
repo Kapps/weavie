@@ -38,8 +38,9 @@ files, and always sees how many are left. Feedback becomes a checklist instead o
 - **Review header** (unified review): a comment icon, `‹ 3 of 8 ›`, and a filter button, left of the review actions,
   styled as the existing per-file `‹ 1 / 4 ›` stepper. With no current item it shows the total alone; with nothing
   to step through, `0` and disabled arrows. A session with no pull request and no hints shows no stepper.
-- **The scrolled header** condenses to icons (Overview, Undo rejection, Revert pending, Keep all, failing checks)
-  with Review ▾ the one labelled button, so the stepper fits beside the PR's name.
+- **The header's actions are icons** in one row, at the top of the review and scrolled alike: the stepper and
+  filter, Undo rejection, Revert pending, Keep all, and once scrolled, Review with its pending count. Everything in
+  the header is centred on one line.
 - **On the current item**, in every surface: `‹ 3 of 8 ›` in the thread card's action corner, and the count between
   the hint popover's existing arrows.
 - **Filter menu**, three rows with counts, all remembered across sessions and restarts:

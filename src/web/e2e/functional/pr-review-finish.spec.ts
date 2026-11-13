@@ -58,7 +58,7 @@ test("comments queue as drafts in place and submit once with a verdict", async (
 
   await runCommand(page, "Review Changes");
   const button = page.locator(".finish-review-button");
-  await expect(button).toContainText("Finish review");
+  await expect(button).toHaveClass(/finish-review-has/);
   await expect(button.locator(".finish-review-count")).toHaveText("1");
   await runCommand(page, "Finish Review…");
   const panel = page.locator(".finish-review-panel");
@@ -70,7 +70,7 @@ test("comments queue as drafts in place and submit once with a verdict", async (
   await summary.press("ControlOrMeta+Enter");
 
   await expect(panel).toHaveCount(0, { timeout: 10_000 });
-  await expect(button).toHaveText("Review");
+  await expect(button.locator(".finish-review-count")).toHaveCount(0);
   const review = page.locator(".session-overview-comment", { hasText: "One thing inline." });
   await expect(review).toContainText("requested changes");
   // Line comments show their text and place: a lone one reads as a comment, never as a review.

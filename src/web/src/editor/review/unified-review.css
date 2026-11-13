@@ -34,11 +34,12 @@
   outline: none;
 }
 
+/* One row of single-line items and icon tools: every item is centred on the row, so pills and icons line up with text. */
 .unified-review-header {
   z-index: 3;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 4px 8px;
@@ -58,14 +59,11 @@
 
 /* The heading gives way (truncating the PR title) so the actions on the right always stay on screen. */
 .unified-review-heading {
+  align-items: center;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-}
-
-.unified-review-header-actions {
-  flex: none;
 }
 
 .unified-review-kicker,
@@ -87,45 +85,18 @@
   color: var(--diff-removed);
 }
 
-.unified-review-action {
-  background: var(--bg);
-}
-
-.unified-review-action:hover,
-.unified-review-file-action:hover {
-  border-color: var(--accent);
-}
-
-.unified-review-action:disabled:hover {
-  border-color: var(--border);
-}
-
-/* Scrolled into the diffs, the header condenses: icon actions, the PR's identity, and one labelled Review button.
-   They stay the same buttons, borderless, so condensing never changes the header's height or the review's. */
-.unified-review-header-compact .unified-review-action {
-  padding-inline: 5px;
-  border-color: transparent;
-  background: none;
-}
-
-.unified-review-header-compact .unified-review-action:not(.keep, .revert) {
-  color: var(--dim);
-}
-
-.unified-review-header-compact .unified-review-action:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--list-active-bg);
-  color: var(--fg);
-}
-
-/* A rule has no text, so it centres on the row rather than sitting on the baseline. */
-.unified-review-header-rule {
-  display: block;
+/* The actions are one row of same-size icon tools, so they share a centre and one spacing; a rule sets off each group. */
+.unified-review-header-actions {
   flex: none;
-  align-self: center;
+  align-items: center;
+  gap: 2px;
+}
+
+.unified-review-header-rule {
+  flex: none;
   width: 1px;
   height: 16px;
-  margin-inline: 4px;
+  margin-inline: 6px;
   background: var(--border);
 }
 
@@ -133,12 +104,10 @@
   margin-right: 3px;
 }
 
-.unified-review-action.keep,
 .unified-review-file-action.keep {
   color: var(--diff-added);
 }
 
-.unified-review-action.revert,
 .unified-review-file-action.revert {
   color: var(--diff-removed);
 }
@@ -576,7 +545,7 @@
 .unified-review-identity {
   display: inline-flex;
   flex: 0 1 auto;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
   overflow: hidden;

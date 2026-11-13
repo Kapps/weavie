@@ -302,15 +302,16 @@ from.
   badge.
 - **Hint popover** (`HintPopover.tsx`): its two arrow rows run the new commands, with `N of M` between them.
 - **Header** (`UnifiedReviewHeader.tsx`): `ReviewItemStepper` as the first child of
-  `.unified-review-header-actions`, rendered when the session has a pull request or a hint. It shows a comment
-  icon, the position control, and the filter button. Scrolled into the diffs, the header condenses so the PR's
-  name keeps its room: Overview, Undo rejection, Revert pending and Keep all become borderless icons (Undo and
-  Revert no longer share an icon), failing checks read as ⊗ with a count, and Review ▾ is the one labelled
-  button.
-- **Position control**: one component, `‹ N of M ›`, used by the header and the thread card. Its look is the
-  per-file stepper's, so `.unified-review-file-step` (`src/web/src/editor/review/unified-review.css:224`) moves to
-  `primitives.css` as `.ui-stepper`, used by all three; the card renders in plain tabs, where review CSS may not be
-  loaded.
+  `.unified-review-header-actions`, rendered when the session has a pull request or a hint: the position control
+  and the filter button. The header's actions are one row of same-size icon tools (`.review-tool`, 24px, 2px
+  apart) in both states, with a rule between groups: the stepper; Undo rejection, Revert pending (red), Keep all
+  (green); and, once scrolled with a pull request, Review as an icon carrying the pending count. Every item in the
+  header is centred on the row, so pills, icons and text line up. Scrolled, the heading shows Overview ↑, the PR's
+  state, title, number and failing checks (⊗ with a count).
+- **Position control**: one component, `‹ N of M ›`, used by the header, the thread card and the hint popover. Its
+  arrows are `.review-tool`s and the count sits in the same fixed-height box, so they share a centre; the card and
+  popover set `--review-tool-size: 20px` to match their rows. The per-file stepper's styles moved to `primitives.css`
+  as `.ui-stepper`.
 - **Filter menu**: `ContextMenu` with three rows, each dispatching its toggle command, `checked` from the option
   and the count as `detail`. It closes on each click, as every context menu does. It opens from a local
   `ContextMenuState` signal, as the status line's diff menu does (`src/web/src/agent/AgentStatusLine.tsx:64`).

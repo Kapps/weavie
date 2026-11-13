@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ListFilter, MessageSquare } from "lucide-solid";
+import { ChevronLeft, ChevronRight, ListFilter } from "lucide-solid";
 import { createSignal, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { ContextMenu, type ContextMenuState } from "../../chrome/ContextMenu";
@@ -23,6 +23,7 @@ export function ItemPosition(props: { session: ClientSession; item: ItemKey | nu
   const step = (id: string, label: string, icon: JSX.Element) => (
     <button
       type="button"
+      class="review-tool"
       title={`${label}${keyHint(id)}`}
       aria-label={label}
       disabled={position().total === 0}
@@ -33,9 +34,9 @@ export function ItemPosition(props: { session: ClientSession; item: ItemKey | nu
     </button>
   );
   return (
-    <span class="ui-stepper review-item-position">
+    <span class="review-item-position">
       {step(CommandIds.reviewPreviousItem, "Previous Comment or Hint", <ChevronLeft />)}
-      <span>
+      <span class="review-item-count">
         {position().index === null
           ? position().total
           : `${position().index} of ${position().total}`}
@@ -45,7 +46,7 @@ export function ItemPosition(props: { session: ClientSession; item: ItemKey | nu
   );
 }
 
-/** The unified review header's stepper: position, the step commands, and the filter menu. */
+/** The unified review header's stepper: position, the step commands, and the filter menu, as header tools. */
 export function ReviewItemStepper(props: { session: ClientSession }): JSX.Element {
   const run = captureCommandRunnerFor(props.session, new Map());
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
@@ -84,23 +85,17 @@ export function ReviewItemStepper(props: { session: ClientSession }): JSX.Elemen
   };
   return (
     <Show when={shown()}>
-      <span class="review-item-stepper">
-        <span class="ui-icon review-item-icon">
-          <MessageSquare />
-        </span>
-        <ItemPosition session={props.session} item={null} />
-        <span class="ui-stepper">
-          <button
-            type="button"
-            title="Filter Comments and Hints"
-            aria-label="Filter Comments and Hints"
-            aria-haspopup="menu"
-            onClick={(event) => openFilter(event.currentTarget)}
-          >
-            <ListFilter />
-          </button>
-        </span>
-      </span>
+      <ItemPosition session={props.session} item={null} />
+      <button
+        type="button"
+        class="review-tool"
+        title="Filter Comments and Hints"
+        aria-label="Filter Comments and Hints"
+        aria-haspopup="menu"
+        onClick={(event) => openFilter(event.currentTarget)}
+      >
+        <ListFilter />
+      </button>
       <Show when={menu()}>
         {(state) => <ContextMenu menu={state()} onClose={() => setMenu(null)} />}
       </Show>

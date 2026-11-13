@@ -95,7 +95,7 @@ export function OverviewTitle(props: {
               </Show>
               <ReviewBranchLink shown={!props.branchReview} />
               <Show when={props.submit}>
-                <FinishReview session={props.session} />
+                <FinishReview session={props.session} iconOnly={false} />
               </Show>
             </div>
           </div>

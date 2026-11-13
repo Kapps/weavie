@@ -254,3 +254,43 @@ test.describe("without a pull request", () => {
     await expect.poll(() => lineNumber(page)).toBe(83);
   });
 });
+
+test.describe("dismissing as you go", () => {
+  const addReviewHint = (line: number, text: string): FakeStep => ({
+    op: "mcp",
+    tool: "addReviewHint",
+    args: { path: "long.ts", line, severity: "bug", text },
+  });
+  test.use({
+    prScenario: false,
+    fakeScript: {
+      steps: [
+        addReviewHint(4, "Hint four"),
+        addReviewHint(8, "Hint eight"),
+        addReviewHint(12, "Hint twelve"),
+        addReviewHint(16, "Hint sixteen"),
+      ],
+    },
+  });
+
+  test("after a dismiss, Next goes on to the hint after the dismissed one", async ({
+    page,
+    weavie,
+  }) => {
+    await openFile(page, "long.ts");
+    await expect.poll(() => weavie.fakeLog().match(/^addReviewHint -> /gm)?.length ?? 0).toBe(4);
+    await expect(page.locator(".weavie-hint-pill")).toHaveCount(4);
+    const title = popover(page).locator(".weavie-hint-title");
+    await runCommand(page, "Next Comment or Hint");
+    await expect(title).toHaveText("Hint four");
+    await next(page);
+    await next(page);
+    await expect(title).toHaveText("Hint twelve");
+
+    await popover(page).getByRole("button", { name: "Dismiss hint" }).click();
+    await expect(popover(page)).toHaveCount(0);
+    await next(page);
+    await expect(title).toHaveText("Hint sixteen");
+    await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
+  });
+});

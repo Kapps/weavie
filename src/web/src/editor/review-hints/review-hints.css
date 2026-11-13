@@ -139,13 +139,16 @@
   font-weight: var(--font-weight-emphasis);
 }
 
+/* The position control's tools match these buttons' 20px height, so the row shares one centre. */
 .weavie-hint-actions {
+  --review-tool-size: 20px;
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-left: auto;
 }
 
-.weavie-hint-actions button {
+.weavie-hint-actions > button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -157,7 +160,7 @@
   cursor: pointer;
 }
 
-.weavie-hint-actions button:hover {
+.weavie-hint-actions > button:hover {
   color: var(--fg);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
 }

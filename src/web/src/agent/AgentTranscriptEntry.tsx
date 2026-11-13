@@ -8,7 +8,9 @@ import { displayPath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
+import { AgentBlockAddedEntry } from "./AgentBlockAddedEntry";
 import { AgentBlockEntry } from "./AgentBlockEntry";
+import { AgentDashboardEntry } from "./AgentDashboardEntry";
 import { Disclosure } from "./AgentDisclosure";
 import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
@@ -71,7 +73,15 @@ export function TranscriptEntry(props: {
   }
   const block = props.entry.block;
   if (block !== undefined) {
-    return <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} />;
+    return (
+      <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} height={null} />
+    );
+  }
+  if (props.entry.kind === "dashboard") {
+    return <AgentDashboardEntry entry={props.entry} session={props.session} />;
+  }
+  if (props.entry.kind === "block-added") {
+    return <AgentBlockAddedEntry entry={props.entry} />;
   }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;

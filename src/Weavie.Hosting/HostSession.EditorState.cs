@@ -46,22 +46,24 @@ public sealed partial class HostSession {
 		}
 	}
 
-	internal void OpenEditorOverlay(string path, string kind) => PublishEditorEdit(
+	internal void OpenEditorOverlay(string path, string kind, EditorOpenIntent intent) => PublishEditorEdit(
 		current => WithOpen(current, path, preview: false, scratch: false, kind),
 		"openOverlay",
 		WireJson.Default.EditorOverlayOpened,
-		revision => new(path, kind, revision));
+		revision => new(path, kind, IntentText(intent), revision));
 
 	private void PublishEditorFileOpen(string path, int? line, bool preview, bool rendered, bool scratch, EditorOpenIntent intent) =>
 		PublishEditorEdit(
 			current => WithOpen(current, path, preview, scratch, kind: null),
 			"openFile",
 			WireJson.Default.EditorFileOpened,
-			revision => new(path, line, preview, rendered, scratch, intent switch {
-				EditorOpenIntent.Navigation => "navigation",
-				EditorOpenIntent.Background => "background",
-				_ => throw new ArgumentOutOfRangeException(nameof(intent)),
-			}, revision));
+			revision => new(path, line, preview, rendered, scratch, IntentText(intent), revision));
+
+	private static string IntentText(EditorOpenIntent intent) => intent switch {
+		EditorOpenIntent.Navigation => "navigation",
+		EditorOpenIntent.Background => "background",
+		_ => throw new ArgumentOutOfRangeException(nameof(intent)),
+	};
 
 	private void PublishEditorClose(string path) => PublishEditorEdit(
 		current => WithClosed(current, path),
@@ -90,7 +92,7 @@ public sealed partial class HostSession {
 
 	private static EditorSession WithOpen(EditorSession current, string path, bool preview, bool scratch, string? kind) {
 		var open = current.Open.ToList();
-		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
+		int existing = open.FindIndex(entry => IsTab(entry, path, OperatingSystem.IsWindows()));
 		if (existing >= 0) {
 			var entry = open[existing];
 			bool sameKind = (entry.Kind ?? "file") == (kind ?? "file");
@@ -119,27 +121,30 @@ public sealed partial class HostSession {
 	}
 
 	private static EditorSession? WithClosed(EditorSession current, string path) {
-		int index = current.Open.ToList().FindIndex(entry => SameEditorPath(entry.Path, path));
+		bool windows = OperatingSystem.IsWindows();
+		int index = current.Open.ToList().FindIndex(entry => IsTab(entry, path, windows));
 		if (index < 0) return null;
-		var open = current.Open.Where(entry => !SameEditorPath(entry.Path, path)).ToArray();
+		var closed = current.Open[index];
+		var open = current.Open.Where(entry => !IsTab(entry, path, windows)).ToArray();
 		string? active = current.Active;
-		if (active is not null && SameEditorPath(active, path)) {
+		if (active is not null && IsTab(closed, active, windows)) {
 			active = open.Length == 0 ? null : open[Math.Min(index, open.Length - 1)].Path;
 		}
 
 		return current with { Active = active, Open = open };
 	}
 
-	private static bool SameEditorPath(string left, string right) =>
+	// A file path follows its file system's case rule; any other tab's path is an id, such as a dashboard's.
+	internal static bool IsTab(EditorSessionEntry entry, string path, bool caseInsensitiveFiles) =>
 		string.Equals(
-			left,
-			right,
-			OperatingSystem.IsWindows()
+			entry.Path,
+			path,
+			entry.IsFile && caseInsensitiveFiles
 				? StringComparison.OrdinalIgnoreCase
 				: StringComparison.Ordinal);
 }
 
-internal sealed record EditorOverlayOpened(string Path, string Kind, long Revision);
+internal sealed record EditorOverlayOpened(string Path, string Kind, string Intent, long Revision);
 
 internal sealed record EditorFileOpened(string Path, int? Line, bool Preview, bool Rendered, bool Scratch, string Intent, long Revision);
 

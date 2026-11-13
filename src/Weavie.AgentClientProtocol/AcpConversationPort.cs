@@ -18,11 +18,16 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 		lock (transitionGate) return Detached ? null : view.Block(id);
 	}
 
-	/// <summary>Applies a claimed block operation and commits its row; false when it no longer applies.</summary>
-	public bool CommitBlock(AcpConversationState state, AgentBlockOperation operation, AgentPaneMessage row) {
+	/// <summary>This conversation's dashboard row <paramref name="id"/>.</summary>
+	public AgentPaneMessage? Dashboard(string id) {
+		lock (transitionGate) return Detached ? null : view.Dashboard(id);
+	}
+
+	/// <summary>Applies a claimed block operation and commits its rows; false when it no longer applies.</summary>
+	public bool CommitBlock(AcpConversationState state, AgentBlockOperation operation, IReadOnlyList<AgentPaneMessage> rows) {
 		lock (transitionGate) {
 			if (!Publishing || AgentBlockRules.Apply(view.Block(operation.Id), operation, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is not { } block) return false;
-			OnCommitBlock(state, block, row);
+			OnCommitBlock(state, block, rows);
 			return true;
 		}
 	}
@@ -116,7 +121,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 
 	protected abstract AgentEventFeedback OnObserve(AgentEvent value);
 	protected abstract void OnEmit(AcpConversationState state, AgentPaneMessage message);
-	protected abstract void OnCommitBlock(AcpConversationState state, AgentBlock block, AgentPaneMessage row);
+	protected abstract void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyList<AgentPaneMessage> rows);
 	protected abstract void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages);
 	protected abstract void OnControlsChanged();
 	protected abstract void OnUsageChanged(AgentUsageSnapshot snapshot);
@@ -157,14 +162,15 @@ public sealed partial class AcpAgentSession {
 			});
 		}
 
-		// The block is saved before its row, so a crash between them leaves only a block no history shows.
-		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, AgentPaneMessage row) {
-			if (Prepare(row) is not { } prepared) return;
+		// The block is saved before its rows, so a crash between them leaves only a block no history shows.
+		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyList<AgentPaneMessage> rows) {
+			AgentPaneMessage[] prepared = [.. rows.Select(Prepare).OfType<AgentPaneMessage>()];
+			if (prepared.Length != rows.Count) return;
 			var blockState = new AgentBlockState(runtime.Definition.Id, conversationId, block);
 			owner.Output.WriteBlock(blockState, prepared, () => {
 				if (owner._storageFailed) throw StorageUnavailable();
 				Archive(() => owner._sessions.SaveBlock(owner._context.Workspace, blockState));
-				OnSave(state, [prepared]);
+				OnSave(state, prepared);
 			});
 		}
 

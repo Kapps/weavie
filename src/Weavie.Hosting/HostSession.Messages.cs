@@ -204,10 +204,9 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
-		messages.Handle("setAsideCollapsed", MessageActivity.ActionFailed("Updating a side conversation"), WireJson.Default.AgentAsideCollapsedMessage, (message, _) => {
-			var sideConversations = Agent.SideConversations
-				?? throw new InvalidOperationException("This agent does not support side conversations.");
-			sideConversations.SetAsideCollapsed(message.ConversationId, message.Collapsed);
+		messages.Handle("setCardCollapsed", MessageActivity.ActionFailed("Collapsing a card"), WireJson.Default.AgentCardCollapsedMessage, (message, _) => {
+			var cards = Agent.Cards ?? throw new InvalidOperationException("This agent has no cards.");
+			cards.SetCardCollapsed(new(message.ConversationId, message.DashboardId), message.Collapsed);
 			return Task.CompletedTask;
 		});
 		messages.Handle(
@@ -379,7 +378,7 @@ public sealed partial class HostSession {
 
 	internal sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
 
-	internal sealed record AgentAsideCollapsedMessage(string ConversationId, bool Collapsed);
+	internal sealed record AgentCardCollapsedMessage(string? ConversationId, string? DashboardId, bool Collapsed);
 }
 
 internal sealed record AttachmentState(string Id, string Status, string Error);

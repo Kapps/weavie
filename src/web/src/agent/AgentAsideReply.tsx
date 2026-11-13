@@ -10,6 +10,8 @@ import { agentImageBlob } from "./pasted-images";
 export function AgentAsideReply(props: {
   session: ClientSession;
   conversationId: string;
+  /** Whether the box takes focus as it opens: only in the view where Reply was pressed. */
+  autofocus: boolean;
   onClose: () => void;
 }): JSX.Element {
   const composer = replyComposer(props.session, props.conversationId);
@@ -31,9 +33,11 @@ export function AgentAsideReply(props: {
         pasteImage: (mime, dataB64) => composer.uploadImage(agentImageBlob(mime, dataB64)),
       })),
     );
-    queueMicrotask(() => {
-      if (textarea.isConnected) textarea.focus();
-    });
+    if (props.autofocus) {
+      queueMicrotask(() => {
+        if (textarea.isConnected) textarea.focus();
+      });
+    }
   });
   const submit = (): void => {
     if (canSubmit()) composer.submit();

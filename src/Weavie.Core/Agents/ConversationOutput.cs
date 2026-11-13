@@ -38,12 +38,13 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 		}
 	}
 
-	/// <summary>Persists a block's latest state and its reference row, then enqueues both.</summary>
-	public void WriteBlock(AgentBlockState state, AgentPaneMessage row, Action persist) {
+	/// <summary>Persists a block's latest state and the rows that show it, then enqueues them.</summary>
+	public void WriteBlock(AgentBlockState state, IReadOnlyList<AgentPaneMessage> rows, Action persist) {
 		ArgumentNullException.ThrowIfNull(state);
+		ArgumentNullException.ThrowIfNull(rows);
 		lock (_gate) {
 			persist();
-			sink.Live(Record(_ledger.Store(row)));
+			foreach (var row in rows) sink.Live(Record(_ledger.Store(row)));
 			sink.Block(SetBlock(state));
 		}
 	}
@@ -74,6 +75,11 @@ public sealed class ConversationOutput(IConversationOutputSink sink) {
 	/// <summary>The current state of block <paramref name="blockId"/> in one conversation.</summary>
 	public AgentBlock? Block(string providerId, string? conversationId, string blockId) {
 		lock (_gate) return _blocks.GetValueOrDefault((providerId, conversationId, blockId))?.State.Block;
+	}
+
+	/// <summary>The row of dashboard <paramref name="dashboardId"/> in one conversation.</summary>
+	public AgentPaneMessage? Dashboard(string providerId, string? conversationId, string dashboardId) {
+		lock (_gate) return _ledger.ConversationRows(providerId, conversationId, active: false).FirstOrDefault(row => AgentDashboards.IsMarker(row, dashboardId));
 	}
 
 	/// <summary>Returns a consistent full snapshot or changes since the client's baseline.</summary>
@@ -135,6 +141,9 @@ public sealed class ConversationView(ConversationOutput output, string providerI
 
 	/// <summary>This conversation's current block <paramref name="blockId"/>.</summary>
 	public AgentBlock? Block(string blockId) => output.Block(providerId, conversationId, blockId);
+
+	/// <summary>This conversation's dashboard row <paramref name="dashboardId"/>.</summary>
+	public AgentPaneMessage? Dashboard(string dashboardId) => output.Dashboard(providerId, conversationId, dashboardId);
 
 	/// <summary>The block whose reference row <paramref name="retraction"/> removes, when it removes one.</summary>
 	public string? RetractedBlock(AgentPaneMessage retraction) =>

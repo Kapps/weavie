@@ -21,9 +21,9 @@ public sealed class AcpBlockTests {
 	public async Task ShowBlock_BecomesItsOwnRow_ForEveryRelay(string relay) {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block:{relay}:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:{relay}:showBlock:{Chart}", 1);
 
-		var rows = fixture.Session.Output.ReadHistory(null, null).Messages.Select(record => record.Message).ToList();
+		var rows = fixture.Rows();
 		var row = Assert.Single(rows, message => message.ItemId == "tool:block-call-1");
 		Assert.Equal(("item-completed", "block", "chart", "p95 latency", "p95"), (row.Type, row.ItemType, row.Category, row.Summary, row.BlockId));
 		Assert.Null(row.Text);
@@ -39,7 +39,7 @@ public sealed class AcpBlockTests {
 	public async Task ShowBlock_WithoutItsTokenOnTheRow_SaysTheBlockWasNotShown(string relay) {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block:{relay}:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:{relay}:showBlock:{Chart}", 1);
 
 		await fixture.WaitForMessageAsync(message => message.Type == "notice"
 			&& message.Text == "Fake ACP did not report the result of showBlock, so block 'p95' was not shown.");
@@ -50,9 +50,9 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task UpdateBlock_ChangesTheBlockInPlace_AndLeavesNoRowOrDataInTheJournal() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 
-		await CallAsync(fixture, $"block:codex:updateBlock:{Append}", 2);
+		await fixture.TurnAsync($"block:codex:updateBlock:{Append}", 2);
 
 		var block = fixture.Session.Output.Block("fake", null, "p95")!;
 		Assert.Equal([344, 98765], block.Chart!.Series[0].Points.Select(point => point[1].Number!.Value));
@@ -70,9 +70,9 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task UpdateBlock_UnderATitleThatDoesNotNameIt_StillAppliesAndRemovesItsRow() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 
-		await CallAsync(fixture, $"block:untitled:updateBlock:{Append}", 2);
+		await fixture.TurnAsync($"block:untitled:updateBlock:{Append}", 2);
 
 		Assert.Equal(98765, fixture.Session.Output.Block("fake", null, "p95")!.Chart!.Series[0].Points[1][1].Number);
 		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:block-call-2" && message.Type == "item-started");
@@ -85,7 +85,7 @@ public sealed class AcpBlockTests {
 	public async Task AReplyThatIsOnlyTheNoReplyMessage_IsNeverShown_AndLeavesItsMessageIdForRewind(string chunks) {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, "say:" + chunks);
+		await fixture.TurnAsync("say:" + chunks, 1);
 
 		var reply = Assert.Single(fixture.Messages, message => message.ItemType == "agentMessage");
 		Assert.Equal(("item-retracted", (string?)null), (reply.Type, reply.Text));
@@ -101,7 +101,7 @@ public sealed class AcpBlockTests {
 	public async Task AReplyThatOnlyStartsLikeTheNoReplyMessage_IsShownWhole(string chunks, string text) {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, "say:" + chunks);
+		await fixture.TurnAsync("say:" + chunks, 1);
 
 		var reply = Assert.Single(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.ItemType == "agentMessage");
 		Assert.Equal(("item-completed", text), (reply.Message.Type, reply.Message.Text));
@@ -111,9 +111,9 @@ public sealed class AcpBlockTests {
 	public async Task ParallelCalls_EachClaimTheirOwnRow_WhateverOrderTheirResultsArrive() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, "block-parallel:claude:showBlock:" + Chart.Replace("p95", "a", StringComparison.Ordinal) + "\n" + Chart.Replace("p95", "b", StringComparison.Ordinal));
+		await fixture.TurnAsync("block-parallel:claude:showBlock:" + Chart.Replace("p95", "a", StringComparison.Ordinal) + "\n" + Chart.Replace("p95", "b", StringComparison.Ordinal), 1);
 
-		var rows = fixture.Session.Output.ReadHistory(null, null).Messages.Select(record => record.Message).ToList();
+		var rows = fixture.Rows();
 		Assert.Equal("a", Assert.Single(rows, message => message.ItemId == "tool:block-call-1").BlockId);
 		Assert.Equal("b", Assert.Single(rows, message => message.ItemId == "tool:block-call-2").BlockId);
 	}
@@ -122,7 +122,7 @@ public sealed class AcpBlockTests {
 	public async Task SubagentCalls_AreNotShown_AndSaySo() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block-subagent:showBlock:{Chart}");
+		await fixture.TurnAsync($"block-subagent:showBlock:{Chart}", 1);
 
 		await fixture.WaitForMessageAsync(message => message.Type == "notice"
 			&& message.Text == "Blocks from subagents are not shown, so block 'p95' was not shown.");
@@ -133,7 +133,7 @@ public sealed class AcpBlockTests {
 	public async Task RefusedCalls_FailTheirRow_WithTheReason() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block:claude:updateBlock:{Append}");
+		await fixture.TurnAsync($"block:claude:updateBlock:{Append}", 1);
 
 		var row = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:block-call-1" && message.Status == "failed");
 		Assert.Contains("does not exist", row.Text, StringComparison.Ordinal);
@@ -142,7 +142,7 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task Clear_DeletesTheConversationsBlocks() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 
 		fixture.Session.StartNewConversation();
 		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
@@ -154,9 +154,9 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task Rewind_KeepsEarlierBlocks_AndDeletesLaterOnes() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart.Replace("p95", "kept", StringComparison.Ordinal)}");
-		await CallAsync(fixture, "alpha", 2);
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart.Replace("p95", "dropped", StringComparison.Ordinal)}", 3);
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart.Replace("p95", "kept", StringComparison.Ordinal)}", 1);
+		await fixture.TurnAsync("alpha", 2);
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart.Replace("p95", "dropped", StringComparison.Ordinal)}", 3);
 		await fixture.WaitForControlsAsync(state => state.Rewindable);
 
 		await fixture.Session.RewindBeforeAsync("3");
@@ -171,7 +171,7 @@ public sealed class AcpBlockTests {
 	public async Task ARefusedTurn_DeletesTheBlockItShowed() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block-refused:first:showBlock:{Chart}");
+		await fixture.TurnAsync($"block-refused:first:showBlock:{Chart}", 1);
 
 		Assert.Null(fixture.Session.Output.Block("fake", null, "p95"));
 		Assert.Empty(StoredBlocks(fixture));
@@ -181,7 +181,7 @@ public sealed class AcpBlockTests {
 	public async Task Show_AddsNoJournalEventBeyondTheCallsOwn_AndRestoresFromTheStore() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 
 		var events = fixture.Sessions.ReadMessages("fake", fixture.Workspace).Where(message => message.ItemId == "tool:block-call-1").ToList();
 		Assert.Equal(["item-started", "item-started", "item-completed"], events.Select(message => message.Type));
@@ -193,10 +193,10 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task Appends_ApplyInTheOrderTheirRowsAreClaimed() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 		static string Point(int value) => $$$"""{"id":"p95","append":{"series":[{"name":"now","points":[[{{{1794490800000 + value}}},{{{value}}}]]}],"keep":10}}""";
 
-		await CallAsync(fixture, $"block-parallel:codex:updateBlock:{Point(1)}\n{Point(2)}", 2);
+		await fixture.TurnAsync($"block-parallel:codex:updateBlock:{Point(1)}\n{Point(2)}", 2);
 
 		Assert.Equal([318, 344, 2, 1], fixture.Session.Output.Block("fake", null, "p95")!.Chart!.Series[0].Points.Select(point => point[1].Number!.Value));
 	}
@@ -204,7 +204,7 @@ public sealed class AcpBlockTests {
 	[Fact]
 	public async Task ASideConversationsBlocks_AreItsOwn() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		await CallAsync(fixture, $"block:claude:showBlock:{Chart}");
+		await fixture.TurnAsync($"block:claude:showBlock:{Chart}", 1);
 
 		fixture.AskAside($"block:claude:showBlock:{Chart.Replace("p95 latency", "side latency", StringComparison.Ordinal)}");
 		var row = await fixture.WaitForMessageAsync(message => message.ConversationId is not null && message.ItemType == "block");
@@ -227,10 +227,4 @@ public sealed class AcpBlockTests {
 
 	private static string Json(AgentBlock block) => System.Text.Json.JsonSerializer.Serialize(block, AgentBlockJson.Default.AgentBlock);
 
-	private static Task CallAsync(AcpAgentSessionFixture fixture, string prompt) => CallAsync(fixture, prompt, 1);
-
-	private static async Task CallAsync(AcpAgentSessionFixture fixture, string prompt, int turn) {
-		fixture.Submit(prompt);
-		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == turn.ToString(System.Globalization.CultureInfo.InvariantCulture));
-	}
 }

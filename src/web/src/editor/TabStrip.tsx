@@ -1,18 +1,21 @@
 import {
   Activity,
   Bot,
+  ChartLine,
   ChevronLeft,
   ChevronRight,
   Code,
   Eye,
   FileText,
   Globe,
+  MessageSquare,
   Pin,
   X,
 } from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { backgroundItem } from "../agent/agent-background-store";
-import { subagentForTab } from "../agent/subagent-tab";
+import { cardName } from "../agent/agent-cards";
+import { cardForTabEntry } from "../agent/card-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
 import { formatKey } from "../commands/keybindings";
@@ -28,7 +31,7 @@ import type { EditorSessionEntry } from "./session-types";
 import { sourceTabIcon } from "./source/source-icons";
 import { sourceDoc } from "./source/source-store";
 import { captureTabCommands } from "./tab-command-bindings";
-import { isFileTab } from "./tab-entry";
+import { isFileTab, type TabKind } from "./tab-entry";
 import { isPreviewMode } from "./view-mode-store";
 
 // The structural fields the strip renders. Excludes view state and the dirty marker, so neither cursor moves nor
@@ -40,6 +43,14 @@ interface TabView {
   preview: boolean;
   pinned: boolean;
 }
+
+// A card tab's name before its transcript has loaded.
+const cardKindNames = new Map<TabKind, string>([
+  ["subagent", "Subagent"],
+  ["aside", "BTW"],
+  ["dashboard", "Dashboard"],
+  ["block", "Chart"],
+]);
 
 // A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
 function tabLabel(view: TabView, session: ClientSession | null): string {
@@ -57,9 +68,10 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
   if (view.kind === "plan") {
     return agentPlan(session, view.path)?.title || "Plan";
   }
-  if (view.kind === "subagent") {
-    const name = subagentForTab(session, view.path)?.subagent?.name;
-    return name === undefined ? "Subagent" : `Subagent · ${name}`;
+  const kindName = cardKindNames.get(view.kind ?? "file");
+  if (kindName !== undefined) {
+    const entry = cardForTabEntry(session, view.kind!, view.path);
+    return entry === undefined ? kindName : cardName(entry);
   }
   if (view.kind === "task") {
     const name = backgroundItem(session, view.path)?.name;
@@ -230,7 +242,9 @@ export function TabStrip(props: {
                   pinned: view.pinned,
                 }}
                 title={
-                  view.kind === "plan" || view.kind === "subagent" || view.kind === "task"
+                  view.kind === "plan" ||
+                  view.kind === "task" ||
+                  cardKindNames.has(view.kind ?? "file")
                     ? tabLabel(view, props.session())
                     : view.path
                 }
@@ -258,6 +272,12 @@ export function TabStrip(props: {
                   </Show>
                   <Show when={view.kind === "subagent"}>
                     <Bot size={13} class="editor-tab-icon" />
+                  </Show>
+                  <Show when={view.kind === "aside"}>
+                    <MessageSquare size={13} class="editor-tab-icon" />
+                  </Show>
+                  <Show when={view.kind === "dashboard" || view.kind === "block"}>
+                    <ChartLine size={13} class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "task"}>
                     <Activity size={13} class="editor-tab-icon" />

@@ -1,11 +1,11 @@
-import { type JSX, onMount, Show } from "solid-js";
+import type { JSX } from "solid-js";
+import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { liveKeyLabel } from "../commands/keys-live";
-import { CommandIds } from "../commands/types";
-import { AgentAsideReply } from "./AgentAsideReply";
-import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
+import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
+import { AgentCardShell } from "./AgentCardShell";
+import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { replyComposer } from "./composer-store";
+import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -19,38 +19,25 @@ export function AsideEntry(props: {
   if (typeof conversationId !== "string" || conversationId.length === 0) {
     throw new Error("An aside entry requires a conversation id.");
   }
-  const composer = replyComposer(props.session, conversationId);
-  const replying = () => composer.state().replyOpen;
-  let card: HTMLElement | undefined;
+  const card = { kind: "aside", conversationId } as const;
   const collapsed = () => props.entry.asideCollapsed === true;
-  const toggle = () =>
-    props.session
-      .feature("agent")
-      .publish("setAsideCollapsed", { conversationId, collapsed: !collapsed() });
-  const toggleLabel = () => `${collapsed() ? "Expand" : "Collapse"} ${props.entry.label}`;
-  const toggleTitle = () => {
-    const key = liveKeyLabel(CommandIds.toggleAgentAside);
-    return key === "" ? toggleLabel() : `${toggleLabel()} (${key})`;
-  };
-  onMount(() => registerNestedToggle(card!, toggle));
+  const toggle = () => setCardCollapsed(props.session, card, !collapsed());
+  const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
 
   return (
-    <article ref={card} class="agent-aside" data-agent-aside={props.entry.conversationId}>
-      <button
-        type="button"
-        class="agent-aside-head"
-        aria-label={toggleLabel()}
-        aria-expanded={!collapsed()}
-        title={toggleTitle()}
-        onClick={toggle}
-      >
-        <span>
-          {collapsed() ? "▸" : "▾"} {props.entry.label}
-        </span>
+    <AgentCardShell
+      label={props.entry.label}
+      collapsed={collapsed()}
+      meta={
         <Show when={props.entry.status !== null}>
           <small>{props.entry.status}</small>
         </Show>
-      </button>
+      }
+      onToggle={toggle}
+      card={card}
+      onOwn={own}
+      data={{ "data-agent-aside": conversationId }}
+    >
       <div>
         <NestedTranscript
           currentThought={props.entry.currentThought ?? null}
@@ -63,27 +50,13 @@ export function AsideEntry(props: {
           session={props.session}
         />
         <Show when={!collapsed() && props.entry.asideReplyable !== false}>
-          <Show
-            when={replying()}
-            fallback={
-              <button
-                type="button"
-                class="agent-aside-reply-button ui-button ui-button-content"
-                disabled={props.entry.asideActive === true}
-                onClick={() => composer.setOpen(true)}
-              >
-                Reply
-              </button>
-            }
-          >
-            <AgentAsideReply
-              session={props.session}
-              conversationId={conversationId}
-              onClose={() => composer.setOpen(false)}
-            />
-          </Show>
+          <AgentAsideReplyBox
+            session={props.session}
+            conversationId={conversationId}
+            disabled={props.entry.asideActive === true}
+          />
         </Show>
       </div>
-    </article>
+    </AgentCardShell>
   );
 }

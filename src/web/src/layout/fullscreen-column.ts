@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import { fullscreenWidth, setFullscreenWidth } from "../chrome/rail-state";
-import { createWidthDrag } from "../chrome/width-drag";
+import { createResizeDrag } from "../chrome/resize-drag";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 
 const MIN_WIDTH = 480;
@@ -15,7 +15,7 @@ export function createFullscreenColumn(): {
 } {
   const [center, setCenter] = createSignal(currentEditorOptions().fullscreenCenter);
   onCleanup(onEditorOptionsChanged((options) => setCenter(options.fullscreenCenter)));
-  const drag = createWidthDrag({
+  const drag = createResizeDrag({
     saved: fullscreenWidth,
     save: setFullscreenWidth,
     measure: (start) => {
@@ -38,7 +38,7 @@ export function createFullscreenColumn(): {
   return {
     // The pane area's right edge is the window's right edge; its local window midpoint is 100% - 50vw.
     style: () =>
-      `--fullscreen-width:${drag.width() === FILL_WIDTH ? "100%" : `${drag.width()}px`};` +
+      `--fullscreen-width:${drag.size() === FILL_WIDTH ? "100%" : `${drag.size()}px`};` +
       `--fullscreen-center:${center() === "window" ? "calc(100% - 50vw)" : "50%"}`,
     start: drag.start,
   };

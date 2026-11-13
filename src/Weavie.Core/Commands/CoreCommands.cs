@@ -146,19 +146,19 @@ public static partial class CoreCommands {
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
 
-	/// <summary>Toggles the focused or newest side conversation.</summary>
+	/// <summary>Collapses or expands one card of the agent pane: a named one, or the one last pressed or focused.</summary>
 	public const string ToggleAgentAside = "weavie.agent.toggleAside";
 
 	/// <summary>Stops one background task of the focused agent, or its most recently started stoppable one.</summary>
 	public const string StopBackgroundTask = "weavie.agent.stopBackgroundTask";
 
-	/// <summary>Opens one subagent's read-only transcript as an editor tab.</summary>
-	public const string OpenSubagent = "weavie.agent.openSubagent";
+	/// <summary>Opens one card of the agent pane in an editor tab: a named one, or the one last pressed or focused.</summary>
+	public const string OpenAgentCard = "weavie.agent.openCard";
 
 	/// <summary>Opens one background item of the focused agent in its own editor tab.</summary>
 	public const string OpenBackgroundItem = "weavie.agent.openBackgroundItem";
 
-	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
+	/// <summary>Moves focus to the strip of running work and cards above the focused agent's composer.</summary>
 	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
 
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
@@ -1132,16 +1132,21 @@ public static partial class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ToggleAgentAside,
-			Title = "Toggle BTW Conversation",
+			Title = "Collapse or Expand Card",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Expand or collapse the focused side conversation, or the newest visible one.",
-			Aliases = ["collapse btw", "expand btw", "toggle side conversation"],
+			Description = "Collapse or expand the BTW, subagent, or dashboard card last pressed or focused in the agent pane.",
+			Aliases = ["collapse btw", "expand btw", "toggle side conversation", "collapse dashboard", "expand dashboard"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
-			When = "agentFocused",
+			// Only while the keyboard is in the agent pane, so Alt+B reaches a shell or the editor once it has moved there.
+			When = "agentFocused && agentCardFocused",
+			ArgsSchemaJson = "{\"kind\":{\"type\":\"string\",\"enum\":[\"aside\",\"dashboard\"]},"
+				+ "\"conversationId\":{\"type\":[\"string\",\"null\"],\"description\":\"The card's conversation; null for the main one\"},"
+				+ "\"dashboardId\":{\"type\":\"string\"},"
+				+ "\"collapsed\":{\"type\":\"boolean\",\"description\":\"Collapse (true) or expand (false) the named card; name no card to toggle the focused one\"}}",
 		});
 
-		// Neither has a default keybinding: background work is occasional, and the tray already offers both.
+		// Neither has a default keybinding: background work is occasional, and the strip already offers both.
 		registry.Register(new CommandDefinition {
 			Id = StopBackgroundTask,
 			Title = "Stop Background Task",
@@ -1155,13 +1160,17 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = OpenSubagent,
-			Title = "Open Subagent Transcript",
+			Id = OpenAgentCard,
+			Title = "Open Card in Tab",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Open one subagent's whole read-only transcript as an editor tab that follows it live.",
-			ShowInPalette = false,
-			ArgsSchemaJson = "{\"conversationId\":{\"type\":\"string\",\"description\":\"The subagent's conversation id\"}}",
+			Description = "Open the dashboard, BTW, subagent, or chart last pressed or focused in the agent pane as an editor tab that follows it live.",
+			Aliases = ["open dashboard", "open btw", "open subagent", "open chart in tab"],
+			When = "agentCardFocused",
+			ArgsSchemaJson = "{\"kind\":{\"type\":\"string\",\"enum\":[\"subagent\",\"aside\",\"dashboard\",\"block\"]},"
+				+ "\"conversationId\":{\"type\":[\"string\",\"null\"],\"description\":\"The card's conversation; null for the main one\"},"
+				+ "\"dashboardId\":{\"type\":\"string\"},\"blockId\":{\"type\":\"string\"},"
+				+ "\"background\":{\"type\":\"boolean\",\"description\":\"Open without taking focus\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1170,18 +1179,18 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Open a subagent's transcript or a background task's state and result in an editor tab.",
-			Aliases = ["open subagent", "open background task", "task result"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started item\"}}",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
 			Id = ShowBackgroundWork,
-			Title = "Show Background Work",
+			Title = "Focus Agent Strip",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Focus the tray of subagents and background tasks above the agent composer.",
-			Aliases = ["background tasks", "subagents", "running work"],
-			When = "agentBackgroundActive",
+			Description = "Focus the strip above the agent composer: running subagents and tasks, then expanded dashboards and BTWs.",
+			Aliases = ["background tasks", "subagents", "running work", "dashboards", "show background work"],
+			When = "agentStripActive",
 		});
 
 		registry.Register(new CommandDefinition {

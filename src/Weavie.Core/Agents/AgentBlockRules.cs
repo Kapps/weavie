@@ -60,8 +60,9 @@ public static partial class AgentBlockRules {
 			if (request.Append is not null || parts != 1) Refuse("showBlock takes exactly one of 'chart' or 'table'.");
 			string title = Text(request.Title, "title") is { Length: > 0 } given ? given : Fail<string>("showBlock requires a 'title'.");
 			var (chart, table) = Content(request);
-			return new AgentBlockOperation.Show(new AgentBlock { Id = request.Id, Title = title, Chart = chart, Table = table });
+			return new AgentBlockOperation.Show(new AgentBlock { Id = request.Id, Title = title, Chart = chart, Table = table }, Dashboard(request.Dashboard));
 		}
+		if (request.Dashboard is not null) Refuse("updateBlock cannot move a block into a dashboard; show it again with showBlock under a new id.");
 		if (current is null) {
 			Refuse($"Block '{request.Id}' does not exist. If you showed it earlier, this agent did not report the tool result to Weavie; present the data as text.");
 		}
@@ -238,6 +239,12 @@ public static partial class AgentBlockRules {
 
 	private static AgentChartAxis Axis(AgentChartAxis axis, string path) =>
 		axis with { Label = Text(axis.Label, path + ".label"), Unit = Text(axis.Unit, path + ".unit") };
+
+	private static AgentDashboardRequest? Dashboard(AgentDashboardRequest? dashboard) {
+		if (dashboard is null) return null;
+		if (!BlockId().IsMatch(dashboard.Id)) Refuse($"dashboard.id must be {IdRule}.");
+		return dashboard with { Title = Name(dashboard.Title, "dashboard.title") };
+	}
 
 	private static string Name(string name, string path) =>
 		Text(name, path) is { Length: > 0 } valid ? valid : Fail<string>($"{path} must not be empty.");

@@ -100,16 +100,6 @@ export function MobileSurfaceBar(props: {
         direction = null;
       }}
     >
-      <button
-        type="button"
-        class="mobile-command-button ui-button"
-        title={`Show All Commands${liveKeyHint(CommandIds.focusOmnibarCommands)}`}
-        onPointerDown={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => void runCommandWithFeedback(CommandIds.focusOmnibarCommands)}
-      >
-        Commands
-      </button>
       <For each={SURFACES}>
         {(surface) => (
           <button
@@ -131,6 +121,16 @@ export function MobileSurfaceBar(props: {
           </button>
         )}
       </For>
+      <button
+        type="button"
+        class="mobile-command-button ui-button"
+        title={`Show All Commands${liveKeyHint(CommandIds.focusOmnibarCommands)}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => void runCommandWithFeedback(CommandIds.focusOmnibarCommands)}
+      >
+        Commands
+      </button>
     </nav>
   );
 }

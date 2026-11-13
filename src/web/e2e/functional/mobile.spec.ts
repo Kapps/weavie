@@ -279,6 +279,10 @@ test("pulling from the empty editor opens commands only after a deliberate downw
 
   await page.setViewportSize({ width: 390, height: 350 });
   const empty = page.locator(".editor-empty");
+  // The compact shell applies the viewport in a resize callback; scrolling before it runs clamps to zero.
+  await expect
+    .poll(() => empty.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
   await empty.evaluate((element) => {
     element.scrollTop = 30;
   });
@@ -1246,9 +1250,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
   expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 88, y: 243 })).toBe(true);
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
-  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 92, y: 300 })).toBe(true);
-  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 310 })).toBe(true);
-  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 310 });
+  // Upward scroll locks vertical intent; a downward pull at the top opens commands.
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 92, y: 180 })).toBe(true);
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 170 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 170 });
   await expect(agentSurface).toBeVisible();
   await expect(inbox).toBeHidden();
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);

@@ -131,12 +131,6 @@ function isSettledWork(entry: AgentTranscriptEntry): boolean {
       return entry.status === null;
     case "request":
       return entry.status !== "pending";
-    case "subagent":
-      return (
-        !entry.asideActive &&
-        !entry.conversation?.transcript().turnActive &&
-        (entry.pendingEntries?.length ?? 0) === 0
-      );
     default:
       return false;
   }

@@ -158,6 +158,9 @@ public static partial class CoreCommands {
 	/// <summary>Opens one background item of the focused agent in its own editor tab.</summary>
 	public const string OpenBackgroundItem = "weavie.agent.openBackgroundItem";
 
+	/// <summary>Expand or collapse the subagent roster.</summary>
+	public const string ToggleSubagents = "weavie.agent.toggleSubagents";
+
 	/// <summary>Moves focus to the strip of running work and cards above the focused agent's composer.</summary>
 	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
 
@@ -1187,11 +1190,20 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = ToggleSubagents,
+			Title = "Expand or Collapse Subagents",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Show or hide the subagent roster above the composer.",
+			When = "agentSubagentsAvailable",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = ShowBackgroundWork,
 			Title = "Focus Agent Strip",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Focus the strip above the agent composer: running subagents and tasks, then expanded dashboards and BTWs.",
+			Description = "Focus the strip above the agent composer: background tasks, then expanded dashboards and BTWs.",
 			Aliases = ["background tasks", "subagents", "running work", "dashboards", "show background work"],
 			When = "agentStripActive",
 		});

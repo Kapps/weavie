@@ -8,11 +8,7 @@ import { type AgentActivitySegment, AgentActivitySegments } from "./AgentActivit
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { projectAgentTranscript } from "./AgentPaneMessages";
-import {
-  sideConversationEntry,
-  subagentCardEntries,
-  subagentEntry,
-} from "./AgentPaneSideConversations";
+import { sideConversationEntry, subagentEntry } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
 import { presentThoughts, type ThoughtDisplay } from "./AgentThoughtPresentation";
@@ -153,7 +149,7 @@ export class AgentConversationProjection {
     this.request = pendingRequest(rows);
     const project = (messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
       if (!changedState && this.upsert(changes)) return [];
-      const projection = projectAgentTranscript(messages, cards);
+      const projection = projectAgentTranscript(messages, cards, this.thoughtDisplay());
       this.segments = projection.segments;
       const presented = presentThoughts(projection.entries, this.thoughtDisplay(), this.expanded);
       const turnStartId = latestAgentTurnStartId(presented);
@@ -205,18 +201,12 @@ export class AgentConversationProjection {
   measure(): void {
     const snapshot = this.transcript();
     const card = this.card();
-    const entries =
-      card?.kind === "subagent" && this.expanded.has(card.id)
-        ? subagentCardEntries(snapshot.entries, true)
-        : card?.kind === "subagent" || card?.asideCollapsed
-          ? snapshot.pendingRowIndexes.map((index) => snapshot.entries[index]!)
-          : snapshot.entries;
+    const entries = card?.asideCollapsed
+      ? snapshot.pendingRowIndexes.map((index) => snapshot.entries[index]!)
+      : snapshot.entries;
     this.estimatedHeight =
       76 +
-      (snapshot.currentThought !== null &&
-      (card?.kind === "subagent" ? this.expanded.has(card.id) : !card?.asideCollapsed)
-        ? 24
-        : 0) +
+      (snapshot.currentThought !== null && !card?.asideCollapsed ? 24 : 0) +
       entries.reduce((height, entry) => height + estimateEntrySize(entry), 0);
   }
 
@@ -261,11 +251,10 @@ export class AgentConversationProjection {
     const index = this.entryIndexes.get(id);
     const thought =
       index !== undefined && this.state[0]().entries[index]?.thoughtCollapsed === true;
-    if (this.card()?.id !== id && !thought) return false;
+    if (!thought) return false;
     if (expanded) this.expanded.add(id);
     else this.expanded.delete(id);
-    if (thought)
-      this.updateEntry({ index: index! }, (entry) => ({ ...entry, thoughtOpen: expanded }));
+    this.updateEntry({ index: index! }, (entry) => ({ ...entry, thoughtOpen: expanded }));
     this.measure();
     return true;
   }

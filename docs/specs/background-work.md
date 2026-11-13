@@ -79,24 +79,24 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
 
 ## Presentation
 
-- **Subagent card** — a transcript row where it was spawned: label, live state and elapsed time, the parent of a
-  nested spawn, its latest activity and any request. Collapsed by default, with requests always visible; an
-  explicit expansion stays open when it finishes. Open
-  (`weavie.agent.openCard`) shows its whole transcript as a read-only editor tab of its session, rendered
-  with the agent pane's own transcript components and updating while the subagent runs.
+- **Subagents card** — one collapsed roster above the composer, with running agents first and finished
+  conversations retained from history. Selecting an agent opens its live read-only transcript tab
+  (`weavie.agent.openCard`). Pending permissions and questions remain visible while the roster is collapsed.
+  Nested agents keep their parent label. Spawn announcements leave no transcript row, so surrounding work
+  groups together. Current-only thoughts likewise do not split work; visible thoughts and replies do.
 - **Workflow card** — a Claude workflow (`taskType` `workflow`; Claude reports `showInTranscript: false` for
   workflows) journals an item `task:<id>` from spawn to its final state, joined live with the task's usage and
   Stop. Phase 2 (phases, agent rows, log lines) attaches to this item.
 - **Task tab** — a task's own read-only editor tab (path = its item id): type, live state and elapsed time, start
   time, usage, detail, last activity, result or error, a link to its output file, and the output of the tool call
   that started it. It follows the task live and says so once the task is cleared.
-- **Strip** — a roving-focus toolbar above the composer lists every item, then the expanded dashboards and BTWs
-  ([card tabs](card-tabs/design.md)); clicking or Enter opens the item in a tab (a subagent's transcript tab, else
-  its task tab), and Stop appears only for stoppable tasks. A turn the agent
-  started without a prompt is listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`):
+- **Strip** — a roving-focus toolbar above the composer lists background tasks, then the expanded dashboards and BTWs
+  ([card tabs](card-tabs/design.md)); clicking or Enter opens the task in its tab, and Stop appears only for
+  stoppable tasks. A turn the agent started without a prompt is listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`):
   otherwise it has nothing to open or stop, and an agent refreshing on a timer would leave one behind per tick
   until the next prompt.
-- **Commands** — `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
+- **Commands** — `weavie.agent.toggleSubagents` (Web, *Expand or Collapse Subagents*), gated by
+  `agentSubagentsAvailable`; `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
   stoppable task), gated by `agentBackgroundActive`; `weavie.agent.showBackgroundWork` (Web, *Focus Agent Strip*),
   gated by `agentStripActive`; `weavie.agent.openBackgroundItem` (Web, `{id}`, out of the palette; an unlisted id is
   refused), which the strip runs. None has a default keybinding.

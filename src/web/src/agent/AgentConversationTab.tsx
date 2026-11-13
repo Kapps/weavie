@@ -4,9 +4,9 @@ import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardTabFrame } from "./AgentCardTabFrame";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { SubagentStatus } from "./AgentSubagentEntry";
 import { liveNow } from "./live-clock";
 import { agentPaneModel } from "./pane-store";
+import { SubagentStatus } from "./SubagentStatus";
 
 /** A subagent's or BTW's whole transcript as an editor tab, rendered like the agent pane; a BTW keeps its reply box. */
 export default function AgentConversationTab(props: {

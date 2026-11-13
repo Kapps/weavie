@@ -1,4 +1,3 @@
-import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { chartHeight, tableHeightEstimate } from "./agent-block-layout";
 
@@ -28,13 +27,9 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   }
   const prose =
     entry.kind === "thought" || (entry.kind === "message" && entry.tone === "assistant");
-  if (entry.kind === "aside" || entry.kind === "subagent" || entry.kind === "dashboard") {
+  if (entry.kind === "aside" || entry.kind === "dashboard") {
     const children =
-      entry.kind === "subagent"
-        ? subagentCardEntries(entry.asideEntries ?? [], false)
-        : entry.kind === "dashboard" && entry.asideCollapsed
-          ? []
-          : (entry.asideEntries ?? []);
+      entry.kind === "dashboard" && entry.asideCollapsed ? [] : (entry.asideEntries ?? []);
     const size = 76 + children.reduce((sum, child) => sum + estimateEntrySize(child), 0);
     estimates.set(entry, size);
     return size;

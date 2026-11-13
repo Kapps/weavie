@@ -1,0 +1,42 @@
+.agent-subagents {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+}
+
+.agent-subagents-toggle {
+  width: 100%;
+  gap: 8px;
+}
+
+.agent-subagents-toggle .agent-disclosure-icon {
+  transition: transform 120ms;
+}
+
+.agent-subagents-toggle[aria-expanded="true"] .agent-disclosure-icon {
+  transform: rotate(90deg);
+}
+
+.agent-subagents-list {
+  padding: 0 8px 8px;
+}
+
+.agent-subagent-select {
+  width: 100%;
+  gap: 8px;
+  text-align: left;
+}
+
+.agent-subagent-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-subagent-select .agent-entry-status {
+  font: var(--font-chrome-secondary);
+}

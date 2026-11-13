@@ -58,6 +58,8 @@ export interface AgentPaneModel {
   block(conversationId: string | null, blockId: string): AgentTranscriptEntry | undefined;
   /** The expanded cards, in transcript order; a side conversation's own dashboards follow it. */
   readonly cards: Accessor<readonly AgentTranscriptEntry[]>;
+  /** Retained subagent conversations, independent of transcript placement. */
+  readonly subagents: Accessor<readonly AgentTranscriptEntry[]>;
   setActivityExpanded(id: string, expanded: boolean): void;
   /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
   activityStep(itemId: string): AgentActivityStep | undefined;
@@ -92,6 +94,7 @@ export function createAgentPaneModel(
   const [request, setRequest] = createSignal<PendingRequest | null>(null);
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
+  const [subagents, setSubagents] = createSignal<readonly AgentTranscriptEntry[]>([]);
   const expanded = new Set<string>();
   const main = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
   const views = new Map<string, AgentConversationProjection>([["", main]]);
@@ -124,7 +127,14 @@ export function createAgentPaneModel(
       views.set(scope.key, view);
     }
     view.bind(scope.marker);
-    if (scope.marker?.conversationId) membership(scope.marker.conversationId)[1](view);
+    if (scope.marker?.conversationId) {
+      const cell = membership(scope.marker.conversationId);
+      if (cell[0]() !== view) {
+        cell[1](view);
+        if (scope.marker.type === "subagent-started")
+          setSubagents((entries) => [...entries, view.linked]);
+      }
+    }
     return view;
   };
 
@@ -153,7 +163,9 @@ export function createAgentPaneModel(
       scope.marker,
     );
     resizeAncestors(scope, view.estimatedHeight - height);
-    outputChanged ||= before !== view.transcript().entries.at(-1) || status !== view.card()?.status;
+    outputChanged ||=
+      scope.marker?.type !== "subagent-started" &&
+      (before !== view.transcript().entries.at(-1) || status !== view.card()?.status);
     if (view.request === null) pendingChanged = pending.delete(scope.key) || pendingChanged;
     else {
       const index = scope.indexes.findLast(
@@ -176,7 +188,7 @@ export function createAgentPaneModel(
   };
 
   const resizeAncestors = (scope: ConversationRows, delta: number): void => {
-    if (scope.container === null) return;
+    if (scope.container === null || scope.marker?.type === "subagent-started") return;
     let child = scope;
     while (child.container !== null && child.container.key !== "") {
       const parent = viewFor(child.container);
@@ -191,6 +203,7 @@ export function createAgentPaneModel(
 
   const retainRequests = (scope: ConversationRows): void => {
     for (let child = scope; child.container !== null; child = child.container) {
+      if (child.marker?.type === "subagent-started") break;
       const parent = viewFor(child.container);
       const before = parent.estimatedHeight;
       parent.setCardPending(
@@ -212,6 +225,7 @@ export function createAgentPaneModel(
       resized = new Map();
       source = rows;
       if (changes.length === 0) {
+        setSubagents([]);
         pending.clear();
         active.clear();
         for (const cell of byId.values()) cell[1](undefined);
@@ -282,6 +296,7 @@ export function createAgentPaneModel(
 
   const model: MutableAgentPaneModel = {
     cardChanges,
+    subagents,
     generation,
     history,
     historyComplete,

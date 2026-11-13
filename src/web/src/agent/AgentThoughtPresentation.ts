@@ -9,13 +9,10 @@ export function presentThoughts(
   display: ThoughtDisplay,
   expanded: ReadonlySet<string>,
 ): AgentTranscriptEntry[] {
-  if (display === "all") return entries;
-  if (display === "collapsed")
-    return entries.map((entry) =>
-      entry.kind === "thought"
-        ? { ...entry, thoughtCollapsed: true, thoughtOpen: expanded.has(entry.id) }
-        : entry,
-    );
-
-  return entries.filter((entry) => entry.kind !== "thought");
+  if (display !== "collapsed") return entries;
+  return entries.map((entry) =>
+    entry.kind === "thought"
+      ? { ...entry, thoughtCollapsed: true, thoughtOpen: expanded.has(entry.id) }
+      : entry,
+  );
 }

@@ -1,60 +1,66 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
+
+test.use({
+  fakeScript: {
+    steps: [
+      { op: "mcp", tool: "setSetting", args: { key: "agent.thoughtDisplay", value: "current" } },
+    ],
+  },
+});
 
 async function signal(workspace: string, name: string): Promise<void> {
   await writeFile(join(sessionWorktrees(workspace)[0]!, name), "");
 }
 
-test("a subagent starts collapsed and keeps explicit expansion when it finishes", async ({
+test("subagents group outside the transcript and remain selectable after completion", async ({
   page,
   weavie,
 }) => {
   const surface = await createAcpSession(page, "acp-subagent-card");
-  await submitAcpDraft(surface, "subagent-held");
-
-  const card = surface.locator("[data-agent-subagent]");
-  await expect(card).toHaveAttribute("data-state", "running");
-  await expect(card.locator(".agent-entry-summary").first()).toHaveText("Explore");
-  const toggle = card.locator(".agent-entry-toggle");
+  await submitAcpDraft(surface, "subagent-grouping");
+  const group = surface.locator("[data-agent-subagents]");
+  const toggle = group.getByRole("button", { name: "Expand Subagents", exact: true });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(card.getByText("counting", { exact: true })).toBeHidden();
-  await toggle.click();
-  await expect(card.getByText("counting", { exact: true })).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await submitAcpDraft(surface, "/btw side question");
-  await expect(surface.locator(".agent-aside")).toContainText("echo: side question");
+  await expect(group).toContainText("1 running");
+  await expect(surface.locator(".agent-transcript [data-agent-subagent]")).toHaveCount(0);
+  await expect(surface.locator(".agent-background-tray [data-background-item]")).toHaveCount(0);
+  await surface.getByRole("button", { name: /Earlier updates/ }).click();
+  const working = surface.locator(".agent-entry-activity");
+  await expect(working).toHaveCount(1);
+  await working.locator("summary").click();
+  await expect(working.locator(".agent-activity-step")).toHaveCount(2);
+  await expect(working).toContainText("Inspect repository");
+  await expect(working).toContainText("Verify repository");
 
-  await signal(weavie.workspace, "release-subagent");
-  await surface
-    .getByRole("button", { name: /Earlier updates/ })
-    .first()
-    .click();
-  await expect(card).toHaveAttribute("data-state", "completed");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(card).toContainText("held subagent finished");
-
-  await card.getByRole("button", { name: "Open" }).click();
+  await runCommand(page, "Expand or Collapse Subagents");
+  const card = group.locator("[data-agent-subagent]");
+  await expect(card).toHaveAttribute("data-state", "running");
+  await card.getByRole("button", { name: "Explore", exact: true }).click();
   const tab = page.locator(".editor-tab", { hasText: "Subagent · Explore" });
-  await expect(tab).toBeVisible();
   const transcript = page.locator(".editor-agent-view");
+  await expect(tab).toBeVisible();
+  await expect(transcript).toContainText("counting");
+  await signal(weavie.workspace, "release-subagent");
+  await expect(card).toHaveAttribute("data-state", "completed");
+  await expect(
+    group.getByRole("button", { name: "Collapse Subagents", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
   await expect(transcript).toContainText("held subagent finished");
-  await expect(transcript.locator(".agent-entry-status").first()).toContainText("completed");
   await tab.hover();
   await tab.locator(".editor-tab-close").click();
-  await expect(tab).toHaveCount(0);
 
   await submitAcpDraft(surface, "subagent-failed");
-  const histories = surface.locator(
-    ".agent-transcript > .agent-virtual-row > .agent-entry-updates .agent-updates-toggle",
-  );
-  await expect(histories).toHaveCount(2);
-  await histories.last().click();
-  const failed = surface.locator('[data-agent-subagent][data-state="failed"]');
-  await expect(failed).toHaveClass(/agent-tone-error/);
-  await expect(failed.locator(".agent-entry-status")).toContainText("failed");
+  const failed = group.locator('[data-agent-subagent][data-state="failed"]');
+  await expect(failed).toContainText("Reviewer");
+  await expect(failed).toContainText("failed");
+  await expect(group.locator("[data-agent-subagent]")).toHaveCount(2);
+  await failed.getByRole("button", { name: "Reviewer", exact: true }).click();
+  await expect(page.locator(".editor-agent-view")).toContainText("review failed");
 });
 
 test("a background task waits in the tray until Stop ends it with a notice", async ({ page }) => {
@@ -146,12 +152,14 @@ test("running work survives a page reload, and stopping actions confirm against 
   const surface = await createAcpSession(page, "acp-background-guard");
   await submitAcpDraft(surface, "subagent-held");
   const card = surface.locator("[data-agent-subagent]");
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   await expect(card).toHaveAttribute("data-state", "running");
   await submitAcpDraft(surface, "task-held");
   const tray = surface.locator(".agent-background-tray [data-background-item]");
-  await expect(tray).toHaveCount(2);
+  await expect(tray).toHaveCount(1);
 
   await page.reload();
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   await expect(tray.first()).toHaveAttribute("data-state", "running");
 
   await runPalette(page, "Unload Session");
@@ -176,10 +184,6 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(dialog).toBeHidden();
   // The dialog closes on the click; the restart lands when its command reports back.
   await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
-  await surface
-    .getByRole("button", { name: /Earlier updates/ })
-    .first()
-    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
     "data-agent-controls-ready",
@@ -249,10 +253,9 @@ test.describe("with approvals", () => {
   }) => {
     const surface = await createAcpSession(page, "acp-subagent-approval");
     await submitAcpDraft(surface, "subagent-permission");
-    await expect(surface.locator("[data-agent-subagent] .agent-entry-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    await expect(
+      surface.getByRole("button", { name: "Expand Subagents", exact: true }),
+    ).toHaveAttribute("aria-expanded", "false");
     const request = surface.locator("[data-agent-subagent] .agent-entry-request");
     const input = request.locator(".agent-entry-main > .agent-entry-text");
     await expect(input).toContainText("README.md");
@@ -263,7 +266,7 @@ test.describe("with approvals", () => {
       '"old_string": "# soak"',
     );
     await request.getByRole("button", { name: "Allow" }).click();
-    await surface.getByRole("button", { name: /Earlier updates/ }).click();
+    await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
     await expect(surface.locator("[data-agent-subagent]")).toHaveAttribute(
       "data-state",
       "completed",

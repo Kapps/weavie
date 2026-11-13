@@ -189,3 +189,31 @@ it.each([
   expect(model.conversation("side")?.currentThought).toBeNull();
   expect(model.transcript().currentThought).toBe("Root summary");
 });
+
+it("groups work across current-only thoughts and restores visible thought boundaries on setting changes", () => {
+  const { model, send, entries, setDisplay, load } = fixture();
+  const rows = [start, tool("first"), thought("between", "Checking"), tool("second")];
+  send(...rows);
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity"]);
+  expect(entries()[0]!.detailCount).toBe(2);
+  expect(model.transcript().currentThought).toBe("Checking");
+  const group = entries()[0]!.id;
+  send(
+    { ...tool("first"), type: "item-completed", status: "failed" },
+    { ...tool("second"), type: "item-completed", status: "completed" },
+  );
+  expect(entries()).toHaveLength(1);
+  expect(entries()[0]!.id).toBe(group);
+  expect(model.activityStep("first")!.status).toBe("failed");
+  setDisplay("all");
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought", "activity"]);
+  setDisplay("collapsed");
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought", "activity"]);
+  setDisplay("current");
+  expect(entries()).toHaveLength(1);
+  load(rows);
+  expect(entries()).toHaveLength(1);
+  expect(entries()[0]!.detailCount).toBe(2);
+  send(reply("Update"), tool("third"));
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "message", "activity"]);
+});

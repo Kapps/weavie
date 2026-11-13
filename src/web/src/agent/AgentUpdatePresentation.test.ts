@@ -4,7 +4,6 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import * as projection from "./AgentPaneMessages";
 import { createAgentPaneModel } from "./AgentPaneModel";
-import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { ProgressDisplay } from "./AgentUpdatePresentation";
 
 vi.mock("solid-js", async () => await vi.importActual("solid-js/dist/solid.js"));
@@ -210,9 +209,9 @@ it("puts a trailing-work disclosure before the only reply", () =>
     dispose();
   }));
 
-it("folds completed subagents while preserving live descendants and pending requests", () =>
+it("retains completed subagents and their pending requests outside collapsed BTW history", () =>
   createRoot((dispose) => {
-    const { model, send, entries } = fixture();
+    const { model, send } = fixture();
     const child = (conversationId: string, type: string): AgentPaneUpdate => ({
       ...base,
       conversationId,
@@ -227,12 +226,10 @@ it("folds completed subagents while preserving live descendants and pending requ
       reply("final", "Done"),
     );
     const parent = model.conversation("btw")!.conversation!;
-    expect(parent.transcript().entries.some((entry) => entry.id === "subagent-nested")).toBe(true);
-    const expandedHeight = parent.estimatedHeight;
+    expect(parent.transcript().entries).toHaveLength(0);
+    expect(model.subagents().map((entry) => entry.conversationId)).toEqual(["worker", "nested"]);
     send({ ...child("nested", "turn-completed"), status: "completed" });
-    expect(parent.transcript().entries.map((entry) => entry.kind)).toEqual(["updates"]);
-    expect(parent.estimatedHeight).toBeLessThan(expandedHeight);
-    const foldedHeight = parent.estimatedHeight;
+    expect(model.subagents()).toHaveLength(2);
     const request = {
       ...child("nested", "input-requested"),
       itemId: "question",
@@ -240,17 +237,16 @@ it("folds completed subagents while preserving live descendants and pending requ
       status: "pending",
     };
     send(request);
-    expect(parent.transcript().entries.some((entry) => entry.kind === "subagent")).toBe(true);
-    expect(parent.estimatedHeight).toBeGreaterThan(foldedHeight);
-    expect(entries()[model.transcript().pendingRowIndexes[0]!]!.id).toBe("aside-btw");
+    expect(model.conversation("nested")!.pendingEntries).toHaveLength(1);
+    expect(model.keyboardRequestKey()).not.toBeNull();
+    expect(parent.transcript().pendingRowIndexes).toHaveLength(0);
     send({ ...request, type: "input-resolved", status: "accepted" });
-    expect(parent.transcript().entries.map((entry) => entry.kind)).toEqual(["updates"]);
-    expect(parent.estimatedHeight).toBe(foldedHeight);
-    expect(model.transcript().pendingRowIndexes).toHaveLength(0);
+    expect(model.conversation("nested")!.pendingEntries).toHaveLength(0);
+    expect(model.keyboardRequestKey()).toBeNull();
     dispose();
   }));
 
-it("keeps all explicitly opened subagent history and its collapse control in the card", () =>
+it("keeps all explicitly opened subagent history in its transcript tab", () =>
   createRoot((dispose) => {
     const { model, send } = fixture();
     send(
@@ -262,8 +258,7 @@ it("keeps all explicitly opened subagent history and its collapse control in the
       { ...base, conversationId: "child", type: "turn-completed", status: "completed" },
     );
     const child = model.conversation("child")!;
-    model.setActivityExpanded(child.id, true);
-    const preview = () => subagentCardEntries(child.asideEntries!, true);
+    const preview = () => child.asideEntries!;
     const group = preview()[0]!;
     const height = child.conversation!.estimatedHeight;
     expect(preview().map((entry) => entry.kind)).toEqual(["updates", "message"]);
@@ -272,7 +267,6 @@ it("keeps all explicitly opened subagent history and its collapse control in the
     expect(preview()[0]!.updatesOpen).toBe(true);
     expect(preview()[1]!.text).toBe("Update 0");
     expect(child.conversation!.estimatedHeight).toBeGreaterThan(height);
-    expect(subagentCardEntries(child.asideEntries!, false)).toEqual([]);
     model.setActivityExpanded(group.id, false);
     expect(preview().map((entry) => entry.kind)).toEqual(["updates", "message"]);
     expect(child.conversation!.estimatedHeight).toBe(height);

@@ -13,6 +13,7 @@ import {
   requestResolutions,
 } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { ThoughtDisplay } from "./AgentThoughtPresentation";
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
@@ -24,6 +25,7 @@ export interface AgentTranscriptProjection {
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
   cards: ReadonlyMap<AgentPaneUpdate, AgentTranscriptEntry>,
+  thoughtDisplay: ThoughtDisplay,
 ): AgentTranscriptProjection {
   const resolved = requestResolutions(messages);
   const reportedTurnErrors = new Set<string>();
@@ -57,6 +59,7 @@ export function projectAgentTranscript(
         }
       : source;
     const card = cards.get(message);
+    if (card?.kind === "subagent") continue;
     if (card !== undefined) {
       segments.boundary();
       entries.push(card);
@@ -102,7 +105,10 @@ export function projectAgentTranscript(
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
-      if (durable.kind === "thought") currentThought = durable.text;
+      if (durable.kind === "thought") {
+        currentThought = durable.text;
+        if (thoughtDisplay === "current") continue;
+      }
       if (startsTurn) {
         durable.turnStart = true;
       }

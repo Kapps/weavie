@@ -87,75 +87,76 @@ describe("conversation projection locality", () => {
       expect(model.transcript().entries.filter((entry) => entry.conversation)).toEqual(cards);
       append({ ...tool, type: "command-output-delta", text: "last" }, marker("new-child", null));
       expect(model.conversation("new-child")).toBeDefined();
-      expect(model.transcript().entries).toContain(model.conversation("new-child"));
+      expect(model.subagents()).toContain(model.conversation("new-child"));
+      expect(model.transcript().entries).not.toContain(model.conversation("new-child"));
       expect(project).toHaveBeenCalled();
       project.mockRestore();
       dispose();
     }));
 
-  for (const expanded of [false, true]) {
-    it(`keeps row work independent of main history and siblings (${expanded ? "expanded" : "collapsed"})`, () => {
-      const measure = (history: number, siblings: number) =>
-        createRoot((dispose) => {
-          const { model, rows, append } = fixture(history, siblings);
-          const child = model.conversation("child")!;
-          model.setActivityExpanded(child.id, expanded);
-          const main = model.transcript();
-          const sibling = model.conversation("sibling-0")!.conversation!.transcript();
-          const parentEntries = model.conversation("btw")!.asideEntries;
-          let reads = 0;
-          Object.defineProperty(rows, "messages", {
-            value: new Proxy(rows.messages, {
-              get(target, key, receiver) {
-                if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
-                return Reflect.get(target, key, receiver);
-              },
-            }),
-          });
-          const counts: number[] = [];
-          const send = (...messages: AgentPaneUpdate[]) => {
-            reads = 0;
-            append(...messages);
-            counts.push(reads);
-            expect(model.transcript().entries).toBe(main.entries);
-            expect(model.conversation("sibling-0")!.conversation!.transcript()).toBe(sibling);
-            expect(model.conversation("btw")!.asideEntries).toBe(parentEntries);
-          };
-          send({ ...answer("child", "stream", "more"), type: "agent-message-delta" });
-          send(answer("child", "stream", "Finished"));
-          send({ ...answer("child", "tool", "output"), itemType: "tool", type: "item-started" });
-          send({
-            ...answer("child", "tool", "next"),
-            itemType: "tool",
-            type: "command-output-delta",
-          });
-          send({ ...answer("child", "tool", "done"), itemType: "tool" });
-          const request = {
-            ...answer("child", "approval", "Permit?"),
-            type: "approval-requested",
-            requestId: "approval",
-            status: "pending",
-          };
-          send(request);
-          expect(model.conversation("btw")!.pendingEntries).toContain(child);
-          expect(child.pendingEntries).toHaveLength(1);
-          send({ ...request, type: "approval-resolved", status: "accepted" });
-          expect(child.pendingEntries).toHaveLength(0);
-          send({ ...answer("child", "stream", ""), type: "item-retracted" });
-          send({
-            type: "turn-completed",
-            providerId: "acp",
-            conversationId: "child",
-            status: "completed",
-          });
-          expect(child.subagent?.state).toBe("completed");
-          expect(model.transcript().turnActive).toBe(false);
-          dispose();
-          return counts;
+  it("keeps row work independent of main history and siblings", () => {
+    const measure = (history: number, siblings: number) =>
+      createRoot((dispose) => {
+        const { model, rows, append } = fixture(history, siblings);
+        const child = model.conversation("child")!;
+        const main = model.transcript();
+        const mainOutput = model.latestOutput();
+        const sibling = model.conversation("sibling-0")!.conversation!.transcript();
+        const parentEntries = model.conversation("btw")!.asideEntries;
+        let reads = 0;
+        Object.defineProperty(rows, "messages", {
+          value: new Proxy(rows.messages, {
+            get(target, key, receiver) {
+              if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+              return Reflect.get(target, key, receiver);
+            },
+          }),
         });
-      expect(measure(20_000, 200)).toEqual(measure(20, 2));
-    });
-  }
+        const counts: number[] = [];
+        const send = (...messages: AgentPaneUpdate[]) => {
+          reads = 0;
+          append(...messages);
+          counts.push(reads);
+          expect(model.transcript().entries).toBe(main.entries);
+          expect(model.latestOutput()).toBe(mainOutput);
+          expect(model.conversation("sibling-0")!.conversation!.transcript()).toBe(sibling);
+          expect(model.conversation("btw")!.asideEntries).toBe(parentEntries);
+        };
+        send({ ...answer("child", "stream", "more"), type: "agent-message-delta" });
+        send(answer("child", "stream", "Finished"));
+        send({ ...answer("child", "tool", "output"), itemType: "tool", type: "item-started" });
+        send({
+          ...answer("child", "tool", "next"),
+          itemType: "tool",
+          type: "command-output-delta",
+        });
+        send({ ...answer("child", "tool", "done"), itemType: "tool" });
+        const request = {
+          ...answer("child", "approval", "Permit?"),
+          type: "approval-requested",
+          requestId: "approval",
+          status: "pending",
+        };
+        send(request);
+        expect(model.conversation("btw")!.pendingEntries).toHaveLength(0);
+        expect(model.keyboardApprovalId()).toBe("approval");
+        expect(child.pendingEntries).toHaveLength(1);
+        send({ ...request, type: "approval-resolved", status: "accepted" });
+        expect(child.pendingEntries).toHaveLength(0);
+        send({ ...answer("child", "stream", ""), type: "item-retracted" });
+        send({
+          type: "turn-completed",
+          providerId: "acp",
+          conversationId: "child",
+          status: "completed",
+        });
+        expect(child.subagent?.state).toBe("completed");
+        expect(model.transcript().turnActive).toBe(false);
+        dispose();
+        return counts;
+      });
+    expect(measure(20_000, 200)).toEqual(measure(20, 2));
+  });
 
   it("registers live descendants before their parent projects pending forms", () =>
     createRoot((dispose) => {
@@ -178,11 +179,11 @@ describe("conversation projection locality", () => {
       );
       const parent = model.conversation("new-btw")!;
       const child = model.conversation("new-child")!;
-      expect(parent.conversation!.transcript().entryIndexes.has(child.id)).toBe(true);
-      expect(parent.pendingEntries).toContain(child);
-      expect(model.transcript().pendingRowIndexes).toContain(
-        model.transcript().entryIndexes.get(parent.id),
-      );
+      expect(parent.conversation!.transcript().entryIndexes.has(child.id)).toBe(false);
+      expect(parent.pendingEntries).toHaveLength(0);
+      expect(child.pendingEntries).toHaveLength(1);
+      expect(model.subagents()).toContain(child);
+      expect(model.transcript().pendingRowIndexes).toHaveLength(0);
       dispose();
     }));
 
@@ -211,9 +212,11 @@ describe("conversation projection locality", () => {
       const parent = model.transcript().entries[0]!;
       expect(parent.id).toBe("aside-btw");
       const child = model.conversation("child")!;
-      expect(parent.conversation!.transcript().entryIndexes.has(child.id)).toBe(true);
-      expect(parent.pendingEntries).toContain(child);
-      expect(model.transcript().pendingRowIndexes).toEqual([0]);
+      expect(parent.conversation!.transcript().entryIndexes.has(child.id)).toBe(false);
+      expect(parent.pendingEntries).toHaveLength(0);
+      expect(child.pendingEntries).toHaveLength(1);
+      expect(model.subagents()).toContain(child);
+      expect(model.transcript().pendingRowIndexes).toHaveLength(0);
       accumulator.ingest(
         "pane",
         { ...request, type: "approval-resolved", status: "accepted" },
@@ -247,7 +250,7 @@ describe("conversation projection locality", () => {
       dispose();
     }));
 
-  it("removes a resolved approval from collapsed card estimates", () =>
+  it("keeps subagent requests out of parent transcript measurements", () =>
     createRoot((dispose) => {
       const { model, append } = fixture(20, 2);
       const child = model.conversation("child")!.conversation!;
@@ -261,20 +264,19 @@ describe("conversation projection locality", () => {
       append(request);
       expect(child.estimatedHeight).toBeGreaterThan(before);
       append({ ...request, type: "approval-resolved", status: "accepted" });
-      expect(child.estimatedHeight).toBe(before);
-      expect(model.cardChanges()[0]!.delta).toBeLessThan(0);
+      expect(child.transcript().pendingRowIndexes).toHaveLength(0);
+      expect(model.cardChanges()).toHaveLength(0);
       dispose();
     }));
 
   it("holds child output still while keeping its requests live", () =>
     createRoot((dispose) => {
       const { model, append } = fixture(20, 2);
-      const held = holdTranscript(model.transcript());
-      const card = held.entries.find((entry) => entry.conversationId === "btw")!;
-      const child = card.asideEntries!.find((entry) => entry.conversationId === "child")!;
-      const before = child.asideEntries;
+      const view = model.conversation("child")!.conversation!;
+      const held = holdTranscript(view.transcript());
+      const before = held.entries;
       append(answer("child", "later", "Later output"));
-      expect(child.asideEntries).toBe(before);
+      expect(held.entries).toBe(before);
       const request = {
         ...answer("child", "approval", "Permit?"),
         type: "approval-requested",
@@ -282,12 +284,12 @@ describe("conversation projection locality", () => {
         status: "pending",
       };
       append(request);
-      expect(child.pendingEntries).toHaveLength(1);
-      expect(child.asideEntries!.some((entry) => entry.text === "Later output")).toBe(false);
-      expect(withLivePending(held, model.transcript()).entries).toBe(held.entries);
+      expect(view.transcript().pendingRowIndexes).toHaveLength(1);
+      expect(held.entries.some((entry) => entry.text === "Later output")).toBe(false);
+      expect(withLivePending(held, view.transcript()).pendingRowIndexes).toHaveLength(1);
       append({ ...request, type: "approval-resolved", status: "accepted" });
-      expect(child.pendingEntries).toHaveLength(0);
-      expect(child.asideEntries!.some((entry) => entry.text === "Later output")).toBe(false);
+      expect(view.transcript().pendingRowIndexes).toHaveLength(0);
+      expect(held.entries.some((entry) => entry.text === "Later output")).toBe(false);
       dispose();
     }));
 });

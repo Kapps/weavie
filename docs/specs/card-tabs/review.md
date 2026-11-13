@@ -25,6 +25,14 @@ N9 to N12). This recheck read only the merge's resolutions and ran `tsc`, all vi
 build (16); all passed. B7 was reproduced with a throwaway vitest case, since deleted. CI on `1d01acab` was still
 running: `web checks` had passed, and the .NET, e2e and native jobs were pending.
 
+**Recheck at `82532564`** ("Fix the card tabs recheck findings"): every fix holds and none was reopened. B7 and
+N2, N4, N9 to N12 are fixed; N3 is fixed in part with the rest rejected and accepted. No bug or warning is open.
+One nit is open, N13, which the N2 fix introduced. This recheck read only that commit and ran `tsc`, `biome check`
+on its files, all vitest (1,280), `card-tabs.spec.ts` and `agent-blocks.spec.ts` on the headless project after a
+fresh build (14), the editor-tab C# tests (17), and the CI formatting gate; all passed. N13 was reproduced with a
+throwaway e2e case, since deleted. CI on `82532564` was still queued or pending, and the run on `1d01acab` was
+cancelled when this commit was pushed, so the PR has no completed green `ci` run yet.
+
 Severity: **bug** is wrong behaviour a user, an agent or CI hits; **warn** is a standards violation, a design
 departure that needs a decision, or duplication; **nit** is minor.
 
@@ -141,9 +149,9 @@ both `AcpDashboardTests.cs:8` and `AcpSideCollapseTests.cs:32`.
 | # | Where | Finding | Status |
 | --- | --- | --- | --- |
 | N1 | `src/web/src/agent/AgentBlockAddedEntry.tsx:16` | The "added to…" line is a dead button in a `/btw` tab (no row context) and before history completes | fixed, confirmed: without a transcript row the line is plain text; before history completes the button scrolls to its own row |
-| N2 | `src/web/src/agent/AgentBlocksTab.tsx:84` | A table never sized by the user gets a fixed 310px frame in a tab, against the comment beside it; the design's `--agent-table-max-h` variable was not used | fixed: an unsized table keeps its transcript height in a tab; only a block the user sized (`data-sized`) fills its frame; e2e compares the table's height in the chat and the tab |
-| N3 | `src/web/src/agent/AgentBlocksTab.tsx:97` | The height handle is a `<button>` titled "Resize", not the design's `role="separator"`; its ArrowUp and ArrowDown keys are not advertised | fixed in part: the handle's tooltip names the drag and ArrowUp/ArrowDown. Rejected: `role="separator"`, which Biome's a11y rules require to be an `<hr>` with value props; the named, focusable button serves the same keyboard path |
-| N4 | `src/Weavie.Hosting/HostSession.EditorState.cs:135` | On a Windows host tab paths compare without case, so dashboards `Rollout` and `rollout` share one tab | fixed: `HostSession.IsTab` compares a file path by the OS rule and any other tab path exactly; `EditorTabPathTests` |
+| N2 | `src/web/src/agent/AgentBlocksTab.tsx:84` | A table never sized by the user gets a fixed 310px frame in a tab, against the comment beside it; the design's `--agent-table-max-h` variable was not used | fixed, confirmed: an unsized table passes no height in a tab and only a sized block (`data-sized`) fills its frame; the e2e compares the table's height in the chat and the tab and passes. It leaves N13 |
+| N3 | `src/web/src/agent/AgentBlocksTab.tsx:97` | The height handle is a `<button>` titled "Resize", not the design's `role="separator"`; its ArrowUp and ArrowDown keys are not advertised | fixed in part, confirmed: the tooltip names the drag and ArrowUp/ArrowDown. `role="separator"` rejected by the fix stage: Biome's a11y rules want an `<hr>` with value props, and the named, focusable button gives the same keyboard path. Accepted |
+| N4 | `src/Weavie.Hosting/HostSession.EditorState.cs:135` | On a Windows host tab paths compare without case, so dashboards `Rollout` and `rollout` share one tab | fixed, confirmed: `HostSession.IsTab` compares a file path by the OS rule and any other tab's path exactly (`HostSession.EditorState.cs:138`); `EditorTabPathTests` passes |
 | N5 | `docs/specs/card-tabs/design.md:4` | The status line still says "Nothing is built yet". `AgentPaneMessage.cs:77`'s comment and `docs/specs/acp-rich-content/design.md` were not updated as the Files table lists | fixed, confirmed: the status line, the `ParentItemId` comment, and a pointer from the rich-content design |
 | N6 | `src/web/src/agent/AgentBlocksTab.tsx:10` | Duplication: the `BlockEntry` type is declared here, in `AgentDashboardEntry.tsx:9`, and inline in `AgentBlockEntry.tsx` | fixed, confirmed: `AgentBlockTranscriptEntry`, declared once |
 | N7 | `src/web/src/agent/AgentPaneBlocks.ts:62` | Duplication: the `conversationId` spread three times (`:62`, `:83`, `:98`); the "updated HH:MM" format in `AgentDashboardEntry.tsx:62` and `AgentBlockEntry.tsx:111` | fixed, confirmed: `inConversation()` and `blockUpdatedAt()` |
@@ -154,11 +162,12 @@ both `AcpDashboardTests.cs:8` and `AcpSideCollapseTests.cs:32`.
 | # | Severity | Where | Finding | Status |
 | --- | --- | --- | --- | --- |
 | B6 | bug | PR #1219 | The PR conflicts with main since #1218 merged, so the `ci` workflow does not run on `87fb46eb` and no fix is CI-verified | fixed, confirmed: `origin/main` (`62cbd6dc`) is merged and the PR is mergeable. `AgentSubagentTab.tsx` stays deleted with main's `onUpdatesToggle` carried into `AgentConversationTab`; main's `turnKey` is in the shared `entry()`; `AgentTranscript` keeps the row context and `onUpdatesToggle`. The `ci` workflow runs on the merge. The merge leaves B7 |
-| B7 | bug | `src/web/src/agent/AgentUpdatePresentation.ts:55` | With the default `agent.progressDisplay` (`latest`), the strip's card list reads stale indexes once earlier replies are folded, and throws or lists the wrong entry | fixed: `presentUpdates` recomputes `cardIndexes` from the entries it shows; `AgentPaneBlocks.test.ts` folds four replies ahead of a dashboard with `progressDisplay` `latest` and reads `cards()`, and fails with the reported `TypeError` without the fix |
-| N9 | nit | `src/web/src/agent/AgentBlockEntry.tsx:62` | Pressing a chart or table inside a `/btw` makes `Alt+B` do nothing; before the fixes it collapsed the `/btw` | fixed: a lone block's `Alt+B` acts on the card around it (`AgentCardToggleContext`); e2e collapses a BTW from a chart inside it |
-| N10 | nit | `src/web/src/agent/agent.css:270` | A long card title is now cut off with no ellipsis | fixed: the label is its own flex item that ellipsizes |
-| N11 | nit | `src/web/src/App.tsx:179` | `liveCard` is declared between the import statements of `App.tsx` | fixed: `liveCard` lives in `card-tab.ts` beside `cardEntry` |
-| N12 | nit | `docs/specs/card-tabs/design.md:435` | The design's command table still gives `toggleAside` the old `When` and arguments | fixed: the command row gives the gated `When`, the card-kind arguments, and the lone-block rule |
+| B7 | bug | `src/web/src/agent/AgentUpdatePresentation.ts:55` | With the default `agent.progressDisplay` (`latest`), the strip's card list reads stale indexes once earlier replies are folded, and throws or lists the wrong entry | fixed, confirmed: `presentUpdates` recomputes `cardIndexes` from the entries it shows (`AgentUpdatePresentation.ts:63`); the new `AgentPaneBlocks.test.ts` case folds four replies ahead of a dashboard with `latest` and reads `cards()`, and passes |
+| N9 | nit | `src/web/src/agent/AgentBlockEntry.tsx:62` | Pressing a chart or table inside a `/btw` makes `Alt+B` do nothing; before the fixes it collapsed the `/btw` | fixed, confirmed: a lone block's toggle is the enclosing card's, through `AgentCardToggleContext`; the e2e collapses a BTW with `Alt+B` from a chart inside it and passes |
+| N10 | nit | `src/web/src/agent/agent.css:270` | A long card title is now cut off with no ellipsis | fixed, confirmed by reading: the label is a span that is the flex item, with `overflow: hidden` and `text-overflow: ellipsis` (`agent.css:278`). Not run |
+| N11 | nit | `src/web/src/App.tsx:179` | `liveCard` is declared between the import statements of `App.tsx` | fixed, confirmed: `liveCard` is in `card-tab.ts` beside `cardEntry` |
+| N12 | nit | `docs/specs/card-tabs/design.md:435` | The design's command table still gives `toggleAside` the old `When` and arguments | fixed, confirmed: the command row gives `agentFocused && agentCardFocused`, the card-kind arguments, and the lone-block rule |
+| N13 | nit | `src/web/src/agent/AgentBlockEntry.tsx:31` | A lone table's own tab now shows an Open button, which reopens the tab it is in | fixed: Open shows only under a transcript row of the pane (`AgentRowContext`), which a tab has none of; the lone-table e2e asserts the tab has no Open |
 
 **B6.** `gh pr view` reports `CONFLICTING`. A trial merge of `origin/main` (`62cbd6dc`) conflicts in
 `AgentConversationProjection.ts`, `AgentPaneMessages.ts`, `AgentTranscript.tsx`, and `AgentSubagentTab.tsx`
@@ -174,8 +183,8 @@ unfolded positions. `model.cards()` (`AgentPaneModel.ts:275-281`) reads `snapsho
   `TypeError: Cannot read properties of undefined (reading 'asideCollapsed')`. With `progressDisplay` `all` it
   returns the dashboard.
 - `cards()` runs in `AgentPaneBody`'s effect and feeds `AgentStrip`, so the throw is in the agent pane's render
-  path. That step was read, not run in the app.
-  When the stale index is still in range, the strip lists an entry that is not a card.
+  path. That step was read, not run in the app. When the stale index is still in range, the strip lists an
+  entry that is not a card.
 - A `/btw` is in `cardIndexes` too, so any session with a `/btw` or dashboard after a folded turn is affected.
 - No test covers it: the merge's resolution of `AgentPaneBlocks.test.ts` passes `"all"` for the progress display,
   and the e2e fake agent replies once per turn, so CI stays green.
@@ -192,6 +201,11 @@ already holds `cardEntry`, which it wraps.
 
 **N12.** The code is `When = "agentFocused && agentCardFocused"` with arguments
 `{ kind, conversationId, dashboardId?, collapsed }`. The design's status line points here for what review changed.
+
+**N13.** `AgentBlockEntry` shows Open when `dashboardId` is undefined and `height` is null, taking a null height
+to mean "in a transcript". With N2 fixed, `BlockRow` passes null for a table the user has not sized, so the tab
+of a lone table shows Open. Reproduced: the table's tab has one Open button and a lone chart's tab has none. The
+value is read once as the component is created, so the button stays after the table is resized.
 
 ## Rejected
 

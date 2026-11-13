@@ -234,4 +234,6 @@ test("Alt+B over a chart in a BTW collapses the BTW, and an unsized table keeps 
   const inTab = page.locator('.agent-blocks-tab .agent-entry-block[data-block="table"]');
   await expect(inTab.locator(".agent-table-row")).toHaveCount(3);
   expect((await inTab.boundingBox())!.height).toBe(inChat);
+  // A block in its own tab has nothing further to open.
+  await expect(inTab.getByRole("button", { name: "Open", exact: true })).toHaveCount(0);
 });

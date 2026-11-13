@@ -27,9 +27,10 @@ export function AgentBlockEntry(props: {
   height: number | null;
 }): JSX.Element {
   const row = useContext(AgentRowContext);
-  // A block outside a dashboard opens alone from a transcript; a dashboard's opens with its card, and a tab's is open.
+  // A block outside a dashboard opens alone from the pane's transcript; a dashboard's opens with its card, and
+  // one in a tab, where there is no transcript row, is already open.
   const card =
-    props.entry.dashboardId === undefined && props.height === null ? cardOf(props.entry) : null;
+    props.entry.dashboardId === undefined && row !== undefined ? cardOf(props.entry) : null;
   const record = () => agentBlock(props.session, props.entry.block.key);
   const view =
     props.entry.block.kind === "table" ? tableView(props.session, props.entry.id) : undefined;

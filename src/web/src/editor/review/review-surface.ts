@@ -10,7 +10,8 @@ interface ReviewViewState {
   scrollTop: number;
 }
 
-type ReviewAlignment = "location" | "file-start";
+// `line` is a navigation to a line, which opens a fold; `location` puts back a saved place as it was.
+type ReviewAlignment = "location" | "line" | "file-start";
 
 export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
@@ -81,6 +82,7 @@ export function createReviewSurface(surface: {
     const operation = pending;
     pending = null;
     if (operation.alignment === "file-start") section.revealFileStart(operation.location.line);
+    else if (operation.alignment === "line") section.reveal(operation.location);
     else section.restore(operation.location);
     operation.finish();
   };
@@ -215,7 +217,7 @@ export function createReviewSurface(surface: {
       activeSection()?.inline.refreshPresentation();
     },
     actions: () => activeSection()?.inline.captureActions(),
-    reveal: (path, line) => reveal({ path, line }, "location"),
+    reveal: (path, line) => reveal({ path, line }, "line"),
     revealFile: (path, line) => reveal({ path, line }, "file-start"),
     sections: {
       empty: () => settle(),

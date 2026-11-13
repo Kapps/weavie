@@ -74,7 +74,7 @@ export function HintPopover(props: {
           <span title="This line was edited since the hint was made.">Changed</span>
         </Show>
         <span class="weavie-hint-actions">
-          <ItemPosition session={props.session} />
+          <ItemPosition session={props.session} item={`hint:${hint().id}`} />
           <For
             each={ACTIONS.filter(
               ([id]) => id !== CommandIds.reviewHintsComment || props.commentable,

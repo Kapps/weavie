@@ -9,14 +9,23 @@ import { reviewHintsFor } from "../review-hints/review-hints-store";
 import { activeTabFor } from "../session-store";
 import { setViewMode } from "../view-mode-store";
 import { reviewItems } from "./review-items";
-import { stepItem } from "./review-sequence";
+import { type ItemKey, stepItem } from "./review-sequence";
 
 type RevealFile = (session: ClientSession, path: string, line: number) => void;
 
-// From the current item, else the cursor; the unified review reveals a file it holds, any other view opens a tab.
-function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile): void {
+// From the given item, else the current one, else the cursor; the unified review reveals a file it holds, any other
+// view opens a tab. An editor already showing the item claims it at once, at where it sits now.
+function step(
+  session: ClientSession,
+  direction: 1 | -1,
+  from: ItemKey | null,
+  revealFile: RevealFile,
+): void {
   const origin =
-    reviewItems.current(session) ?? activeTabFor(session)?.presentation?.capture().text ?? null;
+    from ??
+    reviewItems.current(session) ??
+    activeTabFor(session)?.presentation?.capture().text ??
+    null;
   const target = stepItem(
     reviewItems.sequence(session),
     reviewItems.reviewPaths(session),
@@ -29,9 +38,11 @@ function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile)
   }
   setViewMode(session, target.path, "source");
   reviewItems.setCurrent(session, target.key);
-  const line = Math.max(1, target.line);
+  const claimed = reviewItems.claimedLine(session);
+  const line = claimed ?? Math.max(1, target.line);
+  // The unified review still reveals a claimed item, which opens a fold over it; a claiming file tab already has.
   if (activeTabFor(session)?.presentation?.actions()?.revealLine?.(target.path, line)) return;
-  revealFile(session, target.path, line);
+  if (claimed === null) revealFile(session, target.path, line);
 }
 
 // Whether the selected session has any thread or hint, before the filter: the stepper's commands need one.
@@ -46,6 +57,12 @@ function trackAvailability(): () => void {
   });
 }
 
+// A control on one item (a hover popover, a card) steps from that item: `{ from: "hint:3" }`.
+function stepOrigin(args: unknown): ItemKey | null {
+  const from = (args as { from?: unknown } | undefined)?.from;
+  return typeof from === "string" && /^(hint|thread):./.test(from) ? (from as ItemKey) : null;
+}
+
 /** Next and Previous Comment or Hint. */
 export function registerReviewItemCommands(revealFile: RevealFile): () => void {
   const cleanups = [
@@ -53,8 +70,8 @@ export function registerReviewItemCommands(revealFile: RevealFile): () => void {
     ...([1, -1] as const).map((direction) =>
       registerCommand(
         direction === 1 ? CommandIds.reviewNextItem : CommandIds.reviewPreviousItem,
-        (_args, { session }) => {
-          if (session !== null) step(session, direction, revealFile);
+        (args, { session }) => {
+          if (session !== null) step(session, direction, stepOrigin(args), revealFile);
         },
       ),
     ),

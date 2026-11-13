@@ -120,7 +120,7 @@ export function PrThreadCard(props: {
       >
         <span class="weavie-pr-thread-actions">
           <Show when={props.current}>
-            <ItemPosition session={props.session} />
+            <ItemPosition session={props.session} item={`thread:${thread().id}`} />
           </Show>
           <Show when={props.fix()}>
             {(item) => (

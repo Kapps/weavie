@@ -69,10 +69,8 @@ export function createPrComments(
     const commentable = createMemo(
       () => set()?.changedPaths.some((changed) => samePath(changed, path)) ?? false,
     );
-    const threads = createMemo(() =>
-      prCommentsVisible()
-        ? (set()?.threads.filter((thread) => samePath(thread.path, path)) ?? [])
-        : [],
+    const threads = createMemo(
+      () => set()?.threads.filter((thread) => samePath(thread.path, path)) ?? [],
     );
     const [sources] = createResource(
       () => {
@@ -157,14 +155,19 @@ export function createPrComments(
         return next;
       });
     };
-    const cards = createMemo((): ZoneCard<Card>[] => {
+    // Every thread's place, shown or not: commenting while threads are hidden still replies to the line's thread.
+    const placements = createMemo((): ThreadPlacement[] => {
       const map = anchors()?.map;
-      const placed = map === undefined ? [] : threads().map((thread) => map.place(thread));
-      const result: ZoneCard<Card>[] = placed.map((placement) => ({
-        key: `thread:${placement.thread.id}`,
-        afterLine: placement.afterLine,
-        data: { kind: "thread", placement },
-      }));
+      return map === undefined ? [] : threads().map((thread) => map.place(thread));
+    });
+    const cards = createMemo((): ZoneCard<Card>[] => {
+      const result: ZoneCard<Card>[] = (prCommentsVisible() ? placements() : []).map(
+        (placement) => ({
+          key: `thread:${placement.thread.id}`,
+          afterLine: placement.afterLine,
+          data: { kind: "thread", placement },
+        }),
+      );
       const line = draft();
       const key = draftKey();
       if (line !== null && key !== null)
@@ -264,10 +267,11 @@ export function createPrComments(
       const current = set();
       if (current === null || !commentable()) return false;
       // Commenting while threads are hidden would post into nothing visible.
-      if (!prCommentsVisible()) void runCommandWithFeedback(CommandIds.prToggleComments);
-      const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
-      if (thread?.data.kind === "thread") {
-        const id = thread.data.placement.thread.id;
+      if (!prCommentsVisible())
+        void runCommandWithFeedback(CommandIds.prToggleComments, { show: true });
+      const thread = placements().find((placement) => placement.afterLine === line);
+      if (thread !== undefined) {
+        const id = thread.thread.id;
         prefillComposer(replyDraftKey(current.number, id), initial);
         reply(id, true);
         return true;
@@ -301,9 +305,9 @@ export function createPrComments(
         editor.getContainerDomNode().getClientRects().length === 0
       )
         return;
-      reviewItems.claimThread(session);
-      collapse(id, false);
       const line = Math.max(1, card.afterLine);
+      reviewItems.claimThread(session, line);
+      collapse(id, false);
       editor.setPosition({ lineNumber: line, column: 1 });
       editor.revealLineInCenterIfOutsideViewport(line);
       editor.focus();

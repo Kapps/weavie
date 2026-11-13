@@ -13,7 +13,3 @@
   padding-inline: 2px;
   color: var(--fg);
 }
-
-.unified-review-header-compact .review-item-stepper {
-  align-items: center;
-}

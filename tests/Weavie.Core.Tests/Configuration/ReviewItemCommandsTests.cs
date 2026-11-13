@@ -29,4 +29,19 @@ public sealed class ReviewItemCommandsTests : IDisposable {
 		Assert.True((await commands.InvokeAsync(command, null, CancellationToken.None)).Ok);
 		Assert.Equal(initial, store.RequireBool(key));
 	}
+
+	[Fact]
+	public async Task Show_SetsTheSettingWhateverItWas() {
+		using var store = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+		var commands = new CommandDispatcher(CoreCommands.CreateRegistry());
+		ReviewItemCommands.RegisterHandlers(commands, store);
+
+		foreach (bool show in new[] { true, true, false, false }) {
+			string args = show ? """{"show":true}""" : """{"show":false}""";
+			Assert.True((await commands.InvokeAsync(CoreCommands.PullRequestToggleComments, args, CancellationToken.None)).Ok);
+			Assert.Equal(show, store.RequireBool(EditorSettings.ReviewComments));
+		}
+
+		Assert.False((await commands.InvokeAsync(CoreCommands.PullRequestToggleComments, """{"show":1}""", CancellationToken.None)).Ok);
+	}
 }

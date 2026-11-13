@@ -24,7 +24,8 @@ describes this work.
 3. **A small header control**, the same position on the item, and a three-row filter menu.
 4. **On the host**: GitHub's resolved flag, and three settings behind the filter. Nothing else.
 
-**Expected size** (estimate): about 450 lines added and 120 deleted in product code, plus about 250 lines of tests.
+**Size**: about 900 lines of product code added, against an estimate of 450; the rest is the header, the shared
+stepper primitive, and the fold fixes.
 
 **Open questions**: none. The view a step lands in and counting your own drafts are settled in the brief.
 
@@ -148,9 +149,14 @@ export function buildSequence(
   filter: ItemFilter,
 ): ReviewItem[];
 
+// Diff order, shared by the sort and by stepping from a location.
+export function diffOrder(reviewPaths: readonly string[]): (a: ItemLocation, b: ItemLocation) => number;
+
+// From a location, an item on that line counts as the next (and the previous) one.
 export function stepItem(
   sequence: readonly ReviewItem[],
-  origin: ItemKey | { path: string; line: number } | null,
+  reviewPaths: readonly string[],
+  origin: ItemKey | ItemLocation | null,
   direction: 1 | -1,
 ): ReviewItem | undefined;
 ```
@@ -161,14 +167,23 @@ export function stepItem(
 export const reviewItems: {
   own(session: ClientSession, reviewPaths: () => readonly string[]): () => void;
   sequence(session: ClientSession): readonly ReviewItem[];
-  position(session: ClientSession): { index: number | null; total: number };
+  reviewPaths(session: ClientSession): readonly string[];
   counts(session: ClientSession): { comments: number; hints: number; settled: number };
   current(session: ClientSession): ItemKey | null;
+  position(session: ClientSession, item: ItemKey | null): { index: number | null; total: number };
   setCurrent(session: ClientSession, key: ItemKey | null): void;
+  isCurrentThread(session: ClientSession, id: string): boolean;
   /** The current thread a displayed editor has not yet moved its cursor to. */
   unclaimedThread(session: ClientSession): string | null;
-  claimThread(session: ClientSession): void;
+  claimThread(session: ClientSession, line: number): void;
+  /** Where a displayed editor placed the current item, following local edits; null until one has. */
+  claimedLine(session: ClientSession): number | null;
+  clearThread(session: ClientSession): boolean;
 };
+```
+
+`review-options.ts` reads the three settings into one signal. Hint controllers gain `lineOf(id)`: a hint's line
+read from its mark, which Monaco moves with each edit ahead of the next placement pass.
 ```
 
 - `PrThread` (`src/web/src/editor/pr-comments/pr-comments-store.ts:27`) gains `resolved: boolean`.
@@ -203,7 +218,8 @@ setCurrent(key):
 buildSequence:
   threads when filter.comments; drop resolved or outdated ones unless filter.settled
   hints when filter.hints
-  sort by: index in reviewPaths, else after them by path; then line; then thread before hint; then id
+  sort by diffOrder (index in reviewPaths, else after them by path; then line); a stable sort keeps threads before
+  hints, each in published order
 
 stepItem(sequence, origin, direction):
   origin is a key in the sequence -> its neighbour, wrapping
@@ -222,16 +238,21 @@ and is not the current item.
 
 ```
 step(session, direction):
-  origin = current(session) ?? activeTabFor(session)?.presentation?.capture().text ?? null
-  target = stepItem(sequence(session), origin, direction)
+  origin = args.from ?? current(session) ?? activeTabFor(session)?.presentation?.capture().text ?? null
+  target = stepItem(sequence(session), reviewPaths(session), origin, direction)
   if target is undefined:
     notify("info", "There are no comments or hints to step through."); return
   setViewMode(session, target.path, "source")
-  setCurrent(session, target.key)
-  line = max(1, target.line)
+  setCurrent(session, target.key)                 // a displayed editor showing the item claims it here
+  claimed = claimedLine(session)
+  line = claimed ?? max(1, target.line)
   if activeTabFor(session)?.presentation?.actions()?.revealLine?.(target.path, line): return   // unified review
-  revealFile(session, target.path, line)                                                       // file tab
+  if claimed is null: revealFile(session, target.path, line)                                   // file tab
 ```
+
+A position control on one item (a hover popover, a thread card) passes `{ from: <its key> }`, so its arrows step from
+that item. In the unified review, `revealLine` is a navigation (`ReviewEditor.reveal`), which opens a fold over the
+line; restoring a saved place (`ReviewEditor.restore`) never does.
 
 This is the reveal the hint stepper uses today
 (`src/web/src/editor/review-hints/review-hint-commands.ts:81`): the unified review answers `revealLine` only for a
@@ -252,7 +273,7 @@ effect:
   id = reviewItems.unclaimedThread(session)
   card = cards().find(thread card with that id)
   if id is null, card is missing, or the editor has no client rects: return
-  reviewItems.claimThread(session)
+  reviewItems.claimThread(session, max(1, card.afterLine))
   collapse(id, false)                                        // a step always shows the thread
   editor.setPosition({ lineNumber: max(1, card.afterLine), column: 1 })
   editor.revealLineInCenterIfOutsideViewport(that line)
@@ -335,10 +356,11 @@ No host budget changes: no git process and no page message is added to any opera
 | --- | --- |
 | `src/Weavie.Core/Review/ReviewThread.cs`, `GitHubReviewProvider.GraphQl.cs`, `StaticPullRequestProvider.Reviews.cs` | `Resolved` |
 | `src/Weavie.Headless/FakePullRequests.cs` | read `resolved` |
-| `src/Weavie.Core/Configuration/EditorSettings.cs`, `ReviewItemCommands.cs` (new) | three settings, toggle handlers |
+| `src/Weavie.Core/Configuration/EditorSettings.cs`, `ReviewItemCommands.cs` (new), `SettingCommand.cs` (new), `GitBlameCommands.cs` | three settings; toggle handlers taking an optional `{ "show": bool }`; one setting writer shared with the blame toggle |
 | `src/Weavie.Core/Commands/CoreCommands.cs`, `CoreCommands.ReviewHints.cs` | add three commands, delete four, re-home two toggles |
 | `src/Weavie.Hosting/HostCore.cs` | register the toggle handlers |
-| `src/web/src/editor/review-items/` (new): `review-sequence.ts`, `review-items.ts`, `review-item-commands.ts`, `ReviewItemStepper.tsx` | sequence, owner, commands, controls |
+| `src/web/src/editor/review-items/` (new): `review-sequence.ts`, `review-items.ts`, `review-item-commands.ts`, `review-options.ts`, `ReviewItemStepper.tsx`, `review-items.css` | sequence, owner, commands, settings signal, controls |
+| `src/web/src/editor/hidden-areas.ts` (new), `line-end-lane.ts`, `comment-prose.ts`, `review/review-editor.ts`, `review/review-surface.ts` | Monaco's hidden-area API in one place; widgets re-laid out when a fold opens; reveal opens a fold, restore does not |
 | `src/web/src/editor/review-hints/`: `review-hint-commands.ts`, `review-hints-store.ts`, `HintPopover.tsx`; delete `hint-order.ts` | drop the hint-only step, visibility from options, count |
 | `src/web/src/editor/pr-comments/`: `pr-comments-store.ts`, `pr-comment-controller.tsx`, `pr-comment-commands.ts`, `PrThreadCard.tsx`, `pr-comments.css` | `resolved`, claim, outline, badge, drop `navigate` |
 | `src/web/src/editor/editor-controller.ts`, `editor-command-bindings.ts` | `reviewItems.own`, drop old bindings |

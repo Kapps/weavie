@@ -95,9 +95,10 @@ describe("stepItem", () => {
     expect(stepItem(sequence, review, "hint:1", -1)?.key).toBe("hint:2");
   });
 
-  it("steps from a location to the nearest item past it, in diff order", () => {
+  it("steps from a location to the nearest item from it on, in diff order", () => {
     expect(stepItem(sequence, review, { path: "/w/a.ts", line: 6 }, 1)?.key).toBe("hint:2");
-    expect(stepItem(sequence, review, { path: "/w/a.ts", line: 5 }, 1)?.key).toBe("hint:2");
+    expect(stepItem(sequence, review, { path: "/w/a.ts", line: 5 }, 1)?.key).toBe("thread:t1");
+    expect(stepItem(sequence, review, { path: "/w/a.ts", line: 5 }, -1)?.key).toBe("thread:t1");
     expect(stepItem(sequence, review, { path: "/w/a.ts", line: 6 }, -1)?.key).toBe("thread:t1");
     expect(stepItem(sequence, review, { path: "/w/z.ts", line: 50 }, 1)?.key).toBe("thread:t1");
     expect(stepItem(sequence, review, { path: "/w/q.ts", line: 1 }, 1)?.key).toBe("hint:1");

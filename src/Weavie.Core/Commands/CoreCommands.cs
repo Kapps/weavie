@@ -1915,6 +1915,7 @@ public static partial class CoreCommands {
 			Category = "Pull Request",
 			Description = "Show or hide pull request review comments in every editor, and in Next Comment or Hint "
 				+ "(the 'editor.reviewComments' setting).",
+			ArgsSchemaJson = Configuration.ReviewItemCommands.ArgsSchemaJson,
 			Aliases = ["toggle pr comments", "show pr comments", "hide pr comments", "toggle review comments",
 				"pull request comments"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+Shift+c" }],

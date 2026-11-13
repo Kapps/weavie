@@ -1,6 +1,7 @@
 // One content widget per line end, shared by every feature that puts something beside a line's code (review
 // keep/revert actions, review hint pills), so their items sit side by side instead of stacking on one spot.
 
+import { hiddenAreas } from "./hidden-areas";
 import { monaco } from "./monaco-setup";
 import "./line-end-lane.css";
 
@@ -158,12 +159,12 @@ function createLane(editor: monaco.editor.ICodeEditor): Lane {
   };
   const onContent = editor.onDidChangeModelContent(schedule);
   const onModel = editor.onDidChangeModel(schedule);
-  // Monaco leaves a widget placed on a folded line hidden after the fold opens; opening one changes the content size.
-  const onSize = editor.onDidContentSizeChange(schedule);
+  // Monaco leaves a widget placed on a folded line hidden after the fold opens, until it is laid out again.
+  const onFolds = hiddenAreas(editor).onDidChangeHiddenAreas(schedule);
   editor.onDidDispose(() => {
     onContent.dispose();
     onModel.dispose();
-    onSize.dispose();
+    onFolds.dispose();
     lanes.delete(editor);
   });
   return { items, schedule };

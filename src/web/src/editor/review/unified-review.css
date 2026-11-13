@@ -100,35 +100,29 @@
   border-color: var(--border);
 }
 
-/* Scrolled into the diffs, the header condenses: icon actions, the PR's identity, and one labelled Review button. */
-.unified-review-header-compact {
-  align-items: center;
-  padding-block: 3px;
-}
-
-.unified-review-header-compact :is(.unified-review-heading, .unified-review-header-actions) {
-  align-items: center;
-}
-
-.unified-review-header-compact .ui-icon-button {
-  border-radius: 5px;
+/* Scrolled into the diffs, the header condenses: icon actions, the PR's identity, and one labelled Review button.
+   They stay the same buttons, borderless, so condensing never changes the header's height or the review's. */
+.unified-review-header-compact .unified-review-action {
+  padding-inline: 5px;
+  border-color: transparent;
   background: none;
+}
+
+.unified-review-header-compact .unified-review-action:not(.keep, .revert) {
   color: var(--dim);
 }
 
-.unified-review-header-compact .ui-icon-button:hover:not(:disabled) {
+.unified-review-header-compact .unified-review-action:hover:not(:disabled) {
+  border-color: transparent;
   background: var(--list-active-bg);
   color: var(--fg);
 }
 
-.unified-review-header-compact .ui-icon-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
+/* A rule has no text, so it centres on the row rather than sitting on the baseline. */
 .unified-review-header-rule {
   display: block;
   flex: none;
+  align-self: center;
   width: 1px;
   height: 16px;
   margin-inline: 4px;

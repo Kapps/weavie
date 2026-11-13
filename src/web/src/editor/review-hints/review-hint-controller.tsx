@@ -7,6 +7,7 @@ import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { samePath } from "../fs-path";
+import { hiddenAreas } from "../hidden-areas";
 import { addLineEndItem } from "../line-end-lane";
 import { monaco } from "../monaco-setup";
 import type { PrCommentController } from "../pr-comments/pr-comment-controller";
@@ -26,10 +27,16 @@ import "./review-hints.css";
 export interface ReviewHintController {
   /** This file's hints on their live-buffer lines. */
   placed(): PlacedHint[];
+  /** Where a hint sits right now: its line mark moves with each edit, ahead of the next placement. */
+  lineOf(id: number): number | undefined;
   dispose(): void;
 }
 
-const inert: ReviewHintController = { placed: () => [], dispose: () => {} };
+const inert: ReviewHintController = {
+  placed: () => [],
+  lineOf: () => undefined,
+  dispose: () => {},
+};
 
 const HOVER_CLOSE_MS = 250;
 
@@ -187,15 +194,23 @@ export function createReviewHints(
       }),
     ];
 
+    // The marks are set in placement order, so a hint's mark is the one at its index.
+    const lineOf = (id: number): number | undefined => {
+      const index = placed().findIndex((entry) => entry.hint.id === id);
+      return index < 0
+        ? undefined
+        : (decorations.getRange(index)?.startLineNumber ?? placed()[index]!.line);
+    };
+
     // Navigation opens a hint with no owner; the first displayed binding of its file claims and reveals it.
     createEffect(() => {
       const open = openedHint(session);
       if (open === null || open.owner !== null) return;
-      const entry = placed().find((candidate) => candidate.hint.id === open.id);
-      if (entry === undefined || editor.getContainerDomNode().getClientRects().length === 0) return;
+      const line = lineOf(open.id);
+      if (line === undefined || editor.getContainerDomNode().getClientRects().length === 0) return;
       openHint(session, { ...open, owner: editor });
-      editor.setPosition({ lineNumber: entry.line, column: 1 });
-      editor.revealLineInCenterIfOutsideViewport(entry.line);
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.revealLineInCenterIfOutsideViewport(line);
       editor.focus();
     });
 
@@ -248,9 +263,11 @@ export function createReviewHints(
         editor.layoutContentWidget(widget);
       });
       // Placed while its line was folded, the popover stays hidden until laid out again once the fold opens.
-      const onSize = editor.onDidContentSizeChange(() => editor.layoutContentWidget(widget));
+      const onFolds = hiddenAreas(editor).onDidChangeHiddenAreas(() =>
+        editor.layoutContentWidget(widget),
+      );
       onCleanup(() => {
-        onSize.dispose();
+        onFolds.dispose();
         editor.removeContentWidget(widget);
         unmount();
       });
@@ -258,6 +275,7 @@ export function createReviewHints(
 
     return {
       placed,
+      lineOf,
       dispose: () => {
         clearTimeout(recompute);
         clearTimeout(closing);

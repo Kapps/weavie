@@ -2,11 +2,18 @@ import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { awaitEditorReady, createSession, runCommand } from "../harness/actions";
+import {
+  awaitEditorReady,
+  clickIntoEditor,
+  createSession,
+  openFile,
+  runCommand,
+} from "../harness/actions";
 import type { FakeStep } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 import { prCard } from "../harness/pull-request";
+import { openPullRequest, hintPopover as popover } from "../harness/review";
 
 // Next/Previous Comment or Hint: one sequence of a session's PR threads and review hints, in the review's file order,
 // with its position in the review header and on the current item. See docs/specs/review-points-of-interest/.
@@ -34,18 +41,22 @@ test.use({ prScenario: true, fakeScript: { steps: [hint] } });
 
 const position = (page: Page): Locator =>
   page.locator(".unified-review-header .review-item-position > span");
-const popover = (page: Page): Locator => page.locator(".weavie-hint-hover");
-const next = (page: Page) =>
-  page.keyboard.press(
-    process.platform === "darwin" ? "Meta+Alt+BracketRight" : "Control+Alt+BracketRight",
+const next = (page: Page) => page.keyboard.press("ControlOrMeta+Alt+BracketRight");
+const lineNumber = (page: Page) =>
+  page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber);
+const hintLine = (page: Page) =>
+  page.evaluate(
+    () =>
+      window.__WEAVIE_EDITOR__
+        ?.getModel()
+        ?.getAllDecorations()
+        .find((decoration) => decoration.options.className?.includes("weavie-hint-line"))?.range
+        .startLineNumber,
   );
 
 // Opens PR #101's unified review: feature.ts (an open and a resolved thread) then hello.ts (a thread and a hint).
 async function openReview(page: Page): Promise<void> {
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
+  await openPullRequest(page);
   await expect(page.locator(".weavie-hint-pill")).toHaveCount(1, { timeout: 15_000 });
   await expect(position(page)).toHaveText("3");
 }
@@ -79,16 +90,30 @@ test("steps by key across the review's files, wrapping, with the position in the
   await expect(greeting).not.toHaveClass(/weavie-pr-card-current/);
 
   await next(page);
-  await expect(prCard(page, "Should this flag default to off?")).toHaveClass(
-    /weavie-pr-card-current/,
-  );
+  await expect(flag).toHaveClass(/weavie-pr-card-current/);
   await expect(popover(page)).toHaveCount(0);
   await expect(position(page)).toHaveText("1 of 3");
 
+  // A click in the code clears the outlined thread; the next step starts from where the click put the cursor, below
+  // hello.ts's last item, so it wraps to the first.
+  await next(page);
+  await expect(position(page)).toHaveText("2 of 3");
+  // At the line's start: its end carries the blame annotation, whose popover takes focus.
+  await page
+    .locator(".view-line", { hasText: "console.log(message)" })
+    .click({ position: { x: 4, y: 4 } });
+  await expect(greeting).not.toHaveClass(/weavie-pr-card-current/);
+  await expect(position(page)).toHaveText("3");
+  await next(page);
+  await expect(position(page)).toHaveText("1 of 3");
+
+  // Escape clears it too: from the cursor the thread the step left it on is next again, not the one after it.
   await page.keyboard.press("Escape");
   await expect(position(page)).toHaveText("3");
+  await next(page);
+  await expect(position(page)).toHaveText("1 of 3");
   await page.mouse.wheel(0, 400);
-  await expect(position(page)).toHaveText("3");
+  await expect(position(page)).toHaveText("1 of 3");
 });
 
 test("the filter hides a kind, adds resolved threads, and is remembered; Dismiss drops a hint", async ({
@@ -96,17 +121,24 @@ test("the filter hides a kind, adds resolved threads, and is remembered; Dismiss
 }) => {
   test.slow();
   await openReview(page);
+  const filterButton = page.getByRole("button", { name: "Filter Comments and Hints" });
   const filter = async (row: string) => {
-    await page.getByRole("button", { name: "Filter Comments and Hints" }).click();
+    await filterButton.click();
     await page.locator(".context-menu-item", { hasText: row }).click();
   };
+
+  await filter("Comments");
+  await expect(position(page)).toHaveText("1");
+  await expect(page.locator(".weavie-pr-card")).toHaveCount(0);
+  await filter("Comments");
+  await expect(position(page)).toHaveText("3");
 
   await filter("Hints");
   await expect(position(page)).toHaveText("2");
   await expect(page.locator(".weavie-hint-pill")).toHaveCount(0);
   await filter("Resolved and outdated");
   await expect(position(page)).toHaveText("3");
-  await page.getByRole("button", { name: "Filter Comments and Hints" }).click();
+  await filterButton.click();
   const rows = page.locator(".context-menu-item");
   await expect(rows.filter({ hasText: "Comments" }).locator(".context-menu-detail")).toHaveText(
     "2",
@@ -117,9 +149,10 @@ test("the filter hides a kind, adds resolved threads, and is remembered; Dismiss
   );
   await page.keyboard.press("Escape");
 
+  // The reload restores the review tab; the overview command opens it either way.
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-  await runCommand(page, "Review Changes");
+  await runCommand(page, "Show Session Overview");
   await expect(position(page)).toHaveText("3");
   await expect(page.locator(".weavie-hint-pill")).toHaveCount(0);
 
@@ -134,16 +167,17 @@ test("the filter hides a kind, adds resolved threads, and is remembered; Dismiss
   await expect(position(page)).toHaveText("2");
 });
 
-test.describe("a hint on a line the unified review folds away", () => {
+test.describe("without a pull request", () => {
   test.use({ prScenario: false, fakeScript: null });
 
-  test("the first step opens the fold and shows the hint's popover", async ({ page, weavie }) => {
+  // A session with a hint on line 80 of long.ts, which the agent changed on line 5 only.
+  async function hintedSession(page: Page, worktreeOf: () => string): Promise<void> {
     await awaitEditorReady(page);
-    await createSession(page, { branch: "folded-hint", provider: "fake-acp" });
-    const [worktree] = sessionWorktrees(weavie.workspace);
+    await createSession(page, { branch: "stepping", provider: "fake-acp" });
+    const worktree = worktreeOf();
     const lines = Array.from({ length: 160 }, (_, i) => `// line ${i + 1}`);
     lines[4] = "// changed five";
-    await writeFile(join(worktree!, "long.ts"), `${lines.join("\n")}\n`);
+    await writeFile(join(worktree, "long.ts"), `${lines.join("\n")}\n`);
     execFileSync("git", ["commit", "-qam", "change"], { cwd: worktree });
     const composer = page.locator(
       '[data-surface="structured-agent"] [data-agent-composer] textarea',
@@ -156,20 +190,40 @@ test.describe("a hint on a line the unified review folds away", () => {
     await expect(page.locator('[data-surface="structured-agent"]')).toContainText(
       "Hint added at long.ts:80",
     );
+  }
+
+  test("the first step to a folded line opens the fold and shows the hint's popover", async ({
+    page,
+    weavie,
+  }) => {
+    await hintedSession(page, () => sessionWorktrees(weavie.workspace)[0]!);
     await runCommand(page, "Diff Against…");
     await page.locator(".session-prompt-input").fill("HEAD^");
     await page.locator(".session-prompt-input").press("Enter");
-    // Diff Against opens on the first changed file; the folding happens in the unified review.
-    await expect(page.locator(".weavie-inline-toolbar, .unified-review").first()).toBeVisible({
-      timeout: 30_000,
-    });
-    if ((await page.locator(".unified-review").count()) === 0)
-      await runCommand(page, "Review Changes");
-    await expect(page.locator(".unified-review")).toBeVisible({ timeout: 30_000 });
+    // Diff Against opens its first file; the folding is in the unified review.
+    await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 30_000 });
+    await runCommand(page, "Show Session Overview");
+    await expect(page.locator(".unified-review")).toBeVisible();
 
     await runCommand(page, "Next Comment or Hint");
     await expect(page.locator(".view-line", { hasText: "// line 80" })).toBeVisible();
     await expect(popover(page).locator(".weavie-hint-title")).toBeVisible();
     await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Folded hint");
+  });
+
+  test("a step in a file tab lands where the hint sits after edits above it", async ({
+    page,
+    weavie,
+  }) => {
+    await hintedSession(page, () => sessionWorktrees(weavie.workspace)[0]!);
+    await openFile(page, "long.ts");
+    await clickIntoEditor(page);
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.type("// added\n// added\n// added\n");
+    // The hint's mark moves with the edit at once; the step goes there, not to the line the hint was made on.
+    expect(await hintLine(page)).toBe(83);
+    await next(page);
+    await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Folded hint");
+    await expect.poll(() => lineNumber(page)).toBe(83);
   });
 });

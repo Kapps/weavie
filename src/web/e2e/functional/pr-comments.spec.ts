@@ -156,7 +156,7 @@ test("stepping to a collapsed thread expands it, as the comment command does", a
   await collapse();
 
   await goToLine(page, 6);
-  await runCommand(page, "Previous Comment or Hint");
+  await page.keyboard.press("ControlOrMeta+Alt+BracketLeft");
   await expect(page.locator(".pane-footer .footer-seg", { hasText: "Ln " })).toContainText("Ln 2,");
   await expect(thread).toHaveClass(/weavie-pr-card-current/);
   await expect(thread.locator(".weavie-pr-summary")).toHaveCount(0);
@@ -165,4 +165,18 @@ test("stepping to a collapsed thread expands it, as the comment command does", a
   await runCommand(page, "Comment on Line (Pull Request)");
   await expect(page.locator(".weavie-pr-summary")).toHaveCount(0);
   await expect(thread.locator(".weavie-pr-composer-input")).toBeFocused();
+});
+
+test("commenting on a thread's line while threads are hidden shows them and replies to that thread", async ({
+  page,
+}) => {
+  await openCommentedFile(page);
+  const thread = card(page, "Why change this greeting?");
+  await runCommand(page, "Toggle Pull Request Comments");
+  await expect(thread).toHaveCount(0);
+
+  await goToLine(page, 2);
+  await runCommand(page, "Comment on Line (Pull Request)");
+  await expect(thread.locator(".weavie-pr-composer-input")).toBeFocused();
+  await expect(page.locator(".weavie-pr-card-draft")).toHaveCount(0);
 });

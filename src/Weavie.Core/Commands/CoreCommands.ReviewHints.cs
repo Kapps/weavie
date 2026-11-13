@@ -62,6 +62,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Include or skip resolved and outdated pull request threads in Next Comment or Hint "
 				+ "(the 'editor.reviewStepSettled' setting).",
+			ArgsSchemaJson = Configuration.ReviewItemCommands.ArgsSchemaJson,
 			Aliases = ["resolved comments", "outdated comments", "step resolved threads"],
 		});
 
@@ -74,6 +75,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Show or hide agent review hints in every editor, and in Next Comment or Hint "
 				+ "(the 'editor.reviewHints' setting).",
+			ArgsSchemaJson = Configuration.ReviewItemCommands.ArgsSchemaJson,
 			Aliases = ["toggle hints", "show review hints", "hide review hints", "toggle findings"],
 		});
 

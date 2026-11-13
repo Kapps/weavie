@@ -71,7 +71,8 @@ export function buildSequence(
 
 /**
  * The item after (1) or before (-1) `origin`, wrapping: an item in the sequence steps to its neighbour, a location
- * to the nearest item past it, and no origin to the first (or last). Undefined when the sequence is empty.
+ * to the nearest item from it on (an item on its line comes first), and no origin to the first (or last). Undefined
+ * when the sequence is empty.
  */
 export function stepItem(
   sequence: readonly ReviewItem[],
@@ -88,7 +89,7 @@ export function stepItem(
   const order = diffOrder(reviewPaths);
   const found =
     direction === 1
-      ? sequence.find((item) => order(item, origin) > 0)
-      : sequence.findLast((item) => order(item, origin) < 0);
+      ? sequence.find((item) => order(item, origin) >= 0)
+      : sequence.findLast((item) => order(item, origin) <= 0);
   return found ?? edge;
 }

@@ -9,12 +9,17 @@ import { prCommentsFor } from "../pr-comments/pr-comments-store";
 import { reviewHintsFor } from "../review-hints/review-hints-store";
 import { reviewItems } from "./review-items";
 import { reviewOptions } from "./review-options";
+import type { ItemKey } from "./review-sequence";
 import "./review-items.css";
 
-/** `‹ 3 of 8 ›`: the current item's place among the session's comments and hints, with the step commands. */
-export function ItemPosition(props: { session: ClientSession }): JSX.Element {
+/**
+ * `‹ 3 of 8 ›`: an item's place among the session's comments and hints, with the step commands, which step from it.
+ * Without an item it is the current one.
+ */
+export function ItemPosition(props: { session: ClientSession; item: ItemKey | null }): JSX.Element {
   const run = captureCommandRunnerFor(props.session, new Map());
-  const position = () => reviewItems.position(props.session);
+  const item = () => props.item ?? reviewItems.current(props.session);
+  const position = () => reviewItems.position(props.session, item());
   const step = (id: string, label: string, icon: JSX.Element) => (
     <button
       type="button"
@@ -22,7 +27,7 @@ export function ItemPosition(props: { session: ClientSession }): JSX.Element {
       aria-label={label}
       disabled={position().total === 0}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={() => void run(id, undefined)}
+      onClick={() => void run(id, { from: item() })}
     >
       {icon}
     </button>
@@ -83,7 +88,7 @@ export function ReviewItemStepper(props: { session: ClientSession }): JSX.Elemen
         <span class="ui-icon review-item-icon">
           <MessageSquare />
         </span>
-        <ItemPosition session={props.session} />
+        <ItemPosition session={props.session} item={null} />
         <span class="ui-stepper">
           <button
             type="button"

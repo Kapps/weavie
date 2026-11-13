@@ -10,6 +10,7 @@ import {
   createSignal,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { editorContexts } from "../editor-context";
 import { prCommentsFor } from "../pr-comments/pr-comments-store";
 import { openedHint, openHint, reviewHintsFor } from "../review-hints/review-hints-store";
 import { reviewOptions } from "./review-options";
@@ -17,8 +18,8 @@ import { buildSequence, type ItemKey, type ReviewItem } from "./review-sequence"
 
 interface CurrentThread {
   id: string;
-  /** Whether an editor showing the thread has moved its cursor there yet. */
-  claimed: boolean;
+  /** The line an editor showing the thread placed it on, once one has moved its cursor there. */
+  claimed: number | null;
 }
 
 interface SessionItems {
@@ -111,11 +112,10 @@ export const reviewItems = {
   counts: (session: ClientSession): ItemCounts =>
     roots.get(session)?.counts() ?? { comments: 0, hints: 0, settled: 0 },
   current: (session: ClientSession): ItemKey | null => roots.get(session)?.current() ?? null,
-  /** The current item's 1-based place in the sequence (null when it has none) and the sequence's length. */
-  position(session: ClientSession): { index: number | null; total: number } {
+  /** `item`'s 1-based place in the sequence (null when it has none) and the sequence's length. */
+  position(session: ClientSession, item: ItemKey | null): { index: number | null; total: number } {
     const sequence = reviewItems.sequence(session);
-    const current = reviewItems.current(session);
-    const index = current === null ? -1 : sequence.findIndex((item) => item.key === current);
+    const index = item === null ? -1 : sequence.findIndex((entry) => entry.key === item);
     return { index: index < 0 ? null : index + 1, total: sequence.length };
   },
   /** Makes `key` the current item: a hint opens its pinned popover, a thread is outlined. */
@@ -126,19 +126,29 @@ export const reviewItems = {
       return;
     }
     if (openedHint(session) !== null) openHint(session, null);
-    items?.setThread(key === null ? null : { id: key.slice(7), claimed: false });
+    items?.setThread(key === null ? null : { id: key.slice(7), claimed: null });
   },
   isCurrentThread: (session: ClientSession, id: string): boolean =>
     roots.get(session)?.isCurrentThread(id) ?? false,
   /** The current thread no displayed editor has moved its cursor to yet. */
   unclaimedThread(session: ClientSession): string | null {
     const thread = roots.get(session)?.thread();
-    return thread != null && !thread.claimed ? thread.id : null;
+    return thread != null && thread.claimed === null ? thread.id : null;
   },
-  claimThread(session: ClientSession): void {
+  claimThread(session: ClientSession, line: number): void {
     const items = roots.get(session);
     const thread = items?.thread();
-    if (thread != null) items?.setThread({ ...thread, claimed: true });
+    if (thread != null) items?.setThread({ ...thread, claimed: line });
+  },
+  /**
+   * Where a displayed editor placed the current item, following local edits; null until one has. The item's own
+   * line is numbered against the text it was made on.
+   */
+  claimedLine(session: ClientSession): number | null {
+    const open = openedHint(session);
+    if (open?.pinned && open.owner !== null)
+      return editorContexts.fromEditor(open.owner)?.reviewHints.lineOf(open.id) ?? null;
+    return roots.get(session)?.thread()?.claimed ?? null;
   },
   /** Clears a current thread; false when there was none. */
   clearThread(session: ClientSession): boolean {

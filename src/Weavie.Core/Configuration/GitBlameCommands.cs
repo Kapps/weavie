@@ -20,19 +20,11 @@ public static class GitBlameCommands {
 	// 'currentLine' even for someone who had chosen 'all' — a toggle only carries one bit, so the mode it
 	// restores has to be a fixed one. Changing modes is the setting's job, not this command's.
 	private static CommandResult Toggle(SettingsStore settings) {
-		try {
-			bool showing = !string.Equals(
-				settings.RequireString(EditorSettings.GitBlame),
-				EditorSettings.GitBlameOff,
-				StringComparison.Ordinal);
-			string next = showing ? EditorSettings.GitBlameOff : EditorSettings.GitBlameCurrentLine;
-			return settings.Set(EditorSettings.GitBlame, JsonSerializer.SerializeToElement(next, CoreJson.Default.String)).ShadowedByEnv is { Length: > 0 } variable
-				? CommandResult.Success(
-					$"Set 'editor.gitBlame' to '{next}', but {variable} overrides it; unset it to see the change.")
-				: CommandResult.Success();
-		} catch (Exception ex) when (
-			ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
-			return CommandResult.Failure(ex.Message);
-		}
+		bool showing = !string.Equals(
+			settings.RequireString(EditorSettings.GitBlame),
+			EditorSettings.GitBlameOff,
+			StringComparison.Ordinal);
+		string next = showing ? EditorSettings.GitBlameOff : EditorSettings.GitBlameCurrentLine;
+		return SettingCommand.Set(settings, EditorSettings.GitBlame, JsonSerializer.SerializeToElement(next, CoreJson.Default.String), $"'{next}'");
 	}
 }

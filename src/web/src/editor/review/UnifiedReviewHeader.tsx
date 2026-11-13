@@ -5,6 +5,7 @@ import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { FinishReview } from "../pr-comments/FinishReview";
+import { prCommentsFor } from "../pr-comments/pr-comments-store";
 import { ReviewItemStepper } from "../review-items/ReviewItemStepper";
 import { DiffStats } from "./DiffStats";
 import { PrStatePill } from "./overview/OverviewTitle";
@@ -36,8 +37,7 @@ export function UnifiedReviewHeader(props: {
   }) => (
     <button
       type="button"
-      class={`unified-review-action ${spec.tone}`}
-      classList={{ "ui-button": !compact(), "ui-icon-button": compact() }}
+      class={`unified-review-action ui-button ${spec.tone}`}
       disabled={spec.disabled()}
       title={`${spec.title}${keyHint(spec.command)}`}
       aria-label={spec.label}
@@ -59,7 +59,7 @@ export function UnifiedReviewHeader(props: {
         >
           <button
             type="button"
-            class="unified-review-action ui-icon-button"
+            class="unified-review-action ui-button"
             title={`Show the session overview${keyHint(CommandIds.reviewOverview)}`}
             aria-label="Overview"
             onClick={() => props.onOverview()}
@@ -126,7 +126,7 @@ export function UnifiedReviewHeader(props: {
           icon: <Check />,
           compactIcon: <CheckCheck />,
         })}
-        <Show when={compact()}>
+        <Show when={compact() && prCommentsFor(props.session)?.set != null}>
           <span class="unified-review-header-rule" />
           <FinishReview session={props.session} />
         </Show>

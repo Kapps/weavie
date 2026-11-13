@@ -91,7 +91,10 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
   time, usage, detail, last activity, result or error, a link to its output file, and the output of the tool call
   that started it. It follows the task live and says so once the task is cleared.
 - **Tray** — a roving-focus toolbar above the composer lists every item; clicking or Enter opens the item in a tab
-  (a subagent's transcript tab, else its task tab), and Stop appears only for stoppable tasks.
+  (a subagent's transcript tab, else its task tab), and Stop appears only for stoppable tasks. A turn the agent
+  started without a prompt is listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`):
+  otherwise it has nothing to open or stop, and an agent refreshing on a timer would leave one behind per tick
+  until the next prompt.
 - **Commands** — `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
   stoppable task) and `weavie.agent.showBackgroundWork` (Web, focuses the tray), both gated by
   `agentBackgroundActive`; `weavie.agent.openBackgroundItem` (Web, `{id?}`; no id opens the most recently started

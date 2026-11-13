@@ -13,7 +13,7 @@ internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 	private readonly HashSet<string> _settled = new(StringComparer.Ordinal);
 
 	public IReadOnlyList<AgentBackgroundItem> Items {
-		get { lock (_gate) return [.. _subagents.Values.Select(subagent => subagent.Item), .. _tasks.Values.Select(task => task.Item)]; }
+		get { lock (_gate) return [.. _subagents.Values.Select(subagent => subagent.Item), .. _tasks.Values.Select(task => task.Item).Where(item => item.Listed)]; }
 	}
 
 	/// <summary>The live subagent conversation with the Weavie identity <paramref name="conversationId"/>.</summary>

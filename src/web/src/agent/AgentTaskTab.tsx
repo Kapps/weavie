@@ -26,11 +26,7 @@ export default function AgentTaskTab(props: {
     <div class="editor-agent-view agent-body" data-kind="editor" tabindex="0" ref={host}>
       <Show
         when={item()}
-        fallback={
-          <div class="editor-plan-notice">
-            This task is no longer listed: finished work clears at the agent's next prompt.
-          </div>
-        }
+        fallback={<div class="editor-plan-notice">This task is no longer listed.</div>}
       >
         {(task) => (
           <article

@@ -40,7 +40,7 @@ registerSessionFeature((session) => {
   };
 });
 
-/** One exact session's background work: live items, plus finished ones until its next prompt. */
+/** One exact session's background work: live items, plus the finished ones its host still lists. */
 export function agentBackground(session: ClientSession | null): AgentBackgroundItem[] {
   return (session === null ? undefined : bySession().get(session)) ?? [];
 }

@@ -1,4 +1,11 @@
-import { Command, FilePlus, FileSearch, FolderTree, GitPullRequestArrow } from "lucide-solid";
+import {
+  Command,
+  FilePlus,
+  FileSearch,
+  FolderTree,
+  GitBranch,
+  GitPullRequestArrow,
+} from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 import { formatKey } from "../commands/keybindings";
@@ -15,6 +22,12 @@ interface StarterAction {
 }
 
 const ACTIONS: StarterAction[] = [
+  {
+    id: CommandIds.diffAgainstBranchBase,
+    label: "Review Branch",
+    hint: "See this branch’s commits and changes",
+    icon: GitBranch,
+  },
   {
     id: CommandIds.focusOmnibarFiles,
     label: "Go to File",
@@ -96,6 +109,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                   <button
                     type="button"
                     class="editor-empty-action ui-row ui-row-stack"
+                    title={keys === "" ? action.label : `${action.label} (${keys})`}
                     // Don't steal focus on press: these actions hand focus to the omnibar, and a button
                     // holding focus would trip its focus-out close. preventDefault keeps the click firing.
                     onMouseDown={(event) => event.preventDefault()}

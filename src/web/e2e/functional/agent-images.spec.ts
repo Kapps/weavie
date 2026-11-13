@@ -25,18 +25,14 @@ test("an agent reply shows a workspace image in a fixed frame, from a same-origi
   await expect
     .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
     .toBe(2);
-  // A reply re-renders once more when its completion arrives, replacing the frame; read the one that stays.
+  // The image reserves a fixed-height frame while its reply renders.
   await expect
     .poll(() => surface.locator(".agent-image").evaluate((element) => element.clientHeight))
     .toBe(240);
-  // Scrolling can remount virtualized replies; let the locator resolve the actionable image at drag start.
-  const size = await image.evaluate((element) => ({
-    width: element.clientWidth,
-    height: element.clientHeight,
-  }));
+  // A remounted image can measure zero before layout; these points stay inside its 240px frame.
   await image.dragTo(image, {
-    sourcePosition: { x: size.width * 0.1, y: size.height * 0.1 },
-    targetPosition: { x: size.width * 0.9, y: size.height * 0.9 },
+    sourcePosition: { x: 24, y: 80 },
+    targetPosition: { x: 120, y: 160 },
   });
   await expect(
     surface.locator("[data-agent-composer] .agent-attachment:not(.agent-attachment-selection)"),

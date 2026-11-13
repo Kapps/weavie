@@ -58,9 +58,14 @@ export interface AgentTranscriptEntry {
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
   block?: { id: string; key: string; kind: "chart" | "table" } | undefined;
-  /** The dashboard a dashboard card shows, or the one a block-added line points at. */
+  /** The dashboard a dashboard card shows, a block belongs to, or a block-added line points at. */
   dashboardId?: string;
 }
+
+/** A chart or table entry. */
+export type AgentBlockTranscriptEntry = AgentTranscriptEntry & {
+  block: NonNullable<AgentTranscriptEntry["block"]>;
+};
 
 /** What a subagent card shows beyond its nested transcript. */
 export interface AgentSubagentInfo {

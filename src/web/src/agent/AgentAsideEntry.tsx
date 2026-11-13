@@ -5,7 +5,7 @@ import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { openCard, ownCardOnFocus, setCardCollapsed } from "./agent-cards";
+import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -20,8 +20,7 @@ export function AsideEntry(props: {
   }
   const card = { kind: "aside", conversationId } as const;
   const collapsed = () => props.entry.asideCollapsed === true;
-  const toggle = () =>
-    setCardCollapsed(props.session, { conversationId, dashboardId: null }, !collapsed());
+  const toggle = () => setCardCollapsed(props.session, card, !collapsed());
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
 
   return (
@@ -34,7 +33,7 @@ export function AsideEntry(props: {
         </Show>
       }
       onToggle={toggle}
-      onOpen={() => void openCard(card)}
+      card={card}
       onOwn={own}
       data={{ "data-agent-aside": conversationId }}
     >

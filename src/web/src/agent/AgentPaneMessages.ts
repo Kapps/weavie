@@ -3,6 +3,7 @@ import { AgentActivitySegments } from "./AgentActivitySegments";
 import { isAgentActivity } from "./AgentPaneActivitySummary";
 import { AgentPaneBlocks } from "./AgentPaneBlocks";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
+import { entry } from "./AgentPaneEntry";
 import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
@@ -11,11 +12,7 @@ import {
   type RequestResolution,
   requestResolutions,
 } from "./AgentPaneMessageFormat";
-import type {
-  AgentActivityStep,
-  AgentTranscriptEntry,
-  AgentTranscriptTone,
-} from "./AgentPaneTranscriptTypes";
+import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
@@ -265,41 +262,6 @@ function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): Ag
 
 function promptLabel(message: AgentPaneUpdate, label: string): string {
   return message.sender ? `From ${message.sender.title}` : label;
-}
-
-function entry(
-  message: AgentPaneUpdate,
-  sequence: number,
-  kind: AgentTranscriptEntry["kind"],
-  tone: AgentTranscriptTone,
-  label: string,
-  status: string | null,
-): AgentTranscriptEntry {
-  return {
-    actionMessage: actionMessage(message),
-    detailCount: 0,
-    details: [],
-    id: paneItemIdentity(message) ?? `${message.type}-${sequence}`,
-    kind,
-    label,
-    status,
-    streaming: normalizeStatus(message.status) === "running",
-    summary: normalizeText(message.summary),
-    text: normalizeText(message.text),
-    tone,
-  };
-}
-
-function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
-  return message.type === "approval-requested" ||
-    message.type === "authentication-requested" ||
-    message.type === "edit-location" ||
-    message.type === "input-requested" ||
-    (message.mediaData !== null && message.mediaData !== undefined) ||
-    (message.resourceUri !== null && message.resourceUri !== undefined) ||
-    (message.content?.length ?? 0) > 0
-    ? message
-    : null;
 }
 
 function collapseEditLocations(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {

@@ -6,7 +6,7 @@ import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
-import { cardName, cardOf, openCard, setCardCollapsed } from "./agent-cards";
+import { cardName, cardOf, openCard, openCardTitle } from "./agent-cards";
 import { backgroundStatus, rovingTarget } from "./background-format";
 import { liveNow } from "./live-clock";
 
@@ -121,7 +121,7 @@ export function AgentStrip(props: {
                   type="button"
                   class="agent-status-segment"
                   tabIndex={items().length === 0 && index() === 0 ? 0 : -1}
-                  title={`Open Card in Tab${liveKeyHint(CommandIds.openAgentCard)}`}
+                  title={openCardTitle()}
                   onClick={() => void openCard(cardOf(entry)!)}
                 >
                   <span class="agent-status-value agent-background-name">{cardName(entry)}</span>
@@ -131,16 +131,12 @@ export function AgentStrip(props: {
                   class="agent-status-segment agent-strip-collapse"
                   tabIndex={-1}
                   aria-label={`Collapse ${cardName(entry)}`}
-                  title={`Collapse Card${liveKeyHint(CommandIds.toggleAgentAside)}`}
+                  title="Collapse or Expand Card"
                   onClick={() =>
-                    setCardCollapsed(
-                      props.session,
-                      {
-                        conversationId: entry.conversationId ?? null,
-                        dashboardId: entry.dashboardId ?? null,
-                      },
-                      true,
-                    )
+                    void runCommandWithFeedback(CommandIds.toggleAgentAside, {
+                      ...cardOf(entry),
+                      collapsed: true,
+                    })
                   }
                 >
                   ✕

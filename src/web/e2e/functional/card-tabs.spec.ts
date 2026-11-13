@@ -1,6 +1,11 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { createAcpSession, setFakeAcpMode, submitAcpDraft } from "../harness/acp-session";
+import { openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
+import { focusEditor } from "../harness/navigator";
 import { persistedSessions } from "../harness/persisted-sessions";
 
 const dashboard = { id: "rollout", title: "Checkout rollout" };
@@ -27,6 +32,9 @@ const show = (relay: string, ...ids: string[]) =>
   `${ids.length > 1 ? "block-parallel" : "block"}:${relay}:showBlock:${ids.map((id) => JSON.stringify(chart(id))).join("\n")}`;
 
 const tab = (page: Page, name: string): Locator => page.locator(".editor-tab", { hasText: name });
+
+const focused = (page: Page): Promise<string | undefined> =>
+  page.evaluate(() => document.activeElement?.outerHTML.slice(0, 200));
 
 test("a dashboard gathers its blocks into one card that opens in a tab and leaves the strip when collapsed", async ({
   page,
@@ -104,6 +112,15 @@ test("a block's height in a tab is the user's to drag, and the tab keeps it", as
   const restored = page.locator(".agent-blocks-tab .agent-entry-block").first();
   await expect(restored.locator(".agent-chart canvas")).toBeVisible();
   expect((await restored.boundingBox())!.height).toBe(dragged + 40);
+
+  // Clearing the conversation leaves the tab open, saying its dashboard is gone.
+  const composer = page.locator('[data-surface="structured-agent"] [data-agent-composer] textarea');
+  await composer.fill("/clear");
+  await composer.press("Escape");
+  await composer.press("Enter");
+  await expect(page.locator(".agent-blocks-tab")).toHaveText(
+    "This dashboard is no longer in the transcript.",
+  );
 });
 
 test("a lone block and a BTW open in tabs, and the BTW's reply box keeps focus where it was opened", async ({
@@ -132,4 +149,59 @@ test("a lone block and a BTW open in tabs, and the BTW's reply box keeps focus w
   // The chat card shows the same draft, without taking focus from the tab.
   await expect(aside.getByRole("textbox", { name: "Reply to BTW" })).toHaveValue("and then?");
   await expect(reply).toBeFocused();
+
+  // Once that reply is sent, a Reply pressed in the chat card takes focus there, not in the tab.
+  await reply.press("Enter");
+  await expect(aside).toContainText("echo: and then?");
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(aside.getByRole("textbox", { name: "Reply to BTW" })).toBeFocused();
+});
+
+test("a dashboard inside a BTW is the card Alt+B acts on once pressed", async ({ page }) => {
+  const surface = await createAcpSession(page, "card-tabs-nested");
+  await submitAcpDraft(surface, `/btw ${show("claude", "p95")}`);
+  const aside = surface.locator(".agent-aside[data-agent-aside]");
+  const nested = aside.locator('[data-agent-dashboard="rollout"]');
+  await expect(nested.locator(".agent-entry-block")).toHaveCount(1);
+
+  await nested.getByRole("button", { name: /^Collapse Dashboard/ }).click();
+  await expect(nested.locator(".agent-entry-block")).toHaveCount(0);
+  await page.keyboard.press("Alt+b");
+  await expect(nested.locator(".agent-entry-block")).toHaveCount(1);
+  await expect(aside.getByRole("button", { name: "Collapse BTW", exact: true })).toBeVisible();
+});
+
+test("an agent's background open of its dashboard keeps the editor and the keyboard where they were", async ({
+  page,
+  weavie,
+}) => {
+  // Without steering the open queues behind the held turn, so it runs while the user is typing in a file.
+  await setFakeAcpMode(page, weavie.home, "no-steering");
+  const surface = await createAcpSession(page, "card-tabs-background");
+  await submitAcpDraft(surface, show("claude", "p95"));
+  await expect(
+    surface.locator('[data-agent-dashboard="rollout"] .agent-chart canvas'),
+  ).toBeVisible();
+  const worktree = sessionWorktrees(weavie.workspace)[0]!;
+  await writeFile(join(worktree, "notes.md"), "# notes\n");
+  await openFile(page, "notes.md");
+
+  await submitAcpDraft(surface, "hold");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+  await submitAcpDraft(surface, `mcp:openDashboard:${JSON.stringify({ id: "rollout" })}`);
+  await expect(surface.locator(".agent-compose-queued")).toContainText("openDashboard");
+  await focusEditor(page);
+  const typing = await focused(page);
+  await writeFile(join(worktree, "release-hold"), "");
+
+  await expect(tab(page, "Checkout rollout")).toBeVisible();
+  await expect(page.locator(".editor-tab.active")).toContainText("notes.md");
+  expect(await focused(page)).toBe(typing);
+
+  // Asked to show it, the agent's open brings the tab forward.
+  await submitAcpDraft(
+    surface,
+    `mcp:openDashboard:${JSON.stringify({ id: "rollout", focus: true })}`,
+  );
+  await expect(page.locator(".editor-tab.active")).toContainText("Checkout rollout");
 });

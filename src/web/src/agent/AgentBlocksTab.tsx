@@ -1,13 +1,10 @@
-import { createMemo, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { For, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { createResizeDrag } from "../chrome/resize-drag";
 import { AgentBlockEntry } from "./AgentBlockEntry";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { AgentCardTabFrame } from "./AgentCardTabFrame";
+import type { AgentBlockTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { chartHeight, tableHeightEstimate } from "./agent-block-layout";
-import { cardForTabEntry } from "./card-tab";
-import { agentPaneModel } from "./pane-store";
-
-type BlockEntry = AgentTranscriptEntry & { block: NonNullable<AgentTranscriptEntry["block"]> };
 
 /** What a blocks tab saves with its tab: each block's height as the user sized it, by block id. */
 export interface BlocksTabViewState {
@@ -26,39 +23,28 @@ export default function AgentBlocksTab(props: {
   setViewState: (state: BlocksTabViewState) => void;
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
-  let host!: HTMLDivElement;
-  const entry = createMemo(() => cardForTabEntry(props.session, props.kind, props.path));
-  const blocks = (): BlockEntry[] => {
-    const card = entry();
-    if (card === undefined) return [];
-    return (card.kind === "dashboard" ? (card.asideEntries ?? []) : [card]) as BlockEntry[];
-  };
   const heightOf = (id: string): number | null => props.viewState()?.heights[id] ?? null;
   const setHeight = (id: string, height: number): void =>
     props.setViewState({
       heights: { ...props.viewState()?.heights, [id]: Math.max(minimumHeight, height) },
     });
-  onMount(() => onCleanup(props.bind(host)));
-
   return (
-    <div
-      class="editor-agent-view agent-body agent-blocks-tab"
-      data-kind="editor"
-      tabindex="0"
-      ref={host}
+    <AgentCardTabFrame
+      session={props.session}
+      kind={props.kind}
+      path={props.path}
+      noun={props.kind}
+      class="agent-blocks-tab"
+      bind={props.bind}
     >
-      <Show
-        when={entry()}
-        fallback={
-          <Show when={agentPaneModel(props.session)?.historyComplete()}>
-            <div class="editor-plan-notice">
-              This {props.kind === "dashboard" ? "dashboard" : "block"} is no longer in the
-              transcript.
-            </div>
-          </Show>
-        }
-      >
-        <For each={blocks()}>
+      {(card) => (
+        <For
+          each={
+            (card().kind === "dashboard"
+              ? (card().asideEntries ?? [])
+              : [card()]) as AgentBlockTranscriptEntry[]
+          }
+        >
           {(block) => (
             <BlockRow
               block={block}
@@ -68,13 +54,13 @@ export default function AgentBlocksTab(props: {
             />
           )}
         </For>
-      </Show>
-    </div>
+      )}
+    </AgentCardTabFrame>
   );
 }
 
 function BlockRow(props: {
-  block: BlockEntry;
+  block: AgentBlockTranscriptEntry;
   session: ClientSession;
   height: number | null;
   setHeight: (height: number) => void;

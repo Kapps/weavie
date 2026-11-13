@@ -1,4 +1,4 @@
-import { createSignal, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentAsideReply } from "./AgentAsideReply";
 import { replyComposer } from "./composer-store";
@@ -11,10 +11,10 @@ export function AgentAsideReplyBox(props: {
 }): JSX.Element {
   const composer = replyComposer(props.session, props.conversationId);
   const [openedHere, setOpenedHere] = createSignal(false);
-  const close = (): void => {
-    setOpenedHere(false);
-    composer.setOpen(false);
-  };
+  // However the box closes (Cancel, a sent reply, the other view), the next Reply starts unclaimed.
+  createEffect(() => {
+    if (!composer.state().replyOpen) setOpenedHere(false);
+  });
   return (
     <Show
       when={composer.state().replyOpen}
@@ -36,7 +36,7 @@ export function AgentAsideReplyBox(props: {
         session={props.session}
         conversationId={props.conversationId}
         autofocus={openedHere()}
-        onClose={close}
+        onClose={() => composer.setOpen(false)}
       />
     </Show>
   );

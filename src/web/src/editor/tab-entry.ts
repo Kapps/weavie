@@ -13,9 +13,12 @@ export const tabResourceKey = (entry: EditorSessionEntry): string =>
 
 /** A card a tab can show: a nested conversation, a dashboard, or a lone block, in its own conversation. */
 export type AgentCardRef =
-  | { kind: "subagent" | "aside"; conversationId: string }
+  | { kind: "subagent"; conversationId: string }
+  | { kind: "aside"; conversationId: string }
   | { kind: "dashboard"; conversationId: string | null; dashboardId: string }
   | { kind: "block"; conversationId: string | null; blockId: string };
+
+export type AgentCardKind = AgentCardRef["kind"];
 
 /** The editor tab path of `card`; a dashboard's matches the host's `AgentDashboards.TabPath`. */
 export function cardTabPath(card: AgentCardRef): string {

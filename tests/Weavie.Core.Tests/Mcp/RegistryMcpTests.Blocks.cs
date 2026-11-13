@@ -45,13 +45,13 @@ public sealed partial class RegistryMcpTests {
 		server.Start();
 		await using var pane = server.CreateGrant(() => null);
 		pane.Blocks.Bind(_ => null, id => id == "saved" ? new AgentPaneMessage { Type = "item-completed", ProviderId = "p", Summary = "Saved title" } : null);
-		const string Table = "\"table\":{\"columns\":[{\"name\":\"n\",\"type\":\"number\"}],\"rows\":[]}";
+		const string table = "\"table\":{\"columns\":[{\"name\":\"n\",\"type\":\"number\"}],\"rows\":[]}";
 
-		using var created = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"a","title":"a","dashboard":{"id":"rollout","title":"Rollout"},{{Table}}}""");
+		using var created = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"a","title":"a","dashboard":{"id":"rollout","title":"Rollout"},{{table}}}""");
 		Assert.Contains("Created dashboard 'rollout' (\"Rollout\") with it.", ToolText(created), StringComparison.Ordinal);
-		using var staged = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"b","title":"b","dashboard":{"id":"rollout","title":"Other"},{{Table}}}""");
+		using var staged = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"b","title":"b","dashboard":{"id":"rollout","title":"Other"},{{table}}}""");
 		Assert.Contains("Added to dashboard 'rollout' (\"Rollout\").", ToolText(staged), StringComparison.Ordinal);
-		using var saved = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"c","title":"c","dashboard":{"id":"saved","title":"New"},{{Table}}}""");
+		using var saved = await CallBlockAsync(server, pane.Credential.Token, $$"""{"id":"c","title":"c","dashboard":{"id":"saved","title":"New"},{{table}}}""");
 		Assert.Contains("Added to dashboard 'saved' (\"Saved title\").", ToolText(saved), StringComparison.Ordinal);
 	}
 
@@ -73,6 +73,9 @@ public sealed partial class RegistryMcpTests {
 		Assert.True(presenter.OpenedTabs[^1].Focus);
 		using var missing = await CallToolAsync(server, pane.Credential.Token, "openDashboard", """{"id":"other"}""");
 		Assert.Contains("does not exist in this conversation", ToolText(missing), StringComparison.Ordinal);
+		await using var unbound = server.CreateGrant(() => null);
+		using var refused = await CallToolAsync(server, unbound.Credential.Token, "openDashboard", """{"id":"rollout"}""");
+		Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 		Assert.Equal(2, presenter.OpenedTabs.Count);
 	}
 

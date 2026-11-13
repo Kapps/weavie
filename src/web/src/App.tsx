@@ -15,13 +15,14 @@ import {
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { agentBackground, runningLocalBackground } from "./agent/agent-background-store";
-import { cardFocusContext, type OwnedCard, setCardCollapsed } from "./agent/agent-cards";
+import { cardFocusContext, namedCard, type OwnedCard, setCardCollapsed } from "./agent/agent-cards";
 import { copyActiveAgentCodeBlock } from "./agent/agent-code-copy";
 import { ownedTarget } from "./agent/agent-command-owner";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
 import { backgroundItemToOpen, backgroundTab } from "./agent/background-tab";
+import { cardEntry } from "./agent/card-tab";
 import {
   type AgentPaneModel,
   agentAuthenticationTerminalActive,
@@ -173,6 +174,15 @@ import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
 import { type AgentCardRef, cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
+
+/** `session`, once it holds `card`; throws for a card that is gone, so a command never acts on nothing. */
+function liveCard(session: ClientSession | null, card: AgentCardRef): ClientSession {
+  if (session === null) throw new Error("Select a session to act on its cards.");
+  if (cardEntry(session, card) === undefined)
+    throw new Error("That card is no longer in this conversation.");
+  return session;
+}
+
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   refreshSelectedFileIndex,
@@ -1618,35 +1628,33 @@ export default function App(): JSX.Element {
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
       registerCommand(CommandIds.toggleAgentAside, (args, context) => {
-        const named = args as
-          | { conversationId?: string | null; dashboardId?: string | null; collapsed?: unknown }
-          | undefined;
-        if (typeof named?.collapsed === "boolean") {
-          if (context.session === null) throw new Error("Select a session to collapse its card.");
-          const card = {
-            conversationId: named.conversationId ?? null,
-            dashboardId: named.dashboardId ?? null,
-          };
-          setCardCollapsed(context.session, card, named.collapsed);
+        const named = namedCard(args);
+        if (named === null) {
+          const toggle = ownedTarget<OwnedCard>(cardFocusContext)?.toggle;
+          if (toggle == null) return false;
+          toggle();
           return true;
         }
-        const toggle = ownedTarget<OwnedCard>(cardFocusContext)?.toggle;
-        if (toggle == null) return false;
-        toggle();
+        const collapsed = (args as { collapsed?: unknown }).collapsed;
+        if (named.kind !== "aside" && named.kind !== "dashboard")
+          throw new Error("Only a BTW or a dashboard card collapses.");
+        if (typeof collapsed !== "boolean")
+          throw new Error("Say whether to collapse the card: collapsed true or false.");
+        setCardCollapsed(liveCard(context.session, named), named, collapsed);
         return true;
       }),
       registerCommand(CommandIds.openAgentCard, (args, context) => {
-        const named = args as (AgentCardRef & { background?: boolean }) | undefined;
-        const owned =
-          named?.kind === undefined ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;
-        const session = owned?.session ?? context.session;
-        const card = owned?.card ?? named;
-        if (session === null || card === undefined) return false;
+        const named = namedCard(args);
+        const owned = named === null ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;
+        const card = named ?? owned?.card;
+        if (card === undefined) return false;
+        const session = liveCard(owned?.session ?? context.session, card);
+        const background = (args as { background?: unknown } | undefined)?.background === true;
         editor.openAgentTab(
           session,
           card.kind,
           cardTabPath(card),
-          named?.background === true ? "background" : "navigation",
+          background ? "background" : "navigation",
         );
         return true;
       }),

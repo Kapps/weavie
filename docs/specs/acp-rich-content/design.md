@@ -129,6 +129,9 @@ provider Weavie ships a recipe for gets the real-agent run before blocks are rel
 
 ## Formats by example
 
+`showBlock` also takes an optional `dashboard` (`{ id, title }`) that gathers blocks into one card; see
+[card tabs](../card-tabs/design.md).
+
 **`showBlock`** — exactly one of `chart` or `table`.
 
 ```json

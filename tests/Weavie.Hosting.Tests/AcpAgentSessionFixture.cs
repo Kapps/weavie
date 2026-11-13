@@ -555,7 +555,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public async Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() {
 		await ReadAsync(_output.Resets.Reader, _ => true);
-		return [.. Session.Output.ReadHistory(null, null).Messages.Select(record => record.Message)];
+		return Rows();
+	}
+
+	/// <summary>The session's current transcript rows.</summary>
+	public IReadOnlyList<AgentPaneMessage> Rows() => [.. Session.Output.ReadHistory(null, null).Messages.Select(record => record.Message)];
+
+	/// <summary>Submits <paramref name="text"/> and waits for primary turn <paramref name="turn"/> to complete.</summary>
+	public async Task TurnAsync(string text, int turn) {
+		Submit(text);
+		await WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == turn.ToString(System.Globalization.CultureInfo.InvariantCulture));
 	}
 
 	public void Submit(string text) => Session.Submit(Prompt(text));

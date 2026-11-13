@@ -46,7 +46,7 @@ import {
 } from "./preview/preview-panes";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
-import { isFileTab, REVIEW_TAB_KEY, type TabKind, tabKind } from "./tab-entry";
+import { type AgentCardKind, isFileTab, REVIEW_TAB_KEY, type TabKind, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
 import { setViewMode, showForReview } from "./view-mode-store";
 
@@ -178,7 +178,7 @@ export interface EditorController {
    */
   openAgentTab(
     session: ClientSession,
-    kind: "subagent" | "aside" | "dashboard" | "block" | "task",
+    kind: AgentCardKind | "task",
     path: string,
     intent: "navigation" | "background",
   ): void;
@@ -651,20 +651,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
   const openWebTab = (url: string): void => {
     const session = selectedSession();
-    if (session !== null) {
-      activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, url, { kind: "web" }));
-    }
+    if (session !== null) openOverlayTab(session, "web", url, "navigation");
   };
 
   // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
   // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
   const openSourceTab = (target: string): void => {
     const session = selectedSession();
-    if (session !== null) {
-      activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, target, { kind: "source" }));
-    }
+    if (session !== null) openOverlayTab(session, "source", target, "navigation");
   };
 
   // An overlay tab renders its owner's live state over the editor host; it holds no content of its own.
@@ -674,8 +668,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     path: string,
     intent: "navigation" | "background",
   ): void => {
+    const options = backgroundOpen(session, intent);
     const foreground = activateDestinationFor(session, intent);
-    const result = openTabFor(session, path, { kind });
+    const result = openTabFor(session, path, { kind, ...options });
     if (foreground) presentTab(session, result);
   };
 

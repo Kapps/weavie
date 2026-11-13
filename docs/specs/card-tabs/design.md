@@ -1,7 +1,8 @@
 # Card tabs — design
 
 **Status:** design for [brief.md](brief.md), after [challenge.md](challenge.md). Names and signatures are from
-this worktree, read by the `weavie-architect` agent and checked against the code. Nothing is built yet.
+this worktree, read by the `weavie-architect` agent and checked against the code. Built in
+[PR #1219](https://github.com/Kapps/weavie/pull/1219); [review.md](review.md) lists what review changed.
 
 ## Summary
 

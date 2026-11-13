@@ -2,11 +2,9 @@ import { For, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentBlockEntry } from "./AgentBlockEntry";
 import { AgentCardShell } from "./AgentCardShell";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { openCard, ownCardOnFocus, setCardCollapsed } from "./agent-cards";
+import type { AgentBlockTranscriptEntry, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { blockUpdatedAt, ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 import { agentBlock } from "./block-store";
-
-type BlockEntry = AgentTranscriptEntry & { block: NonNullable<AgentTranscriptEntry["block"]> };
 
 /** A dashboard's card: its blocks at full size, or, collapsed, what it holds and when it last changed. */
 export function AgentDashboardEntry(props: {
@@ -17,9 +15,8 @@ export function AgentDashboardEntry(props: {
   const conversationId = props.entry.conversationId ?? null;
   const card = { kind: "dashboard", conversationId, dashboardId } as const;
   const collapsed = () => props.entry.asideCollapsed === true;
-  const blocks = () => (props.entry.asideEntries ?? []) as BlockEntry[];
-  const toggle = () =>
-    setCardCollapsed(props.session, { conversationId, dashboardId }, !collapsed());
+  const blocks = () => (props.entry.asideEntries ?? []) as AgentBlockTranscriptEntry[];
+  const toggle = () => setCardCollapsed(props.session, card, !collapsed());
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
 
   return (
@@ -32,7 +29,7 @@ export function AgentDashboardEntry(props: {
         </Show>
       }
       onToggle={toggle}
-      onOpen={() => void openCard(card)}
+      card={card}
       onOwn={own}
       data={{ "data-agent-dashboard": dashboardId }}
     >
@@ -48,7 +45,10 @@ export function AgentDashboardEntry(props: {
 }
 
 /** "4 charts · 1 table · updated 14:32", leaving out what a dashboard doesn't have. */
-function dashboardMeta(session: ClientSession, blocks: readonly BlockEntry[]): string {
+function dashboardMeta(
+  session: ClientSession,
+  blocks: readonly AgentBlockTranscriptEntry[],
+): string {
   const count = (kind: "chart" | "table") =>
     blocks.filter((block) => block.block.kind === kind).length;
   const latest = Math.max(
@@ -58,9 +58,7 @@ function dashboardMeta(session: ClientSession, blocks: readonly BlockEntry[]): s
   return [
     plural(count("chart"), "chart"),
     plural(count("table"), "table"),
-    latest > 0
-      ? `updated ${new Date(latest).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-      : "",
+    latest > 0 ? blockUpdatedAt(latest) : "",
   ]
     .filter((part) => part.length > 0)
     .join(" · ");

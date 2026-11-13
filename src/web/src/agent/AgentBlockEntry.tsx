@@ -4,12 +4,13 @@ import "./agent-blocks.css";
 import type { ClientSession } from "../bridge";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { AgentChart } from "./AgentChart";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentBlockTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTable } from "./AgentTable";
 import { chartHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
-import { cardOf, openCard, ownCardOnFocus } from "./agent-cards";
+import { blockUpdatedAt, cardOf, ownCardOnFocus } from "./agent-cards";
 import { ownCommand, ownsCommand } from "./agent-command-owner";
 import { AgentRowContext } from "./agent-row-context";
 import { agentBlock, tableView } from "./block-store";
@@ -21,13 +22,14 @@ import { attachAgentSelection } from "./composer-store";
  * an editor tab, where the user sizes it; null keeps the transcript's.
  */
 export function AgentBlockEntry(props: {
-  entry: AgentTranscriptEntry & { block: NonNullable<AgentTranscriptEntry["block"]> };
+  entry: AgentBlockTranscriptEntry;
   session: ClientSession;
   height: number | null;
 }): JSX.Element {
   const row = useContext(AgentRowContext);
-  // Only a block that is its own transcript row opens alone; a dashboard's opens with its card.
-  const card = row?.rowId === props.entry.id ? cardOf(props.entry) : null;
+  // A block outside a dashboard opens alone from a transcript; a dashboard's opens with its card, and a tab's is open.
+  const card =
+    props.entry.dashboardId === undefined && props.height === null ? cardOf(props.entry) : null;
   const record = () => agentBlock(props.session, props.entry.block.key);
   const view =
     props.entry.block.kind === "table" ? tableView(props.session, props.entry.id) : undefined;
@@ -92,25 +94,9 @@ export function AgentBlockEntry(props: {
             <Paperclip />
           </span>
         </button>
-        <Show when={card}>
-          {(open) => (
-            <button
-              type="button"
-              class="agent-entry-rewind agent-entry-open"
-              title={`Open Card in Tab${keyHint(CommandIds.openAgentCard)}`}
-              onClick={() => void openCard(open())}
-            >
-              Open
-            </button>
-          )}
-        </Show>
+        <Show when={card}>{(open) => <AgentCardOpenButton card={open()} />}</Show>
         <Show when={record()?.block.updatedAtMs}>
-          {(time) => (
-            <span class="agent-entry-status">
-              updated{" "}
-              {new Date(time()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-          )}
+          {(time) => <span class="agent-entry-status">{blockUpdatedAt(time())}</span>}
         </Show>
       </div>
       <div class="agent-block-body">

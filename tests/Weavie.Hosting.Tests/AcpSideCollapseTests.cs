@@ -29,10 +29,9 @@ public sealed class AcpSideCollapseTests {
 	[Fact]
 	public async Task ADashboardsCollapseIsJournalledInItsOwnConversation() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
-		const string Chart = """{"id":"p95","title":"p95","dashboard":{"id":"rollout","title":"Rollout"},"chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","points":[[1,2]]}]}}""";
-		fixture.Submit("block:claude:showBlock:" + Chart);
-		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");
-		fixture.AskAside("block:claude:showBlock:" + Chart);
+		string chart = AcpDashboardTests.Chart("p95");
+		await fixture.TurnAsync("block:claude:showBlock:" + chart, 1);
+		fixture.AskAside("block:claude:showBlock:" + chart);
 		var side = await fixture.WaitForMessageAsync(message => message.ConversationId is not null && message.ItemType == Weavie.Core.Agents.AgentDashboards.ItemType);
 
 		fixture.Session.SetCardCollapsed(new(null, "rollout"), collapsed: true);

@@ -1,4 +1,4 @@
-import { type JSX, useContext } from "solid-js";
+import { type JSX, Show, useContext } from "solid-js";
 import { dashboardEntryId } from "./AgentPaneBlocks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentRowContext } from "./agent-row-context";
@@ -8,18 +8,23 @@ export function AgentBlockAddedEntry(props: { entry: AgentTranscriptEntry }): JS
   const row = useContext(AgentRowContext);
   return (
     <article class="agent-entry agent-entry-block-added agent-tone-assistant">
-      <button
-        type="button"
-        class="ui-row ui-row-content"
-        title="Show Dashboard"
-        onClick={() =>
-          row?.reveal(
-            dashboardEntryId(props.entry.conversationId ?? null, props.entry.dashboardId!),
-          )
-        }
-      >
-        {props.entry.summary}
-      </button>
+      {/* Outside the pane's transcript, such as in a BTW's tab, there is no row to scroll to. */}
+      <Show when={row} fallback={<span class="agent-entry-summary">{props.entry.summary}</span>}>
+        {(transcript) => (
+          <button
+            type="button"
+            class="ui-row ui-row-content"
+            title="Show Dashboard"
+            onClick={() =>
+              transcript().reveal(
+                dashboardEntryId(props.entry.conversationId ?? null, props.entry.dashboardId!),
+              )
+            }
+          >
+            {props.entry.summary}
+          </button>
+        )}
+      </Show>
     </article>
   );
 }

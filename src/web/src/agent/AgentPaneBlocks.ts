@@ -1,7 +1,8 @@
 import type { AgentPaneUpdate } from "../bridge";
-import { blockKey, paneItemIdentity } from "./AgentPaneIdentity";
+import { entry, inConversation } from "./AgentPaneEntry";
+import { blockKey } from "./AgentPaneIdentity";
 import { normalizeText } from "./AgentPaneMessageFormat";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentBlockTranscriptEntry, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 const dashboardPrefix = "dashboard:";
 
@@ -32,7 +33,7 @@ export class AgentPaneBlocks {
         return [];
       }
       if (message.type !== "item-completed") return [];
-      const card = dashboardCard(message, this.waiting.get(message.itemId) ?? []);
+      const card = dashboardCard(message, sequence, this.waiting.get(message.itemId) ?? []);
       this.waiting.delete(message.itemId);
       this.cards.set(message.itemId, card);
       return [card];
@@ -40,26 +41,29 @@ export class AgentPaneBlocks {
     if (message.type !== "item-completed" || message.itemType !== "block" || !message.blockId) {
       return null;
     }
-    const block = blockEntry(message, sequence);
-    const parent = message.parentItemId;
-    if (!parent?.startsWith(dashboardPrefix)) return [block];
+    const parent = message.parentItemId?.startsWith(dashboardPrefix) ? message.parentItemId : null;
+    const block = blockEntry(message, sequence, parent?.slice(dashboardPrefix.length) ?? null);
+    if (parent === null) return [block];
     const card = this.cards.get(parent);
     if (card !== undefined) card.asideEntries.push(block);
     else this.waiting.set(parent, [...(this.waiting.get(parent) ?? []), block]);
     const line = normalizeText(message.text);
-    return line === null
-      ? []
-      : [addedEntry(message, block, parent.slice(dashboardPrefix.length), line)];
+    return line === null ? [] : [addedEntry(message, sequence, block, line)];
   }
 }
 
-function blockEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptEntry {
+function blockEntry(
+  message: AgentPaneUpdate,
+  sequence: number,
+  dashboardId: string | null,
+): AgentBlockTranscriptEntry {
   const kind = message.category === "table" ? "table" : "chart";
   return {
-    ...bare(paneItemIdentity(message) ?? `block-${sequence}`, normalizeText(message.summary)),
-    kind: "block",
-    label: kind === "table" ? "Table" : "Chart",
-    ...(message.conversationId ? { conversationId: message.conversationId } : {}),
+    ...entry(message, sequence, "block", "assistant", kind === "table" ? "Table" : "Chart", null),
+    ...inConversation(message),
+    ...(dashboardId === null ? {} : { dashboardId }),
+    // A member's text is the line its turn shows, never the block's.
+    text: null,
     block: {
       id: message.blockId!,
       key: blockKey(message.providerId, message.conversationId, message.blockId!),
@@ -68,47 +72,34 @@ function blockEntry(message: AgentPaneUpdate, sequence: number): AgentTranscript
   };
 }
 
-function dashboardCard(message: AgentPaneUpdate, members: AgentTranscriptEntry[]): Card {
+function dashboardCard(
+  message: AgentPaneUpdate,
+  sequence: number,
+  members: AgentTranscriptEntry[],
+): Card {
   const dashboardId = message.itemId!.slice(dashboardPrefix.length);
   return {
-    ...bare(
-      dashboardEntryId(message.conversationId ?? null, dashboardId),
-      normalizeText(message.summary),
-    ),
-    kind: "dashboard",
-    label: "Dashboard",
+    ...entry(message, sequence, "dashboard", "assistant", "Dashboard", null),
+    ...inConversation(message),
+    id: dashboardEntryId(message.conversationId ?? null, dashboardId),
     asideEntries: members,
     asideCollapsed: false,
     dashboardId,
-    ...(message.conversationId ? { conversationId: message.conversationId } : {}),
   };
 }
 
 function addedEntry(
   message: AgentPaneUpdate,
-  block: AgentTranscriptEntry,
-  dashboardId: string,
+  sequence: number,
+  block: AgentBlockTranscriptEntry,
   line: string,
 ): AgentTranscriptEntry {
   return {
-    ...bare(`${block.id}:added`, `${block.summary ?? block.label} · ${line}`),
-    kind: "block-added",
-    label: block.label,
-    dashboardId,
-    ...(message.conversationId ? { conversationId: message.conversationId } : {}),
-  };
-}
-
-function bare(id: string, summary: string | null): Omit<AgentTranscriptEntry, "kind" | "label"> {
-  return {
-    actionMessage: null,
-    detailCount: 0,
-    details: [],
-    id,
-    status: null,
-    streaming: false,
-    summary,
+    ...entry(message, sequence, "block-added", "assistant", block.label, null),
+    ...inConversation(message),
+    id: `${block.id}:added`,
+    summary: `${block.summary ?? block.label} · ${line}`,
     text: null,
-    tone: "assistant",
+    dashboardId: block.dashboardId!,
   };
 }

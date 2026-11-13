@@ -2,10 +2,11 @@ import { createMemo, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { NestedTranscript } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { openCard, ownCardOnFocus } from "./agent-cards";
+import { ownCardOnFocus } from "./agent-cards";
 import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
@@ -52,14 +53,7 @@ export function AgentSubagentEntry(props: {
           <span class="agent-working-spinner" aria-hidden="true" />
         </Show>
         <SubagentStatus info={info()} now={now()} />
-        <button
-          type="button"
-          class="agent-entry-rewind agent-entry-open"
-          title={`Open Card in Tab${liveKeyHint(CommandIds.openAgentCard)}`}
-          onClick={() => void openCard(card)}
-        >
-          Open
-        </button>
+        <AgentCardOpenButton card={card} />
       </div>
       <div class="agent-entry-main">
         <div class="agent-entry-summary" title={info().task ?? undefined}>

@@ -1138,10 +1138,12 @@ public static partial class CoreCommands {
 			Description = "Collapse or expand the BTW, subagent, or dashboard card last pressed or focused in the agent pane.",
 			Aliases = ["collapse btw", "expand btw", "toggle side conversation", "collapse dashboard", "expand dashboard"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
-			When = "agentCardFocused",
-			ArgsSchemaJson = "{\"conversationId\":{\"type\":[\"string\",\"null\"],\"description\":\"The BTW's conversation id, or the dashboard's; null for the main conversation\"},"
-				+ "\"dashboardId\":{\"type\":[\"string\",\"null\"],\"description\":\"The dashboard's id; null for a BTW\"},"
-				+ "\"collapsed\":{\"type\":\"boolean\",\"description\":\"Collapse (true) or expand (false) the named card; omit all three to toggle the focused card\"}}",
+			// Only while the keyboard is in the agent pane, so Alt+B reaches a shell or the editor once it has moved there.
+			When = "agentFocused && agentCardFocused",
+			ArgsSchemaJson = "{\"kind\":{\"type\":\"string\",\"enum\":[\"aside\",\"dashboard\"]},"
+				+ "\"conversationId\":{\"type\":[\"string\",\"null\"],\"description\":\"The card's conversation; null for the main one\"},"
+				+ "\"dashboardId\":{\"type\":\"string\"},"
+				+ "\"collapsed\":{\"type\":\"boolean\",\"description\":\"Collapse (true) or expand (false) the named card; name no card to toggle the focused one\"}}",
 		});
 
 		// Neither has a default keybinding: background work is occasional, and the strip already offers both.

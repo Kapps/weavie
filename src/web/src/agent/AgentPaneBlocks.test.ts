@@ -68,6 +68,11 @@ describe("dashboards", () => {
         const card = entries[1]!;
         expect(card).toMatchObject({ summary: "Checkout rollout", dashboardId: "rollout" });
         expect(card.asideEntries!.map((block) => block.block!.id)).toEqual(["p95", "err", "rps"]);
+        expect(card.asideEntries!.map((block) => block.dashboardId)).toEqual([
+          "rollout",
+          "rollout",
+          "rollout",
+        ]);
         expect(entries[3]).toMatchObject({
           summary: "rps chart · added to Checkout rollout",
           dashboardId: "rollout",

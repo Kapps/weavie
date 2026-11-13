@@ -9,10 +9,12 @@ export interface ActivityDetailsReader {
 }
 
 export interface ActivityDetailsSource {
+  readonly revision: number;
   retain(): ActivityDetailsReader;
   replace(projection: ProjectedAgentActivity): void;
   update(indexes: ReadonlySet<number>): void;
   snapshot(): AgentActivityStep[];
+  freeze(): Accessor<AgentActivityStep[]>;
 }
 
 /** Materialization belongs to open readers; releasing one never changes transcript membership. */
@@ -20,6 +22,7 @@ export function createActivityDetailsSource(
   initial: ProjectedAgentActivity,
 ): ActivityDetailsSource {
   let projection = initial;
+  let revision = 0;
   let demand:
     | {
         readers: number;
@@ -28,6 +31,9 @@ export function createActivityDetailsSource(
       }
     | undefined;
   return {
+    get revision() {
+      return revision;
+    },
     retain() {
       if (demand === undefined) {
         const [steps, setSteps] = createSignal(projection.materialize());
@@ -43,10 +49,14 @@ export function createActivityDetailsSource(
       };
     },
     replace(next) {
+      const changed = !projection.hasSameContent(next);
       projection = next;
+      if (!changed) return;
+      revision++;
       demand?.setSteps((previous) => share(previous, projection.materialize()));
     },
     update(indexes) {
+      revision++;
       demand?.setSteps((previous) => {
         const steps = [...previous];
         for (const index of indexes) steps[index] = projection.materializeAt(index);
@@ -54,5 +64,10 @@ export function createActivityDetailsSource(
       });
     },
     snapshot: () => demand?.steps() ?? [],
+    freeze() {
+      const materialize = projection.capture();
+      let steps = demand?.steps();
+      return () => (steps ??= materialize());
+    },
   };
 }

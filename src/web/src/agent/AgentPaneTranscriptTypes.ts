@@ -26,6 +26,7 @@ export interface AgentTranscriptEntry {
   detailCount: number;
   details: AgentActivityStep[];
   activityDetails?: ActivityDetailsSource;
+  activityRevision?: number;
   id: string;
   kind:
     | "updates"

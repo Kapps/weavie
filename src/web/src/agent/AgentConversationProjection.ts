@@ -164,6 +164,7 @@ export class AgentConversationProjection {
             previousActivities.get(entry.id)?.details ?? createActivityDetailsSource(activity);
           details.replace(activity);
           entry.activityDetails = details;
+          entry.activityRevision = details.revision;
           this.activities.set(entry.id, { index, projection: activity, details });
         }
       });
@@ -299,6 +300,7 @@ export class AgentConversationProjection {
           ...entry,
           ...activity.projection.summary(),
           detailCount: activity.projection.count,
+          activityRevision: activity.details.revision,
         };
       });
     }

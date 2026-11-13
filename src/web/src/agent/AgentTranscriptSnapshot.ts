@@ -1,6 +1,13 @@
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { isResult } from "./AgentTranscriptLabels";
 
+const activityOrigins = new WeakMap<AgentTranscriptEntry, AgentTranscriptEntry>();
+
+/** Freezing activity output changes its representation, not the geometry it already measured. */
+export function entryMeasurementSource(entry: AgentTranscriptEntry): AgentTranscriptEntry {
+  return activityOrigins.get(entry) ?? entry;
+}
+
 export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartId: null,
   agentTurnStartIndex: null,
@@ -126,7 +133,15 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
     entries: snapshot.entries.map((entry) => {
       if (entry.activityDetails !== undefined) {
         const { activityDetails, ...held } = entry;
-        return { ...held, details: activityDetails.snapshot() };
+        const details = activityDetails.freeze();
+        const frozen = {
+          ...held,
+          get details() {
+            return details();
+          },
+        };
+        activityOrigins.set(frozen, entryMeasurementSource(entry));
+        return frozen;
       }
       const view = entry.conversation;
       if (view === undefined) return entry;

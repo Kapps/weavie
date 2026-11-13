@@ -3,6 +3,7 @@ import { deferredToolOutput } from "./AgentPaneHistoryAccumulator";
 import { MaximumIndex } from "./AgentPaneMaximumIndex";
 import { hasItemId, normalizeStatus, normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep } from "./AgentPaneTranscriptTypes";
+import { share } from "./AgentTranscriptSnapshot";
 
 export interface AgentActivitySummary {
   status: string | null;
@@ -18,6 +19,10 @@ export class ProjectedAgentActivity {
 
   get count(): number {
     return this.sources.length;
+  }
+
+  hasSameContent(other: ProjectedAgentActivity): boolean {
+    return share(this.sources, other.sources) === this.sources;
   }
 
   canUpsert(message: AgentPaneUpdate): boolean {
@@ -59,7 +64,12 @@ export class ProjectedAgentActivity {
   }
 
   materialize(): AgentActivityStep[] {
-    return this.sources.map((_, index) => this.materializeAt(index));
+    return this.sources.map(materializeActivity);
+  }
+
+  capture(): () => AgentActivityStep[] {
+    const sources = [...this.sources];
+    return () => sources.map(materializeActivity);
   }
 
   /** The step with transcript item id `id`, materialized whether or not its activity is expanded. */
@@ -73,11 +83,7 @@ export class ProjectedAgentActivity {
     if (message === undefined) {
       throw new Error(`Activity step ${index} does not exist.`);
     }
-    const category = activityCategory(message);
-    if (category === null) {
-      throw new Error(`Update ${message.type} is not agent activity.`);
-    }
-    return activityStep(message, category);
+    return materializeActivity(message);
   }
 
   summary(): AgentActivitySummary {
@@ -136,6 +142,10 @@ export class ProjectedAgentActivity {
 
 export function isAgentActivity(message: AgentPaneUpdate): boolean {
   return activityCategory(message) !== null;
+}
+
+function materializeActivity(message: AgentPaneUpdate): AgentActivityStep {
+  return activityStep(message, requiredActivityCategory(message));
 }
 
 function activityStep(message: AgentPaneUpdate, category: string): AgentActivityStep {

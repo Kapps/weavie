@@ -17,6 +17,20 @@ public sealed class WorkspaceAuthenticationTests {
 	}
 
 	[Fact]
+	public async Task Connection_page_installs_as_the_app_from_a_phone_home_screen() {
+		await using var host = await TestHost.StartAsync();
+		using var client = new HttpClient();
+
+		var response = await client.GetAsync(host.Core.WorkspacePageUrl);
+		string document = await response.Content.ReadAsStringAsync();
+
+		Assert.Contains("<meta name=\"apple-mobile-web-app-title\" content=\"Weavie\">", document, StringComparison.Ordinal);
+		Assert.Contains("<link rel=\"apple-touch-icon\" href=\"/weavie.png\">", document, StringComparison.Ordinal);
+		Assert.Contains("<link rel=\"manifest\" href=\"/manifest.webmanifest\">", document, StringComparison.Ordinal);
+		Assert.Contains("manifest-src 'self'", response.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task Connection_page_accepts_a_fragment_token_under_a_nonce_policy() {
 		await using var host = await TestHost.StartAsync();
 		using var client = new HttpClient();

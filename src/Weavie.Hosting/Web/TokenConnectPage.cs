@@ -27,13 +27,16 @@ public static class TokenConnectPage {
 		string scriptNonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
 		context.Response.Headers.ContentSecurityPolicy =
 			$"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{scriptNonce}'; img-src 'self'; "
-			+ "form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+			+ "manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 		string error = invalidToken
 			? "<p class=\"error\" role=\"alert\">That token was not accepted.</p>"
 			: string.Empty;
-		string icon = string.IsNullOrEmpty(iconUrl)
-			? string.Empty
-			: $"<img src=\"{HtmlEncoder.Default.Encode(iconUrl)}\" width=\"48\" height=\"48\" alt=\"\">";
+		string encodedIcon = HtmlEncoder.Default.Encode(iconUrl);
+		// Adding this page to a phone's Home Screen installs the app, so it carries the app's icon and manifest.
+		(string icon, string install) = string.IsNullOrEmpty(iconUrl)
+			? (string.Empty, string.Empty)
+			: ($"<img src=\"{encodedIcon}\" width=\"48\" height=\"48\" alt=\"\">",
+				$"<link rel=\"manifest\" href=\"/manifest.webmanifest\"><link rel=\"apple-touch-icon\" href=\"{encodedIcon}\">");
 		string encodedNonce = HtmlEncoder.Default.Encode(scriptNonce);
 		await context.Response.WriteAsync(
 			$$"""
@@ -43,6 +46,8 @@ public static class TokenConnectPage {
 			  <meta charset="utf-8">
 			  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 			  <meta name="theme-color" content="#000000">
+			  <meta name="apple-mobile-web-app-title" content="Weavie">
+			  {{install}}
 			  <title>Connect to Weavie</title>
 			  <style>
 			    :root { color-scheme: dark; font-family: system-ui, sans-serif; }

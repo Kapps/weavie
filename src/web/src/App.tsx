@@ -1976,6 +1976,9 @@ export default function App(): JSX.Element {
       style={`${mobileVisualViewportStyle()}${mobileTransitionStyle(mobileTransition()) ?? ""}`}
       onTransitionEnd={finishMobileTransition}
     >
+      <Show when={compact()}>
+        <div class="mobile-top-edge" aria-hidden="true" />
+      </Show>
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
           maximized={windowMaximized()}

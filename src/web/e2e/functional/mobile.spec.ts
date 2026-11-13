@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
 import { PNG_B64 } from "../harness/pasted-image";
 
@@ -610,6 +611,91 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
   await dispatchPaneTouch(body, "touchmove", { x: 188, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 188, y: 240 });
   await expect(page.locator(".session-inbox")).toBeVisible();
+});
+
+test.describe("compact session status groups", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "hook", request: { hook_event_name: "SessionStart", source: "startup" } },
+        { op: "mcp", tool: "setSetting", args: { key: "agent.allowAllPermissions", value: false } },
+      ],
+    },
+  });
+
+  test("orders sessions by status and moves them between nonempty groups", async ({
+    page,
+    weavie,
+  }) => {
+    test.slow(); // Four real session/worktree creations and their agent launches.
+    const inbox = page.locator(".session-inbox");
+    const headings = inbox.locator(".session-inbox-group-title");
+    const group = (name: string) => inbox.getByRole("region", { name, exact: true });
+    const titles = (name: string) => group(name).locator(".session-inbox-details strong");
+    const sessions = () => page.getByRole("button", { name: "Sessions", exact: true }).click();
+    const create = async (branch: string): Promise<string> => {
+      const before = new Set(sessionWorktrees(weavie.workspace));
+      await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+      await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(branch);
+      await inbox.getByRole("button", { name: "Start", exact: true }).click();
+      await expect(inbox).toBeHidden();
+      await expect(page.locator("[data-agent-composer]")).toHaveAttribute(
+        "data-agent-controls-ready",
+        "true",
+      );
+      const created = sessionWorktrees(weavie.workspace).find((path) => !before.has(path));
+      if (created === undefined) throw new Error("No worktree was created");
+      return created;
+    };
+    const surface = page.locator('[data-surface="structured-agent"]');
+    const submit = async (prompt: string): Promise<void> => {
+      const composer = surface.locator("[data-agent-composer]");
+      await composer.locator("textarea").fill(prompt);
+      await composer.getByRole("button", { name: "Run", exact: true }).click();
+    };
+
+    await expect(headings).toHaveText(["Idle"]);
+    await create("feature/status-parked");
+    await sessions();
+    const parked = inbox.locator(".session-inbox-row", { hasText: "status parked" });
+    await parked.getByRole("button", { name: /^Manage / }).click();
+    await page.locator(".context-menu-item", { hasText: "Unload session" }).click();
+    await expect(titles("Parked")).toHaveText(["status parked"]);
+
+    const firstWorking = await create("feature/status-first");
+    await submit("hold");
+    await expect(surface.locator(".agent-working")).toBeVisible();
+    await sessions();
+    await create("feature/status-second");
+    await submit("hold");
+    await expect(surface.locator(".agent-working")).toBeVisible();
+    await sessions();
+    await expect(headings).toHaveText(["Working", "Idle", "Parked"]);
+    await expect(titles("Working")).toHaveText(["status first", "status second"]);
+
+    await create("feature/status-approval");
+    await submit("permission-lifecycle:edit-hold");
+    await expect(surface.locator(".agent-entry-request")).toBeVisible();
+    await sessions();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
+    await expect(titles("Needs you")).toHaveText(["status approval"]);
+
+    await writeFile(join(firstWorking, "release-hold"), "");
+    await expect(headings).toHaveText(["Needs you", "Working", "Finished", "Idle", "Parked"]);
+    await expect(titles("Working")).toHaveText(["status second"]);
+    await expect(titles("Finished")).toHaveText(["status first"]);
+
+    await group("Finished").locator(".session-inbox-open").click();
+    await expect(inbox).toBeHidden();
+    await sessions();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
+    await expect(titles("Idle")).toHaveText(["main", "status first"]);
+
+    await parked.getByRole("button", { name: /^Manage / }).click();
+    await page.locator(".context-menu-item", { hasText: "Load session" }).click();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle"]);
+    await expect(titles("Idle")).toHaveText(["main", "status parked", "status first"]);
+  });
 });
 
 // Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the

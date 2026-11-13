@@ -158,13 +158,19 @@
   content: "";
 }
 
-.session-inbox-list {
+.session-inbox-list,
+.session-inbox-group {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 7px;
   min-height: 0;
   overflow: visible;
+}
+
+.session-inbox-group-title {
+  margin: 0;
+  padding: 10px 10px 3px;
 }
 
 .session-inbox-row {

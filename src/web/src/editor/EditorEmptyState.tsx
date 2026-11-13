@@ -1,4 +1,11 @@
-import { Command, FilePlus, FileSearch, FolderTree, GitPullRequestArrow } from "lucide-solid";
+import {
+  Command,
+  FilePlus,
+  FileSearch,
+  FolderTree,
+  GitBranch,
+  GitPullRequestArrow,
+} from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 import { formatKey } from "../commands/keybindings";
@@ -15,6 +22,12 @@ interface StarterAction {
 }
 
 const ACTIONS: StarterAction[] = [
+  {
+    id: CommandIds.diffAgainstBranchBase,
+    label: "Review Branch",
+    hint: "",
+    icon: GitBranch,
+  },
   {
     id: CommandIds.focusOmnibarFiles,
     label: "Go to File",
@@ -96,6 +109,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                   <button
                     type="button"
                     class="editor-empty-action ui-row ui-row-stack"
+                    title={keys === "" ? action.label : `${action.label} (${keys})`}
                     // Don't steal focus on press: these actions hand focus to the omnibar, and a button
                     // holding focus would trip its focus-out close. preventDefault keeps the click firing.
                     onMouseDown={(event) => event.preventDefault()}
@@ -106,7 +120,9 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                     </span>
                     <span class="editor-empty-action-text ui-row-text">
                       <span class="editor-empty-action-label">{action.label}</span>
-                      <span class="editor-empty-action-hint ui-row-desc">{action.hint}</span>
+                      <Show when={action.hint}>
+                        <span class="editor-empty-action-hint ui-row-desc">{action.hint}</span>
+                      </Show>
                     </span>
                     {keys !== "" && <kbd class="editor-empty-keys ui-kbd ui-row-end">{keys}</kbd>}
                   </button>

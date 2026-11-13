@@ -15,8 +15,6 @@
     overscroll-behavior: none;
   }
 
-  .app.compact .titlebar,
-  .app.compact .mac-titlebar,
   .app.compact .resize-frame,
   .app.compact .session-rail-slot,
   .app.compact .session-panel,

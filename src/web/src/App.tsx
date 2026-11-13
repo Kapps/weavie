@@ -197,6 +197,7 @@ import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
+import { createMobileCommandPull } from "./mobile/mobile-command-pull";
 import { createMobileHistory, type MobilePreview } from "./mobile/mobile-history";
 import { createMobileVisualViewportStyle } from "./mobile/mobile-visual-viewport";
 import { useCompactMode } from "./mobile/useCompactMode";
@@ -432,6 +433,11 @@ export default function App(): JSX.Element {
     ) {
       setMobileTransition(null);
     }
+  });
+  const mobileCommandPull = createMobileCommandPull({
+    canStart: () =>
+      compact() && mobileTransition() === null && evaluateWhen("!omnibarOpen && !modalOpen"),
+    onOpen: () => void runCommandWithFeedback(CommandIds.focusOmnibarCommands),
   });
   const mobileBackSwipe = createMobileBackSwipe({
     canStart: () => compact() && mobileTransition() === null && mobileHistory.backTarget() !== null,
@@ -2039,7 +2045,18 @@ export default function App(): JSX.Element {
           symbols={editor.symbols}
         />
       </Show>
-      <div class="app-body">
+      <div
+        class="app-body"
+        on:touchstart={mobileCommandPull.onTouchStart}
+        on:touchmove={{ handleEvent: mobileCommandPull.onTouchMove, passive: false }}
+        on:touchend={mobileCommandPull.onTouchEnd}
+        on:touchcancel={mobileCommandPull.onTouchCancel}
+      >
+        <Show when={mobileCommandPull.hint()}>
+          <div class="mobile-command-pull" role="status">
+            {mobileCommandPull.hint()}
+          </div>
+        </Show>
         <SessionPanel
           sessions={railSessions()}
           inert={sessionsModalActive()}

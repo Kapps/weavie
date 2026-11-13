@@ -1,0 +1,90 @@
+.tb-omnibar-close {
+  display: none;
+}
+
+.mobile-command-pull {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 86;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bar);
+  color: var(--fg);
+  font: var(--font-chrome-body);
+  pointer-events: none;
+}
+
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  .app.compact .titlebar,
+  .app.compact .native-titlebar,
+  .app.compact .tb-center {
+    display: contents;
+  }
+
+  .app.compact .tb-left,
+  .app.compact .tb-controls,
+  .app.compact .native-tb-left,
+  .app.compact .native-tb-right {
+    display: none;
+  }
+
+  .app.compact .tb-omnibar {
+    display: none;
+    position: absolute;
+    inset: calc(env(safe-area-inset-top) + 8px) 8px auto;
+    z-index: 85;
+    width: auto;
+    max-height: calc(100% - env(safe-area-inset-top) - 16px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bar);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
+    overflow: hidden;
+  }
+
+  .app.compact .tb-omnibar.open {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .app.compact .tb-omnibar-box {
+    flex: 0 0 auto;
+    height: auto;
+    border: 0;
+  }
+
+  .app.compact .tb-omnibar-input {
+    --control-h: var(--touch-target);
+  }
+
+  .app.compact .tb-omnibar-close {
+    --icon-button-size: var(--touch-target);
+    display: inline-flex;
+  }
+
+  .app.compact .tb-omnibar-pop {
+    position: static;
+    transform: none;
+    width: auto;
+    max-height: none;
+    min-height: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app.compact .tb-omnibar-row {
+    --row-pad: calc((var(--touch-target) - var(--row-line)) / 2);
+  }
+
+  .app.compact .mobile-command-button {
+    --control-h: var(--touch-target);
+    align-self: center;
+    margin-inline: 4px;
+    padding-inline: 6px;
+  }
+}

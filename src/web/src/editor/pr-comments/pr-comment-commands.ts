@@ -7,7 +7,7 @@ import { editorContexts } from "../editor-context";
 import { requestFinishReview } from "./FinishReview";
 import { actOnFocusedComposer } from "./PrCommentComposer";
 import { installPrCommentRefresh } from "./pr-comment-refresh";
-import { prCommentsFor, togglePrComments } from "./pr-comments-store";
+import { prCommentsFor } from "./pr-comments-store";
 
 // Whether the selected session has a PR to review, and a pending review on it.
 function trackReviewContext(): () => void {
@@ -28,7 +28,7 @@ const finish = (kind: "open" | "discard"): boolean => {
   return true;
 };
 
-/** The comment-box, review, and visibility commands plus comment refresh; per-line commenting is an editor command. */
+/** The comment-box and review commands plus comment refresh; per-line commenting is an editor command. */
 export function registerPrCommentCommands(): () => void {
   const cleanups = [
     installPrCommentRefresh(),
@@ -38,10 +38,6 @@ export function registerPrCommentCommands(): () => void {
     registerCommand(CommandIds.prFinishReview, () => finish("open")),
     registerCommand(CommandIds.prDiscardReview, () => finish("discard")),
     trackReviewContext(),
-    registerCommand(CommandIds.prToggleComments, () => {
-      togglePrComments();
-      return true;
-    }),
     editorContexts.onChange((connection) =>
       setContext("prCommentable", connection.prComments.commentable()),
     ),

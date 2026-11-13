@@ -4,6 +4,7 @@ import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 import { type FixItem, fixLine, fixWith } from "../FixPrompt";
+import { ItemPosition } from "../review-items/ReviewItemStepper";
 import type { ThreadPlacement } from "./anchor-map";
 import { PrCommentComposer } from "./PrCommentComposer";
 import { Avatar, CommentItem } from "./PrCommentItem";
@@ -36,6 +37,8 @@ export function PrThreadCard(props: {
   set: PrCommentSet;
   collapsed: boolean;
   onCollapsed: (collapsed: boolean) => void;
+  /** The item Next / Previous Comment or Hint is on. */
+  current: boolean;
   replying: boolean;
   onReplying: (open: boolean) => void;
   fix: () => FixItem | null;
@@ -80,6 +83,7 @@ export function PrThreadCard(props: {
       class="weavie-pr-card"
       classList={{
         "weavie-pr-card-collapsed": props.collapsed,
+        "weavie-pr-card-current": props.current,
         "weavie-pr-card-pending": pending() === thread().comments.length,
       }}
     >
@@ -102,6 +106,9 @@ export function PrThreadCard(props: {
             <Show when={note()}>
               {(labels) => <span class="weavie-pr-badge">{labels()[0]}</span>}
             </Show>
+            <Show when={thread().resolved}>
+              <span class="weavie-pr-badge weavie-pr-badge-resolved">Resolved</span>
+            </Show>
             <Show when={pending() > 0}>
               <span class="weavie-pr-badge weavie-pr-badge-pending">{pending()} pending</span>
             </Show>
@@ -112,6 +119,9 @@ export function PrThreadCard(props: {
         }
       >
         <span class="weavie-pr-thread-actions">
+          <Show when={props.current}>
+            <ItemPosition session={props.session} />
+          </Show>
           <Show when={props.fix()}>
             {(item) => (
               <>

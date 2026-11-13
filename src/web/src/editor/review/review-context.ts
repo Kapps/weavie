@@ -3,7 +3,7 @@ import type { DiffMarkers } from "./diff-markers";
 import type { LineSpan } from "./review-store";
 
 // Unchanged lines kept either side of a change, matching the file-review reading distance.
-const CONTEXT_LINES = 3;
+export const CONTEXT_LINES = 3;
 
 // A section reserves its height from its line counts until the real editor reports one, so the virtualizer's
 // offsets don't collapse while models resolve. Nominal metrics — the editor overwrites them on first measure.

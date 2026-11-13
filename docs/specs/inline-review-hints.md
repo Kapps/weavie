@@ -72,16 +72,17 @@ A line-anchored item — a review hint or a PR thread — can be sent to the ses
 
 ## Commands
 
-All unbound except Escape, which closes the session's open popover after the editor's own widgets decline it.
+All unbound except Escape, which closes the session's open popover after the editor's own widgets decline it. Hints
+and PR threads are stepped through together by Next/Previous Comment or Hint
+([review-points-of-interest](review-points-of-interest/design.md)).
 
 | Id | Runs in | Does |
 |---|---|---|
-| `weavie.reviewHints.next` / `.previous` | web | Next/previous hint across files; opens its popover |
-| `weavie.reviewHints.toggle` | web | Show/hide all hints |
+| `weavie.reviewHints.toggle` | core | Show/hide all hints and their stepping: flips `editor.reviewHints` |
 | `weavie.reviewHints.dismiss` | web | Dismiss the open hint, else the one on the cursor line |
 | `weavie.reviewHints.fix` / `.fixWith` | web | Fix the open hint (or cursor-line hint/thread) |
 | `weavie.reviewHints.comment` | web | Open a PR comment on the hint's line, prefilled with its text |
-| `weavie.reviewHints.close` | web | Escape: close the popover |
+| `weavie.reviewHints.close` | web | Escape: close the popover, else clear the current thread |
 | `weavie.reviewHints.clear` | core | Remove all hints |
 
 ## Testing

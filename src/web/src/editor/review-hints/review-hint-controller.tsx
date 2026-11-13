@@ -247,7 +247,10 @@ export function createReviewHints(
         current();
         editor.layoutContentWidget(widget);
       });
+      // Placed while its line was folded, the popover stays hidden until laid out again once the fold opens.
+      const onSize = editor.onDidContentSizeChange(() => editor.layoutContentWidget(widget));
       onCleanup(() => {
+        onSize.dispose();
         editor.removeContentWidget(widget);
         unmount();
       });

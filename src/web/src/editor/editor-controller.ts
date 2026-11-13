@@ -69,6 +69,7 @@ import {
   type ReviewOverview,
 } from "./review/review-store";
 import { createReviewTexts, type ReviewDiffTexts } from "./review/review-texts";
+import { reviewItems } from "./review-items/review-items";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
@@ -1412,6 +1413,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       () => activeTabFor(session),
       deps.onEditorContextMenu,
     );
+    const offReviewItems = reviewItems.own(session, () =>
+      reviews.overviewFor(session).files.map((file) => file.summary().path),
+    );
     editorSessions.add(session);
     const editor = session.feature("editor");
     const review = session.feature("review");
@@ -1517,6 +1521,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         cleanup();
       }
       offContext();
+      offReviewItems();
       navigation.detach(session);
       editorSessions.delete(session);
       pendingReconciliations.delete(session);

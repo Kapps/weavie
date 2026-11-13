@@ -14,7 +14,7 @@ import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
-import { collapseUnchanged } from "./review-context";
+import { CONTEXT_LINES, collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
@@ -244,6 +244,15 @@ export function createReviewEditor(options: {
     };
   };
   const restore = (location: TextLocation): void => {
+    // A line the review hides is shown with its surrounding context, so the reveal has something to land on.
+    const fold = hidden.find(
+      (range) => range.startLineNumber <= location.line && location.line <= range.endLineNumber,
+    );
+    if (fold !== undefined)
+      options.revealContext({
+        start: Math.max(fold.startLineNumber, location.line - CONTEXT_LINES),
+        end: Math.min(fold.endLineNumber, location.line + CONTEXT_LINES),
+      });
     viewport.update(() => {
       if (location.viewState != null) editor.restoreViewState(location.viewState);
       else editor.setPosition({ lineNumber: location.line, column: 1 });

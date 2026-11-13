@@ -214,10 +214,9 @@ test.describe("Review Changes tab — file switcher", () => {
       "title",
       /Go to file \(.+\)/,
     );
-    await expect(overview.locator(".unified-review-file-step button").first()).toHaveAttribute(
-      "title",
-      /Previous file \(.+\)/,
-    );
+    await expect(
+      overview.locator(".unified-review-file-header .ui-stepper button").first(),
+    ).toHaveAttribute("title", /Previous file \(.+\)/);
     await overview.locator(".unified-review-diffs").focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+P" : "Control+Alt+P");
     const picker = page.locator(".unified-review-switcher");

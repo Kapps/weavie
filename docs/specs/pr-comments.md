@@ -53,8 +53,11 @@ visible code width instead of the longest line.
 | `weavie.pullRequest.submitComment` — adds the comment or reply to the pending review (saves an edit) | `$mod+Enter` | `prCommentFocused` |
 | `weavie.pullRequest.postCommentNow` — posts immediately instead | — | `prCommentFocused && !prReviewPending` |
 | `weavie.pullRequest.cancelComment` — closes the box; its draft is kept for reopening | `Escape` | `prCommentFocused` |
-| `weavie.pullRequest.toggleComments` — hide/show inline threads | `$mod+alt+Shift+c` | — |
-| `weavie.pullRequest.nextComment` / `prevComment` — jump between threads in the file | `$mod+alt+]` / `$mod+alt+[` | `prCommentable` |
+| `weavie.pullRequest.toggleComments` — hide/show inline threads and their stepping (flips `editor.reviewComments`) | `$mod+alt+Shift+c` | — |
+
+Threads are stepped through with review hints by Next/Previous Comment or Hint (`$mod+alt+]` / `$mod+alt+[`), across
+files; see [review-points-of-interest](review-points-of-interest/design.md). A thread resolved on the forge (read,
+never written) starts collapsed with a Resolved badge.
 
 `prCommentFocused` comes from focus (`[data-pr-comment-input]`), and the review chords exclude it, so
 Ctrl+Enter in a comment box submits the comment instead of keeping a hunk.
@@ -71,5 +74,5 @@ Ctrl+Enter in a comment box submits the comment instead of keeping a hunk.
 
 ## Out of scope
 
-Resolving threads, deleting submitted comments, reactions, new comments on removed (left-side)
+Resolving threads from Weavie, deleting submitted comments, reactions, new comments on removed (left-side)
 lines, avatars, and comments on fork PRs (branch detection matches `origin`'s owner).

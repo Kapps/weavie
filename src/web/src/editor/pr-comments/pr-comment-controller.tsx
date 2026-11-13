@@ -12,6 +12,8 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
+import { runCommandWithFeedback } from "../../commands/registry";
+import { CommandIds } from "../../commands/types";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { editorContexts } from "../editor-context";
@@ -19,6 +21,7 @@ import type { FixItem } from "../FixPrompt";
 import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
+import { reviewItems } from "../review-items/review-items";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { type AnchorMap, createAnchorMap, type ThreadPlacement, threadFixItem } from "./anchor-map";
@@ -30,7 +33,6 @@ import {
   prCommentsFor,
   prCommentsVisible,
   sendPrComment,
-  showPrComments,
 } from "./pr-comments-store";
 import "./pr-comments.css";
 
@@ -39,8 +41,6 @@ export interface PrCommentController {
   commentable(): boolean;
   /** Opens a comment box on a line, holding `initial`: the reply of the thread anchored there, else a new comment. */
   comment(line: number, initial: string): boolean;
-  /** Moves the cursor to the next (1) or previous (-1) thread in this file; false when there's none that way. */
-  navigate(direction: 1 | -1): boolean;
   /** The thread anchored on a buffer line, as a Fix item. */
   fixItemAt(line: number): FixItem | null;
   dispose(): void;
@@ -53,7 +53,6 @@ type Card =
 const inert: PrCommentController = {
   commentable: () => false,
   comment: () => false,
-  navigate: () => false,
   fixItemAt: () => null,
   dispose: () => {},
 };
@@ -139,12 +138,13 @@ export function createPrComments(
       setDraftKey(key);
     };
     const [replying, setReplying] = createSignal<ReadonlySet<string>>(new Set());
-    // Outdated threads start collapsed; the user's own collapse/expand wins from then on.
+    // Outdated and resolved threads start collapsed; the user's own collapse/expand wins from then on.
     const [collapsedByUser, setCollapsedByUser] = createSignal<ReadonlyMap<string, boolean>>(
       new Map(),
     );
     const collapsed = (placement: ThreadPlacement): boolean =>
-      collapsedByUser().get(placement.thread.id) ?? placement.note === "outdated";
+      collapsedByUser().get(placement.thread.id) ??
+      (placement.note === "outdated" || placement.thread.resolved);
     const collapse = (id: string, value: boolean): void => {
       setCollapsedByUser((current) => new Map(current).set(id, value));
     };
@@ -244,6 +244,7 @@ export function createPrComments(
                 session={session}
                 set={active()}
                 collapsed={collapsed(placement())}
+                current={reviewItems.isCurrentThread(session, id)}
                 onCollapsed={(value) => collapse(id, value)}
                 replying={replying().has(id)}
                 onReplying={(open) => reply(id, open)}
@@ -263,7 +264,7 @@ export function createPrComments(
       const current = set();
       if (current === null || !commentable()) return false;
       // Commenting while threads are hidden would post into nothing visible.
-      showPrComments();
+      if (!prCommentsVisible()) void runCommandWithFeedback(CommandIds.prToggleComments);
       const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
       if (thread?.data.kind === "thread") {
         const id = thread.data.placement.thread.id;
@@ -288,28 +289,31 @@ export function createPrComments(
       return true;
     };
 
-    const navigate = (direction: 1 | -1): boolean => {
-      showPrComments();
-      const line = editor.getPosition()?.lineNumber ?? 0;
-      const anchors = [...new Set(cards().map((card) => Math.max(1, card.afterLine)))].sort(
-        (a, b) => (a - b) * direction,
+    // A step outlines a thread with no editor; the first displayed binding showing it moves the cursor there.
+    createEffect(() => {
+      const id = reviewItems.unclaimedThread(session);
+      const card = cards().find(
+        (entry) => entry.data.kind === "thread" && entry.data.placement.thread.id === id,
       );
-      const target = anchors.find((anchor) => (anchor - line) * direction > 0);
-      if (target === undefined) {
-        const where = direction === 1 ? "below" : "above";
-        notify("info", `No more PR comments ${where} in this file.`, "pr-comments");
-        return true;
-      }
-      editor.setPosition({ lineNumber: target, column: 1 });
-      editor.revealLineInCenterIfOutsideViewport(target);
+      if (
+        card === undefined ||
+        id === null ||
+        editor.getContainerDomNode().getClientRects().length === 0
+      )
+        return;
+      reviewItems.claimThread(session);
+      collapse(id, false);
+      const line = Math.max(1, card.afterLine);
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.revealLineInCenterIfOutsideViewport(line);
       editor.focus();
-      return true;
-    };
+    });
+    // Cards sit beside Monaco, so this is a click in the code: the next step starts from the cursor.
+    const onMouseDown = editor.onMouseDown(() => reviewItems.clearThread(session));
 
     return {
       commentable,
       comment,
-      navigate,
       fixItemAt: (line) =>
         cards()
           .filter((card) => Math.max(1, card.afterLine) === line)
@@ -318,6 +322,7 @@ export function createPrComments(
       dispose: () => {
         clearTimeout(recompute);
         onContent.dispose();
+        onMouseDown.dispose();
         disposeCards();
         draftMark.clear();
         dispose();

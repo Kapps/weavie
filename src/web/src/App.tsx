@@ -155,6 +155,7 @@ import { RevisePrompt } from "./editor/RevisePrompt";
 import { ReviewViewSwitch } from "./editor/review/ReviewViewSwitch";
 import { reviewCommandBindings } from "./editor/review/review-commands";
 import { registerReviewHintCommands } from "./editor/review-hints/review-hint-commands";
+import { registerReviewItemCommands } from "./editor/review-items/review-item-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -1734,7 +1735,8 @@ export default function App(): JSX.Element {
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
       registerPrCommentCommands(),
-      registerReviewHintCommands(editor.revealFile),
+      registerReviewHintCommands(),
+      registerReviewItemCommands(editor.revealFile),
       ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);

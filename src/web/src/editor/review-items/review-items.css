@@ -1,0 +1,19 @@
+/* The header stepper sits left of the review actions, set off by a rule. */
+.review-item-stepper {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+  color: var(--dim);
+}
+
+.review-item-position > span {
+  padding-inline: 2px;
+  color: var(--fg);
+}
+
+.unified-review-header-compact .review-item-stepper {
+  align-items: center;
+}

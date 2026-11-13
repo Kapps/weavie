@@ -145,18 +145,23 @@ test("Escape keeps the draft, and the comment command reopens it", async ({ page
   await expect(thread.locator(".weavie-pr-button-primary")).toBeDisabled();
 });
 
-test("the comment command expands a collapsed thread; next/previous jump between threads", async ({
-  page,
-}) => {
+test("stepping to a collapsed thread expands it, as the comment command does", async ({ page }) => {
   await openCommentedFile(page);
   const thread = card(page, "Why change this greeting?");
-  await thread.hover();
-  await thread.getByRole("button", { name: "Collapse thread" }).click();
-  await expect(page.locator(".weavie-pr-summary")).toBeVisible();
+  const collapse = async () => {
+    await thread.hover();
+    await thread.getByRole("button", { name: "Collapse thread" }).click();
+    await expect(thread.locator(".weavie-pr-summary")).toBeVisible();
+  };
+  await collapse();
 
   await goToLine(page, 6);
-  await runCommand(page, "Previous Pull Request Comment");
+  await runCommand(page, "Previous Comment or Hint");
   await expect(page.locator(".pane-footer .footer-seg", { hasText: "Ln " })).toContainText("Ln 2,");
+  await expect(thread).toHaveClass(/weavie-pr-card-current/);
+  await expect(thread.locator(".weavie-pr-summary")).toHaveCount(0);
+
+  await collapse();
   await runCommand(page, "Comment on Line (Pull Request)");
   await expect(page.locator(".weavie-pr-summary")).toHaveCount(0);
   await expect(thread.locator(".weavie-pr-composer-input")).toBeFocused();

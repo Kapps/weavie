@@ -58,6 +58,20 @@
 .context-menu-item:focus .context-menu-keys {
   color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
 }
+/* A checkable row's check slot keeps unchecked labels aligned with checked ones. */
+.context-menu-check {
+  width: var(--icon-size);
+  margin-right: -12px;
+}
+.context-menu-detail {
+  color: var(--dim);
+  font: var(--font-chrome-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.context-menu-item:hover .context-menu-detail,
+.context-menu-item:focus .context-menu-detail {
+  color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
+}
 .context-menu-sep {
   height: 1px;
   margin: 4px;

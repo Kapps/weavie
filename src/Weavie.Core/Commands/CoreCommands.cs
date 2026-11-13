@@ -347,12 +347,6 @@ public static partial class CoreCommands {
 	/// <summary>Shows or hides PR review comments in every editor; bound to <c>$mod+alt+Shift+c</c>.</summary>
 	public const string PullRequestToggleComments = "weavie.pullRequest.toggleComments";
 
-	/// <summary>Moves the cursor to the next PR review thread in the file; bound to <c>$mod+alt+]</c>.</summary>
-	public const string PullRequestNextComment = "weavie.pullRequest.nextComment";
-
-	/// <summary>Moves the cursor to the previous PR review thread in the file; bound to <c>$mod+alt+[</c>.</summary>
-	public const string PullRequestPrevComment = "weavie.pullRequest.prevComment";
-
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
@@ -1912,28 +1906,15 @@ public static partial class CoreCommands {
 			ShowInPalette = false,
 		});
 
-		foreach (var (id, title, direction, key) in new[] {
-			(PullRequestNextComment, "Next Pull Request Comment", "next", "$mod+alt+]"),
-			(PullRequestPrevComment, "Previous Pull Request Comment", "previous", "$mod+alt+["),
-		}) {
-			registry.Register(new CommandDefinition {
-				Id = id,
-				Title = title,
-				RunsIn = CommandLocation.Web,
-				Category = "Pull Request",
-				When = "prCommentable",
-				Description = $"Move the cursor to the {direction} pull request review thread in this file.",
-				Aliases = [$"{direction} pr comment", $"{direction} review comment", $"{direction} thread"],
-				DefaultKeybindings = [new CommandKeybinding { Key = key, When = "prCommentable && editorFocused" }],
-			});
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = PullRequestToggleComments,
 			Title = "Toggle Pull Request Comments",
-			RunsIn = CommandLocation.Web,
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Owner = CommandOwner.Client,
 			Category = "Pull Request",
-			Description = "Show or hide pull request review comments in every editor.",
+			Description = "Show or hide pull request review comments in every editor, and in Next Comment or Hint "
+				+ "(the 'editor.reviewComments' setting).",
 			Aliases = ["toggle pr comments", "show pr comments", "hide pr comments", "toggle review comments",
 				"pull request comments"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+Shift+c" }],

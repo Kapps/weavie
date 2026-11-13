@@ -2,13 +2,16 @@ namespace Weavie.Core.Commands;
 
 // Inline review hints and the shared Fix action. See docs/specs/inline-review-hints.md.
 public static partial class CoreCommands {
-	/// <summary>Moves to the next review hint across files and opens it (web-handled).</summary>
-	public const string ReviewHintsNext = "weavie.reviewHints.next";
+	/// <summary>Goes to the next PR thread or review hint across files; bound to <c>$mod+alt+]</c> (web-handled).</summary>
+	public const string ReviewNextItem = "weavie.review.nextItem";
 
-	/// <summary>Moves to the previous review hint across files and opens it (web-handled).</summary>
-	public const string ReviewHintsPrevious = "weavie.reviewHints.previous";
+	/// <summary>Goes to the previous PR thread or review hint across files; bound to <c>$mod+alt+[</c> (web-handled).</summary>
+	public const string ReviewPreviousItem = "weavie.review.previousItem";
 
-	/// <summary>Shows or hides review hints in every editor (web-handled).</summary>
+	/// <summary>Includes or skips resolved and outdated threads when stepping through comments and hints.</summary>
+	public const string ReviewToggleSettledItems = "weavie.review.toggleSettledItems";
+
+	/// <summary>Shows or hides review hints in every editor.</summary>
 	public const string ReviewHintsToggle = "weavie.reviewHints.toggle";
 
 	/// <summary>Dismisses the open review hint, else the one on the cursor line (web-handled).</summary>
@@ -33,26 +36,44 @@ public static partial class CoreCommands {
 	public const string AgentFixLine = "weavie.agent.fixLine";
 
 	private static void RegisterReviewHints(CommandRegistry registry) {
-		foreach (var (id, title, direction) in new[] {
-			(ReviewHintsNext, "Next Review Hint", "next"),
-			(ReviewHintsPrevious, "Previous Review Hint", "previous"),
+		foreach (var (id, title, direction, key) in new[] {
+			(ReviewNextItem, "Next Comment or Hint", "next", "$mod+alt+]"),
+			(ReviewPreviousItem, "Previous Comment or Hint", "previous", "$mod+alt+["),
 		}) {
 			registry.Register(new CommandDefinition {
 				Id = id,
 				Title = title,
 				RunsIn = CommandLocation.Web,
 				Category = "Review",
-				Description = $"Go to the {direction} agent review hint, across files, and open it.",
-				Aliases = [$"{direction} hint", $"{direction} review hint", $"{direction} finding"],
+				When = "reviewItemsAvailable",
+				Description = $"Go to the {direction} pull request comment or agent review hint, across files.",
+				Aliases = [$"{direction} comment", $"{direction} pr comment", $"{direction} review comment", $"{direction} thread",
+					$"{direction} hint", $"{direction} review hint", $"{direction} finding"],
+				DefaultKeybindings = [new CommandKeybinding { Key = key, When = "reviewItemsAvailable && editorFocused" }],
 			});
 		}
 
 		registry.Register(new CommandDefinition {
+			Id = ReviewToggleSettledItems,
+			Title = "Toggle Resolved and Outdated in Stepping",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Owner = CommandOwner.Client,
+			Category = "Review",
+			Description = "Include or skip resolved and outdated pull request threads in Next Comment or Hint "
+				+ "(the 'editor.reviewStepSettled' setting).",
+			Aliases = ["resolved comments", "outdated comments", "step resolved threads"],
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = ReviewHintsToggle,
 			Title = "Toggle Review Hints",
-			RunsIn = CommandLocation.Web,
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Owner = CommandOwner.Client,
 			Category = "Review",
-			Description = "Show or hide agent review hints in every editor.",
+			Description = "Show or hide agent review hints in every editor, and in Next Comment or Hint "
+				+ "(the 'editor.reviewHints' setting).",
 			Aliases = ["toggle hints", "show review hints", "hide review hints", "toggle findings"],
 		});
 

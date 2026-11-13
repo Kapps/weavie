@@ -32,5 +32,8 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   gitBlame: "currentLine",
   gitBlameMaxLines: 5000,
   reviewOverviewCollapse: "global",
+  reviewComments: true,
+  reviewHints: true,
+  reviewStepSettled: false,
   spellCheck: true,
 };

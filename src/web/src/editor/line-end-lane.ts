@@ -158,9 +158,12 @@ function createLane(editor: monaco.editor.ICodeEditor): Lane {
   };
   const onContent = editor.onDidChangeModelContent(schedule);
   const onModel = editor.onDidChangeModel(schedule);
+  // Monaco leaves a widget placed on a folded line hidden after the fold opens; opening one changes the content size.
+  const onSize = editor.onDidContentSizeChange(schedule);
   editor.onDidDispose(() => {
     onContent.dispose();
     onModel.dispose();
+    onSize.dispose();
     lanes.delete(editor);
   });
   return { items, schedule };

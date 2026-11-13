@@ -41,8 +41,24 @@
 }
 
 .weavie-pr-card:hover .weavie-pr-thread-actions,
+.weavie-pr-card-current .weavie-pr-thread-actions,
 .weavie-pr-thread-actions:focus-within {
   opacity: 1;
+}
+
+.weavie-pr-thread-actions .review-item-position {
+  align-self: center;
+  margin-right: 4px;
+}
+
+/* The item Next / Previous Comment or Hint is on. */
+.weavie-pr-card-current {
+  --pr-line: var(--accent);
+}
+
+.weavie-pr-badge-resolved {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
 }
 
 .weavie-pr-icon-button:hover {

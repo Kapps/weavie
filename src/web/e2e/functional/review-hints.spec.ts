@@ -416,7 +416,7 @@ test.describe("across files", () => {
     },
   });
 
-  test("Next/Previous open across files; Fix with…, Toggle and Dismiss act on them", async ({
+  test("Next/Previous Comment or Hint open hints across files; Fix with…, Toggle and Dismiss act on them", async ({
     page,
     weavie,
   }) => {
@@ -429,10 +429,10 @@ test.describe("across files", () => {
     await expect.poll(() => weavie.fakeLog().match(/^addReviewHint -> /gm)?.length ?? 0).toBe(2);
 
     await test.step("Next and Previous walk the hints across files", async () => {
-      await runCommand(page, "Next Review Hint");
+      await runCommand(page, "Next Comment or Hint");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]todo\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Second is vague");
-      await runCommand(page, "Previous Review Hint");
+      await runCommand(page, "Previous Comment or Hint");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]notes\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Text is too plain");
     });
@@ -467,7 +467,7 @@ test.describe("across files", () => {
       await popover(page).getByRole("button", { name: "Dismiss hint" }).click();
       await expect(mark).toHaveCount(0);
       await expect(popover(page)).toHaveCount(0);
-      await runCommand(page, "Next Review Hint");
+      await runCommand(page, "Next Comment or Hint");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]todo\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Second is vague");
     });

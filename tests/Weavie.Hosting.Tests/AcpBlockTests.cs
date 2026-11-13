@@ -79,6 +79,34 @@ public sealed class AcpBlockTests {
 		Assert.Equal("item-retracted", Assert.Single(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.ItemId == "tool:block-call-2").Message.Type);
 	}
 
+	[Theory]
+	[InlineData("[[weavie:no-reply]]")]
+	[InlineData("[[wea|vie:no-|reply]]|\n")]
+	public async Task AReplyThatIsOnlyTheNoReplyMessage_IsNeverShown_AndLeavesItsMessageIdForRewind(string chunks) {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+
+		await CallAsync(fixture, "say:" + chunks);
+
+		var reply = Assert.Single(fixture.Messages, message => message.ItemType == "agentMessage");
+		Assert.Equal(("item-retracted", (string?)null), (reply.Type, reply.Text));
+		Assert.NotNull(reply.MessageId);
+		var saved = Assert.Single(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.ItemType == "agentMessage");
+		Assert.Equal(("item-retracted", (string?)null, reply.MessageId), (saved.Type, saved.Text, saved.MessageId));
+	}
+
+	[Theory]
+	[InlineData("[[wea|ther]] is fine", "[[weather]] is fine")]
+	[InlineData("[[weavie:no-reply]]| but read this", "[[weavie:no-reply]] but read this")]
+	[InlineData("[[weavie:no", "[[weavie:no")]
+	public async Task AReplyThatOnlyStartsLikeTheNoReplyMessage_IsShownWhole(string chunks, string text) {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+
+		await CallAsync(fixture, "say:" + chunks);
+
+		var reply = Assert.Single(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.ItemType == "agentMessage");
+		Assert.Equal(("item-completed", text), (reply.Message.Type, reply.Message.Text));
+	}
+
 	[Fact]
 	public async Task ParallelCalls_EachClaimTheirOwnRow_WhateverOrderTheirResultsArrive() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();

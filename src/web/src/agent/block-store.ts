@@ -2,12 +2,22 @@ import { type Accessor, createRoot, createSignal, type Setter } from "solid-js";
 import type { AgentBlockRecord, ClientSession } from "../bridge";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { blockKey } from "./AgentPaneIdentity";
+import type { ColumnFilter, TableSort } from "./agent-table-model";
+
+/** How the user has arranged a table: its sort, and each column's filter by column name. */
+export interface TableView {
+  sort: Accessor<TableSort>;
+  setSort: Setter<TableSort>;
+  filters: Accessor<ReadonlyMap<string, ColumnFilter>>;
+  setFilters: Setter<ReadonlyMap<string, ColumnFilter>>;
+}
 
 interface BlockSignals {
   blocks: Map<
     string,
     [Accessor<AgentBlockRecord | undefined>, Setter<AgentBlockRecord | undefined>]
   >;
+  views: Map<string, TableView>;
   // The transcript generation the held blocks belong to; a newer one voids them all.
   generation: number;
   dispose: () => void;
@@ -15,7 +25,7 @@ interface BlockSignals {
 
 // One signal per block, so a refreshing chart re-renders only itself.
 const stores = createSessionOwnedResource<BlockSignals>(
-  () => createRoot((dispose) => ({ blocks: new Map(), generation: -1, dispose })),
+  () => createRoot((dispose) => ({ blocks: new Map(), views: new Map(), generation: -1, dispose })),
   (_session, store) => store.dispose(),
 );
 
@@ -56,6 +66,23 @@ export function clearBlocks(session: ClientSession): void {
 
 function clear(store: BlockSignals): void {
   for (const [, write] of store.blocks.values()) write(undefined);
+}
+
+/**
+ * The view of the table on transcript row `entryId`, held for the session so a row the transcript unmounts when it
+ * scrolls away comes back as the user left it. A block shown again is a new row, and so a new view.
+ */
+export function tableView(session: ClientSession, entryId: string): TableView | undefined {
+  const store = stores.get(session);
+  if (store === undefined) return undefined;
+  let view = store.views.get(entryId);
+  if (view === undefined) {
+    const [sort, setSort] = createSignal<TableSort>(null);
+    const [filters, setFilters] = createSignal<ReadonlyMap<string, ColumnFilter>>(new Map());
+    view = { sort, setSort, filters, setFilters };
+    store.views.set(entryId, view);
+  }
+  return view;
 }
 
 /** The latest state of the block `key` names, tracked reactively. */

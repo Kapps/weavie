@@ -13,7 +13,7 @@ vi.mock("../messaging/session-owned-state", () => ({
   },
 }));
 
-const { agentBlock, putBlocks } = await import("./block-store");
+const { agentBlock, putBlocks, tableView } = await import("./block-store");
 const { blockKey } = await import("./AgentPaneIdentity");
 
 const record = (generation: number, revision: number, title: string): AgentBlockRecord => ({
@@ -37,5 +37,13 @@ describe("block store", () => {
 
     putBlocks(session, [record(1, 99, "stale")]);
     expect(agentBlock(session, key)?.block.title).toBe("after clear");
+  });
+
+  it("keeps one table view per transcript row", () => {
+    const session = {} as ClientSession;
+    tableView(session, "row-1")!.setSort({ column: 1, descending: true });
+
+    expect(tableView(session, "row-1")!.sort()).toEqual({ column: 1, descending: true });
+    expect(tableView(session, "row-2")!.sort()).toBeNull();
   });
 });

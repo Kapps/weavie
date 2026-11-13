@@ -10,7 +10,7 @@ import { AgentTable } from "./AgentTable";
 import { chartHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
 import { ownCommand, ownsCommand } from "./agent-command-owner";
-import { agentBlock } from "./block-store";
+import { agentBlock, tableView } from "./block-store";
 import type { AgentSelection } from "./composer-state";
 import { attachAgentSelection } from "./composer-store";
 
@@ -20,6 +20,8 @@ export function AgentBlockEntry(props: {
   session: ClientSession;
 }): JSX.Element {
   const record = () => agentBlock(props.session, props.entry.block.key);
+  const view =
+    props.entry.block.kind === "table" ? tableView(props.session, props.entry.id) : undefined;
   const title = () => record()?.block.title ?? props.entry.summary ?? "";
   const select = (selection: AgentSelection): void =>
     attachAgentSelection(props.session, selection);
@@ -86,10 +88,11 @@ export function AgentBlockEntry(props: {
               />
             )}
           </Match>
-          <Match when={record()?.block.table}>
+          <Match when={view !== undefined && record()?.block.table}>
             {(table) => (
               <AgentTable
                 table={table()}
+                view={view!}
                 id={record()!.block.id}
                 title={title()}
                 onSelect={select}

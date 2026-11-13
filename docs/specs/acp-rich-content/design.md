@@ -169,6 +169,13 @@ the same x values. Column `type` is `time | number | text | level`.
 **`updateBlock`** — a whole new `chart` or `table` replaces the block's data; `append` adds points to existing
 series, or rows, and keeps the newest `append.keep`, which the schema requires inside `append`.
 
+**A turn with nothing to say.** A refresh is a turn of its own, and an agent ends every turn with some text. The
+`updateBlock` result tells it to reply with exactly `[[weavie:no-reply]]` (`AgentNoReply`) when updating is all
+the turn did. The conversation holds a reply back while its text can still become that message, and a reply that
+is exactly it is never shown: its text is dropped and only a retraction row naming the agent's message id is
+journaled, because Rewind forks at the last reply of the previous turn. A reply that diverges is released whole, so nothing but that one string is
+ever dropped, and an agent that ignores the instruction shows its text as before.
+
 ```json
 { "id": "p95",
   "append": { "keep": 60,
@@ -465,8 +472,11 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 
 - `echarts/core` with line, bar and scatter charts and the grid, tooltip, legend, mark-line, mark-area
   and brush components, loaded by a memoized dynamic import as Mermaid is in `editor/preview/diagrams.ts`.
-- `chartRenderer(chart)` picks SVG, whose text is the page's own, until a bar or scatter chart passes 2,000
-  marks; past that it is canvas, because every bar and point is a DOM node. A line is one path at any length.
+- The renderer is canvas. An SVG renderer was tried for its text: in the app's WebKit webview a live line chart
+  once lost its series lines under the pointer, which was never reproduced, and a bar or scatter chart at the
+  limits is too many DOM nodes.
+- Every series carries a stable `id`, so an update under `replaceMerge` keeps its view and animates the line to
+  the new data; without one ECharts rebuilds every series on every update.
 - Chart text is the chrome secondary role. Axis names sit along their axes and the grid lays itself out
   inside its bounds (`outerBoundsContain: "all"`), so no name or label can meet the legend above it.
 - `chartOption(chart, palette)` is a pure function: `animationDuration: 0`, `animationDurationUpdate: 300`,
@@ -480,6 +490,8 @@ protected override void OnCommitBlock(AcpConversationState state, AgentBlockOper
 
 - Rows are `.ui-row-content`, virtualized with `@tanstack/solid-virtual`; header and rows share explicit column
   widths sized from the data, because virtualized rows can't join one grid; sortable headers are `.ui-button`.
+- A table's sort and filters live in `block-store.ts`, keyed by its transcript row, so a row the transcript
+  unmounts when it scrolls away comes back as the user left it, and a block shown again starts fresh.
 - Each column filters from the button beside its name (`AgentTableFilter.tsx`): a phrase the cell must
   contain, and the column's eight most common values to pick from. A selection's text names the filters.
 - `level` cells take `--warn`, `--bad`, `--dim`. `time` cells render in local time.

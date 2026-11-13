@@ -468,6 +468,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
 		if (text.StartsWith("block", StringComparison.Ordinal)) return await BlockCallAsync(text, ct).ConfigureAwait(false);
+		// `say:a|b|c` streams one reply in those chunks.
+		if (text.StartsWith("say:", StringComparison.Ordinal)) {
+			string messageId = Guid.NewGuid().ToString("N");
+			foreach (string chunk in text[4..].Split('|')) {
+				Update(new JsonObject { ["sessionUpdate"] = "agent_message_chunk", ["messageId"] = messageId, ["content"] = Text(chunk) });
+			}
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
 		if (text.StartsWith("task", StringComparison.Ordinal) || text == "workflow-held") return TaskPrompt(text, ct);
 		if (text.StartsWith("input-custom-answer", StringComparison.Ordinal)) {
 			await CustomAnswerAsync(text == "input-custom-answer-multiple", ct).ConfigureAwait(false);

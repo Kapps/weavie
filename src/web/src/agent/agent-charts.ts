@@ -22,26 +22,11 @@ export function loadECharts(): Promise<ECharts> {
       components.MarkLineComponent,
       components.MarkAreaComponent,
       components.BrushComponent,
-      renderers.SVGRenderer,
       renderers.CanvasRenderer,
     ]);
     return core;
   });
   return echartsPromise;
-}
-
-const svgMarkLimit = 2000;
-
-/**
- * SVG draws text as the page does, so it is the renderer until a chart has too many marks for the DOM: a bar or a
- * scatter point is an element each, while a line is one path however long.
- */
-export function chartRenderer(chart: AgentChart): "svg" | "canvas" {
-  const marks =
-    chart.kind === "bar" || chart.kind === "scatter"
-      ? chart.series.reduce((sum, line) => sum + line.points.length, 0)
-      : 0;
-  return marks > svgMarkLimit ? "canvas" : "svg";
 }
 
 /** The theme a chart draws with, read from Weavie's live CSS variables. */
@@ -91,6 +76,8 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
     const comparison = line.style === "comparison";
     const color = comparison ? palette.dim : palette.series[colored++ % palette.series.length];
     return {
+      // An id keeps the series across updates, so its line animates to the new data instead of being rebuilt.
+      id: `series:${line.name}`,
       name: line.name,
       type: chart.kind === "area" ? "line" : chart.kind,
       data: line.points,
@@ -99,13 +86,14 @@ export function chartOption(chart: AgentChart, palette: ChartPalette): EChartsCo
       showSymbol: chart.kind === "scatter",
       symbolSize: 6,
       lineStyle: { width: comparison ? 1.25 : 1.75, type: comparison ? [4, 3] : "solid" },
-      areaStyle: chart.kind === "area" && !comparison ? { opacity: 0.12 } : undefined,
+      areaStyle: chart.kind === "area" && !comparison ? { opacity: 0.12 } : null,
     };
   });
   // Thresholds and bands ride an empty series per y axis, so they never depend on which series exist.
   for (const axis of chart.y2 == null ? ["y"] : ["y", "y2"]) {
     const onAxis = (mark: { axis?: string | null }) => (mark.axis ?? "y") === axis;
     series.push({
+      id: `marks:${axis}`,
       type: "line",
       data: [],
       yAxisIndex: axis === "y2" ? 1 : 0,

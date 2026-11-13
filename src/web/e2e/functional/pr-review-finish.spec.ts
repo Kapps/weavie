@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
@@ -13,7 +13,7 @@ async function commentOnLine(
   body: string,
   button: string,
 ): Promise<void> {
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < line; i++) await page.keyboard.press("ArrowDown");
   await runCommand(page, "Comment on Line (Pull Request)");
@@ -58,7 +58,7 @@ test("comments queue as drafts in place and submit once with a verdict", async (
 
   await runCommand(page, "Review Changes");
   const button = page.locator(".finish-review-button");
-  await expect(button).toContainText("Finish review");
+  await expect(button).toHaveClass(/finish-review-has/);
   await expect(button.locator(".finish-review-count")).toHaveText("1");
   await runCommand(page, "Finish Review…");
   const panel = page.locator(".finish-review-panel");
@@ -70,7 +70,7 @@ test("comments queue as drafts in place and submit once with a verdict", async (
   await summary.press("ControlOrMeta+Enter");
 
   await expect(panel).toHaveCount(0, { timeout: 10_000 });
-  await expect(button).toHaveText("Review");
+  await expect(button.locator(".finish-review-count")).toHaveCount(0);
   const review = page.locator(".session-overview-comment", { hasText: "One thing inline." });
   await expect(review).toContainText("requested changes");
   // Line comments show their text and place: a lone one reads as a comment, never as a review.

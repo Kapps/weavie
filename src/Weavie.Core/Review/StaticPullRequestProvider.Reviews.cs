@@ -167,7 +167,7 @@ public sealed partial class StaticPullRequestProvider {
 	}
 
 	private void AddThread(int number, NewReviewComment draft, bool pending) =>
-		_threads.Add((number, new ReviewThread($"thread-{++_nextId}", draft.Path, draft.Line, "right", false, [Comment(draft.Body, pending)])));
+		_threads.Add((number, new ReviewThread($"thread-{++_nextId}", draft.Path, draft.Line, "right", false, false, [Comment(draft.Body, pending)])));
 
 	private ReviewComment Comment(string body, bool pending) {
 		string now = Now();

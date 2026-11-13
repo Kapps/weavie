@@ -13,14 +13,14 @@ public sealed partial class GitHubReviewCommentsTests {
 	public async Task LoadAsync_ReadsThreadsDraftsAndTheViewersPendingReview() {
 		var handler = new ScriptedHandler(Ok(Page(
 			"""
-			{ "id": "PRRT_1", "path": "src/a.ts", "line": 12, "diffSide": "RIGHT", "isOutdated": false,
+			{ "id": "PRRT_1", "path": "src/a.ts", "line": 12, "diffSide": "RIGHT", "isOutdated": false, "isResolved": true,
 			  "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
 			    { "id": "PRRC_1", "body": "why?", "state": "SUBMITTED", "viewerDidAuthor": false, "createdAt": "2026-01-01T00:00:00Z",
 			      "updatedAt": "2026-01-03T00:00:00Z", "url": "https://github.com/Kapps/weavie/pull/7#discussion_r1",
 			      "author": { "login": "bob", "avatarUrl": "https://a/bob" } },
 			    { "id": "PRRC_2", "body": "because", "state": "PENDING", "viewerDidAuthor": true, "createdAt": "2026-01-02T00:00:00Z",
 			      "updatedAt": "2026-01-02T00:00:00Z", "url": "", "author": null } ] } },
-			{ "id": "PRRT_2", "path": "src/b.ts", "line": null, "diffSide": "LEFT", "isOutdated": true,
+			{ "id": "PRRT_2", "path": "src/b.ts", "line": null, "diffSide": "LEFT", "isOutdated": true, "isResolved": false,
 			  "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] } }
 			""",
 			hasNextPage: false)));
@@ -36,7 +36,8 @@ public sealed partial class GitHubReviewCommentsTests {
 		Assert.True(review.ViewerIsAuthor);
 		Assert.Equal(new PendingReview("PRR_mine", "draft summary"), review.Pending);
 		var thread = review.Threads[0];
-		Assert.Equal(("PRRT_1", "src/a.ts", 12, "right", false), (thread.Id, thread.Path, thread.Line, thread.Side, thread.Outdated));
+		Assert.Equal(("PRRT_1", "src/a.ts", 12, "right", false, true),
+			(thread.Id, thread.Path, thread.Line, thread.Side, thread.Outdated, thread.Resolved));
 		Assert.Equal(
 			new ReviewComment {
 				Id = "PRRC_1",
@@ -51,7 +52,8 @@ public sealed partial class GitHubReviewCommentsTests {
 			},
 			thread.Comments[0]);
 		Assert.Equal(("ghost", true, true), (thread.Comments[1].Author, thread.Comments[1].Pending, thread.Comments[1].Mine));
-		Assert.Equal((0, "left", true), (review.Threads[1].Line, review.Threads[1].Side, review.Threads[1].Outdated));
+		Assert.Equal((0, "left", true, false),
+			(review.Threads[1].Line, review.Threads[1].Side, review.Threads[1].Outdated, review.Threads[1].Resolved));
 	}
 
 	[Fact]

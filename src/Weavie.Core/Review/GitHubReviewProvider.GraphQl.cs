@@ -12,7 +12,7 @@ public sealed partial class GitHubReviewProvider {
 		"query($owner:String!,$name:String!,$number:Int!,$after:String){viewer{login avatarUrl}"
 		+ "repository(owner:$owner,name:$name){pullRequest(number:$number){id viewerDidAuthor"
 		+ " reviews(states:[PENDING],first:5){nodes{id body viewerDidAuthor}}"
-		+ " reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id path line diffSide isOutdated"
+		+ " reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id path line diffSide isOutdated isResolved"
 		+ " comments(first:100){pageInfo{hasNextPage endCursor} nodes{" + CommentFields + "}}}}}}}";
 
 	private const string MoreCommentsQuery =
@@ -111,6 +111,7 @@ public sealed partial class GitHubReviewProvider {
 			outdated ? 0 : Int(thread, "line"),
 			String(thread, "diffSide").Equals("LEFT", StringComparison.OrdinalIgnoreCase) ? "left" : "right",
 			outdated,
+			Bool(thread, "isResolved"),
 			comments);
 	}
 

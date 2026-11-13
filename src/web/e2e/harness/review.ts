@@ -31,12 +31,20 @@ export async function jumpToReviewFile(page: Page, name: string): Promise<void> 
   await page.keyboard.press("Enter");
 }
 
-/** Opens the scenario's PR #101, which lands on its session overview, then opens `file` under its review. */
-export async function openPullRequestFile(page: Page, file: string): Promise<void> {
+/** The open review hint popover. */
+export const hintPopover = (page: Page): Locator => page.locator(".weavie-hint-hover");
+
+/** Opens the scenario's PR #101, which lands on its session overview in the unified review. */
+export async function openPullRequest(page: Page): Promise<void> {
   await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
+}
+
+/** Opens the scenario's PR #101, then opens `file` under its review. */
+export async function openPullRequestFile(page: Page, file: string): Promise<void> {
+  await openPullRequest(page);
   await openFile(page, file);
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
 }

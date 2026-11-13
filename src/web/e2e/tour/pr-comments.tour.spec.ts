@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { openPullRequestFile } from "../harness/review";
 
@@ -70,7 +70,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   await thread.screenshot({ path: `${shots}/pr-comments-replied.png` });
 
   // (3) Caret on line 5 → Comment on Line (Pull Request).
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < 5; i++) await page.keyboard.press("ArrowDown");
   await hold(page, 600);

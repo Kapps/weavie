@@ -130,7 +130,10 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
   await expect(header.locator(".unified-review-identity")).toContainText(
     "Add a feature and tweak the greeting",
   );
-  await expect(header.locator(".unified-review-failing")).toHaveText("1 check failing");
+  await expect(header.locator(".unified-review-failing")).toHaveAttribute(
+    "title",
+    "1 check failing",
+  );
   await expect(header.locator(".unified-review-identity-title")).toBeInViewport({ ratio: 1 });
   // Truncated if it must be, never squeezed away.
   expect(

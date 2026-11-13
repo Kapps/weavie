@@ -1,8 +1,8 @@
-import { createSignal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import type { CommandResult } from "../../commands/types";
 import { describeError } from "../../lsp/lsp-errors";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
+import { reviewOptions } from "../review-items/review-options";
 
 export interface PrUser {
   login: string;
@@ -30,6 +30,8 @@ export interface PrThread {
   line: number;
   side: "right" | "left";
   outdated: boolean;
+  /** Marked resolved on the forge. */
+  resolved: boolean;
   comments: PrComment[];
 }
 
@@ -83,18 +85,8 @@ export const prCommentsFor: (session: ClientSession | null) => PrCommentsState |
     (state) => state,
   );
 
-const [visible, setVisible] = createSignal(true);
-
-/** Whether inline PR threads are shown; one switch for every editor. */
-export const prCommentsVisible = visible;
-
-export function togglePrComments(): void {
-  setVisible((shown) => !shown);
-}
-
-export function showPrComments(): void {
-  setVisible(true);
-}
+/** Whether inline PR threads are shown: the `editor.reviewComments` setting, one switch for every editor. */
+export const prCommentsVisible = (): boolean => reviewOptions().reviewComments;
 
 /** Sends one comment or review write; resolves to the host's error, or null once it landed. */
 export async function sendPrComment(

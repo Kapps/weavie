@@ -36,13 +36,35 @@
   top: 8px;
   right: 8px;
   display: flex;
+  align-items: center;
   gap: 2px;
   opacity: 0;
 }
 
 .weavie-pr-card:hover .weavie-pr-thread-actions,
+.weavie-pr-card-current .weavie-pr-thread-actions,
 .weavie-pr-thread-actions:focus-within {
   opacity: 1;
+}
+
+.weavie-pr-thread-actions .review-item-position {
+  margin-right: 4px;
+}
+
+/* No text sits beside the card's count, so it centres on its arrows: its box is trimmed to its digits, without the
+   descender room that would lift them a pixel. */
+.weavie-pr-thread-actions .review-item-count {
+  text-box: trim-both cap alphabetic;
+}
+
+/* The item Next / Previous Comment or Hint is on. */
+.weavie-pr-card-current {
+  --pr-line: var(--accent);
+}
+
+.weavie-pr-badge-resolved {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
 }
 
 .weavie-pr-icon-button:hover {

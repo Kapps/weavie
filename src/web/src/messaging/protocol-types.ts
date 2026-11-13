@@ -388,6 +388,9 @@ export interface EditorOptionsSpec {
   gitBlame: GitBlameMode;
   gitBlameMaxLines: number;
   reviewOverviewCollapse: "global" | "session";
+  reviewComments: boolean;
+  reviewHints: boolean;
+  reviewStepSettled: boolean;
   spellCheck: boolean;
 }
 

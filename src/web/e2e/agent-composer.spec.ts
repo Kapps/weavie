@@ -1671,7 +1671,14 @@ test.describe("ACP composer", () => {
     await expect(link).toHaveAttribute("title", /last refresh failed: temporary network failure/);
     await expect(page.locator(".agent-status-unavailable")).toHaveCount(0);
 
-    const thread = { id: "t1", path: "/w/a.ts", line: 1, side: "right", outdated: false };
+    const thread = {
+      id: "t1",
+      path: "/w/a.ts",
+      line: 1,
+      side: "right",
+      outdated: false,
+      resolved: false,
+    };
     host.publishSession(agentSession.address, "pullRequests", "comments", {
       set: {
         number: 123,

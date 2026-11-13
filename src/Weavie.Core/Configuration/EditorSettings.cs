@@ -105,6 +105,15 @@ public static class EditorSettings {
 	/// <summary>Whether the session overview remembers collapsed sections for all sessions or per session.</summary>
 	public const string ReviewOverviewCollapse = "editor.reviewOverviewCollapse";
 
+	/// <summary>Whether pull request review threads show in editors and are stepped through.</summary>
+	public const string ReviewComments = "editor.reviewComments";
+
+	/// <summary>Whether agent review hints show in editors and are stepped through.</summary>
+	public const string ReviewHints = "editor.reviewHints";
+
+	/// <summary>Whether stepping through comments and hints includes resolved and outdated threads.</summary>
+	public const string ReviewStepSettled = "editor.reviewStepSettled";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		SpellCheck,
@@ -113,6 +122,7 @@ public static class EditorSettings {
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks, FullscreenCenter,
+		ReviewComments, ReviewHints, ReviewStepSettled,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -310,6 +320,18 @@ public static class EditorSettings {
 			["overview collapse", "collapsed sections", "review overview sections", "remember collapsed sections",
 				"session overview", "front door"],
 			["global", "session"], "global"));
+
+		registry.Register(Toggle(ReviewComments,
+			"Show pull request review threads in editors, and step through them with Next Comment or Hint.",
+			["pr comments", "review comments", "show pr comments", "hide pr comments", "pull request threads"], true));
+
+		registry.Register(Toggle(ReviewHints,
+			"Show agent review hints in editors, and step through them with Next Comment or Hint.",
+			["review hints", "show review hints", "hide review hints", "agent findings"], true));
+
+		registry.Register(Toggle(ReviewStepSettled,
+			"Include resolved and outdated pull request threads when stepping with Next Comment or Hint.",
+			["resolved comments", "outdated comments", "step resolved threads"], false));
 	}
 
 	/// <summary>
@@ -354,6 +376,9 @@ public static class EditorSettings {
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));
 		writer.WriteNumber("gitBlameMaxLines", store.RequireInt(GitBlameMaxLines));
 		writer.WriteString("reviewOverviewCollapse", store.RequireString(ReviewOverviewCollapse));
+		writer.WriteBoolean("reviewComments", store.RequireBool(ReviewComments));
+		writer.WriteBoolean("reviewHints", store.RequireBool(ReviewHints));
+		writer.WriteBoolean("reviewStepSettled", store.RequireBool(ReviewStepSettled));
 		writer.WriteEndObject();
 	}
 

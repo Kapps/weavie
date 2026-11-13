@@ -150,7 +150,10 @@ for (const theme of ["dark", "light"] as const) {
     await expect(header.locator(".unified-review-identity")).toContainText(
       "Add a feature and tweak the greeting",
     );
-    await expect(header.locator(".unified-review-failing")).toHaveText("1 check failing");
+    await expect(header.locator(".unified-review-failing")).toHaveAttribute(
+      "title",
+      "1 check failing",
+    );
     await expect(header.locator(".finish-review-button")).toBeVisible();
     await expect(page.locator(".finish-review-button")).toHaveCount(1);
     await hold(page, 2500);

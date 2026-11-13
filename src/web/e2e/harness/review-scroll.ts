@@ -12,6 +12,19 @@ export function readReviewScroll(element: Element): { top: number; maximum: numb
   };
 }
 
+/** Waits until the review's scroll position stops moving: a keyboard or wheel scroll glides there. */
+export async function awaitReviewScrollSettled(page: Page): Promise<void> {
+  let previous = Number.NaN;
+  await expect
+    .poll(async () => {
+      const { top } = await reviewScroll(page);
+      const settled = top === previous;
+      previous = top;
+      return settled;
+    })
+    .toBe(true);
+}
+
 export async function scrollReview(page: Page, target: "start" | "middle" | "end"): Promise<void> {
   const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
   if (target !== "middle") {
@@ -22,15 +35,7 @@ export async function scrollReview(page: Page, target: "start" | "middle" | "end
     return;
   }
   // The drag lands relative to the thumb's measured box, so a glide still moving the thumb would shift it.
-  let previous = Number.NaN;
-  await expect
-    .poll(async () => {
-      const { top } = await reviewScroll(page);
-      const settled = top === previous;
-      previous = top;
-      return settled;
-    })
-    .toBe(true);
+  await awaitReviewScrollSettled(page);
   const thumb = await scrollbar.locator(".slider").boundingBox();
   const track = await scrollbar.boundingBox();
   if (thumb === null || track === null) throw new Error("Review scrollbar is missing");

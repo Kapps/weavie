@@ -4,6 +4,7 @@ import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
+import { hiddenAreas } from "../hidden-areas";
 import {
   createInlineDiff,
   type InlineDiff,
@@ -14,7 +15,7 @@ import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
-import { collapseUnchanged } from "./review-context";
+import { CONTEXT_LINES, collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
@@ -24,13 +25,12 @@ const GAP_HEIGHT = 24;
 // Lucide's chevrons-up-down.
 const EXPAND_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>';
-type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
-  setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
-};
 
 export interface ReviewEditor {
   capture(): TextLocation;
   restore(location: TextLocation): void;
+  /** Goes to a line, first showing it with its context when the review folds it away. */
+  reveal(location: TextLocation): void;
   revealFileStart(line: number): void;
   focus(): void;
   layout(): void;
@@ -105,7 +105,7 @@ export function createReviewEditor(options: {
         },
       ),
   );
-  const editor = viewport.editor as CollapsingEditor;
+  const editor = viewport.editor;
   // Undefined until InlineDiff first lays out the diff; null for a failed diff.
   let markers: DiffMarkers | null | undefined;
   let hidden: monaco.IRange[] = [];
@@ -170,7 +170,7 @@ export function createReviewEditor(options: {
   const applyContext = (): void => {
     if (markers === undefined) return;
     hidden = collapseUnchanged(markers, model.getLineCount(), options.context());
-    editor.setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
+    hiddenAreas(editor).setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
     editor.changeViewZones((accessor) => {
       for (const id of gaps.keys()) accessor.removeZone(id);
       hover(undefined);
@@ -317,6 +317,17 @@ export function createReviewEditor(options: {
   return {
     capture,
     restore,
+    reveal: (location) => {
+      const fold = hidden.find(
+        (range) => range.startLineNumber <= location.line && location.line <= range.endLineNumber,
+      );
+      if (fold !== undefined)
+        options.revealContext({
+          start: Math.max(fold.startLineNumber, location.line - CONTEXT_LINES),
+          end: Math.min(fold.endLineNumber, location.line + CONTEXT_LINES),
+        });
+      restore(location);
+    },
     revealFileStart: (line) => {
       viewport.update(() => editor.setPosition({ lineNumber: line, column: 1 }));
       viewport.reveal(0);

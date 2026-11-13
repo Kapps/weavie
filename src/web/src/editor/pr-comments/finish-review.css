@@ -4,16 +4,16 @@
   display: flex;
 }
 
-.finish-review-button {
+.finish-review-button.ui-button {
   background: var(--bg);
 }
 
-.finish-review-button:hover,
-.finish-review-has {
+.finish-review-button.ui-button:hover,
+.finish-review-button.ui-button.finish-review-has {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-.finish-review-open {
+.finish-review-button.ui-button.finish-review-open {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
@@ -151,4 +151,22 @@
   margin-right: auto;
   border-color: transparent;
   color: var(--dim);
+}
+
+/* As a header tool, the pending count sits beside the icon, and an open panel shows as a pressed tool. */
+.finish-review-tool {
+  grid-auto-flow: column;
+  gap: 4px;
+  width: auto;
+  min-width: var(--icon-button-size);
+  padding-inline: 4px;
+}
+
+.finish-review-tool.finish-review-has {
+  color: var(--accent);
+}
+
+.finish-review-tool.finish-review-open {
+  background: var(--list-active-bg);
+  box-shadow: none;
 }

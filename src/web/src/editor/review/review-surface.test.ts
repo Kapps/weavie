@@ -110,6 +110,7 @@ describe("pending review navigation ownership", () => {
     const current = fixture();
     const section = {
       restore: vi.fn(),
+      reveal: vi.fn(),
       revealFileStart: vi.fn(),
       focus: vi.fn(),
     } as unknown as ReviewEditor;
@@ -127,7 +128,7 @@ describe("pending review navigation ownership", () => {
     surface.takeControl();
     surface.sections.set("/work/0.ts", section);
     await Promise.resolve();
-    expect(section.restore).not.toHaveBeenCalled();
+    expect(section.reveal).not.toHaveBeenCalled();
     expect(section.revealFileStart).not.toHaveBeenCalled();
     expect(section.focus).not.toHaveBeenCalled();
     surface.dispose();
@@ -140,7 +141,8 @@ describe("pending review navigation ownership", () => {
     surface.sections.set("/work/0.ts", section);
     surface.sections.set("/work/0.ts", section);
     await Promise.resolve();
-    expect(section.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.reveal).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.restore).not.toHaveBeenCalled();
     expect(section.focus).toHaveBeenCalledOnce();
     surface.dispose();
   });
@@ -154,8 +156,25 @@ describe("pending review navigation ownership", () => {
     surface.sections.set("/work/0.ts", section);
     await paint();
     await Promise.resolve();
-    expect(section.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.reveal).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.restore).not.toHaveBeenCalled();
     expect(section.focus).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  // Going back to a tab puts its saved place back as it was; only a navigation to a line opens a fold.
+  it("restores a saved place without revealing its line", async () => {
+    const { surface, section, paint } = painting();
+    const location = { path: "/work/0.ts", line: 40 };
+    const result = surface.restore(
+      { viewState: { location, scrollTop: 0 } },
+      new AbortController().signal,
+    );
+    await paint();
+    surface.sections.set("/work/0.ts", section);
+    await result;
+    expect(section.restore).toHaveBeenCalledExactlyOnceWith(location);
+    expect(section.reveal).not.toHaveBeenCalled();
     surface.dispose();
   });
 

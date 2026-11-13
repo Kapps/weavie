@@ -189,6 +189,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		ThemeCommands.RegisterHandlers(_clientCommands, _settings, services.ThemeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(_clientCommands, _settings);
 		GitBlameCommands.RegisterHandlers(_clientCommands, _settings);
+		ReviewItemCommands.RegisterHandlers(_clientCommands, _settings);
 		InferenceCommands.RegisterHandlers(_clientCommands, _settings);
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;

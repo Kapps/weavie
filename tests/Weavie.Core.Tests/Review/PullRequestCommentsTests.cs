@@ -288,6 +288,19 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Refresh_PublishesAThreadResolvedOnTheForge() {
+		var store = new GatedStore(Store());
+		var comments = Create(store);
+		await comments.TrackAsync(Target, CancellationToken.None);
+		store.Resolved = true;
+
+		await comments.RefreshAsync(CancellationToken.None);
+
+		Assert.Equal(2, _published.Count);
+		Assert.True(Review(comments).Threads[0].Resolved);
+	}
+
+	[Fact]
 	public async Task ForgeFailure_KeepsTheLastGoodSetAndReportsTheError() {
 		var store = new GatedStore(Store());
 		var comments = Create(store);
@@ -314,8 +327,8 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	private static StaticPullRequestProvider Store(string author) => new(
 		[Pr(Number, author), Pr(8, "ann")],
 		[
-			(Number, new ReviewThread("t1", "a.txt", 2, "right", false, [Comment("1", "ann"), Comment("2", "Me")])),
-			(8, new ReviewThread("t3", "a.txt", 2, "right", false, [Comment("3", "ann")])),
+			(Number, new ReviewThread("t1", "a.txt", 2, "right", false, false, [Comment("1", "ann"), Comment("2", "Me")])),
+			(8, new ReviewThread("t3", "a.txt", 2, "right", false, false, [Comment("3", "ann")])),
 		],
 		new ForgeUser("me", string.Empty));
 
@@ -349,9 +362,13 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		public TaskCompletionSource ReleaseCreate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public bool FailLoad { get; set; }
 		public bool FailReply { get; init; }
+		public bool Resolved { get; set; }
 
-		public Task<PullRequestReview> LoadAsync(RepoRef repo, int number, CancellationToken ct = default) =>
-			FailLoad ? throw new HttpRequestException("GitHub is down") : inner.LoadAsync(repo, number, ct);
+		public async Task<PullRequestReview> LoadAsync(RepoRef repo, int number, CancellationToken ct = default) {
+			if (FailLoad) throw new HttpRequestException("GitHub is down");
+			var review = await inner.LoadAsync(repo, number, ct);
+			return review with { Threads = [.. review.Threads.Select(thread => thread with { Resolved = Resolved })] };
+		}
 
 		public async Task<string> CreateReviewAsync(
 			RepoRef repo, string pullRequestId, string commitSha, ReviewVerdict? verdict, string body,

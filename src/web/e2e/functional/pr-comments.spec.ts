@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
@@ -9,7 +9,7 @@ test.use({ prScenario: true });
 
 // Puts the caret on `line` of the focused editor.
 async function goToLine(page: Page, line: number): Promise<void> {
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < line; i++) await page.keyboard.press("ArrowDown");
 }
@@ -145,19 +145,38 @@ test("Escape keeps the draft, and the comment command reopens it", async ({ page
   await expect(thread.locator(".weavie-pr-button-primary")).toBeDisabled();
 });
 
-test("the comment command expands a collapsed thread; next/previous jump between threads", async ({
+test("stepping to a collapsed thread expands it, as the comment command does", async ({ page }) => {
+  await openCommentedFile(page);
+  const thread = card(page, "Why change this greeting?");
+  const collapse = async () => {
+    await thread.hover();
+    await thread.getByRole("button", { name: "Collapse thread" }).click();
+    await expect(thread.locator(".weavie-pr-summary")).toBeVisible();
+  };
+  await collapse();
+
+  await goToLine(page, 6);
+  await page.keyboard.press("ControlOrMeta+Alt+BracketLeft");
+  await expect(page.locator(".pane-footer .footer-seg", { hasText: "Ln " })).toContainText("Ln 2,");
+  await expect(thread).toHaveClass(/weavie-pr-card-current/);
+  await expect(thread.locator(".weavie-pr-summary")).toHaveCount(0);
+
+  await collapse();
+  await runCommand(page, "Comment on Line (Pull Request)");
+  await expect(page.locator(".weavie-pr-summary")).toHaveCount(0);
+  await expect(thread.locator(".weavie-pr-composer-input")).toBeFocused();
+});
+
+test("commenting on a thread's line while threads are hidden shows them and replies to that thread", async ({
   page,
 }) => {
   await openCommentedFile(page);
   const thread = card(page, "Why change this greeting?");
-  await thread.hover();
-  await thread.getByRole("button", { name: "Collapse thread" }).click();
-  await expect(page.locator(".weavie-pr-summary")).toBeVisible();
+  await runCommand(page, "Toggle Pull Request Comments");
+  await expect(thread).toHaveCount(0);
 
-  await goToLine(page, 6);
-  await runCommand(page, "Previous Pull Request Comment");
-  await expect(page.locator(".pane-footer .footer-seg", { hasText: "Ln " })).toContainText("Ln 2,");
+  await goToLine(page, 2);
   await runCommand(page, "Comment on Line (Pull Request)");
-  await expect(page.locator(".weavie-pr-summary")).toHaveCount(0);
   await expect(thread.locator(".weavie-pr-composer-input")).toBeFocused();
+  await expect(page.locator(".weavie-pr-card-draft")).toHaveCount(0);
 });

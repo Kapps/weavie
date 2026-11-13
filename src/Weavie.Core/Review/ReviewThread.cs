@@ -8,6 +8,7 @@ namespace Weavie.Core.Review;
 /// <param name="Line">The 1-based line on <paramref name="Side"/>; 0 when <paramref name="Outdated"/>.</param>
 /// <param name="Side"><c>"right"</c> (head) or <c>"left"</c> (merge-base).</param>
 /// <param name="Outdated">True when the anchor no longer exists in the PR's current diff.</param>
+/// <param name="Resolved">True when the thread was marked resolved on the forge.</param>
 /// <param name="Comments">The opening comment, then its replies in creation order.</param>
 public sealed record ReviewThread(
 	string Id,
@@ -15,11 +16,12 @@ public sealed record ReviewThread(
 	int Line,
 	string Side,
 	bool Outdated,
+	bool Resolved,
 	IReadOnlyList<ReviewComment> Comments) {
 	/// <inheritdoc/>
 	public bool Equals(ReviewThread? other) =>
 		other is not null && Id == other.Id && Path == other.Path && Line == other.Line && Side == other.Side
-			&& Outdated == other.Outdated && Comments.SequenceEqual(other.Comments);
+			&& Outdated == other.Outdated && Resolved == other.Resolved && Comments.SequenceEqual(other.Comments);
 
 	/// <inheritdoc/>
 	public override int GetHashCode() => HashCode.Combine(Id, Path, Line, Comments.Count);

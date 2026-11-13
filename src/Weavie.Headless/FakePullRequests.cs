@@ -133,6 +133,7 @@ internal static class FakePullRequests {
 					outdated ? 0 : Int(th, "line"),
 					Str(th, "side") is { Length: > 0 } side ? side : "right",
 					outdated,
+					th.TryGetProperty("resolved", out var r) && r.ValueKind == JsonValueKind.True,
 					[.. th.GetProperty("comments").EnumerateArray().Select(cm => new ReviewComment {
 						Id = Str(cm, "id"),
 						Author = Str(cm, "author"),

@@ -220,4 +220,43 @@
     --control-h: calc(var(--font-content-row-line) + 10px);
     font: var(--font-content);
   }
+
+  /* A count between previous/next arrows ("‹ 1 / 4 ›"): the count carries the baseline, the arrows centre on it. */
+  .ui-stepper {
+    display: flex;
+    flex: none;
+    align-items: baseline;
+    gap: 2px;
+    color: var(--dim);
+    font: var(--font-chrome-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Overhangs the count's line by 1px each way, so the arrows centre on the count. */
+  .ui-stepper button {
+    display: inline-flex;
+    align-self: center;
+    margin-block: -1px;
+    padding: 2px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .ui-stepper button:hover:not(:disabled) {
+    background: var(--list-active-bg);
+    color: var(--fg);
+  }
+
+  .ui-stepper button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .ui-stepper svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
 }

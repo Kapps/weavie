@@ -164,6 +164,12 @@ for (const mode of ["all", "current", "collapsed"]) {
     await submitAcpDraft(surface, "steer-visibility-message");
     await expect(surface).toContainText("Inspecting the build before your question.");
     await submitAcpDraft(surface, "What agent is doing the building?");
+    // The steer shows once the agent has accepted it; a reply released earlier can land before it.
+    await expect(
+      surface.locator(".agent-entry-message.agent-tone-user", {
+        hasText: "What agent is doing the building?",
+      }),
+    ).toBeVisible();
     await writeFile(join(workspace, "release-steer-reply"), "");
     const reply = surface.locator(".agent-entry-message.agent-tone-assistant", {
       hasText: "I’m running the build directly in this session.",

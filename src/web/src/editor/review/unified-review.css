@@ -34,12 +34,15 @@
   outline: none;
 }
 
-/* One row of single-line items and icon tools: every item is centred on the row, so pills and icons line up with text. */
+/* One row of single-line text and icon tools on one baseline: each tool's icon sits in a one-line `.ui-icon` box, so
+   it lines up with the text by construction. */
 .unified-review-header {
+  --icon-button-size: var(--control-height);
   z-index: 3;
+  font: var(--font-chrome-body);
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 4px 8px;
@@ -59,7 +62,6 @@
 
 /* The heading gives way (truncating the PR title) so the actions on the right always stay on screen. */
 .unified-review-heading {
-  align-items: center;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -88,12 +90,12 @@
 /* The actions are one row of same-size icon tools, so they share a centre and one spacing; a rule sets off each group. */
 .unified-review-header-actions {
   flex: none;
-  align-items: center;
   gap: 2px;
 }
 
 .unified-review-header-rule {
   flex: none;
+  align-self: center;
   width: 1px;
   height: 16px;
   margin-inline: 6px;
@@ -102,6 +104,10 @@
 
 .unified-review-failing .ui-icon {
   margin-right: 3px;
+}
+
+.unified-review-file-action:hover {
+  border-color: var(--accent);
 }
 
 .unified-review-file-action.keep {
@@ -545,7 +551,7 @@
 .unified-review-identity {
   display: inline-flex;
   flex: 0 1 auto;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
   overflow: hidden;
@@ -553,6 +559,20 @@
 
 .unified-review-identity > :not(.unified-review-identity-title) {
   flex: none;
+}
+
+/* The state pill is a box one line tall, like `.ui-icon`: its baseline comes from the row's font, so it sits on the
+   text's line, and its own smaller text is centred inside rather than setting the baseline (which sat it low). */
+.unified-review-identity > .session-overview-pill {
+  display: inline-flex;
+  align-items: center;
+  height: var(--font-chrome-line);
+  padding-block: 0;
+}
+
+.unified-review-identity > .session-overview-pill::before {
+  content: "\200b";
+  font: var(--font-chrome-body);
 }
 
 .unified-review-identity-title {

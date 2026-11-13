@@ -1,21 +1,14 @@
-/* One square icon control, the size every review tool shares: header actions, the stepper's arrows, the filter. */
+/* Review tools are `.ui-icon-button`s, sized by `--icon-button-size` per row; this adds their colours and states. */
 .review-tool {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: var(--review-tool-size, 24px);
-  height: var(--review-tool-size, 24px);
-  padding: 0;
-  border: 0;
   border-radius: 5px;
-  background: none;
   color: var(--dim);
-  cursor: pointer;
+  /* Buttons take the platform's font by default; the icon box's baseline must come from the row's text role. */
+  font: var(--font-chrome-body);
 }
 
-.review-tool svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
+/* The icon's one-line box gives the tool a baseline; the primitive's top alignment would lift it off centre. */
+.review-tool > .ui-icon {
+  align-self: center;
 }
 
 .review-tool:hover:not(:disabled) {
@@ -44,12 +37,13 @@
   color: var(--diff-removed);
 }
 
-/* `‹ 3 of 8 ›`: the count and its arrows sit in one box the tools' height, so they share a centre wherever it is. */
+/* `‹ 3 of 8 ›`: the count sits on the arrows' baseline, the one their icon boxes give, so it reads on the line of the
+   text beside it wherever the control is. */
 .review-item-position {
   display: inline-flex;
   flex: none;
-  align-items: center;
-  height: var(--review-tool-size, 24px);
+  align-items: baseline;
+  height: var(--icon-button-size);
   color: var(--dim);
   font: var(--font-chrome-secondary);
   font-variant-numeric: tabular-nums;

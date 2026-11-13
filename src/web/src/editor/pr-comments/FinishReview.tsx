@@ -89,42 +89,29 @@ export function FinishReview(props: { session: ClientSession; iconOnly: boolean 
         const count = () => pendingDrafts(active()).length;
         return (
           <div class="finish-review" ref={root}>
-            <Show
-              when={props.iconOnly}
-              fallback={
-                <button
-                  type="button"
-                  class="finish-review-button ui-button"
-                  classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
-                  aria-expanded={open()}
-                  title={`Finish your review of PR #${active().number}${keyHint(CommandIds.prFinishReview)}`}
-                  onClick={() => setOpen(!open())}
-                >
-                  {count() > 0 ? "Finish review" : "Review"}
-                  <Show when={count() > 0}>
-                    <span class="finish-review-count">{count()}</span>
-                  </Show>
-                  <span class="ui-icon">
-                    <ChevronDown />
-                  </span>
-                </button>
-              }
+            <button
+              type="button"
+              class={`finish-review-button ${props.iconOnly ? "ui-icon-button review-tool finish-review-tool" : "ui-button"}`}
+              classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
+              aria-expanded={open()}
+              aria-label={props.iconOnly ? "Finish Review…" : undefined}
+              title={`Finish Review…${keyHint(CommandIds.prFinishReview)}`}
+              onClick={() => setOpen(!open())}
             >
-              <button
-                type="button"
-                class="finish-review-button review-tool"
-                classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
-                aria-expanded={open()}
-                aria-label="Finish Review…"
-                title={`Finish Review…${keyHint(CommandIds.prFinishReview)}`}
-                onClick={() => setOpen(!open())}
-              >
-                <ClipboardCheck />
-                <Show when={count() > 0}>
-                  <span class="finish-review-count finish-review-dot">{count()}</span>
-                </Show>
-              </button>
-            </Show>
+              <Show when={props.iconOnly} fallback={count() > 0 ? "Finish review" : "Review"}>
+                <span class="ui-icon">
+                  <ClipboardCheck />
+                </span>
+              </Show>
+              <Show when={count() > 0}>
+                <span class="finish-review-count">{count()}</span>
+              </Show>
+              <Show when={!props.iconOnly}>
+                <span class="ui-icon">
+                  <ChevronDown />
+                </span>
+              </Show>
+            </button>
             <Show when={open()}>
               <ReviewPanel
                 session={props.session}

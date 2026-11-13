@@ -5,8 +5,6 @@ import { ContextMenu, type ContextMenuState } from "../../chrome/ContextMenu";
 import { keyHint } from "../../commands/key-hint";
 import { captureCommandRunnerFor } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
-import { prCommentsFor } from "../pr-comments/pr-comments-store";
-import { reviewHintsFor } from "../review-hints/review-hints-store";
 import { reviewItems } from "./review-items";
 import { reviewOptions } from "./review-options";
 import type { ItemKey } from "./review-sequence";
@@ -23,14 +21,14 @@ export function ItemPosition(props: { session: ClientSession; item: ItemKey | nu
   const step = (id: string, label: string, icon: JSX.Element) => (
     <button
       type="button"
-      class="review-tool"
+      class="ui-icon-button review-tool"
       title={`${label}${keyHint(id)}`}
       aria-label={label}
       disabled={position().total === 0}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => void run(id, { from: item() })}
     >
-      {icon}
+      <span class="ui-icon">{icon}</span>
     </button>
   );
   return (
@@ -46,12 +44,11 @@ export function ItemPosition(props: { session: ClientSession; item: ItemKey | nu
   );
 }
 
-/** The unified review header's stepper: position, the step commands, and the filter menu, as header tools. */
+/** The unified review header's stepper: position, the step commands, and the filter menu, as header tools; the header
+ * shows it while the session has a thread or hint. */
 export function ReviewItemStepper(props: { session: ClientSession }): JSX.Element {
   const run = captureCommandRunnerFor(props.session, new Map());
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const shown = () =>
-    prCommentsFor(props.session)?.set != null || (reviewHintsFor(props.session)?.length ?? 0) > 0;
   const openFilter = (anchor: HTMLElement): void => {
     const rect = anchor.getBoundingClientRect();
     const counts = reviewItems.counts(props.session);
@@ -84,21 +81,23 @@ export function ReviewItemStepper(props: { session: ClientSession }): JSX.Elemen
     });
   };
   return (
-    <Show when={shown()}>
+    <>
       <ItemPosition session={props.session} item={null} />
       <button
         type="button"
-        class="review-tool"
+        class="ui-icon-button review-tool"
         title="Filter Comments and Hints"
         aria-label="Filter Comments and Hints"
         aria-haspopup="menu"
         onClick={(event) => openFilter(event.currentTarget)}
       >
-        <ListFilter />
+        <span class="ui-icon">
+          <ListFilter />
+        </span>
       </button>
       <Show when={menu()}>
         {(state) => <ContextMenu menu={state()} onClose={() => setMenu(null)} />}
       </Show>
-    </Show>
+    </>
   );
 }

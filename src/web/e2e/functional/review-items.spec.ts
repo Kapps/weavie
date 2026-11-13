@@ -12,7 +12,7 @@ import {
 import type { FakeStep } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
-import { prCard } from "../harness/pull-request";
+import { openCommentedFile, prCard } from "../harness/pull-request";
 import { openPullRequest, hintPopover as popover } from "../harness/review";
 
 // Next/Previous Comment or Hint: one sequence of a session's PR threads and review hints, in the review's file order,
@@ -293,4 +293,81 @@ test.describe("dismissing as you go", () => {
     await expect(title).toHaveText("Hint sixteen");
     await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
   });
+});
+
+test("the header's text shares one baseline, Review's count sits beside its icon, and file actions answer hover", async ({
+  page,
+}) => {
+  test.slow();
+  // A pending review, so Review carries a count.
+  await openCommentedFile(page);
+  await page.locator(".monaco-editor .view-lines").first().click();
+  await page.keyboard.press("ControlOrMeta+Home");
+  for (let i = 1; i < 6; i++) await page.keyboard.press("ArrowDown");
+  await runCommand(page, "Comment on Line (Pull Request)");
+  const draft = page.locator(".weavie-pr-card-draft");
+  await draft.locator(".weavie-pr-composer-input").fill("Queued for the review.");
+  await draft.getByRole("button", { name: "Start review", exact: true }).click();
+  await expect(prCard(page, "Queued for the review.")).toBeVisible({ timeout: 10_000 });
+
+  const header = page.locator(".unified-review-header");
+  // A text item's baseline: the bottom of an empty inline-block placed in it.
+  const baselines = (selectors: string[]) =>
+    header.evaluate(
+      (root, sels) =>
+        sels.map((sel) => {
+          const probe = document.createElement("span");
+          probe.style.cssText = "display:inline-block;width:0;height:0";
+          root.querySelector(sel)!.prepend(probe);
+          const y = probe.getBoundingClientRect().bottom;
+          probe.remove();
+          return y;
+        }),
+      selectors,
+    );
+  const onOneBaseline = (values: number[]) =>
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(0.5);
+
+  await runCommand(page, "Show Session Overview");
+  await expect(header.locator(".unified-review-kicker")).toBeVisible();
+  onOneBaseline(
+    await baselines([
+      ".unified-review-kicker",
+      "strong",
+      ".unified-review-added",
+      ".review-item-count",
+    ]),
+  );
+
+  await runCommand(page, "Next Comment or Hint");
+  await expect(header.locator(".unified-review-identity-title")).toBeVisible();
+  onOneBaseline(
+    await baselines([
+      ".unified-review-identity-title",
+      ".unified-review-status",
+      ".unified-review-failing",
+      ".review-item-count",
+    ]),
+  );
+
+  // The state pill is a box, centred on the title's line.
+  const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
+  const pill = (await header.locator(".session-overview-pill").boundingBox())!;
+  const title = (await header.locator(".unified-review-identity-title").boundingBox())!;
+  expect(Math.abs(centre(pill) - centre(title))).toBeLessThanOrEqual(0.5);
+
+  const review = header.locator(".finish-review-button");
+  await expect(review.locator(".finish-review-count")).toHaveText("1");
+  const icon = (await review.locator("svg").boundingBox())!;
+  const count = (await review.locator(".finish-review-count").boundingBox())!;
+  const bar = (await header.boundingBox())!;
+  expect(count.x).toBeGreaterThanOrEqual(icon.x + icon.width);
+  expect(count.y).toBeGreaterThan(bar.y + 2);
+
+  const keepFile = page.locator(".unified-review-file-action.keep").first();
+  const rest = await keepFile.evaluate((element) => getComputedStyle(element).borderTopColor);
+  await keepFile.hover();
+  await expect
+    .poll(() => keepFile.evaluate((element) => getComputedStyle(element).borderTopColor))
+    .not.toBe(rest);
 });

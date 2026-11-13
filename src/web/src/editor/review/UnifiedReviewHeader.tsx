@@ -36,13 +36,13 @@ export function UnifiedReviewHeader(props: {
   }) => (
     <button
       type="button"
-      class={`review-tool ${spec.tone}`}
+      class={`ui-icon-button review-tool ${spec.tone}`}
       disabled={spec.disabled()}
       title={`${spec.label}${keyHint(spec.command)}`}
       aria-label={spec.label}
       onClick={() => void runCommandWithFeedback(spec.command)}
     >
-      {spec.icon}
+      <span class="ui-icon">{spec.icon}</span>
     </button>
   );
   return (
@@ -54,12 +54,14 @@ export function UnifiedReviewHeader(props: {
         >
           <button
             type="button"
-            class="review-tool"
+            class="ui-icon-button review-tool"
             title={`Show Session Overview${keyHint(CommandIds.reviewOverview)}`}
             aria-label="Overview"
             onClick={() => props.onOverview()}
           >
-            <ArrowUp />
+            <span class="ui-icon">
+              <ArrowUp />
+            </span>
           </button>
           <Show when={detail()}>
             {(pull) => (

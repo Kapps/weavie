@@ -32,7 +32,6 @@
 
 /* Thread actions: Fix, Fix with… and collapse, shown while the card is hovered or holds focus. */
 .weavie-pr-thread-actions {
-  --review-tool-size: 20px;
   position: absolute;
   top: 8px;
   right: 8px;

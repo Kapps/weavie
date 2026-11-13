@@ -139,9 +139,8 @@
   font-weight: var(--font-weight-emphasis);
 }
 
-/* The position control's tools match these buttons' 20px height, so the row shares one centre. */
+/* The position control's tools are the primitive's 20px, these buttons' height, so the row shares one centre. */
 .weavie-hint-actions {
-  --review-tool-size: 20px;
   display: flex;
   align-items: center;
   gap: 2px;

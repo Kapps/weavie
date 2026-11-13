@@ -46,22 +46,24 @@ public sealed partial class HostSession {
 		}
 	}
 
-	internal void OpenEditorOverlay(string path, string kind) => PublishEditorEdit(
+	internal void OpenEditorOverlay(string path, string kind, EditorOpenIntent intent) => PublishEditorEdit(
 		current => WithOpen(current, path, preview: false, scratch: false, kind),
 		"openOverlay",
 		WireJson.Default.EditorOverlayOpened,
-		revision => new(path, kind, revision));
+		revision => new(path, kind, IntentText(intent), revision));
 
 	private void PublishEditorFileOpen(string path, int? line, bool preview, bool rendered, bool scratch, EditorOpenIntent intent) =>
 		PublishEditorEdit(
 			current => WithOpen(current, path, preview, scratch, kind: null),
 			"openFile",
 			WireJson.Default.EditorFileOpened,
-			revision => new(path, line, preview, rendered, scratch, intent switch {
-				EditorOpenIntent.Navigation => "navigation",
-				EditorOpenIntent.Background => "background",
-				_ => throw new ArgumentOutOfRangeException(nameof(intent)),
-			}, revision));
+			revision => new(path, line, preview, rendered, scratch, IntentText(intent), revision));
+
+	private static string IntentText(EditorOpenIntent intent) => intent switch {
+		EditorOpenIntent.Navigation => "navigation",
+		EditorOpenIntent.Background => "background",
+		_ => throw new ArgumentOutOfRangeException(nameof(intent)),
+	};
 
 	private void PublishEditorClose(string path) => PublishEditorEdit(
 		current => WithClosed(current, path),
@@ -139,7 +141,7 @@ public sealed partial class HostSession {
 				: StringComparison.Ordinal);
 }
 
-internal sealed record EditorOverlayOpened(string Path, string Kind, long Revision);
+internal sealed record EditorOverlayOpened(string Path, string Kind, string Intent, long Revision);
 
 internal sealed record EditorFileOpened(string Path, int? Line, bool Preview, bool Rendered, bool Scratch, string Intent, long Revision);
 

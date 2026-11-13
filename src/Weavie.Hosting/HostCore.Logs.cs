@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Diagnostics;
+using Weavie.Core.Editor;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -24,7 +25,7 @@ public sealed partial class HostCore {
 		// Content before the tab, so it arrives titled and populated with no `loading` state to resolve. Claude's
 		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
 		var (lines, dropped) = FillLogsDocument(session);
-		session.OpenEditorOverlay(LogsTarget, "source");
+		session.OpenEditorOverlay(LogsTarget, "source", EditorOpenIntent.Navigation);
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
 		int shown = Math.Min(lines.Count, LogTailForClaude);

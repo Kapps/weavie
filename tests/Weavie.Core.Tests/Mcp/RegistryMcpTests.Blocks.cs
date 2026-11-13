@@ -55,14 +55,38 @@ public sealed partial class RegistryMcpTests {
 		Assert.Contains("Added to dashboard 'saved' (\"Saved title\").", ToolText(saved), StringComparison.Ordinal);
 	}
 
+	[Fact]
+	public async Task OpenDashboard_OpensTheCallersOwnDashboard() {
+		using var store = NewStore();
+		var presenter = FakeDiffPresenter.AlwaysKeep();
+		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], store);
+		server.Start();
+		await using var pane = server.CreateGrant(() => null);
+		pane.Blocks.Bind(_ => null, id => id == "rollout"
+			? new AgentPaneMessage { Type = "item-completed", ProviderId = "p", ConversationId = "side", Summary = "Rollout" }
+			: null);
+
+		using var opened = await CallToolAsync(server, pane.Credential.Token, "openDashboard", """{"id":"rollout"}""");
+		Assert.Equal("Dashboard 'rollout' (\"Rollout\") is open in an editor tab.", ToolText(opened));
+		Assert.Equal(("dashboard:rollout@side", "dashboard", false), Assert.Single(presenter.OpenedTabs));
+		using var focused = await CallToolAsync(server, pane.Credential.Token, "openDashboard", """{"id":"rollout","focus":"true"}""");
+		Assert.True(presenter.OpenedTabs[^1].Focus);
+		using var missing = await CallToolAsync(server, pane.Credential.Token, "openDashboard", """{"id":"other"}""");
+		Assert.Contains("does not exist in this conversation", ToolText(missing), StringComparison.Ordinal);
+		Assert.Equal(2, presenter.OpenedTabs.Count);
+	}
+
 	private static async Task<string> ListAsync(McpServer server, string token) {
 		using var response = await PostHttpAsync(server.Port, Request(1, "tools/list", "{}"), token);
 		using var document = await TestMcp.ReadResponseAsync(response);
 		return document.RootElement.GetRawText();
 	}
 
-	private static async Task<JsonDocument> CallBlockAsync(McpServer server, string token, string arguments) {
-		using var response = await PostHttpAsync(server.Port, Request(2, "tools/call", $$"""{"name":"showBlock","arguments":{{arguments}}}"""), token);
+	private static Task<JsonDocument> CallBlockAsync(McpServer server, string token, string arguments) =>
+		CallToolAsync(server, token, "showBlock", arguments);
+
+	private static async Task<JsonDocument> CallToolAsync(McpServer server, string token, string name, string arguments) {
+		using var response = await PostHttpAsync(server.Port, Request(2, "tools/call", $$"""{"name":"{{name}}","arguments":{{arguments}}}"""), token);
 		return await TestMcp.ReadResponseAsync(response);
 	}
 }

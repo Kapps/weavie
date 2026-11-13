@@ -161,7 +161,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			_editorMessages,
 			FileProvider,
 			FileOpener,
-			PublishEditorClose);
+			PublishEditorClose,
+			OpenEditorOverlay);
 		// Tracks the editor's active file + selection (fed by the page) so the provider integration can tell
 		// this session's agent what the user is looking at.
 		Editor = new EditorStore();

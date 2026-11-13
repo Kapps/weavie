@@ -11,6 +11,7 @@ namespace Weavie.Core.Mcp;
 public sealed partial class McpServer {
 	private const string ShowBlockTool = "showBlock";
 	private const string UpdateBlockTool = AgentBlockRules.UpdateTool;
+	private const string OpenDashboardTool = "openDashboard";
 
 	private static readonly string BlockToolEntries = BlockSchemas();
 
@@ -92,7 +93,28 @@ public sealed partial class McpServer {
 					["keep"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1, ["description"] = "How many of the newest points per series, or rows, to keep." },
 				}, "keep"),
 			}, "id"));
-		return show.ToJsonString() + "," + update.ToJsonString();
+		var open = Tool(OpenDashboardTool,
+			"Open a dashboard you made with showBlock in an editor tab, where its blocks show at full width. Without 'focus' it opens beside what the user is doing; pass focus when they asked to see it.",
+			Object(new JsonObject {
+				["id"] = Described(Text(), "The dashboard's id."),
+				["focus"] = new JsonObject { ["type"] = "boolean" },
+			}, "id"));
+		return show.ToJsonString() + "," + update.ToJsonString() + "," + open.ToJsonString();
+	}
+
+	private async Task HandleOpenDashboardAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, CancellationToken ct) {
+		string? id = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.String
+			? value.GetString()
+			: null;
+		if (string.IsNullOrEmpty(id)) {
+			await SendToolErrorAsync(responder, idRaw, $"{OpenDashboardTool} requires 'id'.", ct).ConfigureAwait(false);
+		} else if (call.Blocks.Dashboard(id) is not { } dashboard) {
+			await SendToolErrorAsync(responder, idRaw,
+				$"Dashboard '{id}' does not exist in this conversation. Create it by passing 'dashboard' to showBlock.", ct).ConfigureAwait(false);
+		} else {
+			await _presenter.OpenTabAsync(AgentDashboards.TabPath(dashboard.ConversationId, id), AgentDashboards.ItemType, ReadLenientBool(args, "focus"), ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, $"Dashboard '{id}' (\"{dashboard.Summary}\") is open in an editor tab.", ct).ConfigureAwait(false);
+		}
 	}
 
 	// Read before staging, so a parallel call that will create the dashboard still reads as creating it.

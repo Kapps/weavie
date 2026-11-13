@@ -40,4 +40,8 @@ public sealed class PermissionModeDiffPresenter : IDiffPresenter {
 	/// <inheritdoc/>
 	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) =>
 		_inner.CloseTabAsync(filePath, cancellationToken);
+
+	/// <inheritdoc/>
+	public Task OpenTabAsync(string path, string kind, bool focus, CancellationToken cancellationToken) =>
+		_inner.OpenTabAsync(path, kind, focus, cancellationToken);
 }

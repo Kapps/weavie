@@ -9,6 +9,9 @@ public sealed record WorkspaceHttpServerOptions(
 	string Token,
 	string WebRoot,
 	bool EnableControl) {
+	/// <summary>The web root of the headless worker installed in <paramref name="workerDirectory"/>.</summary>
+	public static string HeadlessWebRoot(string workerDirectory) => Path.Combine(workerDirectory, "wwwroot");
+
 	/// <summary>Creates a token-gated, loopback-only server on an OS-assigned port for a native workspace.</summary>
 	public static WorkspaceHttpServerOptions Native(string webRoot) => Loopback(0, webRoot);
 

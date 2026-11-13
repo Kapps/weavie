@@ -255,6 +255,17 @@
   }
 }
 
+/* WebKit drops its status bar blur over a fixed, opaque box on the top edge; the text clip leaves it unpainted. */
+.mobile-top-edge {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 2147483647;
+  height: 12px;
+  background-color: var(--bg);
+  background-clip: text;
+  pointer-events: none;
+}
+
 .mobile-surface-bar {
   position: relative;
   z-index: 25;
@@ -262,7 +273,6 @@
   grid-area: 2 / 1;
   min-width: 0;
   height: var(--mobile-nav-block-size);
-  padding: 4px 6px 10px;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bar) 94%, transparent);
   backdrop-filter: blur(12px);
@@ -276,9 +286,7 @@
 .mobile-surface-button {
   flex: 1 1 0;
   min-width: 0;
-  min-height: var(--touch-target);
   border: 0;
-  border-radius: 8px;
   background: transparent;
   color: var(--dim);
   font: var(--font-chrome-secondary);

@@ -12,11 +12,18 @@ namespace Weavie.Runner;
 /// default-deny middleware requires an explicit bearer token everywhere else.
 /// </summary>
 internal static class ControlApi {
-	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options, ITlsFront front, Func<UpdateStatus> updateStatus) {
+	public static void Map(
+		WebApplication app,
+		BackendManager backends,
+		RunnerOptions options,
+		ITlsFront front,
+		Func<UpdateStatus> updateStatus,
+		Func<string> workerPath) {
 		ArgumentNullException.ThrowIfNull(updateStatus);
+		ArgumentNullException.ThrowIfNull(workerPath);
 		var authentication = new RunnerAuthentication(options.RunnerToken);
 		app.Use(async (context, next) => {
-			if (IsBrowserEntry(context) || authentication.BearerMatches(context)) {
+			if (IsBrowserEntry(context) || IsIcon(context) || authentication.BearerMatches(context)) {
 				await next().ConfigureAwait(false);
 				return;
 			}
@@ -26,6 +33,20 @@ internal static class ControlApi {
 
 		app.MapMethods("/", [HttpMethods.Get, HttpMethods.Post], (HttpContext context) =>
 			ServeBrowserEntryAsync(context, authentication, backends, front, updateStatus));
+
+		// The connect page's icon is the worker's own, so a Home Screen install from the runner looks like the app.
+		app.MapGet(TokenConnectPage.IconPath, async context => {
+			string icon = Path.Combine(
+				WorkspaceHttpServerOptions.HeadlessWebRoot(Path.GetDirectoryName(workerPath())!),
+				TokenConnectPage.IconPath[1..]);
+			if (!File.Exists(icon)) {
+				context.Response.StatusCode = StatusCodes.Status404NotFound;
+				return;
+			}
+
+			context.Response.ContentType = "image/png";
+			await context.Response.SendFileAsync(icon, context.RequestAborted).ConfigureAwait(false);
+		});
 
 		// Ensure the workspace backend is running and return its connect URL + status (+ the updater's state,
 		// which the runner status page renders — runner staleness and a rollback stay visible to the user).
@@ -104,6 +125,9 @@ internal static class ControlApi {
 	internal static bool UpdateRequiresAttention(UpdateStatus update) =>
 		update.RunnerBehind
 		|| update.Phase is "error" or "failed" or "rolled-back";
+
+	private static bool IsIcon(HttpContext context) =>
+		context.Request.Path == TokenConnectPage.IconPath && HttpMethods.IsGet(context.Request.Method);
 
 	private static bool IsBrowserEntry(HttpContext context) =>
 		context.Request.Path == "/"

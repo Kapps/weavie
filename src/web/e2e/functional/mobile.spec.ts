@@ -965,9 +965,14 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
       navHeight: nav.height,
       paneBottom: pane.bottom,
       navBottom: nav.bottom,
-      navPaddingBottom: Number.parseFloat(
-        getComputedStyle(document.querySelector(".mobile-surface-bar")!).paddingBottom,
-      ),
+      activeSurface: bounds(".mobile-surface-button.active").toJSON(),
+      topEdge: bounds(".mobile-top-edge").toJSON(),
+      topEdgeStyle: (({ position, backgroundColor, backgroundClip }) => ({
+        position,
+        backgroundColor,
+        backgroundClip,
+      }))(getComputedStyle(document.querySelector(".mobile-top-edge")!)),
+      viewportWidth: window.innerWidth,
       navTop: nav.top,
       visualViewportHeight: window.visualViewport?.height,
       viewportHeight: window.innerHeight,
@@ -976,8 +981,17 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   expect(geometry.visualViewportHeight).toBeLessThan(geometry.viewportHeight);
   expect(geometry.appBottom).toBe(geometry.viewportHeight);
   expect(geometry.navBottom).toBe(geometry.viewportHeight);
-  expect(geometry.navPaddingBottom).toBe(10);
   expect(geometry.navHeight).toBe(60);
+  // The active surface's highlight runs to the screen's own edges.
+  expect(geometry.activeSurface).toMatchObject({ left: 0, bottom: geometry.navBottom, height: 59 });
+  // What WebKit needs to drop its status bar blur: a fixed, opaque box over 10px tall across the top edge.
+  expect(geometry.topEdge).toMatchObject({ top: 0, left: 0, width: geometry.viewportWidth });
+  expect(geometry.topEdge.height).toBeGreaterThan(10);
+  expect(geometry.topEdgeStyle).toEqual({
+    position: "fixed",
+    backgroundColor: expect.stringMatching(/^rgb\(/),
+    backgroundClip: "text",
+  });
   expect(geometry.paneBottom).toBe(geometry.navTop);
 
   await newSessionPrompt.fill("Keep this draft");

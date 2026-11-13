@@ -8,6 +8,6 @@ internal static class WorkspaceConnectPage {
 			"Enter the workspace token. This browser will remember it securely for future visits.",
 			"Workspace token",
 			"/index.html",
-			"/weavie.png",
+			"/manifest.webmanifest",
 			invalidToken);
 }

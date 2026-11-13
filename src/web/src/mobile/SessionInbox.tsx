@@ -6,18 +6,14 @@ import {
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
-import { sessionMenuAt } from "../chrome/session-menu";
 import type { RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
-import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
-import { holdToOpen } from "./long-press";
 import { MobileActionLabel } from "./MobileActionLabel";
 import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
 import { NewSessionControl } from "./NewSessionControl";
-import { SessionInboxRow } from "./SessionInboxRow";
+import { SessionInboxList } from "./SessionInboxList";
 
 export type { NewSessionSeed } from "./NewSessionComposer";
 export type { NewSessionSeedAttachment } from "./new-session-attachments";
@@ -45,34 +41,9 @@ export function SessionInbox(props: {
   const [branchListError, setBranchListError] = createSignal("");
   const [loadingBranches, setLoadingBranches] = createSignal(false);
   const [submitting, setSubmitting] = createSignal<"new" | "existing" | null>(null);
-  const [sessionMenu, setSessionMenu] = createSignal<ContextMenuState | null>(null);
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let providerChosen = false;
-
-  // Touch chrome has no rail, so the list is where a session is managed. The gesture lives on the list, not on
-  // a row: rows are rebuilt on every catalog tick, which would drop a hold in progress. Desktop opts out — the
-  // inbox is a modal there, which can host neither this menu nor the confirm a delete raises.
-  const openSessionMenu = (session: RailSession, x: number, y: number): void => {
-    setSessionMenu(sessionMenuAt(session, x, y, captureCommandRunner()));
-  };
-  const holdRow = holdToOpen((x, y, pressed) => {
-    const row = pressed instanceof Element ? pressed.closest("[data-session-id]") : null;
-    if (!props.compact || row === null) {
-      return false;
-    }
-    // Resolved by identity against the live list, so the menu describes the session as it is now.
-    const session = props.sessions.find(
-      (candidate) =>
-        candidate.id === row.getAttribute("data-session-id") &&
-        candidate.backendId === row.getAttribute("data-backend-id"),
-    );
-    if (session === undefined) {
-      return false;
-    }
-    openSessionMenu(session, x, y);
-    return true;
-  });
 
   const selectBackend = (id: string): void => {
     if (id === backendId()) {
@@ -341,27 +312,7 @@ export function SessionInbox(props: {
 
       {/* Desktop lists sessions in the rail's session panel; touch chrome has no rail, so it lists them here. */}
       <Show when={props.compact}>
-        <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
-          <Show
-            when={props.sessions.length > 0}
-            fallback={<p class="session-inbox-empty">No sessions yet.</p>}
-          >
-            <For each={props.sessions}>
-              {(session) => (
-                <SessionInboxRow
-                  session={session}
-                  compact={props.compact}
-                  onOpen={props.onOpen}
-                  onManage={openSessionMenu}
-                />
-              )}
-            </For>
-          </Show>
-        </section>
-      </Show>
-
-      <Show when={sessionMenu()}>
-        {(menu) => <ContextMenu menu={menu()} onClose={() => setSessionMenu(null)} />}
+        <SessionInboxList sessions={props.sessions} onOpen={props.onOpen} />
       </Show>
     </main>
   );

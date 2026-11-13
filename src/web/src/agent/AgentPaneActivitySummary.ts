@@ -3,11 +3,12 @@ import { deferredToolOutput } from "./AgentPaneHistoryAccumulator";
 import { MaximumIndex } from "./AgentPaneMaximumIndex";
 import { hasItemId, normalizeStatus, normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep } from "./AgentPaneTranscriptTypes";
+import { share } from "./AgentTranscriptSnapshot";
 
 export interface AgentActivitySummary {
   status: string | null;
   summary: string | null;
-  tone: "activity" | "error";
+  tone: "activity";
 }
 
 export class ProjectedAgentActivity {
@@ -15,10 +16,13 @@ export class ProjectedAgentActivity {
   private readonly indexes = new Map<string, number>();
   private readonly categoryCounts = new Map<string, number>();
   private readonly active = new MaximumIndex();
-  private readonly failed = new MaximumIndex();
 
   get count(): number {
     return this.sources.length;
+  }
+
+  hasSameContent(other: ProjectedAgentActivity): boolean {
+    return share(this.sources, other.sources) === this.sources;
   }
 
   canUpsert(message: AgentPaneUpdate): boolean {
@@ -60,7 +64,12 @@ export class ProjectedAgentActivity {
   }
 
   materialize(): AgentActivityStep[] {
-    return this.sources.map((_, index) => this.materializeAt(index));
+    return this.sources.map(materializeActivity);
+  }
+
+  capture(): () => AgentActivityStep[] {
+    const sources = [...this.sources];
+    return () => sources.map(materializeActivity);
   }
 
   /** The step with transcript item id `id`, materialized whether or not its activity is expanded. */
@@ -74,24 +83,10 @@ export class ProjectedAgentActivity {
     if (message === undefined) {
       throw new Error(`Activity step ${index} does not exist.`);
     }
-    const category = activityCategory(message);
-    if (category === null) {
-      throw new Error(`Update ${message.type} is not agent activity.`);
-    }
-    return activityStep(message, category);
+    return materializeActivity(message);
   }
 
   summary(): AgentActivitySummary {
-    const failed = this.sourceAt(this.failed.maximum());
-    if (failed !== null) {
-      const category = requiredActivityCategory(failed);
-      return {
-        status: "failed",
-        summary: `${category} failed: ${activitySubject(failed, category)}`,
-        tone: "error",
-      };
-    }
-
     const active = this.sourceAt(this.active.maximum());
     if (active !== null) {
       const category = requiredActivityCategory(active);
@@ -113,16 +108,12 @@ export class ProjectedAgentActivity {
 
   private addStatus(message: AgentPaneUpdate, index: number): void {
     const tone = activityTone(message);
-    if (tone === "failed") {
-      this.failed.add(index);
-    }
     if (tone === "running" || tone === "pending") {
       this.active.add(index);
     }
   }
 
   private removeStatus(index: number): void {
-    this.failed.delete(index);
     this.active.delete(index);
   }
 
@@ -151,6 +142,10 @@ export class ProjectedAgentActivity {
 
 export function isAgentActivity(message: AgentPaneUpdate): boolean {
   return activityCategory(message) !== null;
+}
+
+function materializeActivity(message: AgentPaneUpdate): AgentActivityStep {
+  return activityStep(message, requiredActivityCategory(message));
 }
 
 function activityStep(message: AgentPaneUpdate, category: string): AgentActivityStep {
@@ -182,10 +177,11 @@ function activityCategory(message: AgentPaneUpdate): string | null {
     case "file-patch-updated":
       return "edit";
     case "item-completed":
-      // A block row is a durable entry of its own, never a step folded into the Working group.
+      // Block and dashboard rows are durable entries of their own, never steps folded into the Working group.
       return message.itemType === "agentMessage" ||
         message.itemType === "plan" ||
-        message.itemType === "block"
+        message.itemType === "block" ||
+        message.itemType === "dashboard"
         ? null
         : activityPrefix(message);
     case "item-started":
@@ -246,9 +242,6 @@ function activityTone(message: AgentPaneUpdate): AgentActivityStep["tone"] {
       : "muted";
   }
   const status = normalizeStatus(message.status);
-  if (status === "failed" || status === "error") {
-    return "failed";
-  }
   if (status === "pending") {
     return "pending";
   }

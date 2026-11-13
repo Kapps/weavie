@@ -1,4 +1,4 @@
-import { RotateCcw } from "lucide-solid";
+import { ChevronRight, RotateCcw } from "lucide-solid";
 import { type JSX, Match, Show, Switch } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
@@ -8,7 +8,9 @@ import { displayPath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
+import { AgentBlockAddedEntry } from "./AgentBlockAddedEntry";
 import { AgentBlockEntry } from "./AgentBlockEntry";
+import { AgentDashboardEntry } from "./AgentDashboardEntry";
 import { Disclosure } from "./AgentDisclosure";
 import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
@@ -32,15 +34,54 @@ export function TranscriptEntry(props: {
   keyboardRequestKey: string | null;
   latestPromptTurn: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onUpdatesToggle: (entryId: string, open: boolean) => void;
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
   if (props.entry.kind === "thought") {
     return <AgentThoughtEntry {...props} />;
   }
+  if (props.entry.kind === "updates") {
+    return (
+      <article class="agent-entry agent-entry-updates">
+        <button
+          type="button"
+          class="ui-row ui-row-compact agent-updates-toggle"
+          aria-expanded={props.entry.updatesOpen}
+          onClick={() => props.onUpdatesToggle(props.entry.id, !props.entry.updatesOpen)}
+        >
+          <span class="ui-icon">
+            <ChevronRight aria-hidden="true" />
+          </span>
+          Earlier updates · {props.entry.detailCount}
+        </button>
+      </article>
+    );
+  }
+  if (props.entry.kind === "activity") {
+    return (
+      <article class={`agent-entry agent-entry-activity agent-tone-${props.entry.tone}`}>
+        <ActivityDetails
+          entry={props.entry}
+          expanded={props.expandedDetails.has(props.entry.id)}
+          onToggle={(open) => props.onDetailsToggle(props.entry.id, open)}
+          session={props.session}
+          steps={props.entry.details}
+        />
+      </article>
+    );
+  }
   const block = props.entry.block;
   if (block !== undefined) {
-    return <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} />;
+    return (
+      <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} height={null} />
+    );
+  }
+  if (props.entry.kind === "dashboard") {
+    return <AgentDashboardEntry entry={props.entry} session={props.session} />;
+  }
+  if (props.entry.kind === "block-added") {
+    return <AgentBlockAddedEntry entry={props.entry} />;
   }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
@@ -51,6 +92,7 @@ export function TranscriptEntry(props: {
         entry={props.entry}
         expandedDetails={props.expandedDetails}
         onDetailsToggle={props.onDetailsToggle}
+        onUpdatesToggle={props.onUpdatesToggle}
         keyboardRequestKey={props.keyboardRequestKey}
         session={props.session}
       />
@@ -62,6 +104,7 @@ export function TranscriptEntry(props: {
         entry={props.entry}
         expandedDetails={props.expandedDetails}
         onDetailsToggle={props.onDetailsToggle}
+        onUpdatesToggle={props.onUpdatesToggle}
         keyboardRequestKey={props.keyboardRequestKey}
         session={props.session}
       />
@@ -96,10 +139,7 @@ export function TranscriptEntry(props: {
       </Show>
       <div class="agent-entry-main">
         <Show when={props.entry.summary !== null && !isStructuredInput(props.entry.actionMessage)}>
-          <div
-            class="agent-entry-summary"
-            title={props.entry.kind === "activity" ? (props.entry.summary ?? undefined) : undefined}
-          >
+          <div class="agent-entry-summary">
             <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
           </div>
         </Show>
@@ -148,15 +188,6 @@ export function TranscriptEntry(props: {
         </Show>
         <AgentMedia message={props.entry.actionMessage} session={props.session} />
         <AgentRichContent message={props.entry.actionMessage} session={props.session} />
-        <Show when={props.entry.detailCount > 0}>
-          <ActivityDetails
-            entry={props.entry}
-            expanded={props.expandedDetails.has(props.entry.id)}
-            onToggle={(open) => props.onDetailsToggle(props.entry.id, open)}
-            session={props.session}
-            steps={props.entry.details}
-          />
-        </Show>
         <EntryActions
           detailsExpanded={props.expandedDetails.has(props.entry.id)}
           entry={props.entry}

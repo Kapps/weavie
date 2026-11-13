@@ -12,7 +12,7 @@ public sealed partial class HostSession {
 		Agent.WithCompletedPlan(providerId, conversationId, threadId, turnId, itemId, plan => {
 			string path = AgentPlanProtocol.Path(plan);
 			State.Set("editor", path, "agentPlan", WireJson.Default.AgentPlanShown, AgentPlanProtocol.Show(plan, path));
-			OpenEditorOverlay(path, "plan");
+			OpenEditorOverlay(path, "plan", EditorOpenIntent.Navigation);
 		})
 		|| Agent.WithPlanFile(providerId, conversationId, threadId, turnId, itemId, path => PublishEditorFileOpen(path, null, preview: false, rendered: false, scratch: false, EditorOpenIntent.Navigation));
 

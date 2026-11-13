@@ -395,14 +395,14 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
     const surface = page.locator(".agent-surface");
     await expect(surface).toHaveCount(1);
     await expect(surface).toContainText("ran 10000 commands");
-    await expect(page.getByText("history 10000", { exact: true })).toBeVisible();
+    await expect(page.getByText("ran 10000 commands", { exact: true })).toBeVisible();
     expect(await page.locator(".toast-msg").allTextContents()).toEqual([]);
     await expect
       .poll(() => host.agentHistoryRequests.map((address) => address.slot).sort())
       .toEqual([first.address.slot, second.address.slot].sort());
     await page.getByTitle(new RegExp(`^${second.label} —`)).click();
     await expect(surface).toContainText("ran 15000 commands");
-    await expect(page.getByText("history 15000", { exact: true })).toBeVisible();
+    await expect(page.getByText("ran 15000 commands", { exact: true })).toBeVisible();
     await page.getByTitle(new RegExp(`^${first.label} —`)).click();
     await expect(surface).toContainText("ran 10000 commands");
     await page.evaluate(
@@ -451,7 +451,7 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
     expect(host.agentHistoryRequests).toHaveLength(2);
     await expect(surface).toHaveCount(1);
     await expect(surface).toContainText("ran 15000 commands");
-    await expect(page.getByText("history 15000", { exact: true })).toBeVisible();
+    await expect(page.getByText("ran 15000 commands", { exact: true })).toBeVisible();
     await expect(page.locator(".agent-activity-list")).toHaveCount(0);
     expect(await outgoing.evaluate((element) => element.isConnected)).toBe(false);
 
@@ -507,7 +507,7 @@ test("remounting a structured pane preserves the session-owned edited draft", as
     const textarea = page.locator("[data-agent-composer] textarea");
     await expect(textarea).toHaveValue("provider prefill");
     await textarea.fill("user-edited draft");
-    await page.getByText("history 2", { exact: true }).click();
+    await page.locator(".agent-activity-details > summary").click();
     await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
     await page.getByTitle(new RegExp(`^${second.label} —`)).click();
     await expect(textarea).toHaveValue("");

@@ -26,11 +26,11 @@ public static class AgentSettings {
 	/// <summary>Whether thought text is shown inline or in a separate collapsed disclosure.</summary>
 	public const string ThoughtDisplay = "agent.thoughtDisplay";
 
-	/// <summary>Whether highlighting reply text attaches it to the next prompt.</summary>
-	public const string AttachOnSelect = "agent.attachOnSelect";
+	/// <summary>Whether earlier agent updates are folded behind a disclosure.</summary>
+	public const string ProgressDisplay = "agent.progressDisplay";
 
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset, ThoughtDisplay, AttachOnSelect];
+	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath, ReplyStartOffset, ThoughtDisplay, ProgressDisplay];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
 	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
@@ -56,7 +56,7 @@ public static class AgentSettings {
 			writer.WriteEndArray();
 			writer.WriteNumber("replyStartOffset", store.RequireNumber(ReplyStartOffset));
 			writer.WriteString("thoughtDisplay", store.RequireString(ThoughtDisplay));
-			writer.WriteBoolean("attachOnSelect", store.RequireBool(AttachOnSelect));
+			writer.WriteString("progressDisplay", store.RequireString(ProgressDisplay));
 		});
 	}
 }

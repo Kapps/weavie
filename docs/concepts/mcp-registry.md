@@ -74,4 +74,6 @@ hand-written MCP tools per capability:
 - Session messaging — [implemented](../specs/session-messaging.md). `listSessions`/`readSession`/`messageSession` let
   the embedded agent find, read, and message the other sessions on its host.
 - Agent blocks — [implemented](../specs/acp-rich-content/design.md). `showBlock`/`updateBlock` draw a chart or table
-  in the native agent pane; they are listed only to a conversation that can show them.
+  in the native agent pane; they are listed only to a conversation that can show them. `showBlock`'s `dashboard`
+  gathers blocks into one card, and `openDashboard` opens it in an editor tab
+  ([card tabs](../specs/card-tabs/design.md)).

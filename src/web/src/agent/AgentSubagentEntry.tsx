@@ -1,11 +1,13 @@
-import { createMemo, type JSX, onMount, Show } from "solid-js";
+import { createMemo, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
-import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
+import { DisclosureIcon } from "./AgentDisclosure";
+import { NestedTranscript } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { ownCardOnFocus } from "./agent-cards";
 import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
@@ -14,6 +16,7 @@ export function AgentSubagentEntry(props: {
   entry: AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onUpdatesToggle: (entryId: string, open: boolean) => void;
   keyboardRequestKey: string | null;
   session: ClientSession;
 }): JSX.Element {
@@ -25,15 +28,16 @@ export function AgentSubagentEntry(props: {
   const now = liveNow(running);
   const toggleTitle = () =>
     `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
-  let card: HTMLElement | undefined;
-  onMount(() => registerNestedToggle(card!, toggle));
+  const card = { kind: "subagent", conversationId: props.entry.conversationId! } as const;
+  const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
 
   return (
     <article
-      ref={card}
       class={`agent-entry agent-entry-subagent agent-tone-${props.entry.tone}`}
       data-agent-subagent={props.entry.conversationId}
       data-state={info().state}
+      onFocusIn={own}
+      onPointerDown={own}
     >
       <div class="agent-entry-head">
         <button
@@ -44,25 +48,14 @@ export function AgentSubagentEntry(props: {
           title={toggleTitle()}
           onClick={toggle}
         >
-          <span aria-hidden="true">{collapsed() ? "▸" : "▾"}</span>
+          <DisclosureIcon />
           <span class="agent-entry-label">Subagent</span>
         </button>
         <Show when={running()}>
           <span class="agent-working-spinner" aria-hidden="true" />
         </Show>
         <SubagentStatus info={info()} now={now()} />
-        <button
-          type="button"
-          class="agent-entry-rewind agent-entry-open"
-          title={`Open the subagent's transcript in a tab${liveKeyHint(CommandIds.openSubagent)}`}
-          onClick={() =>
-            void runCommandWithFeedback(CommandIds.openSubagent, {
-              conversationId: props.entry.conversationId,
-            })
-          }
-        >
-          Open
-        </button>
+        <AgentCardOpenButton card={card} />
       </div>
       <div class="agent-entry-main">
         <div class="agent-entry-summary" title={info().task ?? undefined}>
@@ -76,6 +69,7 @@ export function AgentSubagentEntry(props: {
             expandedDetails={props.expandedDetails}
             keyboardRequestKey={props.keyboardRequestKey}
             onDetailsToggle={props.onDetailsToggle}
+            onUpdatesToggle={props.onUpdatesToggle}
             session={props.session}
           />
         </Show>

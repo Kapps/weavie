@@ -46,7 +46,7 @@ import {
 } from "./preview/preview-panes";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
-import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
+import { type AgentCardKind, isFileTab, REVIEW_TAB_KEY, type TabKind, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
 import { setViewMode, showForReview } from "./view-mode-store";
 
@@ -173,8 +173,16 @@ export interface EditorController {
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
   openSourceTab(target: string): void;
-  /** Opens one of `session`'s subagents or background tasks as a read-only, live tab. */
-  openAgentTab(session: ClientSession, kind: "subagent" | "task", path: string): void;
+  /**
+   * Opens one of `session`'s agent cards or background tasks as a read-only, live tab; a background open never
+   * takes the editor from what the user is doing in it.
+   */
+  openAgentTab(
+    session: ClientSession,
+    kind: AgentCardKind | "task",
+    path: string,
+    intent: "navigation" | "background",
+  ): void;
   /** Focuses the editor (for focus-pane). */
   focusEditor(): void;
   /**
@@ -644,26 +652,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
   const openWebTab = (url: string): void => {
     const session = selectedSession();
-    if (session !== null) {
-      activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, url, { kind: "web" }));
-    }
+    if (session !== null) openOverlayTab(session, "web", url, "navigation");
   };
 
   // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
   // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
   const openSourceTab = (target: string): void => {
     const session = selectedSession();
-    if (session !== null) {
-      activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, target, { kind: "source" }));
-    }
+    if (session !== null) openOverlayTab(session, "source", target, "navigation");
   };
 
-  // A subagent or task tab renders its owner's live state over the editor host; it holds no content of its own.
-  const openAgentTab = (session: ClientSession, kind: "subagent" | "task", path: string): void => {
-    activateDestinationFor(session, "navigation");
-    presentTab(session, openTabFor(session, path, { kind }));
+  // An overlay tab renders its owner's live state over the editor host; it holds no content of its own.
+  const openOverlayTab = (
+    session: ClientSession,
+    kind: TabKind,
+    path: string,
+    intent: "navigation" | "background",
+  ): void => {
+    const options = backgroundOpen(session, intent);
+    const foreground = activateDestinationFor(session, intent);
+    const result = openTabFor(session, path, { kind, ...options });
+    if (foreground) presentTab(session, result);
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
@@ -1462,15 +1471,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
+      onHostEditorEdit<{ path: string; kind: TabKind; intent: "navigation" | "background" }>(
         session,
         "openOverlay",
-        ({ path, kind }) => {
-          const result = openTabFor(session, path, { kind });
-          if (activateDestinationFor(session, "navigation")) {
-            presentTab(session, result);
-          }
-        },
+        ({ path, kind, intent }) => openOverlayTab(session, kind, path, intent),
       ),
       editor.on<DiffProposal>("showDiff", (message) => showProposal(session, message)),
       editor.on<{ proposals: DiffProposal[] }>("diffSnapshot", ({ proposals }) =>
@@ -1614,7 +1618,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openFileFor(session, path, line, true, false, "reveal"),
     openWebTab,
     openSourceTab,
-    openAgentTab,
+    openAgentTab: openOverlayTab,
     focusEditor: focusEditorSurface,
     reviseSelection: ({ session, model }, selection) => {
       if (

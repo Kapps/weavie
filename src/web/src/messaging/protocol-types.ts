@@ -83,8 +83,8 @@ export interface AgentDefaults {
   /** Where a reply read from its start rests: a fraction of the agent pane's height below its top. */
   replyStartOffset: number;
   thoughtDisplay: "all" | "current" | "collapsed";
+  progressDisplay: "latest" | "all";
   /** Whether highlighting reply text attaches it to the next prompt. */
-  attachOnSelect: boolean;
   providers: AgentProviderInfo[];
 }
 

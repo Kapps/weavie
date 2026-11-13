@@ -1,7 +1,16 @@
-import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
+import {
+  type Accessor,
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+} from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
+import { dashboardEntryId } from "./AgentPaneBlocks";
 import {
   AgentPaneConversationRows,
   type ConversationRows,
@@ -13,6 +22,7 @@ import type {
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
 import type { ThoughtDisplay } from "./AgentThoughtPresentation";
+import type { ProgressDisplay } from "./AgentUpdatePresentation";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import type { PendingRequest, PendingRequestKind } from "./turn-progress";
@@ -42,6 +52,12 @@ export interface AgentPaneModel {
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
   conversation(id: string): AgentTranscriptEntry | undefined;
+  /** Dashboard `dashboardId`'s card in one conversation, tracked reactively. */
+  dashboard(conversationId: string | null, dashboardId: string): AgentTranscriptEntry | undefined;
+  /** Block `blockId`'s entry in one conversation, loose or in a dashboard, tracked reactively. */
+  block(conversationId: string | null, blockId: string): AgentTranscriptEntry | undefined;
+  /** The expanded cards, in transcript order; a side conversation's own dashboards follow it. */
+  readonly cards: Accessor<readonly AgentTranscriptEntry[]>;
   setActivityExpanded(id: string, expanded: boolean): void;
   /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
   activityStep(itemId: string): AgentActivityStep | undefined;
@@ -61,6 +77,7 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
 export function createAgentPaneModel(
   session: ClientSession,
   thoughtDisplay: Accessor<ThoughtDisplay>,
+  progressDisplay: Accessor<ProgressDisplay>,
 ): MutableAgentPaneModel {
   const [cardChanges, setCardChanges] = createSignal<readonly { id: string; delta: number }[]>([]);
   const [generation, setGeneration] = createSignal(0);
@@ -76,8 +93,11 @@ export function createAgentPaneModel(
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const expanded = new Set<string>();
-  const main = new AgentConversationProjection(expanded, thoughtDisplay);
+  const main = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
   const views = new Map<string, AgentConversationProjection>([["", main]]);
+  onCleanup(() => {
+    for (const view of views.values()) view.dispose();
+  });
   const byId = new Map<
     string,
     ReturnType<typeof createSignal<AgentConversationProjection | undefined>>
@@ -100,7 +120,7 @@ export function createAgentPaneModel(
   const viewFor = (scope: ConversationRows): AgentConversationProjection => {
     let view = views.get(scope.key);
     if (view === undefined) {
-      view = new AgentConversationProjection(expanded, thoughtDisplay);
+      view = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
       views.set(scope.key, view);
     }
     view.bind(scope.marker);
@@ -156,7 +176,7 @@ export function createAgentPaneModel(
   };
 
   const resizeAncestors = (scope: ConversationRows, delta: number): void => {
-    if (delta === 0 || scope.container === null) return;
+    if (scope.container === null) return;
     let child = scope;
     while (child.container !== null && child.container.key !== "") {
       const parent = viewFor(child.container);
@@ -195,7 +215,11 @@ export function createAgentPaneModel(
         pending.clear();
         active.clear();
         for (const cell of byId.values()) cell[1](undefined);
-        for (const key of views.keys()) if (!source.conversations.has(key)) views.delete(key);
+        for (const [key, view] of views) {
+          if (source.conversations.has(key)) continue;
+          view.dispose();
+          views.delete(key);
+        }
         const reconstruct = (scope: ConversationRows): void => {
           for (const child of scope.cards) reconstruct(child);
           project(scope, []);
@@ -238,7 +262,23 @@ export function createAgentPaneModel(
       }
     });
 
-  createEffect(on(createMemo(thoughtDisplay), () => apply(source, [], false), { defer: true }));
+  createEffect(
+    on(
+      createMemo(() => [thoughtDisplay(), progressDisplay()]),
+      () => apply(source, [], false),
+      { defer: true },
+    ),
+  );
+
+  const transcriptOf = (conversationId: string | null): AgentTranscriptSnapshot | undefined =>
+    conversationId === null ? main.transcript() : membership(conversationId)[0]()?.transcript();
+  const expandedCards = (snapshot: AgentTranscriptSnapshot): AgentTranscriptEntry[] =>
+    snapshot.cardIndexes.flatMap((index) => {
+      const card = snapshot.entries[index]!;
+      if (card.asideCollapsed) return [];
+      const nested = card.conversation?.transcript();
+      return [card, ...(nested === undefined ? [] : expandedCards(nested))];
+    });
 
   const model: MutableAgentPaneModel = {
     cardChanges,
@@ -263,6 +303,20 @@ export function createAgentPaneModel(
     conversation(id) {
       return membership(id)[0]()?.linked;
     },
+    dashboard(conversationId, dashboardId) {
+      const snapshot = transcriptOf(conversationId);
+      const index = snapshot?.entryIndexes.get(dashboardEntryId(conversationId, dashboardId));
+      return index === undefined ? undefined : snapshot!.entries[index];
+    },
+    block(conversationId, blockId) {
+      for (const entry of transcriptOf(conversationId)?.entries ?? []) {
+        for (const block of entry.kind === "dashboard" ? entry.asideEntries! : [entry]) {
+          if (block.block?.id === blockId) return block;
+        }
+      }
+      return undefined;
+    },
+    cards: () => expandedCards(main.transcript()),
     setHistoryComplete(complete) {
       batch(() => {
         setHistoryComplete(complete);

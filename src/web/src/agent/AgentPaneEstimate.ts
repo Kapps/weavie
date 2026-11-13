@@ -18,6 +18,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return 48;
   }
   if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
+  if (entry.kind === "activity" || entry.kind === "updates") return 24;
   if (entry.block !== undefined)
     return entry.block.kind === "chart" ? chartHeight : tableHeightEstimate;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
@@ -27,22 +28,20 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   }
   const prose =
     entry.kind === "thought" || (entry.kind === "message" && entry.tone === "assistant");
-  if (entry.kind === "aside" || entry.kind === "subagent") {
+  if (entry.kind === "aside" || entry.kind === "subagent" || entry.kind === "dashboard") {
     const children =
       entry.kind === "subagent"
         ? subagentCardEntries(entry.asideEntries ?? [], false)
-        : (entry.asideEntries ?? []);
+        : entry.kind === "dashboard" && entry.asideCollapsed
+          ? []
+          : (entry.asideEntries ?? []);
     const size = 76 + children.reduce((sum, child) => sum + estimateEntrySize(child), 0);
     estimates.set(entry, size);
     return size;
   }
   const size =
     (prose ? 12 : 34) +
-    (entry.summary === null
-      ? 0
-      : entry.kind === "activity"
-        ? proseLineHeight
-        : wrappedHeight(entry.summary)) +
+    (entry.summary === null ? 0 : wrappedHeight(entry.summary)) +
     (entry.text === null
       ? 0
       : prose

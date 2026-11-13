@@ -1,4 +1,5 @@
 export function intersectsViewport(element: Element, viewport: Element): boolean {
+  if (element.closest("[inert]") !== null) return false;
   const bounds = element.getBoundingClientRect();
   const visible = viewport.getBoundingClientRect();
   return bounds.bottom > visible.top && bounds.top < visible.bottom;

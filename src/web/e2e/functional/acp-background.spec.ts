@@ -28,6 +28,10 @@ test("a subagent starts collapsed and keeps explicit expansion when it finishes"
   await expect(surface.locator(".agent-aside")).toContainText("echo: side question");
 
   await signal(weavie.workspace, "release-subagent");
+  await surface
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(card).toContainText("held subagent finished");
@@ -43,6 +47,11 @@ test("a subagent starts collapsed and keeps explicit expansion when it finishes"
   await expect(tab).toHaveCount(0);
 
   await submitAcpDraft(surface, "subagent-failed");
+  const histories = surface.locator(
+    ".agent-transcript > .agent-virtual-row > .agent-entry-updates .agent-updates-toggle",
+  );
+  await expect(histories).toHaveCount(2);
+  await histories.last().click();
   const failed = surface.locator('[data-agent-subagent][data-state="failed"]');
   await expect(failed).toHaveClass(/agent-tone-error/);
   await expect(failed.locator(".agent-entry-status")).toContainText("failed");
@@ -64,7 +73,7 @@ test("a background task waits in the tray until Stop ends it with a notice", asy
   await expect(surface.locator(".agent-entry-notice")).toContainText("Task stopped by user");
 });
 
-test("a workflow renders a card, and Show Background Work focuses the tray", async ({
+test("a workflow renders a card, and Focus Agent Strip focuses the strip", async ({
   page,
   weavie,
 }) => {
@@ -78,10 +87,10 @@ test("a workflow renders a card, and Show Background Work focuses the tray", asy
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Shift+p");
-  await page.locator(".tb-omnibar-input").fill(">Show Background Work");
+  await page.locator(".tb-omnibar-input").fill(">Focus Agent Strip");
   await page
     .locator(".tb-omnibar-row")
-    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Show Background Work$/ }) })
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Focus Agent Strip$/ }) })
     .click();
   await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
   await page.keyboard.press("ArrowRight");
@@ -106,7 +115,7 @@ test("an overflowing tray fades the edge hiding pills, and roving focus scrolls 
   await expect(scroller).toHaveClass(/overflow-right/);
   await expect(scroller).not.toHaveClass(/overflow-left/);
 
-  await runPalette(page, "Show Background Work");
+  await runPalette(page, "Focus Agent Strip");
   await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
   await page.keyboard.press("End");
   const last = pills.last().getByRole("button", { name: "Stop", exact: true });
@@ -167,6 +176,10 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(dialog).toBeHidden();
   // The dialog closes on the click; the restart lands when its command reports back.
   await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
+  await surface
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
     "data-agent-controls-ready",
@@ -250,6 +263,7 @@ test.describe("with approvals", () => {
       '"old_string": "# soak"',
     );
     await request.getByRole("button", { name: "Allow" }).click();
+    await surface.getByRole("button", { name: /Earlier updates/ }).click();
     await expect(surface.locator("[data-agent-subagent]")).toHaveAttribute(
       "data-state",
       "completed",

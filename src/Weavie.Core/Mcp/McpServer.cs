@@ -469,6 +469,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case ShowBlockTool or UpdateBlockTool:
 				await HandleBlockToolAsync(responder, args, idRaw, call, name == ShowBlockTool, ct).ConfigureAwait(false);
 				break;
+			case OpenDashboardTool:
+				await HandleOpenDashboardAsync(responder, args, idRaw, call, ct).ConfigureAwait(false);
+				break;
 			case ListWorkflowsTool:
 				await HandleListWorkflowsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;

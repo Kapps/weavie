@@ -1,8 +1,9 @@
 import { createEffect, createMemo, type JSX, on, onCleanup } from "solid-js";
 import { setContext } from "../commands/context";
-import { AgentBackgroundTray } from "./AgentBackgroundTray";
+
 import { AgentComposer } from "./AgentComposer";
 import { AgentCurrentThought } from "./AgentCurrentThought";
+import { AgentStrip } from "./AgentStrip";
 import { AgentTranscriptViewport } from "./AgentTranscriptViewport";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
@@ -26,6 +27,13 @@ export function AgentPaneBody(props: {
     ),
   );
   onCleanup(() => setContext("agentBackgroundActive", false));
+  createEffect(() =>
+    setContext(
+      "agentStripActive",
+      agentBackground(props.model.session).length > 0 || props.model.cards().length > 0,
+    ),
+  );
+  onCleanup(() => setContext("agentStripActive", false));
   let jumpToLatest = (): boolean => false;
   // Each transcript generation gets its own viewport, so /clear and Rewind carry no reading state across.
   const viewport = createMemo(
@@ -43,7 +51,7 @@ export function AgentPaneBody(props: {
   return (
     <>
       {viewport()}
-      <AgentBackgroundTray session={props.model.session} />
+      <AgentStrip session={props.model.session} cards={props.model.cards()} />
       <AgentCurrentThought text={props.model.transcript().currentThought} />
       <AgentComposer
         active={props.active}

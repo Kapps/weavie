@@ -195,6 +195,10 @@ for (const switchDuringStartup of [false, true]) {
     await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
       "rich response",
     );
+    await surface
+      .getByRole("button", { name: /Earlier updates/ })
+      .last()
+      .click();
     const activity = surface.locator(".agent-entry-activity").last();
     await expect(activity).toContainText("edited 1 file");
     await activity.locator("summary").click();
@@ -222,6 +226,7 @@ for (const switchDuringStartup of [false, true]) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await editorRequested.promise;
     await expect(surface).toContainText("rich response");
+    await surface.getByRole("button", { name: /Earlier updates/ }).click();
     await activity.locator("summary").click();
     const edit = activity.locator(".agent-activity-step", { hasText: "Edit file" });
     await expect(edit.getByText("show output", { exact: true })).toHaveCount(0);
@@ -250,6 +255,10 @@ test("ACP task progress stays activity while plan documents remain openable", as
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
     "rich response",
   );
+  await surface
+    .getByRole("button", { name: /Earlier updates/ })
+    .last()
+    .click();
   const activity = surface.locator(".agent-entry-activity").last();
   await expect(activity).toContainText("1 progress");
   await expect(surface.locator(".agent-entry-plan")).toHaveCount(0);

@@ -1,8 +1,10 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { AgentActivitySegments } from "./AgentActivitySegments";
 import { isAgentActivity } from "./AgentPaneActivitySummary";
+import { AgentPaneBlocks } from "./AgentPaneBlocks";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
-import { blockKey, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { entry } from "./AgentPaneEntry";
+import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -10,11 +12,7 @@ import {
   type RequestResolution,
   requestResolutions,
 } from "./AgentPaneMessageFormat";
-import type {
-  AgentActivityStep,
-  AgentTranscriptEntry,
-  AgentTranscriptTone,
-} from "./AgentPaneTranscriptTypes";
+import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
@@ -40,6 +38,7 @@ export function projectAgentTranscript(
   const entries: AgentTranscriptEntry[] = [];
   const segments = new AgentActivitySegments();
   const knownTurns = new Set<string>();
+  const blocks = new AgentPaneBlocks();
   let activeTurn = "startup";
   let currentThought: string | null = null;
   let previousWasUserInput = false;
@@ -89,6 +88,16 @@ export function projectAgentTranscript(
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
+    }
+
+    const shown = blocks.take(message, sequence);
+    if (shown !== null) {
+      for (const block of shown) {
+        segments.boundary();
+        entries.push(block);
+      }
+      sequence += 1;
+      continue;
     }
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
@@ -172,23 +181,6 @@ function durableEntry(
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "agent-message-delta":
     case "item-completed":
-      if (message.itemType === "block" && message.blockId) {
-        const kind = message.category === "table" ? "table" : "chart";
-        return {
-          ...entry(
-            message,
-            sequence,
-            "block",
-            "assistant",
-            kind === "table" ? "Table" : "Chart",
-            null,
-          ),
-          block: {
-            key: blockKey(message.providerId, message.conversationId, message.blockId),
-            kind,
-          },
-        };
-      }
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
       }
@@ -246,6 +238,7 @@ function planEntry(
     detailCount: 0,
     details: [],
     id: paneItemIdentity(message) ?? `plan-${sequence}`,
+    turnKey: paneTurnIdentity(message) ?? undefined,
     kind: "plan",
     label: "Plan",
     status: outcome,
@@ -270,41 +263,6 @@ function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): Ag
 
 function promptLabel(message: AgentPaneUpdate, label: string): string {
   return message.sender ? `From ${message.sender.title}` : label;
-}
-
-function entry(
-  message: AgentPaneUpdate,
-  sequence: number,
-  kind: AgentTranscriptEntry["kind"],
-  tone: AgentTranscriptTone,
-  label: string,
-  status: string | null,
-): AgentTranscriptEntry {
-  return {
-    actionMessage: actionMessage(message),
-    detailCount: 0,
-    details: [],
-    id: paneItemIdentity(message) ?? `${message.type}-${sequence}`,
-    kind,
-    label,
-    status,
-    streaming: normalizeStatus(message.status) === "running",
-    summary: normalizeText(message.summary),
-    text: normalizeText(message.text),
-    tone,
-  };
-}
-
-function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
-  return message.type === "approval-requested" ||
-    message.type === "authentication-requested" ||
-    message.type === "edit-location" ||
-    message.type === "input-requested" ||
-    (message.mediaData !== null && message.mediaData !== undefined) ||
-    (message.resourceUri !== null && message.resourceUri !== undefined) ||
-    (message.content?.length ?? 0) > 0
-    ? message
-    : null;
 }
 
 function collapseEditLocations(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
@@ -340,6 +298,7 @@ function flushEdits(output: AgentTranscriptEntry[], edits: AgentTranscriptEntry[
     detailCount: edits.length,
     details: edits.map((entry) => editStep(entry)),
     id: `edits-${edits[0]?.id ?? "empty"}`,
+    turnKey: edits[0]?.turnKey,
     kind: "activity",
     label: "Edits",
     status: null,

@@ -12,15 +12,17 @@ import {
   Show,
   Suspense,
 } from "solid-js";
-import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { agentBackground, runningLocalBackground } from "./agent/agent-background-store";
+import { cardFocusContext, namedCard, type OwnedCard, setCardCollapsed } from "./agent/agent-cards";
 import { copyActiveAgentCodeBlock } from "./agent/agent-code-copy";
+import { ownedTarget } from "./agent/agent-command-owner";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
 import { backgroundItemToOpen, backgroundTab } from "./agent/background-tab";
+import { liveCard } from "./agent/card-tab";
 import {
   type AgentPaneModel,
   agentAuthenticationTerminalActive,
@@ -172,7 +174,8 @@ import { onSourceEditError, openSelectedSourceTarget } from "./editor/source/sou
 import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
-import { isFileTab, subagentTabPath, tabKind } from "./editor/tab-entry";
+import { cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
+
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   refreshSelectedFileIndex,
@@ -1617,11 +1620,36 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
-      registerCommand(CommandIds.toggleAgentAside, toggleAgentAside),
-      registerCommand(CommandIds.openSubagent, (args, context) => {
-        const conversationId = (args as { conversationId?: unknown } | undefined)?.conversationId;
-        if (context.session === null || typeof conversationId !== "string") return false;
-        editor.openAgentTab(context.session, "subagent", subagentTabPath(conversationId));
+      registerCommand(CommandIds.toggleAgentAside, (args, context) => {
+        const named = namedCard(args);
+        if (named === null) {
+          const toggle = ownedTarget<OwnedCard>(cardFocusContext)?.toggle;
+          if (toggle == null) return false;
+          toggle();
+          return true;
+        }
+        const collapsed = (args as { collapsed?: unknown }).collapsed;
+        if (named.kind !== "aside" && named.kind !== "dashboard")
+          throw new Error("Only a BTW or a dashboard card collapses.");
+        if (typeof collapsed !== "boolean")
+          throw new Error("Say whether to collapse the card: collapsed true or false.");
+        setCardCollapsed(liveCard(context.session, named), named, collapsed);
+        return true;
+      }),
+      registerCommand(CommandIds.openAgentCard, (args, context) => {
+        const named = namedCard(args);
+        const owned = named === null ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;
+        const card = named ?? owned?.card;
+        if (card === undefined) return false;
+        const session = liveCard(owned?.session ?? context.session, card);
+        const background = (args as { background?: unknown } | undefined)?.background === true;
+        editor.openAgentTab(
+          session,
+          card.kind,
+          cardTabPath(card),
+          background ? "background" : "navigation",
+        );
+        return true;
       }),
       registerCommand(CommandIds.openBackgroundItem, (args, context) => {
         if (context.session === null)
@@ -1630,7 +1658,7 @@ export default function App(): JSX.Element {
         const { kind, path } = backgroundTab(
           backgroundItemToOpen(agentBackground(context.session), id),
         );
-        editor.openAgentTab(context.session, kind, path);
+        editor.openAgentTab(context.session, kind, path, "navigation");
       }),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),

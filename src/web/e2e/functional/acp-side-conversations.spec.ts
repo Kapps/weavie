@@ -166,6 +166,7 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   await submitAcpDraft(surface, "/btw rich");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("rich response");
+  await aside.getByRole("button", { name: /Earlier updates/ }).click();
   const activity = aside.locator(".agent-entry-activity").first();
   await activity.locator("summary").click();
   const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
@@ -198,6 +199,10 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   await reply.fill("agent-terminal");
   await reply.press("Enter");
   await expect(aside).toContainText("agent terminal finished");
+  await aside
+    .getByRole("button", { name: /Earlier updates/ })
+    .last()
+    .click();
   const commandActivity = aside.locator(".agent-entry-activity").last();
   await commandActivity.locator("summary").click();
   const command = commandActivity.locator(".agent-activity-step", { hasText: "echo hello" });

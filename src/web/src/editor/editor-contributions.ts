@@ -4,6 +4,7 @@ import { noteSelectionChange, registerSelectionSource } from "../commands/select
 import { createSymbolSource } from "../symbols/symbol-source";
 import { activeEditorMessage } from "./active-editor-message";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
+import { connectSelectionActions } from "./editor-selection-actions";
 import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
 import type { TextLocation } from "./nav-history";
@@ -36,6 +37,7 @@ export function connectTextEditor(options: {
     reviewHints: createReviewHints(session, editor, model, prComments),
   };
   const unregister = editorContexts.register(connection);
+  const offSelectionActions = connectSelectionActions(connection);
   const offRevise = sharedReviseMarks.attach(connection);
   const key = `editor:${editor.getId()}`;
   const offSelection = registerSelectionSource(key, () => {
@@ -86,6 +88,7 @@ export function connectTextEditor(options: {
       lifetime.abort();
       unregister();
       offRevise();
+      offSelectionActions();
       offSelection();
       for (const subscription of subscriptions) subscription.dispose();
       connection.blame.dispose();

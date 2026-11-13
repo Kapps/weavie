@@ -1,4 +1,13 @@
-import { createResource, For, type JSX, Match, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createResource,
+  For,
+  type JSX,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { Disclosure } from "./AgentDisclosure";
 import { EditLocationActions } from "./AgentPaneEditActions";
@@ -17,15 +26,28 @@ export function ActivityDetails(props: {
   session: ClientSession;
   steps: AgentActivityStep[];
 }): JSX.Element {
+  const source = createMemo(() => (props.expanded ? props.entry.activityDetails : undefined));
+  const reader = createMemo(() => {
+    const next = source()?.retain();
+    if (next !== undefined) onCleanup(next.release);
+    return next;
+  });
   return (
     <Disclosure
       class="agent-activity-details"
-      label={activityDetailsSummary(props.entry, props.entry.detailCount)}
+      label={
+        <span
+          class="agent-activity-summary ui-row ui-row-compact"
+          title={props.entry.summary ?? undefined}
+        >
+          <span>{props.entry.summary ?? props.entry.label}</span>
+        </span>
+      }
       open={props.expanded}
       onToggle={props.onToggle}
     >
       <div class="agent-activity-list">
-        <ForEachId each={props.steps}>
+        <ForEachId each={reader()?.steps() ?? props.steps}>
           {(step) => (
             <div class={`agent-activity-step agent-step-${step().tone}`}>
               <span class="agent-step-status">{step().status ?? "done"}</span>
@@ -185,11 +207,4 @@ export function AgentRichContent(props: {
       }}
     </For>
   );
-}
-
-function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Edits") {
-    return `show ${count} edit${count === 1 ? "" : "s"}`;
-  }
-  return count === 1 ? "history" : `history ${count}`;
 }

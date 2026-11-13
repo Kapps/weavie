@@ -33,7 +33,7 @@ public sealed class McpDiffPresenterTests {
 			files,
 			new WorkspaceFileIndex(fs, "/ws"),
 			(_, _, _, _, _, _) => { });
-		return (new McpDiffPresenter(channel, files, opener, _ => { }), bridge);
+		return (new McpDiffPresenter(channel, files, opener, _ => { }, (_, _, _) => { }), bridge);
 	}
 
 	private static string DiffId(FakeHostBridge bridge) {

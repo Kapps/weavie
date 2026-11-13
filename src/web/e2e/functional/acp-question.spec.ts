@@ -52,12 +52,14 @@ test("title-only ACP choices show their question and retain the answer through h
   await page.setViewportSize({ width: 1400, height: 850 });
   await card.locator(".agent-choice-row", { hasText: second }).click();
   await expect(surface.locator(".agent-markdown").last()).toContainText(second);
+  await surface.getByRole("button", { name: /Earlier updates/ }).click();
   await card.getByText("show prompt and options", { exact: true }).click();
   await expect(card.locator(".agent-question-title")).toHaveText(question);
   await expect(card.locator(".agent-input-choice.chosen")).toContainText(second);
   await expect(card.getByText(notice, { exact: true })).toHaveCount(1);
 
   await page.reload();
+  await surface.getByRole("button", { name: /Earlier updates/ }).click();
   await expect(card.getByText("show prompt and options", { exact: true })).toBeVisible();
   await card.getByText("show prompt and options", { exact: true }).click();
   await expect(card.locator(".agent-question-title")).toHaveText(question);

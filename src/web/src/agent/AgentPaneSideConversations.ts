@@ -113,7 +113,8 @@ export function sideConversationEntry(
     label: marker?.summary ?? "BTW",
     status: state.active ? "thinking" : state.failed ? "failed" : null,
     streaming: state.active,
-    summary: null,
+    // The question that started it, which names it where its label alone can't tell BTWs apart.
+    summary: marker?.text ?? null,
     text: null,
     tone: state.failed ? "error" : "assistant",
   };
@@ -157,13 +158,15 @@ export function subagentEntry(
 
 const subagentCardTail = 4;
 
-/** Expanded cards show their latest entries; requests remain visible when collapsed. */
+/** Cards preview recent entries until history is explicitly opened; collapsed cards retain requests. */
 export function subagentCardEntries(
   entries: readonly AgentTranscriptEntry[],
   expanded: boolean,
 ): AgentTranscriptEntry[] {
+  const historyOpen = entries.some((entry) => entry.kind === "updates" && entry.updatesOpen);
   return entries.filter(
     (entry, index) =>
-      (expanded && index >= entries.length - subagentCardTail) || entry.kind === "request",
+      (expanded && (historyOpen || index >= entries.length - subagentCardTail)) ||
+      entry.kind === "request",
   );
 }

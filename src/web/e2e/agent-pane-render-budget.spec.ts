@@ -14,6 +14,7 @@ import {
   measureRender,
   type RenderSample,
 } from "./harness/render-budget";
+import { MOCK_AGENT_DEFAULTS } from "./mock-host";
 
 // Render budgets for the agent pane, asserted as counts of layout-forcing reads, never as time. A scroll frame
 // may read only the scroll position its listener is handed; output costs a constant per update. Run: pnpm e2e:perf.
@@ -31,6 +32,10 @@ test.use({ trace: { mode: "retain-on-failure", snapshots: false } });
 async function openPane(page: Page, openPanes: OpenPanes, name: string): Promise<AgentPane> {
   await deferredPhase.run(page);
   const pane = await openPanes({ [name]: history });
+  pane.host.publishHost("settings", "agent-defaults", {
+    ...MOCK_AGENT_DEFAULTS,
+    progressDisplay: "latest",
+  });
   await expect(page.getByText("Answer 59", { exact: true })).toBeVisible();
   return pane;
 }

@@ -258,16 +258,32 @@
 
 .agent-aside-head {
   font: var(--font-chrome-body);
-  width: 100%;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 10px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--dim);
+}
+
+/* A row primitive with no padding of its own; the head pads it. */
+.agent-aside-toggle {
+  --row-pad: 0px;
+  --row-pad-x: 0px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The row is a flex container, so the label is the item that ellipsizes. */
+.agent-aside-toggle-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-aside-head .agent-entry-open {
+  margin-left: 0;
+  opacity: 1;
 }
 
 .editor-agent-view {
@@ -306,6 +322,7 @@
 }
 
 .agent-aside-head small {
+  margin-left: auto;
   font: var(--font-chrome-secondary);
 }
 
@@ -533,7 +550,6 @@ a:has(> .agent-path-dir) {
   color: var(--accent);
 }
 
-.agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request,
 .agent-entry-subagent,
@@ -551,16 +567,9 @@ a:has(> .agent-path-dir) {
   border-left-color: var(--accent);
 }
 
+.agent-entry-updates,
 .agent-entry-activity {
-  border-left-color: color-mix(in srgb, var(--dim) 78%, transparent);
-  opacity: 0.86;
-}
-
-.agent-entry-activity .agent-entry-summary {
-  overflow: hidden;
-  color: var(--dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0 8px;
 }
 
 .agent-entry-request {
@@ -672,8 +681,7 @@ a:has(> .agent-path-dir) {
   white-space: nowrap;
 }
 
-.agent-tone-error .agent-entry-label,
-.agent-step-failed .agent-step-status {
+.agent-tone-error .agent-entry-label {
   color: var(--bad);
 }
 
@@ -685,6 +693,24 @@ a:has(> .agent-path-dir) {
   color: var(--warn);
 }
 
+.agent-card-content {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 120ms ease-out,
+    visibility 120ms;
+}
+
+.agent-card-content.collapsed {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+}
+
+.agent-card-content > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .agent-disclosure {
   margin-top: 3px;
   color: var(--dim);
@@ -692,6 +718,7 @@ a:has(> .agent-path-dir) {
 
 .agent-disclosure > summary {
   display: inline-flex;
+  align-items: baseline;
   gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
   cursor: pointer;
@@ -702,12 +729,14 @@ a:has(> .agent-path-dir) {
   display: none;
 }
 
-.agent-disclosure > summary::before {
-  content: ">";
+.agent-disclosure-icon > svg,
+.agent-updates-toggle .ui-icon > svg {
+  transition: transform 120ms ease-out;
 }
 
-.agent-disclosure[open] > summary::before {
-  content: "v";
+.agent-disclosure[open] > summary > .agent-disclosure-icon > svg,
+[aria-expanded="true"] > .agent-disclosure-icon > svg {
+  transform: rotate(90deg);
 }
 
 .agent-entry-thought {
@@ -735,12 +764,8 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-thought > summary {
-  display: block;
+  display: flex;
   color: var(--dim);
-}
-
-.agent-disclosure.agent-thought > summary::before {
-  content: none;
 }
 
 .agent-thought-row {
@@ -761,13 +786,38 @@ a:has(> .agent-path-dir) {
   text-overflow: ellipsis;
 }
 
-.agent-thought[open] > summary .ui-icon > svg {
+.agent-updates-toggle {
+  color: var(--dim);
+}
+
+.agent-updates-toggle[aria-expanded="true"] .ui-icon > svg {
   transform: rotate(90deg);
 }
 
 .agent-thought-body {
   padding: 4px 8px 8px;
   overflow-wrap: anywhere;
+}
+
+.agent-activity-details {
+  margin: 0;
+  min-width: 0;
+}
+
+.agent-activity-details > summary {
+  display: flex;
+  align-items: baseline;
+  color: var(--dim);
+}
+
+.agent-activity-summary {
+  min-width: 0;
+}
+
+.agent-activity-summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-activity-list {
@@ -959,6 +1009,12 @@ a:has(> .agent-path-dir) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-card-content,
+  .agent-disclosure-icon > svg,
+  .agent-updates-toggle .ui-icon > svg {
+    transition: none;
+  }
+
   .agent-working-spinner {
     animation: none;
   }
@@ -1137,8 +1193,7 @@ a:has(> .agent-path-dir) {
   --fade-right: 1.5em;
 }
 
-.agent-background-label {
-  flex: 0 0 auto;
+.agent-strip-collapse {
   color: var(--dim);
 }
 

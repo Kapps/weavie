@@ -151,11 +151,13 @@ for (const mode of ["all", "current", "collapsed"]) {
   }) => {
     const surface = await createAcpSession(page, `steer-message-${mode}`);
     await surface.locator(".pane-fullscreen").click();
+    await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.progressDisplay","value":"all"}');
+    await expect(surface.locator(".agent-entry-result")).toContainText("setSetting:");
     await submitAcpDraft(
       surface,
       `mcp:setSetting:{"key":"agent.thoughtDisplay","value":"${mode}"}`,
     );
-    await expect(surface.locator(".agent-entry-result")).toContainText("setSetting:");
+    await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
     const workspace = sessionWorktrees(weavie.workspace)[0]!;
     await writeFile(join(workspace, "hold-steer-reply"), "");
     await writeFile(join(workspace, "hold-steer-finish"), "");

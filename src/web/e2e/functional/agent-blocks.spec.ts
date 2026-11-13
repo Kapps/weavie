@@ -62,6 +62,10 @@ test("an agent's chart sits between its reply text, keeps its height, and update
   await expect(block.locator(".agent-block-title")).toHaveText("p95 latency");
   await expect(block.locator(".agent-chart canvas")).toBeVisible();
   expect(await block.evaluate((element) => element.getBoundingClientRect().height)).toBe(300);
+  await expect(
+    surface.locator(".agent-entry-message", { hasText: "block call starting" }),
+  ).toHaveCount(0);
+  await surface.getByRole("button", { name: "Earlier updates · 1" }).click();
   const order = await surface
     .locator(".agent-entry-message.agent-tone-assistant, .agent-entry-block")
     .allTextContents();

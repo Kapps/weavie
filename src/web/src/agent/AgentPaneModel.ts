@@ -1,4 +1,12 @@
-import { type Accessor, batch, createEffect, createMemo, createSignal, on } from "solid-js";
+import {
+  type Accessor,
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+} from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
@@ -14,6 +22,7 @@ import type {
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
 import type { ThoughtDisplay } from "./AgentThoughtPresentation";
+import type { ProgressDisplay } from "./AgentUpdatePresentation";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import type { PendingRequest, PendingRequestKind } from "./turn-progress";
@@ -68,6 +77,7 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
 export function createAgentPaneModel(
   session: ClientSession,
   thoughtDisplay: Accessor<ThoughtDisplay>,
+  progressDisplay: Accessor<ProgressDisplay>,
 ): MutableAgentPaneModel {
   const [cardChanges, setCardChanges] = createSignal<readonly { id: string; delta: number }[]>([]);
   const [generation, setGeneration] = createSignal(0);
@@ -83,8 +93,11 @@ export function createAgentPaneModel(
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const expanded = new Set<string>();
-  const main = new AgentConversationProjection(expanded, thoughtDisplay);
+  const main = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
   const views = new Map<string, AgentConversationProjection>([["", main]]);
+  onCleanup(() => {
+    for (const view of views.values()) view.dispose();
+  });
   const byId = new Map<
     string,
     ReturnType<typeof createSignal<AgentConversationProjection | undefined>>
@@ -107,7 +120,7 @@ export function createAgentPaneModel(
   const viewFor = (scope: ConversationRows): AgentConversationProjection => {
     let view = views.get(scope.key);
     if (view === undefined) {
-      view = new AgentConversationProjection(expanded, thoughtDisplay);
+      view = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
       views.set(scope.key, view);
     }
     view.bind(scope.marker);
@@ -202,7 +215,11 @@ export function createAgentPaneModel(
         pending.clear();
         active.clear();
         for (const cell of byId.values()) cell[1](undefined);
-        for (const key of views.keys()) if (!source.conversations.has(key)) views.delete(key);
+        for (const [key, view] of views) {
+          if (source.conversations.has(key)) continue;
+          view.dispose();
+          views.delete(key);
+        }
         const reconstruct = (scope: ConversationRows): void => {
           for (const child of scope.cards) reconstruct(child);
           project(scope, []);
@@ -245,7 +262,13 @@ export function createAgentPaneModel(
       }
     });
 
-  createEffect(on(createMemo(thoughtDisplay), () => apply(source, [], false), { defer: true }));
+  createEffect(
+    on(
+      createMemo(() => [thoughtDisplay(), progressDisplay()]),
+      () => apply(source, [], false),
+      { defer: true },
+    ),
+  );
 
   const transcriptOf = (conversationId: string | null): AgentTranscriptSnapshot | undefined =>
     conversationId === null ? main.transcript() : membership(conversationId)[0]()?.transcript();

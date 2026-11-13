@@ -26,6 +26,7 @@ export interface AgentTranscriptEntry {
   details: AgentActivityStep[];
   id: string;
   kind:
+    | "updates"
     | "activity"
     | "aside"
     | "block"
@@ -44,9 +45,11 @@ export interface AgentTranscriptEntry {
   summary: string | null;
   text: string | null;
   tone: AgentTranscriptTone;
+  updatesOpen?: boolean;
   thoughtCollapsed?: true;
   thoughtOpen?: boolean;
   turnStart?: true;
+  turnKey?: string | undefined;
   promptTurnId?: string;
   conversation?: AgentConversationProjection;
   asideActive?: boolean | undefined;

@@ -11,6 +11,7 @@ export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onUpdatesToggle: (entryId: string, open: boolean) => void;
   keyboardRequestKey: string | null;
   session: ClientSession;
 }): JSX.Element {
@@ -45,6 +46,7 @@ export function AsideEntry(props: {
           expandedDetails={props.expandedDetails}
           keyboardRequestKey={props.keyboardRequestKey}
           onDetailsToggle={props.onDetailsToggle}
+          onUpdatesToggle={props.onUpdatesToggle}
           session={props.session}
         />
         <Show when={!collapsed() && props.entry.asideReplyable !== false}>

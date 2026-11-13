@@ -18,6 +18,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return 48;
   }
   if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
+  if (entry.kind === "activity" || entry.kind === "updates") return 24;
   if (entry.block !== undefined)
     return entry.block.kind === "chart" ? chartHeight : tableHeightEstimate;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
@@ -40,11 +41,7 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   }
   const size =
     (prose ? 12 : 34) +
-    (entry.summary === null
-      ? 0
-      : entry.kind === "activity"
-        ? proseLineHeight
-        : wrappedHeight(entry.summary)) +
+    (entry.summary === null ? 0 : wrappedHeight(entry.summary)) +
     (entry.text === null
       ? 0
       : prose

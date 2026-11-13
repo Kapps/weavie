@@ -145,7 +145,7 @@ both `AcpDashboardTests.cs:8` and `AcpSideCollapseTests.cs:32`.
 
 | # | Severity | Where | Finding | Status |
 | --- | --- | --- | --- | --- |
-| B6 | bug | PR #1219 | The PR conflicts with main since #1218 merged, so the `ci` workflow does not run on `87fb46eb` and no fix is CI-verified | open |
+| B6 | bug | PR #1219 | The PR conflicts with main since #1218 merged, so the `ci` workflow does not run on `87fb46eb` and no fix is CI-verified | fixed: merged `origin/main` (`62cbd6dc`). `AgentSubagentTab.tsx` stays deleted and main's `onUpdatesToggle` moved into `AgentConversationTab`; main's `turnKey` moved into the shared `entry()`; `AgentTranscript` keeps both the row context and `onUpdatesToggle`. After the merge: tsc, biome, all vitest (1279), the 14 related headless specs (50), the affected hosting tests (46) and `@perf` (10) pass; CI runs on the push |
 | N9 | nit | `src/web/src/agent/AgentBlockEntry.tsx:62` | Pressing a chart or table inside a `/btw` makes `Alt+B` do nothing; before the fixes it collapsed the `/btw` | open |
 | N10 | nit | `src/web/src/agent/agent.css:270` | A long card title is now cut off with no ellipsis | open |
 | N11 | nit | `src/web/src/App.tsx:179` | `liveCard` is declared between the import statements of `App.tsx` | open |

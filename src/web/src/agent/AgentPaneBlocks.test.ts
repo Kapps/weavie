@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("solid-js", async () => await vi.importActual("solid-js/dist/solid.js"));
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 
 import { createRoot } from "solid-js";
@@ -35,7 +36,11 @@ const member = (id: string, turnId: string, text?: string): AgentPaneUpdate =>
 
 function withModel(messages: readonly AgentPaneUpdate[], check: (model: AgentPaneModel) => void) {
   createRoot((dispose) => {
-    const model = createAgentPaneModel({} as ClientSession, () => "all");
+    const model = createAgentPaneModel(
+      {} as ClientSession,
+      () => "all",
+      () => "all",
+    );
     let flush = () => {};
     new AgentPaneAccumulator((callback) => {
       flush = callback;

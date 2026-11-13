@@ -1,5 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
-import { paneItemIdentity } from "./AgentPaneIdentity";
+import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import { normalizeStatus, normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentTranscriptEntry, AgentTranscriptTone } from "./AgentPaneTranscriptTypes";
 
@@ -17,6 +17,7 @@ export function entry(
     detailCount: 0,
     details: [],
     id: paneItemIdentity(message) ?? `${message.type}-${sequence}`,
+    turnKey: paneTurnIdentity(message) ?? undefined,
     kind,
     label,
     status,

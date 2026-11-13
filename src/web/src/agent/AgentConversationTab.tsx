@@ -6,6 +6,7 @@ import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { SubagentStatus } from "./AgentSubagentEntry";
 import { liveNow } from "./live-clock";
+import { agentPaneModel } from "./pane-store";
 
 /** A subagent's or BTW's whole transcript as an editor tab, rendered like the agent pane; a BTW keeps its reply box. */
 export default function AgentConversationTab(props: {
@@ -35,6 +36,9 @@ export default function AgentConversationTab(props: {
             entries={card().asideEntries ?? []}
             expandedDetails={expanded()}
             keyboardRequestKey={null}
+            onUpdatesToggle={(id, open) =>
+              agentPaneModel(props.session)!.setActivityExpanded(id, open)
+            }
             onDetailsToggle={(id, open) => {
               const next = new Set(expanded());
               if (open) next.add(id);

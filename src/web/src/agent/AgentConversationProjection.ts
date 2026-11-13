@@ -1,4 +1,4 @@
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createRoot, createSignal } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
 import { type AgentActivitySegment, AgentActivitySegments } from "./AgentActivitySegments";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
@@ -19,6 +19,7 @@ import {
   latestResultIndex,
   shareTranscript,
 } from "./AgentTranscriptSnapshot";
+import { createUpdatePresentation, type ProgressDisplay } from "./AgentUpdatePresentation";
 import { activeTurnStartedAt, hasActiveTurn, pendingRequest } from "./turn-progress";
 
 /** One projection over indexed rows. Nested cards hold this view, never a copied child history. */
@@ -28,7 +29,9 @@ export class AgentConversationProjection {
   private readonly projected = createSignal(undefined, { equals: false });
   private segments = new AgentActivitySegments();
   private activities = new Map<string, { index: number; projection: ProjectedAgentActivity }>();
-  readonly transcript = this.state[0];
+  private readonly presentation;
+  readonly transcript;
+  readonly dispose: () => void;
   readonly card = this.caption[0];
   readonly pendingCards = new Set<string>();
   entryIndexes = new Map<string, number>();
@@ -43,7 +46,14 @@ export class AgentConversationProjection {
   constructor(
     private readonly expanded: Set<string>,
     private readonly thoughtDisplay: Accessor<ThoughtDisplay>,
+    progressDisplay: Accessor<ProgressDisplay>,
   ) {
+    this.presentation = createRoot((dispose) => ({
+      ...createUpdatePresentation(this.state[0], progressDisplay, expanded),
+      dispose,
+    }));
+    this.dispose = this.presentation.dispose;
+    this.transcript = this.presentation.transcript;
     const view = this;
     this.linked = {
       conversation: view,
@@ -230,10 +240,14 @@ export class AgentConversationProjection {
   }
 
   setExpanded(id: string, expanded: boolean): boolean {
+    if (this.presentation.setExpanded(id, expanded)) {
+      this.measure();
+      return true;
+    }
     const activity = this.activities.get(id);
     const index = this.entryIndexes.get(id);
     const thought =
-      index !== undefined && this.transcript().entries[index]?.thoughtCollapsed === true;
+      index !== undefined && this.state[0]().entries[index]?.thoughtCollapsed === true;
     if (activity === undefined && this.card()?.id !== id && !thought) return false;
     if (expanded) this.expanded.add(id);
     else this.expanded.delete(id);

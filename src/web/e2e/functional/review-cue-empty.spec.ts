@@ -29,7 +29,7 @@ test("the empty editor reviews committed branch changes without a pending agent 
 
   await expect(page.locator(".editor-empty")).toBeVisible();
   await expect(page.locator(".editor-empty-review")).toHaveCount(0);
-  await page.getByRole("button", { name: "Review Branch", exact: true }).click();
+  await page.getByRole("button", { name: /^Review Branch\b/ }).click();
 
   await expect(page.locator('.session-overview-section[data-section="commits"]')).toContainText(
     "Add the branch file",

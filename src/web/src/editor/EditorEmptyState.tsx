@@ -25,7 +25,7 @@ const ACTIONS: StarterAction[] = [
   {
     id: CommandIds.diffAgainstBranchBase,
     label: "Review Branch",
-    hint: "",
+    hint: "See this branch’s commits and changes",
     icon: GitBranch,
   },
   {
@@ -120,9 +120,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                     </span>
                     <span class="editor-empty-action-text ui-row-text">
                       <span class="editor-empty-action-label">{action.label}</span>
-                      <Show when={action.hint}>
-                        <span class="editor-empty-action-hint ui-row-desc">{action.hint}</span>
-                      </Show>
+                      <span class="editor-empty-action-hint ui-row-desc">{action.hint}</span>
                     </span>
                     {keys !== "" && <kbd class="editor-empty-keys ui-kbd ui-row-end">{keys}</kbd>}
                   </button>

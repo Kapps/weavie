@@ -127,6 +127,22 @@ public sealed class RunnerAuthTests(RunnerFixture fixture) : IClassFixture<Runne
 	}
 
 	[Fact]
+	public async Task Landing_page_carries_the_worker_icon_without_a_token() {
+		using var page = await Http.GetAsync($"{fixture.Host.BaseUrl}/");
+		string document = await page.Content.ReadAsStringAsync();
+		Assert.Contains("<link rel=\"apple-touch-icon\" href=\"/weavie.png\">", document);
+		Assert.DoesNotContain("rel=\"manifest\"", document);
+
+		// The web app is built separately from the hosts, so the worker under test may ship no icon.
+		bool built = File.Exists(Path.Combine(Path.GetDirectoryName(Hosts.HeadlessDll)!, "wwwroot", "weavie.png"));
+		using var icon = await Http.GetAsync($"{fixture.Host.BaseUrl}/weavie.png");
+		Assert.Equal(built ? HttpStatusCode.OK : HttpStatusCode.NotFound, icon.StatusCode);
+		if (built) {
+			Assert.Equal("image/png", icon.Content.Headers.ContentType?.MediaType);
+		}
+	}
+
+	[Fact]
 	public async Task Landing_page_scrubs_query_tokens_from_the_browser_url() {
 		using var handler = new HttpClientHandler { AllowAutoRedirect = false };
 		using var client = new HttpClient(handler);

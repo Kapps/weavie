@@ -6,13 +6,16 @@ namespace Weavie.Hosting.Web;
 
 /// <summary>Renders the shared browser token-entry surface.</summary>
 public static class TokenConnectPage {
-	/// <summary>Writes a no-store token form; given a product icon, the page also installs as the app from a phone Home Screen.</summary>
+	/// <summary>The product icon, served unauthenticated at this path by every origin that renders this page.</summary>
+	public const string IconPath = "/weavie.png";
+
+	/// <summary>Writes a no-store token form that a phone's Home Screen installs under the app's icon, and as the app given its manifest.</summary>
 	public static async Task WriteAsync(
 		HttpContext context,
 		string description,
 		string tokenLabel,
 		string action,
-		string iconUrl,
+		string manifestUrl,
 		bool invalidToken) {
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentException.ThrowIfNullOrEmpty(description);
@@ -31,12 +34,9 @@ public static class TokenConnectPage {
 		string error = invalidToken
 			? "<p class=\"error\" role=\"alert\">That token was not accepted.</p>"
 			: string.Empty;
-		string encodedIcon = HtmlEncoder.Default.Encode(iconUrl);
-		// Adding this page to a phone's Home Screen installs the app, so it carries the app's icon and manifest.
-		(string icon, string install) = string.IsNullOrEmpty(iconUrl)
-			? (string.Empty, string.Empty)
-			: ($"<img src=\"{encodedIcon}\" width=\"48\" height=\"48\" alt=\"\">",
-				$"<link rel=\"manifest\" href=\"/manifest.webmanifest\"><link rel=\"apple-touch-icon\" href=\"{encodedIcon}\">");
+		string manifest = string.IsNullOrEmpty(manifestUrl)
+			? string.Empty
+			: $"<link rel=\"manifest\" href=\"{HtmlEncoder.Default.Encode(manifestUrl)}\">";
 		string encodedNonce = HtmlEncoder.Default.Encode(scriptNonce);
 		await context.Response.WriteAsync(
 			$$"""
@@ -47,7 +47,8 @@ public static class TokenConnectPage {
 			  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 			  <meta name="theme-color" content="#000000">
 			  <meta name="apple-mobile-web-app-title" content="Weavie">
-			  {{install}}
+			  <link rel="apple-touch-icon" href="{{IconPath}}">
+			  {{manifest}}
 			  <title>Connect to Weavie</title>
 			  <style>
 			    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
@@ -69,7 +70,7 @@ public static class TokenConnectPage {
 			</head>
 			<body>
 			  <main>
-			    <header>{{icon}}<h1>Connect to Weavie</h1></header>
+			    <header><img src="{{IconPath}}" width="48" height="48" alt=""><h1>Connect to Weavie</h1></header>
 			    <p>{{HtmlEncoder.Default.Encode(description)}}</p>
 			    <form method="post" action="{{HtmlEncoder.Default.Encode(action)}}">
 			      <label for="token">{{HtmlEncoder.Default.Encode(tokenLabel)}}</label>

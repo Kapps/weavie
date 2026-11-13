@@ -16,7 +16,7 @@ if (launch.Paths.Count > 0
 	return 0;
 }
 
-string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+string wwwroot = WorkspaceHttpServerOptions.HeadlessWebRoot(AppContext.BaseDirectory);
 int port = ResolvePort(args);
 string workspaceOverride = ResolveWorkspace(args);
 var (listen, listenError) = ListenMode.Resolve(args);

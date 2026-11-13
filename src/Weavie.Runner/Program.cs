@@ -74,7 +74,7 @@ app.Use(async (context, next) => {
 	await next().ConfigureAwait(false);
 });
 
-ControlApi.Map(app, backends, options, front, updateStatus);
+ControlApi.Map(app, backends, options, front, updateStatus, workerPath);
 
 // Bind before reserving the worker's port: --port 0 asks the OS for one at bind, and a port already
 // reserved for the worker is exactly what it could hand this listener instead — after which the runner

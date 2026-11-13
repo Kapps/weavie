@@ -30,6 +30,17 @@ export function createTestAgentPaneModel(session: ClientSession) {
 
 /** Raw journal fixtures enter the real fold once, just as history reconstruction does. */
 export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
+  return projectTestConversations(messages, (model) => model.transcript().entries);
+}
+
+export function toAgentSubagents(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
+  return projectTestConversations(messages, (model) => model.subagents());
+}
+
+function projectTestConversations(
+  messages: readonly AgentPaneUpdate[],
+  select: (model: ReturnType<typeof createAgentPaneModel>) => readonly AgentTranscriptEntry[],
+): AgentTranscriptEntry[] {
   return createRoot((dispose) => {
     const model = createAgentPaneModel(
       {} as ClientSession,
@@ -56,7 +67,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
             : { asideEntries: materialize(entry.asideEntries) }),
         };
       });
-    const entries = materialize(model.transcript().entries);
+    const entries = materialize(select(model));
     dispose();
     return entries;
   });

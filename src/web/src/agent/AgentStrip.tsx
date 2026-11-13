@@ -18,7 +18,7 @@ export function AgentStrip(props: {
   session: ClientSession;
   cards: readonly AgentTranscriptEntry[];
 }): JSX.Element {
-  const items = () => agentBackground(props.session);
+  const items = () => agentBackground(props.session).filter((item) => item.kind !== "subagent");
   const now = liveNow(() => items().some(backgroundRunning));
   let tray: HTMLDivElement | undefined;
   const buttons = (): HTMLButtonElement[] => [...(tray?.querySelectorAll("button") ?? [])];

@@ -53,7 +53,7 @@ test("earlier updates fold away while live work stays visible and tool failures 
   }
 
   await surface.locator(".pane-fullscreen").click();
-  const runningSummary = activities.last().locator(".agent-activity-summary > span");
+  const runningSummary = activities.last().locator(".agent-activity-summary");
   await expect(runningSummary).toBeVisible();
   const narrow = await runningSummary.evaluate((element) => ({
     width: element.clientWidth,

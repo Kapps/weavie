@@ -40,8 +40,8 @@ it("keeps subagent activity available until both pane and tab readers close", ()
     tab.release();
     expect(source.snapshot()[0]?.detailText).toBe("original output");
     const original = activity();
-    const held = holdTranscript(model.transcript());
-    const heldActivity = held.entries[0]!.asideEntries!.find((entry) => entry.kind === "activity")!;
+    const held = holdTranscript(model.conversation("reviewer")!.conversation!.transcript());
+    const heldActivity = held.entries.find((entry) => entry.kind === "activity")!;
     expect(heldActivity.activityDetails).toBeUndefined();
     expect(entryMeasurementSource(heldActivity)).toBe(original);
 

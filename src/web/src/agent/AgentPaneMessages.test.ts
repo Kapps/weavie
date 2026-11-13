@@ -311,6 +311,7 @@ describe("toAgentTranscript", () => {
         })),
       ],
       new Map(),
+      "all",
     );
 
     const transcript = projection.entries;

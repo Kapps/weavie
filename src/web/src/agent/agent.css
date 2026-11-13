@@ -786,6 +786,12 @@ a:has(> .agent-path-dir) {
   text-overflow: ellipsis;
 }
 
+.agent-updates-toggle,
+.agent-activity-details > summary {
+  --row-pad-x: 0px;
+  gap: var(--row-gap);
+}
+
 .agent-updates-toggle {
   color: var(--dim);
 }
@@ -812,9 +818,6 @@ a:has(> .agent-path-dir) {
 
 .agent-activity-summary {
   min-width: 0;
-}
-
-.agent-activity-summary > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

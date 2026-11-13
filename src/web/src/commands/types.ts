@@ -101,6 +101,7 @@ export const CommandIds = {
   agentJumpToLatest: "weavie.agent.jumpToLatest",
   toggleAgentAside: "weavie.agent.toggleAside",
   stopBackgroundTask: "weavie.agent.stopBackgroundTask",
+  toggleSubagents: "weavie.agent.toggleSubagents",
   showBackgroundWork: "weavie.agent.showBackgroundWork",
   openAgentCard: "weavie.agent.openCard",
   openBackgroundItem: "weavie.agent.openBackgroundItem",

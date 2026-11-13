@@ -4,6 +4,7 @@ import { setContext } from "../commands/context";
 import { AgentComposer } from "./AgentComposer";
 import { AgentCurrentThought } from "./AgentCurrentThought";
 import { AgentStrip } from "./AgentStrip";
+import { AgentSubagents } from "./AgentSubagents";
 import { AgentTranscriptViewport } from "./AgentTranscriptViewport";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
@@ -30,7 +31,8 @@ export function AgentPaneBody(props: {
   createEffect(() =>
     setContext(
       "agentStripActive",
-      agentBackground(props.model.session).length > 0 || props.model.cards().length > 0,
+      agentBackground(props.model.session).some((item) => item.kind !== "subagent") ||
+        props.model.cards().length > 0,
     ),
   );
   onCleanup(() => setContext("agentStripActive", false));
@@ -51,6 +53,7 @@ export function AgentPaneBody(props: {
   return (
     <>
       {viewport()}
+      <AgentSubagents model={props.model} />
       <AgentStrip session={props.model.session} cards={props.model.cards()} />
       <AgentCurrentThought text={props.model.transcript().currentThought} />
       <AgentComposer

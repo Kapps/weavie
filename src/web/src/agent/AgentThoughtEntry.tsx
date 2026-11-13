@@ -19,6 +19,7 @@ export function AgentThoughtEntry(props: {
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-system`}>
       <Show when={props.entry.thoughtCollapsed} fallback={text()}>
         <Disclosure
+          summaryClass=""
           class="agent-thought"
           label={
             <span class="agent-thought-row ui-row ui-row-compact">

@@ -20,8 +20,14 @@ internal sealed partial class FakeAcpAgent {
 				LeakAgentToolResult("toolu_hidden_agent", "completed");
 				break;
 			case "subagent-held":
+			case "subagent-grouping":
+				if (text == "subagent-grouping") Update(Tool("before-spawn", "Inspect repository", "completed"));
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");
 				LeakAgentToolResult("toolu_held_agent", "async_launched");
+				if (text == "subagent-grouping") {
+					VisibilityContent("agent_thought_chunk", "Checking the repository while Explore counts files.", "between-tools");
+					Update(Tool("after-spawn", "Verify repository", "completed"));
+				}
 				UpdateOn(child, MessageUpdate("counting"));
 				File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "live-subagent"), child);
 				_ = Task.Run(async () => {

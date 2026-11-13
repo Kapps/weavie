@@ -1,14 +1,15 @@
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 
-test("clicking tray work opens it in a tab: a subagent's transcript, a task's state and result", async ({
-  page,
-}) => {
+test("selecting subagents and tray tasks opens their transcripts and results", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-background-tabs");
   const pills = surface.locator(".agent-background-tray [data-background-item]");
   await submitAcpDraft(surface, "subagent-held");
-  const subagent = pills.filter({ hasText: "Explore" }).locator(".agent-status-segment").first();
-  await expect(subagent).toHaveAttribute("title", /^Open .* in a tab/);
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
+  const subagent = surface
+    .locator("[data-agent-subagent]")
+    .getByRole("button", { name: "Explore", exact: true });
+  await expect(subagent).toHaveAttribute("title", /^Open Card in Tab/);
   await subagent.click();
   await expect(page.locator(".editor-tab", { hasText: "Subagent · Explore" })).toBeVisible();
   await expect(page.locator(".editor-agent-view")).toContainText("counting");

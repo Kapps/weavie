@@ -155,18 +155,3 @@ export function subagentEntry(
     tone: state === "failed" ? "error" : "assistant",
   };
 }
-
-const subagentCardTail = 4;
-
-/** Cards preview recent entries until history is explicitly opened; collapsed cards retain requests. */
-export function subagentCardEntries(
-  entries: readonly AgentTranscriptEntry[],
-  expanded: boolean,
-): AgentTranscriptEntry[] {
-  const historyOpen = entries.some((entry) => entry.kind === "updates" && entry.updatesOpen);
-  return entries.filter(
-    (entry, index) =>
-      (expanded && (historyOpen || index >= entries.length - subagentCardTail)) ||
-      entry.kind === "request",
-  );
-}

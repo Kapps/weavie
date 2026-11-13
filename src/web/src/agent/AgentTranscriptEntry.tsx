@@ -20,7 +20,6 @@ import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { isPendingRequest } from "./AgentPendingRequests";
-import { AgentSubagentEntry } from "./AgentSubagentEntry";
 import { AgentThoughtEntry } from "./AgentThoughtEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
@@ -85,18 +84,6 @@ export function TranscriptEntry(props: {
   }
   if (props.entry.kind === "workflow") {
     return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
-  }
-  if (props.entry.kind === "subagent") {
-    return (
-      <AgentSubagentEntry
-        entry={props.entry}
-        expandedDetails={props.expandedDetails}
-        onDetailsToggle={props.onDetailsToggle}
-        onUpdatesToggle={props.onUpdatesToggle}
-        keyboardRequestKey={props.keyboardRequestKey}
-        session={props.session}
-      />
-    );
   }
   if (props.entry.kind === "aside") {
     return (
@@ -176,6 +163,7 @@ export function TranscriptEntry(props: {
             const key = () => `${props.entry.id}:${details().noun}`;
             return (
               <Disclosure
+                summaryClass=""
                 class="agent-request-details"
                 label={`${props.expandedDetails.has(key()) ? "hide" : "show"} ${details().noun}`}
                 open={props.expandedDetails.has(key())}

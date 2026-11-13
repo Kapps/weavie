@@ -6,6 +6,7 @@ import { Show } from "solid-js";
 export function Disclosure(props: {
   children: JSX.Element;
   class: string;
+  summaryClass: string;
   label: JSX.Element;
   open: boolean;
   onToggle: (open: boolean) => void;
@@ -14,6 +15,7 @@ export function Disclosure(props: {
     <details class={`agent-disclosure ${props.class}`} open={props.open}>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native details control. */}
       <summary
+        class={props.summaryClass}
         onClick={(event) => {
           event.preventDefault();
           props.onToggle(!props.open);

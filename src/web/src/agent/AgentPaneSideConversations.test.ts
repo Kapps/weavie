@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toAgentTranscript } from "./AgentPaneTestModel";
+import { toAgentSubagents, toAgentTranscript } from "./AgentPaneTestModel";
 
 const primary = {
   providerId: "acp",
@@ -111,23 +111,20 @@ describe("side conversation collapse", () => {
 });
 
 describe("subagent cards", () => {
-  it("renders a subagent as its own card at its spawn point, naming a nested spawn's parent", () => {
+  it("keeps subagents outside the transcript, naming a nested spawn's parent", () => {
     const outer = subagent("outer", null);
     const inner = subagent("inner", "outer");
-    const entries = toAgentTranscript([
+    const messages = [
       { ...primary, type: "user-message", text: "Main question" },
       ...outer,
       ...inner,
       answer("after", "After the spawn"),
-    ]);
+    ];
+    const entries = toAgentSubagents(messages);
+    expect(toAgentTranscript(messages).map((entry) => entry.kind)).toEqual(["message", "message"]);
 
-    expect(entries.map((entry) => entry.kind)).toEqual([
-      "message",
-      "subagent",
-      "subagent",
-      "message",
-    ]);
-    expect(entries[1]!.subagent).toEqual({
+    expect(entries.map((entry) => entry.kind)).toEqual(["subagent", "subagent"]);
+    expect(entries[0]!.subagent).toEqual({
       completedAtMs: null,
       name: "name outer",
       startedAtMs: 1_000,
@@ -135,12 +132,12 @@ describe("subagent cards", () => {
       task: "task outer",
       via: null,
     });
-    expect(entries[2]!.subagent?.via).toBe("name outer");
-    expect(entries[1]!.streaming).toBe(true);
+    expect(entries[1]!.subagent?.via).toBe("name outer");
+    expect(entries[0]!.streaming).toBe(true);
   });
 
   it("takes its final state and completion time from the subagent's turn completion", () => {
-    const [entry] = toAgentTranscript([
+    const [entry] = toAgentSubagents([
       ...subagent("child", null),
       {
         providerId: "acp",
@@ -178,7 +175,7 @@ describe("subagents owned by a BTW", () => {
     expect(toAgentTranscript(messages)[0]!.asideActive).toBe(false);
   });
 
-  it("keeps child and descendant cards inside their own BTW in receive order", () => {
+  it("retains BTW children and descendants in the roster in receive order", () => {
     const messages: AgentPaneUpdate[] = [
       answer("main", "Main answer"),
       aside("first"),
@@ -197,25 +194,24 @@ describe("subagents owned by a BTW", () => {
       "Main answer",
       "first",
       "second",
-      "main-child",
       "Main continues",
     ]);
     const first = entries[1]!;
     expect(first.kind).toBe("aside");
     expect(first.asideActive).toBe(true);
-    expect(first.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
-      "first",
+    expect(first.asideEntries?.map((entry) => entry.text)).toEqual(["first"]);
+    const agents = toAgentSubagents(messages);
+    expect(agents.map((entry) => entry.conversationId)).toEqual([
       "child",
       "descendant",
+      "other",
+      "main-child",
     ]);
-    const child = first.asideEntries![1]!;
+    const child = agents[0]!;
     expect(child.subagent?.state).toBe("completed");
     expect(child.asideEntries?.some((entry) => entry.text === "Child result")).toBe(true);
-    expect(first.asideEntries![2]!.subagent?.via).toBe("name child");
-    expect(entries[2]!.asideEntries?.map((entry) => entry.conversationId ?? entry.text)).toEqual([
-      "second",
-      "other",
-    ]);
+    expect(agents[1]!.subagent?.via).toBe("name child");
+    expect(entries[2]!.asideEntries?.map((entry) => entry.text)).toEqual(["second"]);
   });
 });
 

@@ -12,14 +12,6 @@
   gap: 8px;
 }
 
-.agent-subagents-toggle .agent-disclosure-icon {
-  transition: transform 120ms;
-}
-
-.agent-subagents-toggle[aria-expanded="true"] .agent-disclosure-icon {
-  transform: rotate(90deg);
-}
-
 .agent-subagents-list {
   padding: 0 8px 8px;
 }

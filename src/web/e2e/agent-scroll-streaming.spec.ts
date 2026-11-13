@@ -616,6 +616,9 @@ test.describe("touch on iOS", () => {
     const { body } = pane;
     await stream(pane, "clamp-reply", 10);
     const viewport = page.viewportSize()!;
+    // Measure the top history before the gesture holds it; its initial virtual estimates can grow.
+    await body.press("Home");
+    await body.evaluate(untilStill);
     await send(body, "touchstart", true);
     // The finger rests at the very top, where a taller viewport clamps the scroll position.
     await body.evaluate((element) => {

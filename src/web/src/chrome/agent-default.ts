@@ -20,6 +20,7 @@ declare global {
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
+  progressDisplay: "latest",
   thoughtDisplay: "current",
   attachOnSelect: true,
   providers: [
@@ -56,6 +57,11 @@ export function agentReplyStartOffset(): number {
 /** The thought presentation selected on the session's own backend. */
 export function agentThoughtDisplay(backendId: string): AgentDefaults["thoughtDisplay"] {
   return byBackend().get(backendId)!.thoughtDisplay;
+}
+
+/** The progress presentation selected on the session's own backend. */
+export function agentProgressDisplay(backendId: string): AgentDefaults["progressDisplay"] {
+  return byBackend().get(backendId)!.progressDisplay;
 }
 
 /** Whether highlighting reply text on the session's own backend attaches it to the next prompt. */

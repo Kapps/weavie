@@ -533,7 +533,6 @@ a:has(> .agent-path-dir) {
   color: var(--accent);
 }
 
-.agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request,
 .agent-entry-subagent,
@@ -551,16 +550,9 @@ a:has(> .agent-path-dir) {
   border-left-color: var(--accent);
 }
 
+.agent-entry-updates,
 .agent-entry-activity {
-  border-left-color: color-mix(in srgb, var(--dim) 78%, transparent);
-  opacity: 0.86;
-}
-
-.agent-entry-activity .agent-entry-summary {
-  overflow: hidden;
-  color: var(--dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0 8px;
 }
 
 .agent-entry-request {
@@ -761,6 +753,14 @@ a:has(> .agent-path-dir) {
   text-overflow: ellipsis;
 }
 
+.agent-updates-toggle {
+  color: var(--dim);
+}
+
+.agent-updates-toggle[aria-expanded="true"] .ui-icon > svg {
+  transform: rotate(90deg);
+}
+
 .agent-thought[open] > summary .ui-icon > svg {
   transform: rotate(90deg);
 }
@@ -768,6 +768,31 @@ a:has(> .agent-path-dir) {
 .agent-thought-body {
   padding: 4px 8px 8px;
   overflow-wrap: anywhere;
+}
+
+.agent-activity-details {
+  margin: 0;
+  min-width: 0;
+}
+
+.agent-activity-details > summary {
+  display: flex;
+  align-items: baseline;
+  color: var(--dim);
+}
+
+.agent-activity-summary {
+  min-width: 0;
+}
+
+.agent-activity-summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-entry-activity.agent-tone-error > .agent-activity-details > summary {
+  color: var(--bad);
 }
 
 .agent-activity-list {

@@ -35,6 +35,7 @@ export function NestedTranscript(props: {
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onUpdatesToggle: (entryId: string, open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
   return (
@@ -54,6 +55,7 @@ export function NestedTranscript(props: {
               keyboardRequestKey={props.keyboardRequestKey}
               latestPromptTurn={null}
               onDetailsToggle={props.onDetailsToggle}
+              onUpdatesToggle={props.onUpdatesToggle}
               sectionLabel={null}
               session={props.session}
             />

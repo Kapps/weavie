@@ -6,7 +6,7 @@ import {
   type ClientSession,
   sessionResourceUrl,
 } from "../bridge";
-import { agentThoughtDisplay } from "../chrome/agent-default";
+import { agentProgressDisplay, agentThoughtDisplay } from "../chrome/agent-default";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -32,7 +32,11 @@ export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 const models = createSessionOwnedResource(
   (session) =>
     createRoot((dispose) => ({
-      ...createAgentPaneModel(session, () => agentThoughtDisplay(session.connection.id)),
+      ...createAgentPaneModel(
+        session,
+        () => agentThoughtDisplay(session.connection.id),
+        () => agentProgressDisplay(session.connection.id),
+      ),
       dispose,
     })),
   (_session, model) => model.dispose(),

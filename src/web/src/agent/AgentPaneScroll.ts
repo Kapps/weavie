@@ -292,6 +292,15 @@ export function createAgentPaneScroll(
 
   return {
     following,
+    /** Opening earlier updates is a reading action; keep its header where the reader clicked it. */
+    readFromRow(id: string): void {
+      const row = layout().rowOf(id);
+      if (row === undefined) return;
+      wheel.cancel();
+      pinned = false;
+      setFollowing(false);
+      anchor.reveal(row, position);
+    },
     holding: () => held() !== null,
     jumpToLatest,
     jumpToTurn,

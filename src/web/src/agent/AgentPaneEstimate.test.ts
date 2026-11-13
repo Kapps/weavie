@@ -54,16 +54,16 @@ describe("estimateEntrySize", () => {
   });
 
   it("treats non-assistant text as preformatted, one line per source line", () => {
-    const output = entry({ kind: "activity", tone: "activity", text: "a\nb\nc" });
+    const output = entry({ kind: "notice", tone: "system", text: "a\nb\nc" });
     expect(estimateEntrySize(output)).toBe(OTHER_CHROME + MONO_LINE * 3);
   });
 
   it("keeps an activity summary to one line however long the running command is", () => {
     const running = entry({ kind: "activity", tone: "activity", summary: "z".repeat(500) });
-    expect(estimateEntrySize(running)).toBe(OTHER_CHROME + PROSE_LINE);
+    expect(estimateEntrySize(running)).toBe(24);
   });
 
-  it("leaves room for a collapsed history toggle", () => {
+  it("does not reserve hidden history as scroll space", () => {
     const plain = entry({ kind: "activity", tone: "activity", summary: "ran a command" });
     const withDetails = entry({
       detailCount: 4,
@@ -71,7 +71,20 @@ describe("estimateEntrySize", () => {
       summary: "ran a command",
       tone: "activity",
     });
-    expect(estimateEntrySize(withDetails) - estimateEntrySize(plain)).toBe(MONO_LINE);
+    expect(estimateEntrySize(withDetails)).toBe(estimateEntrySize(plain));
+    const edits = entry({
+      ...withDetails,
+      label: "Edits",
+      details: Array.from({ length: 100 }, (_, index) => ({
+        id: `edit-${index}`,
+        category: "edit",
+        detailText: null,
+        label: `src/file-${index}.ts`,
+        status: null,
+        tone: "muted" as const,
+      })),
+    });
+    expect(estimateEntrySize(edits)).toBe(estimateEntrySize(plain));
   });
 
   it("memoizes per entry, since it runs for every unmeasured row on each pass", () => {

@@ -1,6 +1,6 @@
 import { createVirtualizer, type VirtualItem } from "@tanstack/solid-virtual";
 import { ArrowDown, ArrowUp } from "lucide-solid";
-import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { batch, createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -183,10 +183,18 @@ export function AgentTranscriptViewport(props: {
           expandedDetails={expandedDetails()}
           keyboardRequestKey={props.model.keyboardRequestKey()}
           onLayout={scroll.onLayout}
-          onDetailsToggle={(entryId, open) => {
-            props.model.setActivityExpanded(entryId, open);
-            setExpandedDetails((current) => toggleMember(current, entryId, open));
-          }}
+          onUpdatesToggle={(ownerId, entryId, open) =>
+            batch(() => {
+              scroll.readFromRow(ownerId);
+              props.model.setActivityExpanded(entryId, open);
+            })
+          }
+          onDetailsToggle={(entryId, open) =>
+            batch(() => {
+              props.model.setActivityExpanded(entryId, open);
+              setExpandedDetails((current) => toggleMember(current, entryId, open));
+            })
+          }
           providerName={props.providerName}
           session={props.model.session}
           transcript={scroll.shown()}

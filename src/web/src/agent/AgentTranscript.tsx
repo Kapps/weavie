@@ -13,6 +13,7 @@ export function AgentTranscript(props: {
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onUpdatesToggle: (ownerId: string, entryId: string, open: boolean) => void;
   onLayout: () => void;
   providerName: string;
   session: ClientSession;
@@ -105,6 +106,7 @@ export function AgentTranscript(props: {
                     keyboardRequestKey={props.keyboardRequestKey}
                     latestPromptTurn={latestPromptTurn()}
                     onDetailsToggle={props.onDetailsToggle}
+                    onUpdatesToggle={(id, open) => props.onUpdatesToggle(entry().id, id, open)}
                     sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
                     session={props.session}
                   />

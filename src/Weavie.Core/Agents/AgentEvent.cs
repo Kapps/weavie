@@ -69,6 +69,9 @@ public abstract record AgentMutation {
 public abstract record AgentToolEvent(AgentMutation Mutation) : AgentEvent {
 	/// <summary>Whether the provider still has an unanswered permission, input, or authentication request.</summary>
 	public bool RequiresUserInput { get; init; }
+
+	/// <summary>Whether the tool runs as background work, whose liveness <see cref="AgentBackgroundChanged"/> reports instead of a turn.</summary>
+	public bool Backgrounded { get; init; }
 }
 
 /// <summary>A tool is about to run.</summary>

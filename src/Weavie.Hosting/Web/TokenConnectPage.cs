@@ -6,7 +6,7 @@ namespace Weavie.Hosting.Web;
 
 /// <summary>Renders the shared browser token-entry surface.</summary>
 public static class TokenConnectPage {
-	/// <summary>Writes a no-store token form with an optional product icon.</summary>
+	/// <summary>Writes a no-store token form; given a product icon, the page also installs as the app from a phone Home Screen.</summary>
 	public static async Task WriteAsync(
 		HttpContext context,
 		string description,

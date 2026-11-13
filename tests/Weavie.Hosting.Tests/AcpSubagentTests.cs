@@ -82,11 +82,17 @@ public sealed class AcpSubagentTests {
 
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
 		Assert.True(Assert.Single(fixture.Session.BackgroundWork).Running);
+		var retirement = fixture.Events.BlockNext<AgentConversationRemoved>();
 		Signal(fixture, "release-subagent");
 
-		await fixture.WaitForMessageAsync(message => message.ConversationId == marker.ConversationId && message.Type == "turn-completed");
-		await fixture.Events.WaitForAsync(value => value is AgentBackgroundChanged { Running: false });
-		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+		try {
+			await retirement.Entered.WaitAsync(TimeSpan.FromSeconds(10));
+			await fixture.WaitForMessageAsync(message => message.ConversationId == marker.ConversationId && message.Type == "turn-completed");
+			await fixture.Events.WaitForAsync(value => value is AgentBackgroundChanged { Running: false });
+			Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+		} finally {
+			retirement.Release();
+		}
 	}
 
 	[Fact]

@@ -1,15 +1,17 @@
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { startsOnBrowserEdge } from "./browser-edge";
 import { SWIPE_INTENT_DISTANCE } from "./mobile-back-swipe";
+import { roomAbove, TOUCH_CONTROLS } from "./touch-drag-owner";
 
 const OPEN_DISTANCE = 64;
 
-/** Pulling from a native scroller's top or pane chrome opens commands on release. */
+/** Pulling down where nothing under the finger takes the drag opens commands on release. */
 export function createMobileCommandPull(callbacks: {
   canStart: () => boolean;
   onOpen: () => void;
 }) {
   const [hint, setHint] = createSignal("");
+  let scope: Element | null = null;
   let start: { x: number; y: number } | null = null;
   let claimed = false;
   let distance = 0;
@@ -21,9 +23,8 @@ export function createMobileCommandPull(callbacks: {
     setHint("");
   };
 
-  return {
-    hint,
-    onTouchStart(event: TouchEvent): void {
+  const handlers = {
+    touchstart(event: TouchEvent): void {
       reset();
       const touch = event.touches[0];
       if (
@@ -31,19 +32,23 @@ export function createMobileCommandPull(callbacks: {
         event.touches.length !== 1 ||
         touch === undefined ||
         startsOnBrowserEdge(touch.clientX) ||
-        touch.clientY < 32 ||
         !(event.target instanceof Element) ||
         window.getSelection()?.isCollapsed === false ||
-        !acceptsPull(event.target, event.currentTarget as Element)
+        !acceptsPull(event.target, scope)
       ) {
         return;
       }
       start = { x: touch.clientX, y: touch.clientY };
     },
-    onTouchMove(event: TouchEvent): void {
+    touchmove(event: TouchEvent): void {
       if (start === null) return;
       const touch = event.touches[0];
-      if (event.touches.length !== 1 || touch === undefined || !callbacks.canStart()) {
+      if (
+        event.defaultPrevented ||
+        event.touches.length !== 1 ||
+        touch === undefined ||
+        !callbacks.canStart()
+      ) {
         reset();
         return;
       }
@@ -65,7 +70,7 @@ export function createMobileCommandPull(callbacks: {
       distance = Math.max(0, dy);
       setHint(distance >= OPEN_DISTANCE ? "Release for commands" : "Pull for commands");
     },
-    onTouchEnd(event: TouchEvent): void {
+    touchend(event: TouchEvent): void {
       const touch = event.changedTouches[0];
       const open =
         claimed &&
@@ -79,21 +84,42 @@ export function createMobileCommandPull(callbacks: {
       reset();
       if (open) callbacks.onOpen();
     },
-    onTouchCancel: reset,
+    touchcancel: reset,
+  };
+  // On window, so a surface that took the drag has already said so by the time the pull sees it.
+  const listening = new AbortController();
+  for (const [type, handler] of Object.entries(handlers)) {
+    window.addEventListener(type, handler as EventListener, {
+      passive: false,
+      signal: listening.signal,
+    });
+  }
+  onCleanup(() => listening.abort());
+  return {
+    hint,
+    scope(element: Element): void {
+      scope = element;
+    },
   };
 }
 
-function acceptsPull(target: Element, boundary: Element): boolean {
-  // Monaco and xterm own virtual scrolling and selection; their headers still offer the gesture.
+function acceptsPull(target: Element, scope: Element | null): boolean {
+  // Monaco and xterm own their scrolling, so a pane head offers the pull across its tabs and buttons too.
+  const controls = target.closest(".pane-head, .pane-tabs") === null ? `, ${TOUCH_CONTROLS}` : "";
   if (
+    scope?.contains(target) !== true ||
     target.closest(
-      "button, a, input, textarea, select, summary, [contenteditable], [role='button'], [role='link'], [role='option'], [role='menuitem'], .monaco-editor, .xterm, .mobile-surface-bar, [data-agent-composer]",
+      `.monaco-editor, .xterm, .mobile-surface-bar, [data-agent-composer]${controls}`,
     ) !== null
   )
     return false;
-  for (let element: Element | null = target; element !== null; element = element.parentElement) {
-    if (element instanceof HTMLElement && element.scrollTop > 0) return false;
-    if (element === boundary) return true;
+  for (let element: Element = target; element !== scope; element = element.parentElement!) {
+    const style = getComputedStyle(element);
+    // A surface that pans itself, or a scroller with content above, takes a downward drag.
+    if (!/^(auto|manipulation)$|pan-(y|up|down)/.test(style.touchAction)) return false;
+    const bottomOrigin = style.display.endsWith("flex") && style.flexDirection === "column-reverse";
+    if (/^(auto|scroll)$/.test(style.overflowY) && roomAbove(element, bottomOrigin) > 1)
+      return false;
   }
-  return false;
+  return true;
 }

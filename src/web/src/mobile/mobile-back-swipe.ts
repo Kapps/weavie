@@ -1,4 +1,5 @@
 import { BROWSER_EDGE_WIDTH, startsOnBrowserEdge } from "./browser-edge";
+import { TOUCH_CONTROLS } from "./touch-drag-owner";
 
 const MIN_DISTANCE = 48;
 /** How far a touch travels before it commits to being a swipe. */
@@ -125,9 +126,7 @@ function acceptsBackSwipe(target: Element, startX: number): boolean {
   if (
     surface === null ||
     startsOnBrowserEdge(startX) ||
-    target.closest(
-      "button, a, input, textarea, select, summary, [contenteditable], [role='button'], [role='link'], [role='menuitem'], [role='option'], [tabindex]:not([tabindex='-1'])",
-    ) !== null
+    target.closest(`${TOUCH_CONTROLS}, [tabindex]:not([tabindex='-1'])`) !== null
   ) {
     return false;
   }

@@ -190,7 +190,7 @@ test("compact overlays and fullscreen retain the desktop dock", async ({ page })
   await files.getByRole("button", { name: /^Stay Open/ }).click();
   await expect(files).not.toHaveClass(/tool-floating/);
   await clickIntoEditor(page);
-  await page.keyboard.press("Alt+Shift+Enter");
+  await page.keyboard.press("ControlOrMeta+Shift+x");
   await expect(files).toBeHidden();
   await page.keyboard.press("ControlOrMeta+b");
   await expect(files).toBeVisible();

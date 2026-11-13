@@ -96,7 +96,7 @@ test.describe("AgentMarkdown transcript links", () => {
           aliases: [],
           showInPalette: true,
           when: "",
-          keys: ["alt+shift+enter"],
+          keys: ["$mod+shift+x"],
         } satisfies CommandInfo,
         {
           id: TOGGLE_MERMAID_COMMAND,
@@ -129,7 +129,7 @@ test.describe("AgentMarkdown transcript links", () => {
         ),
       ],
       keybindings: [
-        { key: "alt+shift+enter", command: FULLSCREEN_COMMAND },
+        { key: "$mod+shift+x", command: FULLSCREEN_COMMAND },
         { key: mermaidKey, command: TOGGLE_MERMAID_COMMAND, when: "agentFocused" },
         ...HISTORY_COMMANDS.map(({ id, key }) => ({ key, command: id })),
       ],
@@ -274,7 +274,7 @@ test.describe("AgentMarkdown transcript links", () => {
     // the explicit open selects the destination pane before trying to focus it.
     const composer = page.locator("[data-agent-composer] textarea");
     await composer.fill("Keep typing here");
-    await page.keyboard.press("Alt+Shift+Enter");
+    await page.keyboard.press("ControlOrMeta+Shift+x");
     await expect(page.locator(".pane-area.fullscreen")).toBeVisible();
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
     const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");

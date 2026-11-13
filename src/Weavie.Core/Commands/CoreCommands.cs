@@ -606,7 +606,7 @@ public static partial class CoreCommands {
 				+ "Switching panes keeps fullscreen; run again to restore the previous layout.",
 			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode",
 				"reading mode", "center pane", "focus mode"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+Enter" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+shift+x" }],
 		});
 
 		registry.Register(new CommandDefinition {

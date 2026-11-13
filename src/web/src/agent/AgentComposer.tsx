@@ -14,7 +14,7 @@ import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { commandUsage, recordCommandUsage, slashUsageId } from "../commands/usage-store";
+import { captureCommandUsage, commandUsage, slashUsageId } from "../commands/usage-store";
 import { MobileActionLabel } from "../mobile/MobileActionLabel";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
@@ -186,10 +186,13 @@ export function AgentComposer(props: {
       : { ...value, query: learnedQuery(action.entry) };
   };
   const runSlash = (session: ClientSession, entry: AgentSlashEntry, args: unknown) => {
-    const query = learnedQuery(entry);
+    const record = captureCommandUsage(
+      session.connection.id,
+      slashUsageId(session, entry),
+      learnedQuery(entry),
+    );
     void runCommandWithFeedback(entry.commandId!, args).then((result) => {
-      if (result.ok && !result.cancelled)
-        recordCommandUsage(session.connection.id, slashUsageId(session, entry), query);
+      if (result.ok && !result.cancelled) record();
     });
   };
 

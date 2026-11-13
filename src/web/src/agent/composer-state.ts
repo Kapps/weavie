@@ -1,5 +1,5 @@
 import { type ClientSession, registerSessionFeature } from "../bridge";
-import { recordCommandUsage, slashUsageId } from "../commands/usage-store";
+import { captureCommandUsage, slashUsageId } from "../commands/usage-store";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { encodeAgentImage, takePastedImages } from "./pasted-images";
@@ -40,7 +40,7 @@ export interface AgentComposerState {
   pendingSubmission: {
     id: string;
     draftRevision: number;
-    usage?: { id: string; query: string };
+    recordUsage?: () => void;
   } | null;
   error: string | null;
   // Whether a BTW reply box is open; an accepted reply closes it unless more was typed while it sent.
@@ -207,10 +207,11 @@ export function prepareSubmission(
       ...(invocation === null
         ? {}
         : {
-            usage: {
-              id: slashUsageId(owner.session, { ...invocation, commandId: null }),
-              query: invocation.query ?? invocation.name,
-            },
+            recordUsage: captureCommandUsage(
+              owner.session.connection.id,
+              slashUsageId(owner.session, { ...invocation, commandId: null }),
+              invocation.query ?? invocation.name,
+            ),
           }),
     },
     error: null,
@@ -328,8 +329,7 @@ export function settleSubmission(owner: ComposerOwner, message: SubmissionState)
     }));
     return;
   }
-  const usage = state.pendingSubmission.usage;
-  if (usage !== undefined) recordCommandUsage(owner.session.connection.id, usage.id, usage.query);
+  state.pendingSubmission.recordUsage?.();
   for (const attachment of state.attachments) {
     if (message.attachmentIds.includes(attachment.id)) {
       revoke(attachment);

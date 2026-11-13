@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession, HostConnection } from "../bridge";
 
 const bridge = vi.hoisted(() => ({
+  publish: vi.fn(),
   install: null as null | ((connection: HostConnection) => () => void),
 }));
 vi.mock("../bridge", () => ({
   registerHostFeature: (install: typeof bridge.install) => {
     bridge.install = install;
   },
-  hostConnection: vi.fn(),
+  hostConnection: () => ({ host: { feature: () => ({ publish: bridge.publish }) } }),
 }));
-const { commandUsage, slashUsageId } = await import("./usage-store");
+const { captureCommandUsage, commandUsage, slashUsageId } = await import("./usage-store");
 
 const week = 7 * 24 * 60 * 60 * 1000;
 const snapshot = {
@@ -73,6 +74,23 @@ describe("workspace command usage", () => {
     expect(commandUsage("backend")[0]?.weight).toBe(2);
     connection.dispose();
     expect(commandUsage("backend")).toEqual([]);
+  });
+
+  it("never learns a choice made while disabled even if execution finishes after re-enabling", () => {
+    const connection = host();
+    bridge.publish.mockClear();
+    connection.hello({ ...snapshot, enabled: false });
+    const disabledChoice = captureCommandUsage("backend", "review", "rev");
+    connection.change(snapshot);
+    disabledChoice();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    const enabledChoice = captureCommandUsage("backend", "review", "rev");
+    enabledChoice();
+    expect(bridge.publish).toHaveBeenCalledExactlyOnceWith("record", {
+      id: "review",
+      query: "rev",
+    });
+    connection.dispose();
   });
 
   it("separates providers while sharing Weavie command identities across pickers", () => {

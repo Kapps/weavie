@@ -19,7 +19,7 @@ import {
   onCommandsChanged,
 } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
-import { commandUsage, recordCommandUsage } from "../commands/usage-store";
+import { captureCommandUsage, commandUsage } from "../commands/usage-store";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import {
@@ -411,7 +411,7 @@ export function Omnibar(props: {
     // rather than close()+re-open, which races the reset and lands in plain file mode.
     const backend = getActiveCatalogBackendId();
     const learnedQuery = query().slice(1).trim();
-    const record = () => recordCommandUsage(backend, cmd.id, learnedQuery);
+    const record = captureCommandUsage(backend, cmd.id, learnedQuery);
     const focusMode = FOCUS_COMMAND_MODE[cmd.id];
     if (focusMode !== undefined) {
       record();

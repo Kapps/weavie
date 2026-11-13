@@ -40,8 +40,13 @@ export function commandUsage(backend: string): readonly CommandUsage[] {
   return snapshot.entries.map((entry) => ({ ...entry, weight: entry.weight * decay }));
 }
 
-export function recordCommandUsage(backend: string, id: string, query: string): void {
-  hostConnection(backend)?.host.feature("commandUsage").publish("record", { id, query });
+/** Capture the preference with the user's choice, before an asynchronous command can change it. */
+export function captureCommandUsage(backend: string, id: string, query: string): () => void {
+  const enabled = snapshots().get(backend)?.enabled === true;
+  return () => {
+    if (enabled)
+      hostConnection(backend)?.host.feature("commandUsage").publish("record", { id, query });
+  };
 }
 
 export function slashUsageId(

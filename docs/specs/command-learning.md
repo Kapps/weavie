@@ -59,7 +59,8 @@ also count. Shortcuts, model-invoked commands, and internal dispatches do not tr
 ## Controls
 
 `commands.learning` defaults to `true`. Disabling it stops recording and ignores retained history in
-both pickers. Re-enabling resumes learning. **Reset Command Learning** clears this workspace's history,
+both pickers. Each choice captures the preference before dispatch, so re-enabling cannot record an
+action selected while learning was disabled. Re-enabling resumes learning. **Reset Command Learning** clears this workspace's history,
 including query associations; it is a host-scoped command with no default keybinding and works even
 when no session is loaded.
 

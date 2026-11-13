@@ -41,7 +41,8 @@ vi.mock("../bridge", () => ({
 
 const learning = vi.hoisted(() => ({ record: vi.fn() }));
 vi.mock("../commands/usage-store", () => ({
-  recordCommandUsage: learning.record,
+  captureCommandUsage: (backend: string, id: string, query: string) => () =>
+    learning.record(backend, id, query),
   slashUsageId: (_session: ClientSession, entry: { kind: string; name: string }) =>
     `${entry.kind}:${entry.name}`,
 }));

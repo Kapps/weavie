@@ -51,6 +51,12 @@
   margin-right: 4px;
 }
 
+/* No text sits beside the card's count, so it centres on its arrows: its box is trimmed to its digits, without the
+   descender room that would lift them a pixel. */
+.weavie-pr-thread-actions .review-item-count {
+  text-box: trim-both cap alphabetic;
+}
+
 /* The item Next / Previous Comment or Hint is on. */
 .weavie-pr-card-current {
   --pr-line: var(--accent);

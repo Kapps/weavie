@@ -39,6 +39,24 @@ const hint: FakeStep = {
 
 test.use({ prScenario: true, fakeScript: { steps: [hint] } });
 
+// A text item's baseline: the bottom of an empty inline-block placed in it.
+const baselines = (root: Locator, selectors: string[]) =>
+  root.evaluate(
+    (element, sels) =>
+      sels.map((sel) => {
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0";
+        element.querySelector(sel)!.prepend(probe);
+        const y = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return y;
+      }),
+    selectors,
+  );
+const onOneBaseline = (values: number[]) =>
+  expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(0.5);
+const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
+
 const position = (page: Page): Locator =>
   page.locator(".unified-review-header .review-item-position > span");
 const next = (page: Page) => page.keyboard.press("ControlOrMeta+Alt+BracketRight");
@@ -142,24 +160,13 @@ test("a hovered hint's arrows step from that hint, and the header's from the cur
   // The hint is item 3; its popover's Next wraps to item 1, not to item 3 after the current item 2.
   await page.locator(".weavie-hint-pill").hover();
   await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
-  // The count reads on the line of the popover's own text: its box is trimmed to its digits, so its bottom edge is
-  // its baseline; the agent name's baseline is the bottom of an empty inline-block placed in it.
-  const countBaseline = await popover(page)
-    .locator(".review-item-count")
-    .evaluate((element) => element.getBoundingClientRect().bottom);
-  const nameBaseline = await popover(page)
-    .locator(".weavie-hint-who")
-    .evaluate((element) => {
-      const probe = document.createElement("span");
-      probe.style.cssText = "display:inline-block;width:0;height:0";
-      element.prepend(probe);
-      const y = probe.getBoundingClientRect().bottom;
-      probe.remove();
-      return y;
-    });
-  // Centred rather than on the name's baseline, the count lands within a pixel of it: 0.77px by geometry, 0.3px by
-  // the glyphs' ink, which is the alignment the eye reads.
-  expect(Math.abs(countBaseline - nameBaseline)).toBeLessThan(1);
+  // The count sits on the baseline of the popover's text, and its arrows on the centre of the popover's other icons.
+  onOneBaseline(await baselines(popover(page), [".review-item-count", ".weavie-hint-who"]));
+  const icon = async (name: string) =>
+    (await popover(page).getByRole("button", { name }).locator("svg").boundingBox())!;
+  const [arrow, dismiss] = [await icon("Next Comment or Hint"), await icon("Dismiss hint")];
+  expect(arrow.height).toBe(dismiss.height);
+  expect(Math.abs(centre(arrow) - centre(dismiss))).toBeLessThanOrEqual(0.5);
   await expect(position(page)).toHaveText("2 of 3");
   await popover(page).getByRole("button", { name: "Next Comment or Hint" }).click();
   await expect(position(page)).toHaveText("1 of 3");
@@ -340,28 +347,12 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   await expect(prCard(page, "Queued for the review.")).toBeVisible({ timeout: 10_000 });
 
   const header = page.locator(".unified-review-header");
-  // A text item's baseline: the bottom of an empty inline-block placed in it.
-  const baselines = (selectors: string[]) =>
-    header.evaluate(
-      (root, sels) =>
-        sels.map((sel) => {
-          const probe = document.createElement("span");
-          probe.style.cssText = "display:inline-block;width:0;height:0";
-          root.querySelector(sel)!.prepend(probe);
-          const y = probe.getBoundingClientRect().bottom;
-          probe.remove();
-          return y;
-        }),
-      selectors,
-    );
-  const onOneBaseline = (values: number[]) =>
-    expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(0.5);
 
   await runCommand(page, "Show Session Overview");
   await expect(header.locator(".unified-review-kicker")).toBeVisible();
   const topHeight = (await header.boundingBox())!.height;
   onOneBaseline(
-    await baselines([
+    await baselines(header, [
       ".unified-review-kicker",
       "strong",
       ".unified-review-added",
@@ -372,7 +363,7 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   await runCommand(page, "Next Comment or Hint");
   await expect(header.locator(".unified-review-identity-title")).toBeVisible();
   onOneBaseline(
-    await baselines([
+    await baselines(header, [
       ".unified-review-identity-title",
       ".unified-review-status",
       ".unified-review-failing",
@@ -381,7 +372,6 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   );
 
   // The state pill is a box, centred on the title's line.
-  const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
   const pill = (await header.locator(".session-overview-pill").boundingBox())!;
   const title = (await header.locator(".unified-review-identity-title").boundingBox())!;
   expect(Math.abs(centre(pill) - centre(title))).toBeLessThanOrEqual(0.5);

@@ -58,9 +58,3 @@
   font: var(--font-chrome-secondary);
   font-variant-numeric: tabular-nums;
 }
-
-/* Centred beside the arrows, the count's box is trimmed to its digits (cap height to baseline): an untrimmed box
-   holds descender room the digits never use, which sat them a pixel above the arrows. */
-.review-item-position:not(.unified-review-header *) .review-item-count {
-  text-box: trim-both cap alphabetic;
-}

@@ -2,7 +2,7 @@ import { MessageSquare, Plus } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { type ClientSession, onSelectedSession } from "../bridge";
-import { ModalShell, PromptButton } from "../chrome/ModalShell";
+import { modalActive, onModalOpened } from "../chrome/modal-state";
 import { insideOmnibar } from "../chrome/omnibar-controller";
 import { setContext } from "../commands/context";
 import { keyHintInCatalog } from "../commands/key-hint";
@@ -17,9 +17,16 @@ let releaseCurrent: (() => void) | null = null;
 export function createSelectionActions(host: HTMLElement, session: ClientSession) {
   let release: (() => void) | null = null;
   const clear = (): void => release?.();
-  const show = (selection: AgentSelection, point: { x: number; y: number }): void => {
+  const show = (
+    selection: AgentSelection,
+    point: { x: number; y: number },
+    preview: string,
+  ): void => {
     releaseCurrent?.();
-    if (session.closed) return;
+    if (session.closed || modalActive()) return;
+    const above = point.y > window.innerHeight / 2;
+    const inset = Math.max(8, above ? window.innerHeight - point.y + 24 : point.y + 4);
+    const previousFocus = document.activeElement;
     const root = document.createElement("div");
     document.body.append(root);
     const [commenting, setCommenting] = createSignal(false);
@@ -82,51 +89,42 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
             </div>
           }
         >
-          <ModalShell
-            title="Comment on Selection"
-            onDismiss={clear}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                event.stopPropagation();
-                clear();
-              }
-            }}
-            actions={
-              <>
-                <PromptButton label="Cancel" title="Cancel (Esc)" shortcut="Esc" onClick={clear} />
-                <PromptButton
-                  label="Add to context"
-                  title="Add to context"
-                  shortcut=""
-                  primary
-                  disabled={comment().trim().length === 0}
-                  onClick={attach}
-                />
-              </>
-            }
+          <section
+            class="selection-comment"
+            role="dialog"
+            aria-label="Comment on Selection"
+            style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
-            <pre class="selection-comment-excerpt">{selection.text}</pre>
+            <pre class="selection-comment-excerpt">{preview}</pre>
             <textarea
               class="selection-comment-input ui-field"
               aria-label="Comment"
-              rows={4}
+              placeholder="Comment"
+              rows={3}
               ref={(element) => queueMicrotask(() => element.focus())}
               value={comment()}
               onInput={(event) => setComment(event.currentTarget.value)}
             />
-          </ModalShell>
+            <div class="selection-comment-actions">
+              <button type="button" class="ui-button" title="Cancel (Esc)" onClick={clear}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="ui-button ui-button-primary"
+                disabled={comment().trim().length === 0}
+                onClick={attach}
+              >
+                Add to context
+              </button>
+            </div>
+          </section>
         </Show>
       ),
       root,
     );
     const onPress = (event: Event): void => {
-      if (
-        commenting() ||
-        root.contains(event.target as Node) ||
-        insideOmnibar(event.target as Node)
-      )
-        return;
+      if (root.contains(event.target as Node) || insideOmnibar(event.target as Node)) return;
       clear();
     };
     const onScroll = (event: Event): void => {
@@ -138,7 +136,11 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
         clear();
     };
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape" && !commenting()) clear();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        clear();
+      }
     };
     release = () => {
       if (releaseCurrent === release) releaseCurrent = null;
@@ -149,14 +151,18 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
       document.removeEventListener("pointerdown", onPress, true);
       document.removeEventListener("scroll", onScroll, true);
       document.removeEventListener("keydown", onKey);
+      const restoreFocus = root.contains(document.activeElement);
       unmount();
       root.remove();
+      if (restoreFocus && previousFocus instanceof HTMLElement && previousFocus.isConnected)
+        previousFocus.focus({ preventScroll: true });
     };
     releaseCurrent = release;
     document.addEventListener("pointerdown", onPress, true);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
   };
+  const offModal = onModalOpened(clear);
   const offSession = onSelectedSession((selected) => {
     if (selected !== session) clear();
   });
@@ -167,6 +173,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     dispose: () => {
       clear();
       offSession();
+      offModal();
       session.signal.removeEventListener("abort", clear);
     },
   };

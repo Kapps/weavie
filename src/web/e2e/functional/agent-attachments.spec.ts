@@ -19,6 +19,21 @@ test("reply selections require an action and retain independent comments and exc
   await highlight(page, first);
   await expect(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
   await expect(chips).toHaveCount(0);
+  const iconColors = await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .evaluate((toolbar) => {
+      const foreground = getComputedStyle(document.querySelector(".app")!).color;
+      return [...toolbar.querySelectorAll("svg")].map((icon) => ({
+        foreground,
+        stroke: getComputedStyle(icon).stroke,
+        width: icon.getBoundingClientRect().width,
+      }));
+    });
+  expect(iconColors).toHaveLength(2);
+  for (const icon of iconColors) {
+    expect(icon.stroke).toBe(icon.foreground);
+    expect(icon.width).toBeGreaterThan(0);
+  }
   await page.getByRole("button", { name: "Attach Selection to Prompt", exact: true }).click();
   await expect(chips).toHaveCount(1);
 
@@ -26,6 +41,7 @@ test("reply selections require an action and retain independent comments and exc
   await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
   await expect(dialog.locator("pre")).toHaveText("echo: delta echo foxtrot");
+  await expect(page.locator(".modal-backdrop")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Add to context", exact: true })).toBeDisabled();
   await dialog.getByRole("textbox", { name: "Comment", exact: true }).fill("discard this note");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -124,7 +140,7 @@ test("editor selections retain automatic context and can pin excerpts with sourc
   await page.keyboard.press("Shift+End");
   await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
-  await expect(dialog.locator("pre")).toContainText("notes.txt:1:1-1:16\njust plain text");
+  await expect(dialog.locator("pre")).toHaveText("notes.txt:1:1-1:16\njust plain text");
   await dialog
     .getByRole("textbox", { name: "Comment", exact: true })
     .fill("Rewrite this specification line");

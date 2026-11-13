@@ -29,10 +29,12 @@ export function connectSelectionActions(connection: TextEditorConnection): () =>
     const range = `${selection.startLineNumber}:${selection.startColumn}-${selection.endLineNumber}:${selection.endColumn}`;
     const source = `${path}:${range}`;
     const label = `${path.split(/[\\/]/).at(-1)}:${range}`;
+    const text = model.getValueInRange(selection);
     const rect = host.getBoundingClientRect();
     actions.show(
-      { label, text: `${source}\n${model.getValueInRange(selection)}` },
+      { label, text: `${source}\n${text}` },
       { x: rect.left + position.left, y: rect.top + position.top + position.height },
+      `${label}\n${text}`,
     );
   };
   const selection = editor.onDidChangeCursorSelection(() => {

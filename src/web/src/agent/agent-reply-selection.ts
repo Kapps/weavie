@@ -18,7 +18,7 @@ export function installReplySelection(host: HTMLElement, session: ClientSession)
     const text = selection.toString().trim();
     if (text.length === 0) return;
     const rect = selection.getRangeAt(0).getBoundingClientRect();
-    actions.show({ label: selectionLabel(text), text }, { x: rect.left, y: rect.bottom });
+    actions.show({ label: selectionLabel(text), text }, { x: rect.left, y: rect.bottom }, text);
   };
   host.addEventListener("pointerup", show);
   host.addEventListener("keyup", show);

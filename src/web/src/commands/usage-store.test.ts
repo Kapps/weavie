@@ -10,7 +10,6 @@ vi.mock("../bridge", () => ({
   },
   hostConnection: vi.fn(),
 }));
-vi.mock("../notify/notify", () => ({ notify: vi.fn() }));
 const { commandUsage, slashUsageId } = await import("./usage-store");
 
 const week = 7 * 24 * 60 * 60 * 1000;
@@ -27,14 +26,7 @@ beforeEach(() => {
 
 function host() {
   let changed!: (snapshot: unknown) => void;
-  let hello!: () => void;
-  let resolve!: (value: unknown) => void;
-  const request = vi.fn(
-    () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
-  );
+  let hello!: (value: { commandUsage: unknown }) => void;
   const connection = {
     id: "backend",
     host: {
@@ -43,10 +35,9 @@ function host() {
           changed = handler;
           return () => {};
         },
-        request,
       }),
     },
-    onHello: (handler: () => void) => {
+    onHello: (handler: typeof hello) => {
       hello = handler;
       return () => {};
     },
@@ -54,8 +45,7 @@ function host() {
   const dispose = bridge.install!(connection);
   return {
     change: (value: unknown) => changed(value),
-    hello: () => hello(),
-    resolve: (value: unknown) => resolve(value),
+    hello: (value: unknown) => hello({ commandUsage: value }),
     dispose,
   };
 }
@@ -73,17 +63,15 @@ describe("workspace command usage", () => {
     connection.dispose();
   });
 
-  it("does not let an in-flight initial snapshot overwrite a newer push or revive a closed backend", async () => {
+  it("replaces history on reconnect and clears it when the backend is removed", () => {
     const connection = host();
-    connection.hello();
+    connection.hello(snapshot);
+    expect(commandUsage("backend")[0]?.weight).toBe(2);
     connection.change({ ...snapshot, entries: [] });
-    connection.resolve(snapshot);
-    await Promise.resolve();
     expect(commandUsage("backend")).toEqual([]);
-    connection.hello();
+    connection.hello(snapshot);
+    expect(commandUsage("backend")[0]?.weight).toBe(2);
     connection.dispose();
-    connection.resolve(snapshot);
-    await Promise.resolve();
     expect(commandUsage("backend")).toEqual([]);
   });
 

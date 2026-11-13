@@ -29,18 +29,15 @@ test("an agent reply shows a workspace image in a fixed frame, from a same-origi
   await expect
     .poll(() => surface.locator(".agent-image").evaluate((element) => element.clientHeight))
     .toBe(240);
-  // A reply that finishes rendering can reinsert its image mid-drag; the crop keeps the frame it started on.
-  let box: { x: number; y: number; width: number; height: number } | null = null;
-  await expect(async () => {
-    await image.scrollIntoViewIfNeeded();
-    box = await image.boundingBox();
-    expect(box).not.toBeNull();
-  }).toPass();
-  box = box!;
-  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.1);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9, { steps: 4 });
-  await page.mouse.up();
+  // Scrolling can remount virtualized replies; let the locator resolve the actionable image at drag start.
+  const size = await image.evaluate((element) => ({
+    width: element.clientWidth,
+    height: element.clientHeight,
+  }));
+  await image.dragTo(image, {
+    sourcePosition: { x: size.width * 0.1, y: size.height * 0.1 },
+    targetPosition: { x: size.width * 0.9, y: size.height * 0.9 },
+  });
   await expect(
     surface.locator("[data-agent-composer] .agent-attachment:not(.agent-attachment-selection)"),
   ).toHaveCount(1);

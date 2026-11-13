@@ -346,6 +346,7 @@ public sealed partial class HostCore {
 			ResolvedTestProfile(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
+			BuildCommandUsage(),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
@@ -429,7 +430,7 @@ public sealed partial class HostCore {
 		string TestProfile,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
-		CommandCatalogSnapshot CommandCatalog);
+		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
 
 	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
 

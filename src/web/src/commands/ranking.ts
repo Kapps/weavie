@@ -7,6 +7,12 @@ export interface CommandUsage {
   lastUsed: number;
 }
 
+export interface CommandUsageSnapshot {
+  enabled: boolean;
+  halfLifeMilliseconds: number;
+  entries: CommandUsage[];
+}
+
 export interface CommandCandidate<T> {
   item: T;
   id: string;
@@ -22,6 +28,7 @@ export function rankCommands<T>(
   usage: readonly CommandUsage[],
 ) {
   const needle = query.trim().toLowerCase();
+  const terms = needle.split(/\s+/);
   const signals = new Map<string, { overall: number; query: number }>();
   for (const entry of usage) {
     const signal = signals.get(entry.id) ?? { overall: 0, query: 0 };
@@ -32,13 +39,7 @@ export function rankCommands<T>(
   const searchText = (candidate: CommandCandidate<T>) =>
     `${candidate.title} ${candidate.metadata} ${candidate.aliases.join(" ")}`;
   const texts = [
-    ...new Set(
-      candidates.flatMap((candidate) => [
-        candidate.title,
-        ...candidate.aliases,
-        searchText(candidate),
-      ]),
-    ),
+    ...new Set(candidates.flatMap((candidate) => [candidate.title, ...candidate.aliases])),
   ];
   const matches = new Map(
     needle === "" ? [] : new Fzf(texts).find(needle).map((match) => [match.item, match]),
@@ -54,8 +55,9 @@ export function rankCommands<T>(
           : [candidate.title, ...candidate.aliases]
               .map(fuzzy)
               .filter((match) => match !== undefined);
-      const metadata = needle === "" ? undefined : fuzzy(searchText(candidate));
-      if (needle !== "" && nameMatches.length === 0 && metadata === undefined) return [];
+      const searchable = searchText(candidate).toLowerCase();
+      const metadata = needle !== "" && terms.every((term) => searchable.includes(term));
+      if (needle !== "" && nameMatches.length === 0 && !metadata) return [];
       const tier =
         needle === "" || names.includes(needle)
           ? 0
@@ -65,10 +67,7 @@ export function rankCommands<T>(
               ? 2
               : 3;
       const signal = signals.get(candidate.id) ?? { overall: 0, query: 0 };
-      const textScore =
-        nameMatches.length === 0
-          ? (metadata?.score ?? 0)
-          : Math.max(...nameMatches.map((match) => match.score));
+      const textScore = Math.max(0, ...nameMatches.map((match) => match.score));
       return [
         {
           item: candidate.item,

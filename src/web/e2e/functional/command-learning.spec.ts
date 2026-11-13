@@ -114,9 +114,20 @@ test("nested slash completion retains both queries and excludes command argument
   await expect(surface.locator(".agent-slash-name").first()).toHaveText("/review <focus>");
 
   const stateRoot = join(weavie.home, ".weavie", "workspaces");
-  const [workspaceId] = await readdir(stateRoot);
-  if (workspaceId === undefined) throw new Error("The host did not create workspace state");
-  const serialized = await readFile(join(stateRoot, workspaceId, "command-usage.json"), "utf8");
+  const usageFiles = (
+    await Promise.all(
+      (
+        await readdir(stateRoot)
+      ).map(async (workspaceId) => {
+        const directory = join(stateRoot, workspaceId);
+        return (await readdir(directory)).includes("command-usage.json")
+          ? [join(directory, "command-usage.json")]
+          : [];
+      }),
+    )
+  ).flat();
+  expect(usageFiles).toHaveLength(1);
+  const serialized = await readFile(usageFiles[0]!, "utf8");
   const usage = JSON.parse(serialized);
   expect(usage).toEqual(
     expect.arrayContaining([

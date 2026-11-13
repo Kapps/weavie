@@ -867,6 +867,7 @@ export class MockHost {
       testProfile: "",
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
+      commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
       commandCatalog: this.commandCatalog,
     };
   }

@@ -52,6 +52,16 @@ describe("command ranking", () => {
     expect(rankCommands(candidates, "rev", [signal("Audit", "rev", 100)])[0]?.item).toBe("Review");
     expect(rankCommands(candidates, "inspect", [])[0]?.item).toBe("Audit");
   });
+  it("matches description terms without treating scattered prose letters as a command name", () => {
+    const candidates = [
+      candidate("review-pr"),
+      { ...candidate("clear"), metadata: "Clear the transcript and start a fresh conversation" },
+    ];
+    expect(rankCommands(candidates, "rev", []).map((row) => row.item)).toEqual(["review-pr"]);
+    expect(rankCommands(candidates, "fresh conversation", []).map((row) => row.item)).toEqual([
+      "clear",
+    ]);
+  });
   it("keeps title highlight positions and deterministic ties", () => {
     const rows = rankCommands([candidate("Reload"), candidate("Review")], "re", []);
     expect(rows.map((row) => row.item)).toEqual(["Reload", "Review"]);

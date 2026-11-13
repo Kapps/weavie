@@ -24,7 +24,8 @@ unavailable command appear. Both pickers use the same ranking function:
 1. Exact title/name or alias.
 2. Title/name or alias prefix.
 3. Fuzzy title/name or alias match.
-4. Metadata match (palette category or slash description).
+4. Word-fragment matches across title and metadata (palette category or slash description).
+   Description prose does not participate in fuzzy matching.
 
 Within a tier, fuzzy score receives bounded boosts for usage and choices for the normalized query.
 Query learning has the stronger boost, and both fade as their decayed weights decrease. Empty input ranks by decayed usage. Ties sort by title, then identity. Title highlighting
@@ -40,7 +41,8 @@ product's proprietary algorithm.
 
 `CommandUsageStore` persists under the workspace state directory in `command-usage.json` using atomic,
 source-generated JSON. HostCore owns the store and publishes snapshots to connected clients. Each
-client keeps history keyed by backend; reconnect reloads it. Filesystem failures surface as failures,
+client keeps history keyed by backend; the connection handshake supplies its initial history and
+reconnect replaces it without a separate request. Filesystem failures surface as failures,
 not successful learning updates.
 
 Weavie commands share their command id across palette and slash entry points. Provider commands use

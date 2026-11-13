@@ -23,9 +23,6 @@ public sealed partial class HostCore {
 
 	private void WireCommandUsage() {
 		var feature = _messages.Host.Feature("commandUsage");
-		feature.Handle("get", MessageActivity.ActionFailed("Loading command learning"),
-			WireJson.Default.EmptyPayload, WireJson.Default.CommandUsageSnapshot,
-			(_, _) => Task.FromResult(BuildCommandUsage()));
 		feature.Handle("record", MessageActivity.ActionFailed("Saving command learning"),
 			WireJson.Default.RecordCommandUsage, (message, _) => {
 				if (_settings.RequireBool(CoreSettings.CommandLearning) && message.Id != CoreCommands.ResetCommandLearning) {

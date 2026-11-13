@@ -5,40 +5,24 @@ import {
   hostConnection,
   registerHostFeature,
 } from "../bridge";
-import { notify } from "../notify/notify";
-import type { CommandUsage } from "./ranking";
+import type { CommandUsage, CommandUsageSnapshot } from "./ranking";
 
-interface UsageSnapshot {
-  enabled: boolean;
-  halfLifeMilliseconds: number;
-  entries: CommandUsage[];
-}
 const [snapshots, setSnapshots] = createSignal(
-  new Map<string, UsageSnapshot & { receivedAt: number }>(),
+  new Map<string, CommandUsageSnapshot & { receivedAt: number }>(),
 );
-const apply = (backend: string, snapshot: UsageSnapshot) =>
+const apply = (backend: string, snapshot: CommandUsageSnapshot): void => {
   setSnapshots((previous) =>
     new Map(previous).set(backend, { ...snapshot, receivedAt: performance.now() }),
   );
+};
 
 registerHostFeature((connection) => {
   const feature = connection.host.feature("commandUsage");
-  let revision = 0;
-  const offChanged = feature.on<UsageSnapshot>("changed", (snapshot) => {
-    revision++;
-    apply(connection.id, snapshot);
-  });
-  const offHello = connection.onHello(() => {
-    const requested = ++revision;
-    void feature
-      .request<UsageSnapshot>("get", {})
-      .then((snapshot) => {
-        if (revision === requested) apply(connection.id, snapshot);
-      })
-      .catch((error) => notify("warn", `Could not load command learning: ${String(error)}`));
-  });
+  const offChanged = feature.on<CommandUsageSnapshot>("changed", (snapshot) =>
+    apply(connection.id, snapshot),
+  );
+  const offHello = connection.onHello((hello) => apply(connection.id, hello.commandUsage));
   return () => {
-    revision++;
     offChanged();
     offHello();
     setSnapshots((previous) => {

@@ -172,6 +172,18 @@ public sealed record AgentBlockRequest {
 
 	/// <summary>Points or rows to add to the current block.</summary>
 	public AgentBlockAppend? Append { get; init; }
+
+	/// <summary>The dashboard a shown block joins; refused on an update.</summary>
+	public AgentDashboardRequest? Dashboard { get; init; }
+}
+
+/// <summary>A dashboard named by the block that joins it; the first block to name it sets its title.</summary>
+public sealed record AgentDashboardRequest {
+	/// <summary>The dashboard id, unique within its conversation.</summary>
+	public required string Id { get; init; }
+
+	/// <summary>The dashboard's title.</summary>
+	public required string Title { get; init; }
 }
 
 /// <summary>Data appended to a block.</summary>
@@ -197,8 +209,8 @@ public sealed record AgentChartSeriesPoints {
 
 /// <summary>A validated block tool call, applied when the call's transcript row is claimed.</summary>
 public abstract record AgentBlockOperation(string Id) {
-	/// <summary>Shows a new block.</summary>
-	public sealed record Show(AgentBlock Block) : AgentBlockOperation(Block.Id);
+	/// <summary>Shows a new block, in <paramref name="Dashboard"/> when it names one.</summary>
+	public sealed record Show(AgentBlock Block, AgentDashboardRequest? Dashboard) : AgentBlockOperation(Block.Id);
 
 	/// <summary>Changes an existing block.</summary>
 	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id);

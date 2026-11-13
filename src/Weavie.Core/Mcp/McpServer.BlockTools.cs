@@ -68,12 +68,16 @@ public sealed partial class McpServer {
 		JsonObject Tool(string name, string description, JsonObject schema) =>
 			new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 		var show = Tool(ShowBlockTool,
-			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table; use a markdown table for a small static one. Give it an id to change it later with updateBlock. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
+			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table; use a markdown table for a small static one. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
 			Object(new JsonObject {
 				["id"] = Described(Text(), AgentBlockRules.IdRule + "; unique in this conversation."),
 				["title"] = Text(),
 				["chart"] = Chart(),
 				["table"] = Table(),
+				["dashboard"] = Described(Object(new JsonObject {
+					["id"] = Described(Text(), AgentBlockRules.IdRule + "; the same id on every block of one dashboard."),
+					["title"] = Described(Text(), "Set by the first block that names the dashboard."),
+				}, "id", "title"), "The dashboard this block joins, created by the first block that names it."),
 			}, "id", "title"));
 		var update = Tool(UpdateBlockTool,
 			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention. When updating blocks is all a turn did, reply with exactly " + AgentNoReply.Text + " and nothing else; Weavie shows no reply for it.",
@@ -91,6 +95,15 @@ public sealed partial class McpServer {
 		return show.ToJsonString() + "," + update.ToJsonString();
 	}
 
+	// Read before staging, so a parallel call that will create the dashboard still reads as creating it.
+	private static string Joined(AgentBlockClaims blocks, AgentDashboardRequest? dashboard) {
+		if (dashboard is null) return "";
+		string? standing = blocks.Dashboard(dashboard.Id)?.Summary ?? blocks.StagedTitle(dashboard.Id);
+		return standing is null
+			? $" Created dashboard '{dashboard.Id}' (\"{dashboard.Title}\") with it."
+			: $" Added to dashboard '{dashboard.Id}' (\"{standing}\").";
+	}
+
 	private async Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) {
 		string text;
 		try {
@@ -102,10 +115,10 @@ public sealed partial class McpServer {
 			var request = JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest)
 				?? throw new AgentBlockException("The arguments must be an object.");
 			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
-			string kind = operation is AgentBlockOperation.Show shown ? shown.Block.Kind : "Block";
-			text = call.Blocks.Stage(operation) + (show
-				? $" The {kind} '{request.Id}' is shown to the user. Don't repeat its data; change it with updateBlock."
-				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.");
+			text = operation is AgentBlockOperation.Show shown
+				? $" The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
+				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.";
+			text = call.Blocks.Stage(operation) + text;
 		} catch (JsonException ex) {
 			await SendToolErrorAsync(responder, idRaw, $"Invalid {(show ? ShowBlockTool : UpdateBlockTool)} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
 			return;

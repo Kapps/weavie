@@ -9,6 +9,7 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentControls,
 	IStructuredAgentUsage,
 	IStructuredAgentSideConversations,
+	IStructuredAgentCards,
 	IStructuredAgentBackgroundWork {
 	private readonly AgentSessionContext _context;
 	private AcpAgentDefinition _definition => _runtime.Definition;

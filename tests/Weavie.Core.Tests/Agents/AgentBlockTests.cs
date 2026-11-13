@@ -42,6 +42,39 @@ public sealed class AgentBlockTests {
 		Assert.ThrowsAny<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest));
 
 	[Fact]
+	public void ADashboardIsNamedOnShowOnly() {
+		var show = Assert.IsType<AgentBlockOperation.Show>(AgentBlockRules.Validate(
+			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "rollout", Title = " Checkout rollout " } }, null, show: true));
+		Assert.Equal(new AgentDashboardRequest { Id = "rollout", Title = "Checkout rollout" }, show.Dashboard);
+
+		Assert.Equal("dashboard.id must be 1-64 letters, digits, '.', '_' or '-'.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
+			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "roll out", Title = "t" } }, null, show: true)).Message);
+		Assert.Equal("dashboard.title must not be empty.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
+			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "rollout", Title = " " } }, null, show: true)).Message);
+		Assert.StartsWith("updateBlock cannot move a block into a dashboard", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
+			new() { Id = "p95", Chart = Line, Dashboard = new() { Id = "rollout", Title = "t" } }, show.Block, show: false)).Message);
+	}
+
+	[Fact]
+	public void TheFirstBlockCreatesTheDashboardRow_AndALaterTurnsBlockCarriesItsLine() {
+		var dashboard = new AgentDashboardRequest { Id = "rollout", Title = "Checkout rollout" };
+		var row = new AgentPaneMessage { Type = "item-completed", ProviderId = "p", ThreadId = "t", TurnId = "7", ItemId = "tool:1", ItemType = "block", BlockId = "p95" };
+
+		var created = AgentDashboards.Rows(null, dashboard, row);
+		Assert.Equal(2, created.Count);
+		Assert.True(AgentDashboards.IsMarker(created[0], "rollout"));
+		Assert.Equal(("t", "7", "Checkout rollout"), (created[0].ThreadId, created[0].TurnId, created[0].Summary));
+		Assert.Equal(("dashboard:rollout", (string?)null), (created[1].ParentItemId, created[1].Text));
+
+		var sameTurn = Assert.Single(AgentDashboards.Rows(created[0], dashboard with { Title = "ignored" }, row with { ItemId = "tool:2" }));
+		Assert.Null(sameTurn.Text);
+		var later = Assert.Single(AgentDashboards.Rows(created[0], dashboard, row with { ItemId = "tool:3", TurnId = "12" }));
+		Assert.Equal(("dashboard:rollout", "added to Checkout rollout"), (later.ParentItemId, later.Text));
+		Assert.Equal("dashboard:rollout@", AgentDashboards.TabPath(null, "rollout"));
+		Assert.Equal("dashboard:rollout@side", AgentDashboards.TabPath("side", "rollout"));
+	}
+
+	[Fact]
 	public void TooManyPointsIsRefusedWithTheLimit() {
 		var points = Enumerable.Range(0, AgentBlockLimits.Points + 1).Select(index => (IReadOnlyList<AgentBlockValue>)[new(index, null), new(index, null)]).ToList();
 		var chart = Line with { X = new() { Type = "number" }, Series = [new() { Name = "s", Points = points }] };
@@ -70,7 +103,7 @@ public sealed class AgentBlockTests {
 		Assert.Equal([2.0, 3.0], updated.Chart!.Series[0].Points.Select(point => point[1].Number!.Value));
 		Assert.Equal(42, updated.UpdatedAtMs);
 		Assert.Null(AgentBlockRules.Apply(null, append, 42));
-		Assert.Null(AgentBlockRules.Apply(updated, new AgentBlockOperation.Show(shown), 42));
+		Assert.Null(AgentBlockRules.Apply(updated, new AgentBlockOperation.Show(shown, null), 42));
 	}
 
 	[Fact]
@@ -107,7 +140,7 @@ public sealed class AgentBlockTests {
 	[Fact]
 	public void ClaimsAreSingleUseAndFoundInAnyRelayShape() {
 		var claims = new AgentBlockClaims();
-		var operation = new AgentBlockOperation.Show(new() { Id = "a", Title = "a" });
+		var operation = new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, null);
 		string token = claims.Stage(operation);
 
 		Assert.Null(claims.Take("weavie-block:" + new string('0', 32), null));
@@ -119,8 +152,9 @@ public sealed class AgentBlockTests {
 		Assert.Single(claims.Drain());
 		Assert.Empty(claims.Drain());
 		Assert.Throws<ToolUnavailableException>(() => claims.Find("a"));
-		claims.Bind(_ => null);
-		Assert.Throws<InvalidOperationException>(() => claims.Bind(_ => null));
+		Assert.Throws<ToolUnavailableException>(() => claims.Dashboard("d"));
+		claims.Bind(_ => null, _ => null);
+		Assert.Throws<InvalidOperationException>(() => claims.Bind(_ => null, _ => null));
 	}
 
 	[Fact]
@@ -133,10 +167,33 @@ public sealed class AgentBlockTests {
 		var baseline = output.ReadHistory(null, null);
 		Assert.Single(baseline.Blocks);
 
-		output.WriteBlock(state, row with { Type = "item-completed" }, () => { });
+		output.WriteBlock(state, [row with { Type = "item-completed" }], () => { });
 		Assert.Single(output.ReadHistory(baseline.Generation, baseline.Revision).Blocks);
 		output.Write(new() { Type = "item-retracted", ProviderId = "p", TurnId = "1", ItemId = "tool:1" }, () => { });
 		Assert.Null(output.Block("p", null, "a"));
+	}
+
+	[Fact]
+	public void StagedShowsNameTheDashboardTheyWillCreate() {
+		var claims = new AgentBlockClaims();
+		claims.Stage(new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, new() { Id = "rollout", Title = "Checkout rollout" }));
+		Assert.Equal("Checkout rollout", claims.StagedTitle("rollout"));
+		Assert.Null(claims.StagedTitle("other"));
+	}
+
+	[Fact]
+	public void TheOutputFindsALiveDashboardRowOnly() {
+		var output = new ConversationOutput(new NullSink());
+		var marker = new AgentPaneMessage { Type = "item-completed", ProviderId = "p", TurnId = "1", ItemId = "dashboard:d", ItemType = AgentDashboards.ItemType, Summary = "D" };
+		var member = new AgentPaneMessage { Type = "item-completed", ProviderId = "p", TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "a", ParentItemId = "dashboard:d" };
+		output.WriteBlock(new("p", null, new() { Id = "a", Title = "a" }), [marker, member], () => { });
+
+		Assert.Equal("D", output.View("p", null).Dashboard("d")?.Summary);
+		Assert.Null(output.View("p", "side").Dashboard("d"));
+		output.Write(new() { Type = AgentDashboards.Collapsed, ProviderId = "p", TurnId = "1", ItemId = "dashboard:d", Status = "collapsed" }, () => { });
+		Assert.Equal("D", output.View("p", null).Dashboard("d")?.Summary);
+		output.Write(new() { Type = "item-retracted", ProviderId = "p", TurnId = "1", ItemId = "dashboard:d" }, () => { });
+		Assert.Null(output.View("p", null).Dashboard("d"));
 	}
 
 	private sealed class NullSink : IConversationOutputSink {

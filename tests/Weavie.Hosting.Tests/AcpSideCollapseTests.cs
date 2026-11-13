@@ -12,16 +12,35 @@ public sealed class AcpSideCollapseTests {
 		string side = started.ConversationId!;
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId == side);
 
-		fixture.Session.SetAsideCollapsed(side, collapsed: true);
+		fixture.Session.SetCardCollapsed(new(side, null), collapsed: true);
 		var collapsed = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-collapsed");
-		fixture.Session.SetAsideCollapsed(side, collapsed: false);
-		fixture.Session.SetAsideCollapsed(side, collapsed: true);
+		fixture.Session.SetCardCollapsed(new(side, null), collapsed: false);
+		fixture.Session.SetCardCollapsed(new(side, null), collapsed: true);
 
 		Assert.Equal(side, collapsed.ConversationId);
 		Assert.Equal(started.AnchorTurnId, collapsed.AnchorTurnId);
 		Assert.Equal(["collapsed", "expanded", "collapsed"], fixture.Sessions.ReadMessages("fake", fixture.Workspace)
 			.Where(message => message.Type == "side-conversation-collapsed" && message.ConversationId == side)
 			.Select(message => message.Status));
-		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetAsideCollapsed("missing", collapsed: true));
+		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetCardCollapsed(new("missing", null), collapsed: true));
+		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetCardCollapsed(new(null, null), collapsed: true));
+	}
+
+	[Fact]
+	public async Task ADashboardsCollapseIsJournalledInItsOwnConversation() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		const string Chart = """{"id":"p95","title":"p95","dashboard":{"id":"rollout","title":"Rollout"},"chart":{"kind":"line","x":{"type":"number"},"series":[{"name":"s","points":[[1,2]]}]}}""";
+		fixture.Submit("block:claude:showBlock:" + Chart);
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");
+		fixture.AskAside("block:claude:showBlock:" + Chart);
+		var side = await fixture.WaitForMessageAsync(message => message.ConversationId is not null && message.ItemType == Weavie.Core.Agents.AgentDashboards.ItemType);
+
+		fixture.Session.SetCardCollapsed(new(null, "rollout"), collapsed: true);
+		fixture.Session.SetCardCollapsed(new(side.ConversationId, "rollout"), collapsed: false);
+
+		var rows = fixture.Sessions.ReadMessages("fake", fixture.Workspace).Where(message => message.Type == Weavie.Core.Agents.AgentDashboards.Collapsed).ToList();
+		Assert.Equal([(null, "collapsed"), (side.ConversationId, "expanded")], rows.Select(row => (row.ConversationId, row.Status)));
+		Assert.All(rows, row => Assert.Equal(("dashboard:rollout", (string?)null), (row.ItemId, row.Summary)));
+		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetCardCollapsed(new(null, "missing"), collapsed: true));
 	}
 }

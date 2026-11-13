@@ -167,7 +167,10 @@ public static partial class CoreCommands {
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
 
-	/// <summary>Attaches the text highlighted in an agent reply to that session's next prompt.</summary>
+	/// <summary>Comment on highlighted reply or editor text.</summary>
+	public const string CommentAgentSelection = "weavie.agent.commentSelection";
+
+	/// <summary>Attaches highlighted reply or editor text to the next prompt.</summary>
 	public const string AttachAgentSelection = "weavie.agent.attachSelection";
 
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
@@ -1214,8 +1217,18 @@ public static partial class CoreCommands {
 			Title = "Attach Selection to Prompt",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Attach the text highlighted in an agent reply to the next prompt, for when agent.attachOnSelect is off.",
+			Description = "Attach highlighted reply or editor text to the next prompt.",
 			Aliases = ["attach selection", "quote selection", "attach highlighted text"],
+			When = "agentSelectionAttachable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CommentAgentSelection,
+			Title = "Comment on Selection",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Attach highlighted reply or editor text with a comment to the next prompt.",
+			Aliases = ["comment selection", "annotate selection"],
 			When = "agentSelectionAttachable",
 		});
 

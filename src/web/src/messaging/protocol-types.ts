@@ -85,7 +85,6 @@ export interface AgentDefaults {
   thoughtDisplay: "all" | "current" | "collapsed";
   progressDisplay: "latest" | "all";
   /** Whether highlighting reply text attaches it to the next prompt. */
-  attachOnSelect: boolean;
   providers: AgentProviderInfo[];
 }
 

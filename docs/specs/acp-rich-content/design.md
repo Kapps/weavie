@@ -7,7 +7,7 @@ relay was confirmed on raw frames from claude-agent-acp 0.102.0 and codex-acp 2.
 
 **What changes for the user.** An agent's reply can contain a chart or a table that Weavie draws in the
 pane's own colours and fonts, and that the agent can change in place later. Images the agent references
-appear inline. Dragging across a chart, clicking table cells, boxing part of an image, or highlighting
+appear inline. Dragging across a chart, clicking table cells, boxing part of an image, or explicitly attaching highlighted
 reply text puts that selection in the composer as an attachment, next to pasted images; the agent receives
 exactly what was selected.
 
@@ -34,8 +34,9 @@ exactly what was selected.
    allow" once ends the cards.
 3. **An update costs a little saved history:** two or three small journal events with no data in them and
    one invisible retracted row, about 1 MB a day at one update a minute. Compaction is later work.
-4. **Highlight attaches immediately**, with the setting `agent.attachOnSelect` (default on) because
-   highlighting text is also how it is copied; when off, the command *Attach Selection to Prompt* does it.
+4. **Highlight offers actions**: *Attach Selection to Prompt* pins an excerpt; *Comment on Selection*
+   attaches it with a comment. Each selection is independent. Editor selections offer the same actions
+   with file and range provenance, while retaining automatic active-selection context.
 
 ## Where the brief meets the code awkwardly
 
@@ -284,7 +285,7 @@ Changed:
 | `AgentPaneHistory` | `IReadOnlyList<AgentBlockRecord> Blocks` |
 | `AcpSessionStore` | `SaveBlock`, `DeleteBlock`, `ReadBlocks`; `Replace` and `ClearWorkspace` prune |
 | `AgentInputAttachment` | Becomes `abstract` with `Image(Path, Mime)` and `Selection(Label, Text)` cases, as `AgentMutation` is shaped |
-| `AgentSettings` / `CoreSettings` | `agent.remoteImages`, `agent.attachOnSelect`, both `SettingKind.Bool`, `ApplyMode.Live`, default true |
+| `AgentSettings` / `CoreSettings` | `agent.remoteImages`, `SettingKind.Bool`, `ApplyMode.Live`, default true |
 
 ### ACP (`src/Weavie.AgentClientProtocol`)
 
@@ -511,7 +512,7 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 | Chart | Drag a range, or click a point | Text: title, id, range, a CSV of the selected points |
 | Table | Click or shift-click cells, rows, columns | Text: title, id, a CSV of the selection with its header |
 | Image, diagram | Drag a box | Image: the cropped region |
-| Reply text or code | Highlight | Text: the highlighted text |
+| Reply text or code | Highlight, then attach or comment | Text: the highlighted text |
 
 - The text is composed on the web at selection time, so it holds the values as they were.
 - Host: `AcceptAgentSubmission` appends `Selection` attachments and rejects an oversized one through
@@ -519,8 +520,9 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
   `EmitSubmitted` journals a `user-selection` row (`Summary` = label, `Text`), shown as a one-line chip.
 - `RequireImageSupport` and terminal delivery consider only `Image` attachments.
 - Command `weavie.agent.attachSelection` (*Attach Selection to Prompt*, web, unbound), registered by the
-  reply that holds the text selection, with `When = "agentSelectionAttachable"`. With
-  `agent.attachOnSelect` on, the same handler runs when the highlight gesture ends.
+  selected reply or editor, with `When = "agentSelectionAttachable"`. A completed highlight offers
+  this action and `weavie.agent.commentSelection` (*Comment on Selection*) in a toolbar. Comments
+  travel with their captured excerpt as a selection attachment.
 - Command `weavie.agent.attachBlock` (*Attach Block to Prompt*, web, unbound) attaches a whole chart or table. The
   block owns it while focus is inside it, and its header button shows the shortcut.
 
@@ -626,7 +628,7 @@ agent exercise the whole path.
 | Rasterizing a Mermaid diagram for a region crop | Fonts fall back inside an SVG image | Inline computed styles and the font before drawing; if WebKit still differs, diagram regions are cut and reported |
 | Kind-only table height | A short table leaves empty space | Small static tables are markdown tables by guidance |
 | Chart row above the viewport updating | Reader position | Height never changes; the chart redraws inside its frame |
-| Auto-attach on highlight | Chips from copying text | `agent.attachOnSelect` |
+| Highlighting reply text | Copying must not add context | Explicit attach/comment actions |
 | Files already past 300 lines (`McpServer.cs` 938, `AgentTranscriptEntry.tsx` 335, `composer-state.ts` 357, `AgentPaneMessages.ts` 350) | Size rule | New code in new files; these take hook lines only |
 
 ## Build checklist

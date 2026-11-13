@@ -1,83 +1,155 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-test("highlighting reply text attaches it, and the agent receives it with the prompt", async ({
+test("reply selections require an action and retain independent comments and excerpts", async ({
   page,
 }) => {
   const surface = await createAcpSession(page, "attach-selection");
   await submitAcpDraft(surface, "alpha bravo charlie");
-  const reply = surface.locator(".agent-markdown", { hasText: "echo: alpha bravo charlie" });
-  await expect(reply).toBeVisible();
+  await submitAcpDraft(surface, "delta echo foxtrot");
+  const first = surface.locator(".agent-markdown", { hasText: "echo: alpha bravo charlie" });
+  const second = surface.locator(".agent-markdown", { hasText: "echo: delta echo foxtrot" });
+  await expect(second).toBeVisible();
+  const chips = surface.locator("[data-agent-composer] .agent-attachment-selection");
 
-  await highlight(page, reply);
+  await highlight(page, first);
+  await expect(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+  await expect(chips).toHaveCount(0);
+  await page.getByRole("button", { name: "Attach Selection to Prompt", exact: true }).click();
+  await expect(chips).toHaveCount(1);
 
-  const chip = surface.locator("[data-agent-composer] .agent-attachment-selection");
-  await expect(chip).toHaveCount(1);
-  await expect(chip).toContainText("echo: alpha bravo charlie");
+  await highlight(page, second);
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
+  await expect(dialog.locator("pre")).toHaveText("echo: delta echo foxtrot");
+  await expect(dialog.getByRole("button", { name: "Add to context", exact: true })).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "Comment", exact: true }).fill("discard this note");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(chips).toHaveCount(1);
 
-  await submitAcpDraft(surface, "why?");
+  await highlight(page, second);
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  await dialog
+    .getByRole("textbox", { name: "Comment", exact: true })
+    .fill("Explain the second phrase");
+  await dialog.getByRole("button", { name: "Add to context", exact: true }).click();
+  await expect(chips).toHaveCount(2);
+  await expect(chips.nth(0)).toContainText("echo: alpha bravo charlie");
+  await expect(chips.nth(1)).toContainText("Explain the second phrase");
 
-  await expect(
-    surface.locator(".agent-markdown", {
-      hasText: "Attached selection (echo: alpha bravo charlie):",
-    }),
-  ).toBeVisible();
-  await expect(chip).toHaveCount(0);
-  // The prompt's own selection row, not the agent's echo of it: only the row has the disclosure.
-  const row = surface
-    .locator(".agent-entry")
-    .filter({ has: page.locator(".agent-request-details") })
-    .last();
-  await row.getByText("show selection").click();
-  await expect(row.locator("pre")).toHaveText("echo: alpha bravo charlie");
-
-  // Highlighting the same text again, after the highlight is gone, is a new selection, so it attaches again.
-  await page.evaluate(() => document.getSelection()?.removeAllRanges());
-  await reply.first().scrollIntoViewIfNeeded();
-  await highlight(page, reply.first());
-  await expect(chip).toHaveCount(1);
+  await highlight(page, first);
+  await page.getByRole("button", { name: "Attach Selection to Prompt", exact: true }).click();
+  await expect(chips).toHaveCount(3);
+  await chips.nth(2).getByRole("button", { name: "Remove attachment" }).click();
+  await expect(chips).toHaveCount(2);
+  await expect(chips.nth(1)).toContainText("Explain the second phrase");
+  await submitAcpDraft(surface, "answer both");
+  await expect(chips).toHaveCount(0);
+  const answer = surface.locator(".agent-markdown", { hasText: "echo: answer both" });
+  await expect(answer).toContainText("Attached selection (echo: alpha bravo charlie):");
+  await expect(answer).toContainText(
+    "echo: delta echo foxtrot\n\nComment:\nExplain the second phrase",
+  );
+  await expect(answer).not.toContainText("discard this note");
 });
 
-test("with attach-on-select off, highlighting attaches nothing until the command runs", async ({
-  page,
-}) => {
+test("the palette retains a reply selection until the user moves elsewhere", async ({ page }) => {
   const surface = await createAcpSession(page, "attach-selection-command");
-  await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.attachOnSelect","value":false}');
-  await expect(surface.locator(".agent-entry-result")).toContainText("setSetting:");
   await submitAcpDraft(surface, "delta echo foxtrot");
   const reply = surface.locator(".agent-markdown", { hasText: "echo: delta echo foxtrot" });
   await expect(reply).toBeVisible();
-
   await highlight(page, reply);
-  const chip = surface.locator("[data-agent-composer] .agent-attachment-selection");
-  await page.waitForTimeout(200);
-  await expect(chip).toHaveCount(0);
-
-  await page.locator(".tb-omnibar-input").click();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
   await page.locator(".tb-omnibar-input").fill(">Attach Selection to Prompt");
   await page
     .locator(".tb-omnibar-row")
-    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Attach Selection to Prompt$/ }) })
+    .filter({
+      has: page.locator(".tb-row-leaf", { hasText: /^Attach Selection to Prompt$/ }),
+    })
     .click();
-  await expect(chip).toHaveCount(1);
-  await expect(chip).toContainText("echo: delta echo foxtrot");
+  const chips = surface.locator("[data-agent-composer] .agent-attachment-selection");
+  await expect(chips).toHaveCount(1);
+  await expect(chips).toContainText("echo: delta echo foxtrot");
 
-  // Moving on from the highlight ends the command: the omnibar no longer offers it.
   await highlight(page, reply);
   await surface.locator("[data-agent-composer] textarea").click();
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill(">Attach Selection to Prompt");
   await expect(
-    page
-      .locator(".tb-omnibar-row")
-      .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Attach Selection to Prompt$/ }) }),
+    page.locator(".tb-omnibar-row").filter({
+      has: page.locator(".tb-row-leaf", { hasText: /^Attach Selection to Prompt$/ }),
+    }),
   ).toHaveCount(0);
 });
 
+test("editor selections retain automatic context and can pin excerpts with source comments", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "editor-selection-context");
+  await openFile(page, "notes.txt");
+  await clickIntoEditor(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  const chips = surface.locator("[data-agent-composer] .agent-attachment-selection");
+  await expect(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+  await expect(chips).toHaveCount(0);
+  await submitAcpDraft(surface, "automatic context");
+  await expect(
+    surface.locator(".agent-markdown", { hasText: "echo: automatic context" }),
+  ).toBeVisible();
+  const transcript = join(weavie.home, ".weavie", "fake-acp-state", "wire-prompts.jsonl");
+  const prompts = (await readFile(transcript, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const context = prompts
+    .at(-1)
+    .parameters.prompt.find((block: { resource?: { uri: string } }) =>
+      block.resource?.uri.includes("#selection"),
+    );
+  expect(context.resource.text).toContain("just plain text");
+
+  await clickIntoEditor(page);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.getByRole("button", { name: "Attach Selection to Prompt", exact: true }).click();
+  await expect(chips).toHaveCount(1);
+  await expect(chips).toContainText("notes.txt:1:1-1:16");
+  await clickIntoEditor(page);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
+  await expect(dialog.locator("pre")).toContainText("notes.txt:1:1-1:16\njust plain text");
+  await dialog
+    .getByRole("textbox", { name: "Comment", exact: true })
+    .fill("Rewrite this specification line");
+  await dialog.getByRole("button", { name: "Add to context", exact: true }).click();
+  await expect(chips).toHaveCount(2);
+  await clickIntoEditor(page);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await expect(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("toolbar", { name: "Selection actions" })).toHaveCount(0);
+  await expect(chips).toHaveCount(2);
+  await submitAcpDraft(surface, "apply the note");
+  const answer = surface.locator(".agent-markdown", { hasText: "echo: apply the note" });
+  await expect(answer).toContainText("notes.txt:1:1-1:16");
+  await expect(answer).toContainText(
+    "just plain text\n\nComment:\nRewrite this specification line",
+  );
+  await expect(chips).toHaveCount(0);
+});
+
 async function highlight(page: Page, reply: Locator): Promise<void> {
-  // A reply is drawn again when its turn ends, which replaces its paragraph, so it is measured once the turn is over.
+  // Completed replies replace their paragraphs once, so measure after the turn settles.
   await expect(page.locator(".agent-working")).toHaveCount(0);
+  await reply.scrollIntoViewIfNeeded();
   const box = (await reply.locator("p").first().boundingBox())!;
   await page.mouse.move(box.x + 1, box.y + box.height / 2);
   await page.mouse.down();

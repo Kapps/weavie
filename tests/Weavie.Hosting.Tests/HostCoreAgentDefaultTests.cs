@@ -24,7 +24,7 @@ public sealed class HostCoreAgentDefaultTests {
 	[Fact]
 	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
 		await using var host = await TestHost.StartAsync();
-		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"current\",\"progressDisplay\":\"latest\",\"attachOnSelect\":true}", host.Core.BuildBootstrap());
+		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"current\",\"progressDisplay\":\"latest\"}", host.Core.BuildBootstrap());
 		host.Bridge.Clear();
 
 		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));

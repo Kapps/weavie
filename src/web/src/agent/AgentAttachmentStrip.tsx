@@ -16,6 +16,7 @@ export interface AgentSelectionView {
   kind: "selection";
   id: string;
   label: string;
+  text: string;
 }
 
 export type AgentAttachmentView = AgentImageView | AgentSelectionView;
@@ -32,7 +33,7 @@ export function AgentAttachmentStrip(props: {
           <Switch>
             <Match when={attachment.kind === "selection" && attachment}>
               {(selection) => (
-                <div class="agent-attachment agent-attachment-selection" title={selection().label}>
+                <div class="agent-attachment agent-attachment-selection" title={selection().text}>
                   <span class="ui-icon">
                     <Quote aria-hidden="true" />
                   </span>

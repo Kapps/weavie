@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("./composer-store", () => ({ attachAgentSelection: vi.fn() }));
-vi.mock("../chrome/agent-default", () => ({ agentAttachOnSelect: () => true }));
-vi.mock("../commands/context", () => ({ setContext: vi.fn() }));
-vi.mock("../commands/registry", () => ({ registerCommand: vi.fn() }));
+vi.mock("./selection-actions", () => ({ createSelectionActions: vi.fn() }));
 
 const { selectionLabel } = await import("./agent-reply-selection");
 

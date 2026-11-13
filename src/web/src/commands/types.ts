@@ -106,6 +106,7 @@ export const CommandIds = {
   openBackgroundItem: "weavie.agent.openBackgroundItem",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
+  commentAgentSelection: "weavie.agent.commentSelection",
   attachAgentSelection: "weavie.agent.attachSelection",
   attachAgentBlock: "weavie.agent.attachBlock",
   copyAgentCodeBlock: "weavie.agent.copyCodeBlock",

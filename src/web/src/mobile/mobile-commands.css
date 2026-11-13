@@ -80,11 +80,4 @@
   .app.compact .tb-omnibar-row {
     --row-pad: calc((var(--touch-target) - var(--row-line)) / 2);
   }
-
-  .app.compact .mobile-command-button {
-    --control-h: var(--touch-target);
-    align-self: center;
-    margin-inline: 4px;
-    padding-inline: 6px;
-  }
 }

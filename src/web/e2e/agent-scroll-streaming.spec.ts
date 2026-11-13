@@ -12,6 +12,7 @@ import {
   untilStill,
   wheelUp,
 } from "./harness/agent-pane";
+import { establishTouchEmulation, touchSession } from "./harness/fixtures";
 import { frames } from "./harness/render-budget";
 import { fromReplyStart } from "./harness/reply-start";
 import { mockCommand, mockSession } from "./mock-host";
@@ -685,5 +686,45 @@ test.describe("touch on iOS", () => {
     await clamped.evaluate((armed) => armed.scrolled);
     await send(body, "touchend", false);
     await expect.poll(() => scrollHeight(body)).toBeGreaterThan(resting);
+  });
+
+  test("a finger swipe down reads back through history; commands pull only from the oldest message", async ({
+    openPanes,
+  }) => {
+    const { body, page } = await openPane(openPanes, "touch-pull");
+    // Real touch input: only the browser's own scrolling shows who took the drag.
+    await establishTouchEmulation(page);
+    const touch = touchSession(page);
+    const swipeDownFrom = async (text: string) => {
+      const box = (await page.getByText(text, { exact: true }).boundingBox())!;
+      for (const [type, dy] of [
+        ["touchStart", 0],
+        ["touchMove", 24],
+        ["touchMove", 70],
+        ["touchMove", 120],
+      ] as const) {
+        await touch.send("Input.dispatchTouchEvent", {
+          type,
+          touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 + dy }],
+        });
+      }
+    };
+    const end = (type: "touchCancel" | "touchEnd") =>
+      touch.send("Input.dispatchTouchEvent", { type, touchPoints: [] });
+    const hint = page.locator(".mobile-command-pull");
+
+    await swipeDownFrom("Answer 29");
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeLessThan(-50);
+    await expect(hint).toHaveCount(0);
+    await end("touchEnd");
+
+    await body.evaluate(untilStill);
+    await body.press("Home");
+    await expect(page.getByText("Prompt 0", { exact: true })).toBeInViewport();
+    await body.evaluate(untilStill);
+    await swipeDownFrom("Answer 0");
+    await expect(hint).toHaveText("Release for commands");
+    // Cancelled, so the mock host is never asked for the command.
+    await end("touchCancel");
   });
 });

@@ -189,11 +189,38 @@ const NAMEABLE_DRAFT =
 const VAGUE_DRAFT =
   "something in the mobile inbox is not right and it would be good if someone looked at it";
 
-test("mobile commands open on every surface and execute a tapped result", async ({ page }) => {
+// One finger that goes down at `(x, y)`; each event is offset from there.
+function fingerFrom(page: Page, x: number, y: number) {
+  const touch = touchSession(page);
+  return (type: string, dx: number, dy: number) =>
+    touch.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x: x + dx, y: y + dy }],
+    });
+}
+
+// A deliberate pull down from `x` in the head every surface has at its top.
+async function pullForCommands(page: Page, x: number): Promise<void> {
+  const finger = fingerFrom(page, x, 18);
+  await finger("touchStart", 0, 0);
+  await finger("touchMove", 0, 24);
+  await finger("touchMove", 0, 90);
+  await finger("touchEnd", 0, 90);
+}
+
+test("mobile commands open by a pull on every surface and execute a tapped result", async ({
+  page,
+}) => {
   const palette = page.getByRole("combobox", { name: "Command palette", exact: true });
+  await expect(page.locator(".mobile-surface-bar button")).toHaveText([
+    "Sessions",
+    "Agent",
+    "Code",
+    "Shell",
+  ]);
   for (const surface of ["Sessions", "Agent", "Code", "Shell"]) {
     await page.getByRole("button", { name: surface, exact: true }).tap();
-    await page.getByRole("button", { name: "Commands", exact: true }).tap();
+    await pullForCommands(page, 195);
     await expect(palette).toBeVisible();
     await expect(palette).toBeFocused();
     await expect(palette).toHaveValue(">");
@@ -201,7 +228,9 @@ test("mobile commands open on every surface and execute a tapped result", async 
     await expect(palette).toBeHidden();
   }
 
-  await page.getByRole("button", { name: "Commands", exact: true }).tap();
+  // A head offers the pull across its controls: this one starts on the shell's tab.
+  await expect(page.locator(".shell-tab-main")).toBeVisible();
+  await pullForCommands(page, 60);
   await page.evaluate(() => {
     const viewport = window.visualViewport!;
     Object.defineProperties(viewport, {
@@ -235,6 +264,10 @@ test("mobile commands open on every surface and execute a tapped result", async 
   await dispatchPaneTouch(editor, "touchend", { x: 160, y: 230 });
   await expect(palette).toBeHidden();
   await expect(page.locator(".mobile-command-pull")).toHaveCount(0);
+  // The open file's tab is the editor's way to commands.
+  const tab = (await page.locator(".editor-tab.active").boundingBox())!;
+  await pullForCommands(page, tab.x + tab.width / 2);
+  await expect(palette).toBeVisible();
 });
 
 test("pulling from the empty editor opens commands only after a deliberate downward release", async ({
@@ -247,12 +280,7 @@ test("pulling from the empty editor opens commands only after a deliberate downw
   const x = bounds!.x + bounds!.width / 2;
   const y = bounds!.y + bounds!.height / 2;
   const palette = page.getByRole("combobox", { name: "Command palette", exact: true });
-  const touch = touchSession(page);
-  const finger = (type: string, dx: number, dy: number) =>
-    touch.send("Input.dispatchTouchEvent", {
-      type,
-      touchPoints: type === "touchEnd" ? [] : [{ x: x + dx, y: y + dy }],
-    });
+  const finger = fingerFrom(page, x, y);
 
   await finger("touchStart", 0, 0);
   await finger("touchMove", 0, 24);
@@ -927,6 +955,11 @@ test("a finger drag scrolls the review from its overview", async ({ page, weavie
       type,
       touchPoints: type === "touchEnd" ? [] : [{ x: 120, y }],
     });
+  // The review takes its own drags, so one down its overview is never a pull for commands.
+  await finger("touchStart", before);
+  for (const y of [24, 90]) await finger("touchMove", before + y);
+  await expect(page.locator(".mobile-command-pull")).toHaveCount(0);
+  await finger("touchEnd", before + 90);
   await finger("touchStart", 600);
   for (const y of [560, 500, 400, 300]) await finger("touchMove", y);
   await finger("touchEnd", 300);
@@ -1027,7 +1060,13 @@ test.describe("landscape media", () => {
     for (const step of [10, 30, 60, 90])
       await send("touchMove", [{ x: cx + step, y: cy + step / 2, id: 3 }]);
     await send("touchEnd", []);
-    return { zoomed, panned: await zoomMatrix(pane) };
+    const panned = await zoomMatrix(pane);
+    // Straight down is the media's to pan, never a pull for commands.
+    await send("touchStart", [{ x: cx, y: cy, id: 4 }]);
+    for (const step of [24, 90]) await send("touchMove", [{ x: cx, y: cy + step, id: 4 }]);
+    await expect(page.locator(".mobile-command-pull")).toHaveCount(0);
+    await send("touchEnd", []);
+    return { zoomed, panned };
   };
 
   test("rotating a video fills the screen in landscape; pinch zooms and one finger pans", async ({

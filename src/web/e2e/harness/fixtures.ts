@@ -58,10 +58,8 @@ type WeavieFixtures = {
 // the only session a test may dispatch raw touch input on — see `touchSession` below.
 const touchSessions = new WeakMap<Page, CDPSession>();
 
-async function establishTouchEmulation(page: Page): Promise<void> {
-  if (test.info().project.use.hasTouch !== true) {
-    return;
-  }
+/** Arms touch emulation on a touch-capable `page`; its raw touch input then goes through `touchSession`. */
+export async function establishTouchEmulation(page: Page): Promise<void> {
   // Never detached: the emulation lasts only as long as the session that set it.
   const session = await page.context().newCDPSession(page);
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -312,7 +310,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-        await establishTouchEmulation(page);
+        if (test.info().project.use.hasTouch === true) await establishTouchEmulation(page);
         if (blockedLoads.length > 0) {
           throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
         }

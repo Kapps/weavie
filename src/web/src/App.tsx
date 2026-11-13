@@ -2047,13 +2047,7 @@ export default function App(): JSX.Element {
           symbols={editor.symbols}
         />
       </Show>
-      <div
-        class="app-body"
-        on:touchstart={mobileCommandPull.onTouchStart}
-        on:touchmove={{ handleEvent: mobileCommandPull.onTouchMove, passive: false }}
-        on:touchend={mobileCommandPull.onTouchEnd}
-        on:touchcancel={mobileCommandPull.onTouchCancel}
-      >
+      <div class="app-body" ref={mobileCommandPull.scope}>
         <Show when={mobileCommandPull.hint()}>
           <div class="mobile-command-pull" role="status">
             {mobileCommandPull.hint()}

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
@@ -9,7 +9,7 @@ test.use({ prScenario: true });
 
 // Puts the caret on `line` of the focused editor.
 async function goToLine(page: Page, line: number): Promise<void> {
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < line; i++) await page.keyboard.press("ArrowDown");
 }

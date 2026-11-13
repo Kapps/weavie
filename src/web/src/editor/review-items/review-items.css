@@ -2,8 +2,8 @@
 .review-tool {
   border-radius: 5px;
   color: var(--dim);
-  /* Buttons take the platform's font by default; the icon box's baseline must come from the row's text role. */
-  font: var(--font-chrome-body);
+  /* Buttons take the platform's font by default; the icon box's baseline must come from the row's own text role. */
+  font: inherit;
 }
 
 /* The icon's one-line box gives the tool a baseline; the primitive's top alignment would lift it off centre. */

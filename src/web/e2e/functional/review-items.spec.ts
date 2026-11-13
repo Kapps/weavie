@@ -131,6 +131,21 @@ test("a hovered hint's arrows step from that hint, and the header's from the cur
   // The hint is item 3; its popover's Next wraps to item 1, not to item 3 after the current item 2.
   await page.locator(".weavie-hint-pill").hover();
   await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
+  // The count reads on the line of the popover's own text.
+  const baseline = (selector: string) =>
+    popover(page)
+      .locator(selector)
+      .evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0";
+        element.prepend(probe);
+        const y = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return y;
+      });
+  expect(
+    Math.abs((await baseline(".review-item-count")) - (await baseline(".weavie-hint-who"))),
+  ).toBeLessThanOrEqual(0.5);
   await expect(position(page)).toHaveText("2 of 3");
   await popover(page).getByRole("button", { name: "Next Comment or Hint" }).click();
   await expect(position(page)).toHaveText("1 of 3");
@@ -301,7 +316,7 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   test.slow();
   // A pending review, so Review carries a count.
   await openCommentedFile(page);
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < 6; i++) await page.keyboard.press("ArrowDown");
   await runCommand(page, "Comment on Line (Pull Request)");

@@ -4,7 +4,7 @@ import type { IPosition, editor as MonacoEditor } from "monaco-editor";
 import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit, reviewFileSegment } from "../harness/review";
-import { scrollReview } from "../harness/review-scroll";
+import { awaitReviewScrollSettled, scrollReview } from "../harness/review-scroll";
 
 const paths = ["a-widgets.ts", "b-widgets.ts"];
 const content = Array.from(
@@ -141,10 +141,13 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   await expect(section.locator(".view-line").first()).toBeVisible();
   // PageDown lands asynchronously; a line read before it lands scrolls out of the DOM before it's clicked.
   // Flaked 2026-11-07 (Linux CI shard 2; ~1 in 20 locally): https://github.com/Kapps/weavie/pull/1150
+  // FLAKE 2026-11-13 (PR #1217, Linux CI shard 5 and 2 of 7 locally): the wait above saw the glide's first frame, so the
+  // line was read mid-glide and gone by the click (the page showed lines 26 to 52). Fixed by waiting for it to settle.
   const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
   const top = await scrollbar.getAttribute("aria-valuenow");
   await scrollbar.press("PageDown");
   await expect(scrollbar).not.toHaveAttribute("aria-valuenow", top ?? "");
+  await awaitReviewScrollSettled(page);
   const original = await section
     .locator(".view-line")
     .nth(3)

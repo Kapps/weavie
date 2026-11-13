@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { openPullRequestFile } from "../harness/review";
 
@@ -30,7 +30,7 @@ test("Finish a review: pending drafts in place, then submit with a verdict", asy
   await hold(page, 1500);
 
   // (2) Comment on line 6: composer offers Start review + Comment now; Start review → pending card.
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   for (let i = 1; i < 6; i++) await page.keyboard.press("ArrowDown");
   await hold(page, 600);

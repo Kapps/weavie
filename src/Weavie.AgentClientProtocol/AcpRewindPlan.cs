@@ -19,7 +19,8 @@ internal sealed record AcpRewindPlan(
 		int prior = LastIndexOf(journal, cut, message => message.Type == "turn-started");
 		string? fork = null;
 		if (prior >= 0) {
-			int answer = LastIndexOf(journal, cut, message => message.Type == "item-completed"
+			// A reply dropped as the no-reply message is journaled as a retraction that still names the agent's message.
+			int answer = LastIndexOf(journal, cut, message => message.Type is "item-completed" or "item-retracted"
 				&& message.ItemType == "agentMessage" && message.MessageId is not null);
 			fork = answer > prior ? journal[answer].MessageId : throw new InvalidOperationException(
 				"The previous prompt has no recorded agent reply to rewind to. Rewind further back.");

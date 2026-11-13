@@ -82,13 +82,16 @@ public sealed class AcpBlockTests {
 	[Theory]
 	[InlineData("[[weavie:no-reply]]")]
 	[InlineData("[[wea|vie:no-|reply]]|\n")]
-	public async Task AReplyThatIsOnlyTheNoReplyMessage_IsNeverShownOrSaved(string chunks) {
+	public async Task AReplyThatIsOnlyTheNoReplyMessage_IsNeverShown_AndLeavesItsMessageIdForRewind(string chunks) {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 
 		await CallAsync(fixture, "say:" + chunks);
 
-		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "agentMessage");
-		Assert.DoesNotContain(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.ItemType == "agentMessage");
+		var reply = Assert.Single(fixture.Messages, message => message.ItemType == "agentMessage");
+		Assert.Equal(("item-retracted", (string?)null), (reply.Type, reply.Text));
+		Assert.NotNull(reply.MessageId);
+		var saved = Assert.Single(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.ItemType == "agentMessage");
+		Assert.Equal(("item-retracted", (string?)null, reply.MessageId), (saved.Type, saved.Text, saved.MessageId));
 	}
 
 	[Theory]

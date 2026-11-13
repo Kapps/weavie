@@ -51,7 +51,9 @@ internal sealed partial class AcpConversation {
 		_contentRun = null;
 		if (run is null) return [];
 		if (run.Held is { } held) {
-			return AgentNoReply.Is(held) ? [] : [ContentMessage(run, "item-completed") with { Text = held, Status = "completed" }];
+			if (!AgentNoReply.Is(held)) return [ContentMessage(run, "item-completed") with { Text = held, Status = "completed" }];
+			// The agent still has this message, so its id is kept, on a row nothing draws, for Rewind to fork at.
+			return run.MessageId is null ? [] : [ContentMessage(run, "item-retracted") with { Status = "retracted" }];
 		}
 		return _port.CompleteContent(run.ThreadId, run.TurnId, run.ItemId) is { } message ? [message] : [];
 	}

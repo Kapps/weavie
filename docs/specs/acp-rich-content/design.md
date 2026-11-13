@@ -172,7 +172,8 @@ series, or rows, and keeps the newest `append.keep`, which the schema requires i
 **A turn with nothing to say.** A refresh is a turn of its own, and an agent ends every turn with some text. The
 `updateBlock` result tells it to reply with exactly `[[weavie:no-reply]]` (`AgentNoReply`) when updating is all
 the turn did. The conversation holds a reply back while its text can still become that message, and a reply that
-is exactly it is never emitted or saved. A reply that diverges is released whole, so nothing but that one string is
+is exactly it is never shown: its text is dropped and only a retraction row naming the agent's message id is
+journaled, because Rewind forks at the last reply of the previous turn. A reply that diverges is released whole, so nothing but that one string is
 ever dropped, and an agent that ignores the instruction shows its text as before.
 
 ```json

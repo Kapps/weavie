@@ -31,6 +31,15 @@ public sealed class AcpRewindPlanTests {
 	}
 
 	[Fact]
+	public void ForksAtAReplyThatWasDroppedAsTheNoReplyMessage() {
+		var silent = new AgentPaneMessage { Type = "item-retracted", ProviderId = "fake", TurnId = "1", ItemId = "content:1", ItemType = "agentMessage", MessageId = "msg-silent", Status = "retracted" };
+
+		var plan = AcpRewindPlan.Create([Turn("1"), User("1", "alpha"), Answer("1", "msg-1"), silent, Turn("2"), User("2", "bravo")], "2");
+
+		Assert.Equal("msg-silent", plan.ForkMessageId);
+	}
+
+	[Fact]
 	public void RefusesWhenThePreviousTurnHasNoAnswerOrThePromptIsGone() {
 		AgentPaneMessage[] journal = [Turn("1"), User("1", "alpha"), Turn("2"), User("2", "bravo")];
 

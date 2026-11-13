@@ -20,6 +20,7 @@ export function ResolvedInputSummary(props: {
 
   return (
     <Disclosure
+      summaryClass=""
       class="agent-request-details"
       label={props.expanded ? "hide prompt" : "show prompt and options"}
       open={props.expanded}

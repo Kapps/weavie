@@ -35,12 +35,10 @@ export function ActivityDetails(props: {
   return (
     <Disclosure
       class="agent-activity-details"
+      summaryClass="ui-row ui-row-compact"
       label={
-        <span
-          class="agent-activity-summary ui-row ui-row-compact"
-          title={props.entry.summary ?? undefined}
-        >
-          <span>{props.entry.summary ?? props.entry.label}</span>
+        <span class="agent-activity-summary" title={props.entry.summary ?? undefined}>
+          {props.entry.summary ?? props.entry.label}
         </span>
       }
       open={props.expanded}

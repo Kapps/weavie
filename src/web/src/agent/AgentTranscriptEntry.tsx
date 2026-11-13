@@ -163,6 +163,7 @@ export function TranscriptEntry(props: {
             const key = () => `${props.entry.id}:${details().noun}`;
             return (
               <Disclosure
+                summaryClass=""
                 class="agent-request-details"
                 label={`${props.expandedDetails.has(key()) ? "hide" : "show"} ${details().noun}`}
                 open={props.expandedDetails.has(key())}

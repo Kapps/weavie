@@ -182,7 +182,7 @@ export function ReviewFileSection(props: {
           </Show>
         </button>
         <DiffStats added={summary().added} removed={summary().removed} />
-        <span class="unified-review-file-step">
+        <span class="ui-stepper">
           <button
             type="button"
             title={`Previous file${keyHint(CommandIds.reviewPrevFile)}`}

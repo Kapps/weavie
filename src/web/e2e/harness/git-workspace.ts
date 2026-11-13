@@ -110,6 +110,7 @@ export interface ThreadSeed {
   line: number;
   side: "left" | "right";
   outdated: boolean;
+  resolved: boolean;
   comments: {
     id: string;
     author: string;
@@ -268,6 +269,7 @@ export async function createPrWorkspace(parent: string): Promise<{
         line: 2,
         side: "right",
         outdated: false,
+        resolved: false,
         comments: [
           {
             id: "c1",
@@ -275,6 +277,49 @@ export async function createPrWorkspace(parent: string): Promise<{
             avatarUrl: avatar("#8e44ad"),
             url: "https://github.com/acme/demo/pull/101#discussion_r1",
             body: "Why change this greeting?",
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+            pending: false,
+          },
+        ],
+      },
+      // Two threads on #101's new file, which the review lists first: one open, one resolved on the forge.
+      {
+        id: "t3",
+        number: 101,
+        path: "feature.ts",
+        line: 1,
+        side: "right",
+        outdated: false,
+        resolved: false,
+        comments: [
+          {
+            id: "c3",
+            author: "erin",
+            avatarUrl: "",
+            url: "https://github.com/acme/demo/pull/101#discussion_r3",
+            body: "Should this flag default to off?",
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+            pending: false,
+          },
+        ],
+      },
+      {
+        id: "t4",
+        number: 101,
+        path: "feature.ts",
+        line: 1,
+        side: "right",
+        outdated: false,
+        resolved: true,
+        comments: [
+          {
+            id: "c4",
+            author: "bob",
+            avatarUrl: "",
+            url: "https://github.com/acme/demo/pull/101#discussion_r4",
+            body: "Name it after the feature, not the flag.",
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z",
             pending: false,
@@ -289,6 +334,7 @@ export async function createPrWorkspace(parent: string): Promise<{
         line: 1,
         side: "right",
         outdated: true,
+        resolved: false,
         comments: [
           {
             id: "c2",

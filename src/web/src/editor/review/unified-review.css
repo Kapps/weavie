@@ -34,8 +34,12 @@
   outline: none;
 }
 
+/* One row of single-line text and icon tools on one baseline: each tool's icon sits in a one-line `.ui-icon` box, so
+   it lines up with the text by construction. */
 .unified-review-header {
+  --icon-button-size: var(--control-height);
   z-index: 3;
+  font: var(--font-chrome-body);
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -64,10 +68,6 @@
   white-space: nowrap;
 }
 
-.unified-review-header-actions {
-  flex: none;
-}
-
 .unified-review-kicker,
 .unified-review-status {
   color: var(--dim);
@@ -87,25 +87,33 @@
   color: var(--diff-removed);
 }
 
-.unified-review-action {
-  background: var(--bg);
+/* The actions are one row of same-size icon tools, so they share a centre and one spacing; a rule sets off each group. */
+.unified-review-header-actions {
+  flex: none;
+  gap: 2px;
 }
 
-.unified-review-action:hover,
+.unified-review-header-rule {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin-inline: 6px;
+  background: var(--border);
+}
+
+.unified-review-failing .ui-icon {
+  margin-right: 3px;
+}
+
 .unified-review-file-action:hover {
   border-color: var(--accent);
 }
 
-.unified-review-action:disabled:hover {
-  border-color: var(--border);
-}
-
-.unified-review-action.keep,
 .unified-review-file-action.keep {
   color: var(--diff-added);
 }
 
-.unified-review-action.revert,
 .unified-review-file-action.revert {
   color: var(--diff-removed);
 }
@@ -218,40 +226,6 @@
   height: 10px;
   margin-left: 4px;
   color: var(--dim);
-}
-
-/* The count carries the header's baseline; the arrow buttons, having none, centre on it. */
-.unified-review-file-step {
-  display: flex;
-  flex: none;
-  align-items: baseline;
-  gap: 2px;
-  color: var(--dim);
-  font: var(--font-chrome-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Overhangs the count's 16px line by 1px each way, so the arrows centre on the count. */
-.unified-review-file-step button {
-  display: inline-flex;
-  align-self: center;
-  margin-block: -1px;
-  padding: 2px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.unified-review-file-step button:hover {
-  background: var(--list-active-bg);
-  color: var(--fg);
-}
-
-.unified-review-file-step svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
 }
 
 .unified-review-map {
@@ -585,6 +559,20 @@
 
 .unified-review-identity > :not(.unified-review-identity-title) {
   flex: none;
+}
+
+/* The state pill is a box one line tall, like `.ui-icon`: its baseline comes from the row's font, so it sits on the
+   text's line, and its own smaller text is centred inside rather than setting the baseline (which sat it low). */
+.unified-review-identity > .session-overview-pill {
+  display: inline-flex;
+  align-items: center;
+  height: var(--font-chrome-line);
+  padding-block: 0;
+}
+
+.unified-review-identity > .session-overview-pill::before {
+  content: "\200b";
+  font: var(--font-chrome-body);
 }
 
 .unified-review-identity-title {

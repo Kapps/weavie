@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
 import { PNG_B64 } from "../harness/pasted-image";
 
@@ -187,6 +188,112 @@ const NAMEABLE_DRAFT =
   "the mobile branch inference field should fill itself from the prompt the user has just written here";
 const VAGUE_DRAFT =
   "something in the mobile inbox is not right and it would be good if someone looked at it";
+
+test("mobile commands open on every surface and execute a tapped result", async ({ page }) => {
+  const palette = page.getByRole("combobox", { name: "Command palette", exact: true });
+  for (const surface of ["Sessions", "Agent", "Code", "Shell"]) {
+    await page.getByRole("button", { name: surface, exact: true }).tap();
+    await page.getByRole("button", { name: "Commands", exact: true }).tap();
+    await expect(palette).toBeVisible();
+    await expect(palette).toBeFocused();
+    await expect(palette).toHaveValue(">");
+    await page.getByRole("button", { name: "Close command bar", exact: true }).tap();
+    await expect(palette).toBeHidden();
+  }
+
+  await page.getByRole("button", { name: "Commands", exact: true }).tap();
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    Object.defineProperties(viewport, {
+      height: { configurable: true, value: 360 },
+      offsetTop: { configurable: true, value: 24 },
+    });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  await expect
+    .poll(() =>
+      page.locator(".tb-omnibar.open").evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const viewport = window.visualViewport!;
+        return (
+          bounds.top >= viewport.offsetTop && bounds.bottom <= viewport.offsetTop + viewport.height
+        );
+      }),
+    )
+    .toBe(true);
+  await palette.fill(">New File");
+  await page
+    .locator(".tb-omnibar-row")
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^New File$/ }) })
+    .tap();
+  await expect(palette).toBeHidden();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  await expect(page.locator(".editor-tab.active")).toContainText("Untitled");
+  const editor = page.locator(".monaco-editor .view-lines").first();
+  await dispatchPaneTouch(editor, "touchstart", { x: 160, y: 140 });
+  await dispatchPaneTouch(editor, "touchmove", { x: 160, y: 230 });
+  await dispatchPaneTouch(editor, "touchend", { x: 160, y: 230 });
+  await expect(palette).toBeHidden();
+  await expect(page.locator(".mobile-command-pull")).toHaveCount(0);
+});
+
+test("pulling from the empty editor opens commands only after a deliberate downward release", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Code", exact: true }).tap();
+  const heading = page.locator(".editor-empty-wordmark");
+  const bounds = await heading.boundingBox();
+  expect(bounds).not.toBeNull();
+  const x = bounds!.x + bounds!.width / 2;
+  const y = bounds!.y + bounds!.height / 2;
+  const palette = page.getByRole("combobox", { name: "Command palette", exact: true });
+  const touch = touchSession(page);
+  const finger = (type: string, dx: number, dy: number) =>
+    touch.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x: x + dx, y: y + dy }],
+    });
+
+  await finger("touchStart", 0, 0);
+  await finger("touchMove", 0, 24);
+  await expect(
+    page.getByRole("status", { name: "" }).filter({ hasText: "Pull for commands" }),
+  ).toBeVisible();
+  await finger("touchEnd", 0, 24);
+  await expect(palette).toBeHidden();
+
+  await finger("touchStart", 0, 0);
+  await finger("touchMove", 80, 8);
+  await finger("touchEnd", 80, 8);
+  await expect(palette).toBeHidden();
+
+  await finger("touchStart", 0, 0);
+  await finger("touchMove", 0, 24);
+  await finger("touchMove", 0, 90);
+  await expect(page.locator(".mobile-command-pull")).toHaveText("Release for commands");
+  await expect(palette).toBeHidden();
+  await finger("touchEnd", 0, 90);
+  await expect(palette).toBeVisible();
+  await expect(palette).toBeFocused();
+  await page.getByRole("button", { name: "Close command bar", exact: true }).tap();
+  await expect(palette).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 350 });
+  const empty = page.locator(".editor-empty");
+  // The compact shell applies the viewport in a resize callback; scrolling before it runs clamps to zero.
+  await expect
+    .poll(() => empty.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
+  await empty.evaluate((element) => {
+    element.scrollTop = 30;
+  });
+  expect(await empty.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await dispatchPaneTouch(empty, "touchstart", { x: 160, y: 140 });
+  await dispatchPaneTouch(empty, "touchmove", { x: 160, y: 230 });
+  await dispatchPaneTouch(empty, "touchend", { x: 160, y: 230 });
+  await expect(palette).toBeHidden();
+  await expect(page.locator(".mobile-command-pull")).toHaveCount(0);
+});
 
 test.describe("configured branch inference", () => {
   test.use({ inference: "success", automaticInference: true });
@@ -610,6 +717,91 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
   await dispatchPaneTouch(body, "touchmove", { x: 188, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 188, y: 240 });
   await expect(page.locator(".session-inbox")).toBeVisible();
+});
+
+test.describe("compact session status groups", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "hook", request: { hook_event_name: "SessionStart", source: "startup" } },
+        { op: "mcp", tool: "setSetting", args: { key: "agent.allowAllPermissions", value: false } },
+      ],
+    },
+  });
+
+  test("orders sessions by status and moves them between nonempty groups", async ({
+    page,
+    weavie,
+  }) => {
+    test.slow(); // Four real session/worktree creations and their agent launches.
+    const inbox = page.locator(".session-inbox");
+    const headings = inbox.locator(".session-inbox-group-title");
+    const group = (name: string) => inbox.getByRole("region", { name, exact: true });
+    const titles = (name: string) => group(name).locator(".session-inbox-details strong");
+    const sessions = () => page.getByRole("button", { name: "Sessions", exact: true }).click();
+    const create = async (branch: string): Promise<string> => {
+      const before = new Set(sessionWorktrees(weavie.workspace));
+      await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+      await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(branch);
+      await inbox.getByRole("button", { name: "Start", exact: true }).click();
+      await expect(inbox).toBeHidden();
+      await expect(page.locator("[data-agent-composer]")).toHaveAttribute(
+        "data-agent-controls-ready",
+        "true",
+      );
+      const created = sessionWorktrees(weavie.workspace).find((path) => !before.has(path));
+      if (created === undefined) throw new Error("No worktree was created");
+      return created;
+    };
+    const surface = page.locator('[data-surface="structured-agent"]');
+    const submit = async (prompt: string): Promise<void> => {
+      const composer = surface.locator("[data-agent-composer]");
+      await composer.locator("textarea").fill(prompt);
+      await composer.getByRole("button", { name: "Run", exact: true }).click();
+    };
+
+    await expect(headings).toHaveText(["Idle"]);
+    await create("feature/status-parked");
+    await sessions();
+    const parked = inbox.locator(".session-inbox-row", { hasText: "status parked" });
+    await parked.getByRole("button", { name: /^Manage / }).click();
+    await page.locator(".context-menu-item", { hasText: "Unload session" }).click();
+    await expect(titles("Parked")).toHaveText(["status parked"]);
+
+    const firstWorking = await create("feature/status-first");
+    await submit("hold");
+    await expect(surface.locator(".agent-working")).toBeVisible();
+    await sessions();
+    await create("feature/status-second");
+    await submit("hold");
+    await expect(surface.locator(".agent-working")).toBeVisible();
+    await sessions();
+    await expect(headings).toHaveText(["Working", "Idle", "Parked"]);
+    await expect(titles("Working")).toHaveText(["status first", "status second"]);
+
+    await create("feature/status-approval");
+    await submit("permission-lifecycle:edit-hold");
+    await expect(surface.locator(".agent-entry-request")).toBeVisible();
+    await sessions();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
+    await expect(titles("Needs you")).toHaveText(["status approval"]);
+
+    await writeFile(join(firstWorking, "release-hold"), "");
+    await expect(headings).toHaveText(["Needs you", "Working", "Finished", "Idle", "Parked"]);
+    await expect(titles("Working")).toHaveText(["status second"]);
+    await expect(titles("Finished")).toHaveText(["status first"]);
+
+    await group("Finished").locator(".session-inbox-open").click();
+    await expect(inbox).toBeHidden();
+    await sessions();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
+    await expect(titles("Idle")).toHaveText(["main", "status first"]);
+
+    await parked.getByRole("button", { name: /^Manage / }).click();
+    await page.locator(".context-menu-item", { hasText: "Load session" }).click();
+    await expect(headings).toHaveText(["Needs you", "Working", "Idle"]);
+    await expect(titles("Idle")).toHaveText(["main", "status parked", "status first"]);
+  });
 });
 
 // Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
@@ -1144,9 +1336,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
   expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 88, y: 243 })).toBe(true);
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
-  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 92, y: 300 })).toBe(true);
-  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 310 })).toBe(true);
-  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 310 });
+  // Upward scroll locks vertical intent; a downward pull at the top opens commands.
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 92, y: 180 })).toBe(true);
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 170 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 170 });
   await expect(agentSurface).toBeVisible();
   await expect(inbox).toBeHidden();
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);

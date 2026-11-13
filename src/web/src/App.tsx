@@ -157,6 +157,7 @@ import { RevisePrompt } from "./editor/RevisePrompt";
 import { ReviewViewSwitch } from "./editor/review/ReviewViewSwitch";
 import { reviewCommandBindings } from "./editor/review/review-commands";
 import { registerReviewHintCommands } from "./editor/review-hints/review-hint-commands";
+import { registerReviewItemCommands } from "./editor/review-items/review-item-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -197,6 +198,7 @@ import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
+import { createMobileCommandPull } from "./mobile/mobile-command-pull";
 import { createMobileHistory, type MobilePreview } from "./mobile/mobile-history";
 import { createMobileVisualViewportStyle } from "./mobile/mobile-visual-viewport";
 import { useCompactMode } from "./mobile/useCompactMode";
@@ -432,6 +434,11 @@ export default function App(): JSX.Element {
     ) {
       setMobileTransition(null);
     }
+  });
+  const mobileCommandPull = createMobileCommandPull({
+    canStart: () =>
+      compact() && mobileTransition() === null && evaluateWhen("!omnibarOpen && !modalOpen"),
+    onOpen: () => void runCommandWithFeedback(CommandIds.focusOmnibarCommands),
   });
   const mobileBackSwipe = createMobileBackSwipe({
     canStart: () => compact() && mobileTransition() === null && mobileHistory.backTarget() !== null,
@@ -1762,7 +1769,8 @@ export default function App(): JSX.Element {
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
       registerPrCommentCommands(),
-      registerReviewHintCommands(editor.revealFile),
+      registerReviewHintCommands(),
+      registerReviewItemCommands(editor.revealFile),
       ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);
@@ -2039,7 +2047,18 @@ export default function App(): JSX.Element {
           symbols={editor.symbols}
         />
       </Show>
-      <div class="app-body">
+      <div
+        class="app-body"
+        on:touchstart={mobileCommandPull.onTouchStart}
+        on:touchmove={{ handleEvent: mobileCommandPull.onTouchMove, passive: false }}
+        on:touchend={mobileCommandPull.onTouchEnd}
+        on:touchcancel={mobileCommandPull.onTouchCancel}
+      >
+        <Show when={mobileCommandPull.hint()}>
+          <div class="mobile-command-pull" role="status">
+            {mobileCommandPull.hint()}
+          </div>
+        </Show>
         <SessionPanel
           sessions={railSessions()}
           inert={sessionsModalActive()}

@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-solid";
+import { Check, ChevronRight } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -27,6 +27,10 @@ export interface ContextMenuItem {
   disabled?: boolean;
   danger?: boolean;
   hideKeys?: boolean;
+  /** A check slot before the label: true shows the check; absent leaves the row without the slot. */
+  checked?: boolean;
+  /** A dim note after the label, such as a count. */
+  detail?: string;
 }
 
 export interface ContextMenuSeparator {
@@ -271,7 +275,17 @@ function MenuPanel(props: {
                 }
               }}
             >
+              <Show when={entry.checked !== undefined}>
+                <span class="ui-icon context-menu-check">
+                  <Show when={entry.checked}>
+                    <Check />
+                  </Show>
+                </span>
+              </Show>
               <span>{labelOf(entry)}</span>
+              <Show when={entry.detail}>
+                {(detail) => <span class="context-menu-detail ui-row-end">{detail()}</span>}
+              </Show>
               <Show when={keysOf(entry)}>
                 {(keys) => (
                   <span class="context-menu-keys ui-kbd ui-kbd-plain ui-row-end">{keys()}</span>

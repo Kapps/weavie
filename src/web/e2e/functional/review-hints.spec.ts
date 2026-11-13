@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Locator, Page, WebSocketRoute } from "@playwright/test";
+import type { Locator, WebSocketRoute } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { type FakeStep, writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit, openPullRequestFile } from "../harness/review";
+import { appliedEdit, openPullRequestFile, hintPopover as popover } from "../harness/review";
 import { type HeadlessHost, restartAndReconnect } from "../harness/weavie-host";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
@@ -29,8 +29,6 @@ const addReviewHint = (path: string, line: number, severity: string, text: strin
   tool: "addReviewHint",
   args: { path, line, severity, text },
 });
-
-const popover = (page: Page): Locator => page.locator(".weavie-hint-hover");
 
 // The fake logs each line typed into Claude's input; a submitted prompt arrives as one bracketed paste.
 const fixPrompt = (at: string): RegExp =>
@@ -416,7 +414,7 @@ test.describe("across files", () => {
     },
   });
 
-  test("Next/Previous open across files; Fix with…, Toggle and Dismiss act on them", async ({
+  test("Next/Previous Comment or Hint open hints across files; Fix with…, Toggle and Dismiss act on them", async ({
     page,
     weavie,
   }) => {
@@ -429,10 +427,14 @@ test.describe("across files", () => {
     await expect.poll(() => weavie.fakeLog().match(/^addReviewHint -> /gm)?.length ?? 0).toBe(2);
 
     await test.step("Next and Previous walk the hints across files", async () => {
-      await runCommand(page, "Next Review Hint");
+      // The cursor starts on notes.txt's hinted line, so that hint comes first. The palette helper presses Escape,
+      // which clears the current hint, so the steps after it use the key.
+      await runCommand(page, "Next Comment or Hint");
+      await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Text is too plain");
+      await page.keyboard.press("ControlOrMeta+Alt+BracketRight");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]todo\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Second is vague");
-      await runCommand(page, "Previous Review Hint");
+      await page.keyboard.press("ControlOrMeta+Alt+BracketLeft");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]notes\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Text is too plain");
     });
@@ -467,7 +469,7 @@ test.describe("across files", () => {
       await popover(page).getByRole("button", { name: "Dismiss hint" }).click();
       await expect(mark).toHaveCount(0);
       await expect(popover(page)).toHaveCount(0);
-      await runCommand(page, "Next Review Hint");
+      await runCommand(page, "Next Comment or Hint");
       await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]todo\.txt$/);
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Second is vague");
     });

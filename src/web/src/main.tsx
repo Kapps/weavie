@@ -46,6 +46,7 @@ import "./notify/notify.css";
 import "./notify/suggestions.css";
 import "./chrome/session-prompt.css";
 import "./mobile/mobile.css";
+import "./mobile/mobile-commands.css";
 import "./mobile/session-inbox.css";
 
 mark("module-eval");

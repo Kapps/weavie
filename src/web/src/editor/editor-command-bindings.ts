@@ -106,12 +106,6 @@ export function createEditorCommands(
           });
       },
     ],
-    ...([1, -1] as const).map((direction): [string, Factory] => [
-      direction === 1 ? CommandIds.prNextComment : CommandIds.prPrevComment,
-      (run) => {
-        return () => run(({ prComments }) => prComments.navigate(direction));
-      },
-    ]),
     [
       CommandIds.spellCorrect,
       (run) => {

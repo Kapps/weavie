@@ -1,0 +1,60 @@
+/* Review tools are `.ui-icon-button`s, sized by `--icon-button-size` per row; this adds their colours and states. */
+.review-tool {
+  border-radius: 5px;
+  color: var(--dim);
+  /* Buttons take the platform's font by default; the icon box's baseline must come from the row's own text role. */
+  font: inherit;
+}
+
+/* The icon's one-line box gives the tool a baseline; the primitive's top alignment would lift it off centre. */
+.review-tool > .ui-icon {
+  align-self: center;
+}
+
+.review-tool:hover:not(:disabled) {
+  background: var(--list-active-bg);
+}
+
+.review-tool:hover:not(:disabled, .keep, .revert) {
+  color: var(--fg);
+}
+
+.review-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.review-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.review-tool.keep {
+  color: var(--diff-added);
+}
+
+.review-tool.revert {
+  color: var(--diff-removed);
+}
+
+/* `‹ 3 of 8 ›`: the arrows are tools in their row's font, and the count carries its own smaller role. In a centred row
+   (a thread card, the hint popover) both are centred, as every icon and label there is. */
+.review-item-position {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: var(--icon-button-size);
+  color: var(--dim);
+}
+
+/* The review header lines its row up on one baseline, so there the count sits on it with the text beside it. */
+.unified-review-header .review-item-position {
+  align-items: baseline;
+}
+
+.review-item-count {
+  padding-inline: 2px;
+  color: var(--fg);
+  font: var(--font-chrome-secondary);
+  font-variant-numeric: tabular-nums;
+}

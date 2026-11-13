@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -12,6 +15,30 @@ const TWO_HUNKS =
   "}\n\n" +
   'const message = greet("weavie");\n' +
   "console.warn(message);\n";
+
+test("the empty editor reviews committed branch changes without a pending agent review", async ({
+  page,
+  weavie,
+}) => {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: weavie.workspace });
+  git("checkout", "-q", "-b", "feature/empty-review");
+  await writeFile(join(weavie.workspace, "branch.txt"), "A committed branch change\n");
+  git("add", "branch.txt");
+  git("commit", "-q", "-m", "Add the branch file");
+
+  await expect(page.locator(".editor-empty")).toBeVisible();
+  await expect(page.locator(".editor-empty-review")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Review Branch\b/ }).click();
+
+  await expect(page.locator('.session-overview-section[data-section="commits"]')).toContainText(
+    "Add the branch file",
+  );
+  const changes = page.locator('.session-overview-section[data-section="changes"]');
+  await expect(changes).toContainText("vs main");
+  await expect(changes.locator(".unified-review-tree")).toContainText("branch.txt");
+  await expect(page.locator(".editor-empty")).toHaveCount(0);
+});
 
 test.describe("empty-state review cue (#125)", () => {
   test.use({

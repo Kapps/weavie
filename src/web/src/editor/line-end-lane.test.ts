@@ -55,6 +55,7 @@ it("measures an overflowing row's line end after the render, not inside it", asy
     },
     onDidChangeModelContent: () => ({ dispose() {} }),
     onDidChangeModel: () => ({ dispose() {} }),
+    onDidChangeHiddenAreas: () => ({ dispose() {} }),
     onDidDispose: () => {},
   } as unknown as monaco.editor.ICodeEditor;
   const item = { dom: element(), order: 0, line: () => 3 };

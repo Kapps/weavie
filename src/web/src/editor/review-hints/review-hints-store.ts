@@ -3,6 +3,7 @@ import { createEffect, createRoot, createSignal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
 import { createSessionOwnedResource } from "../../messaging/session-owned-state";
+import { reviewOptions } from "../review-items/review-options";
 
 export type HintSeverity = "bug" | "warn" | "nit";
 
@@ -27,18 +28,9 @@ export const reviewHintsFor: (session: ClientSession | null) => ReviewHint[] | n
     (message) => message.hints,
   );
 
-const [visible, setVisible] = createSignal(true);
-
-/** Whether review hints are shown; one switch for every editor. */
-export const reviewHintsVisible = visible;
-
-export function toggleReviewHints(): void {
-  setVisible((shown) => !shown);
-}
-
-export function showReviewHints(): void {
-  setVisible(true);
-}
+/** Whether review hints are shown: the `editor.reviewHints` setting, one switch for every editor. */
+export const reviewHintsVisible = (): boolean => reviewOptions().reviewHints;
+const visible = reviewHintsVisible;
 
 /**
  * The session's hint whose popover is open. `owner` is the editor showing it; null until a displayed binding of

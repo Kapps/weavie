@@ -8,6 +8,7 @@ const thread = (line: number, side: "right" | "left" = "right", outdated = false
   line,
   side,
   outdated,
+  resolved: false,
   comments: [],
 });
 

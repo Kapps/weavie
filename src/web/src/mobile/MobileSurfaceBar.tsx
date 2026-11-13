@@ -1,4 +1,7 @@
 import { For, type JSX } from "solid-js";
+import { liveKeyHint } from "../commands/keys-live";
+import { runCommandWithFeedback } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { startsOnBrowserEdge } from "./browser-edge";
 import { SWIPE_INTENT_DISTANCE } from "./mobile-back-swipe";
 
@@ -118,6 +121,16 @@ export function MobileSurfaceBar(props: {
           </button>
         )}
       </For>
+      <button
+        type="button"
+        class="mobile-command-button ui-button"
+        title={`Show All Commands${liveKeyHint(CommandIds.focusOmnibarCommands)}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => void runCommandWithFeedback(CommandIds.focusOmnibarCommands)}
+      >
+        Commands
+      </button>
     </nav>
   );
 }

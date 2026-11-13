@@ -21,6 +21,7 @@ import {
   scanCommentBlocks,
   spanTouchesBlock,
 } from "./comment-markup";
+import { hiddenAreas } from "./hidden-areas";
 import { monaco } from "./monaco-setup";
 import { SESSION_FILE_SCHEME } from "./session-uri";
 
@@ -30,9 +31,6 @@ const RESCAN_DEBOUNCE_MS = 150;
 // A private source token for setHiddenAreas so our collapsed comments coexist with the folding controller's
 // own hidden areas instead of clobbering them. setHiddenAreas isn't on the public IStandaloneCodeEditor type.
 const HIDDEN_AREAS_SOURCE = "weavie.commentProse";
-interface HiddenAreasEditor {
-  setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
-}
 
 export interface CommentProseDeps {
   /** True when the model at `uri` has an active inline diff: suspend rendering so no changed line is hidden. */
@@ -135,7 +133,7 @@ export function createCommentProse(
   editor: monaco.editor.IStandaloneCodeEditor,
   deps: CommentProseDeps,
 ): CommentProse {
-  const hiddenEditor = editor as unknown as HiddenAreasEditor;
+  const hiddenEditor = hiddenAreas(editor);
   let mode = currentEditorOptions().commentProse;
   let zoneIds: string[] = [];
   // Start line of the block expanded this tick — a transient hint so the first render after a click keeps it raw.

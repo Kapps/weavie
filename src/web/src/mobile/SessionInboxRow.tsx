@@ -1,5 +1,5 @@
 import { EllipsisVertical } from "lucide-solid";
-import { type JSX, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
 import type { RailSession } from "../chrome/session-store";
 import { sessionDetail, sessionSubtitle, statusDot } from "../chrome/session-summary";
@@ -12,7 +12,6 @@ import { useNow } from "../compact-age";
  */
 export function SessionInboxRow(props: {
   session: RailSession;
-  compact: boolean;
   onOpen: (session: RailSession) => Promise<boolean>;
   onManage: (session: RailSession, x: number, y: number) => void;
 }): JSX.Element {
@@ -46,20 +45,18 @@ export function SessionInboxRow(props: {
           )?.name ?? session().providerId}
         </span>
       </button>
-      <Show when={props.compact}>
-        <button
-          type="button"
-          class="session-inbox-manage"
-          aria-label={manageLabel()}
-          title={manageLabel()}
-          onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
-            props.onManage(session(), bounds.right, bounds.bottom);
-          }}
-        >
-          <EllipsisVertical size={18} aria-hidden="true" />
-        </button>
-      </Show>
+      <button
+        type="button"
+        class="session-inbox-manage"
+        aria-label={manageLabel()}
+        title={manageLabel()}
+        onClick={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          props.onManage(session(), bounds.right, bounds.bottom);
+        }}
+      >
+        <EllipsisVertical size={18} aria-hidden="true" />
+      </button>
     </div>
   );
 }

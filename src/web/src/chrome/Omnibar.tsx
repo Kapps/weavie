@@ -1,4 +1,4 @@
-import { Search } from "lucide-solid";
+import { Search, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -620,6 +620,7 @@ export function Omnibar(props: {
   return (
     <div
       class="tb-omnibar"
+      classList={{ open: open() }}
       ref={(element) => {
         rootRef = element;
         setOmnibarRoot(element);
@@ -633,7 +634,7 @@ export function Omnibar(props: {
         </span>
         <input
           ref={inputRef}
-          class="tb-omnibar-input"
+          class="tb-omnibar-input ui-field"
           type="text"
           role="combobox"
           aria-label={
@@ -672,6 +673,16 @@ export function Omnibar(props: {
           onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
         />
+        <button
+          type="button"
+          class="tb-omnibar-close ui-icon-button"
+          aria-label="Close command bar"
+          title="Close command bar"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={close}
+        >
+          <X aria-hidden="true" />
+        </button>
       </div>
       <Show when={open()}>
         <div class="tb-omnibar-pop" classList={{ symbol: symbolMode() }}>

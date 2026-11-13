@@ -1,17 +1,11 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  MessageSquarePlus,
-  WandSparkles,
-  Wrench,
-  X,
-} from "lucide-solid";
+import { MessageSquarePlus, WandSparkles, Wrench, X } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { captureCommandRunnerFor } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { ItemPosition } from "../review-items/ReviewItemStepper";
 import type { PlacedHint } from "./hint-anchor";
 import type { HintSeverity } from "./review-hints-store";
 
@@ -26,8 +20,6 @@ const ACTIONS = [
   [CommandIds.reviewHintsFix, "Fix", Wrench, "Fix"],
   [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles, "Fix with…"],
   [CommandIds.reviewHintsComment, "Comment on PR", MessageSquarePlus, "Comment"],
-  [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft, null],
-  [CommandIds.reviewHintsNext, "Next hint", ChevronRight, null],
   [CommandIds.reviewHintsDismiss, "Dismiss hint", X, null],
 ] as const;
 
@@ -82,6 +74,7 @@ export function HintPopover(props: {
           <span title="This line was edited since the hint was made.">Changed</span>
         </Show>
         <span class="weavie-hint-actions">
+          <ItemPosition session={props.session} item={`hint:${hint().id}`} />
           <For
             each={ACTIONS.filter(
               ([id]) => id !== CommandIds.reviewHintsComment || props.commentable,

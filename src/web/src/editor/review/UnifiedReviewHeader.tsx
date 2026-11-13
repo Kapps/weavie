@@ -1,16 +1,22 @@
-import { ArrowUp, Check, RotateCcw } from "lucide-solid";
+import { ArrowUp, CheckCheck, CircleX, RotateCcw, Undo2 } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { FinishReview } from "../pr-comments/FinishReview";
+import { prCommentsFor } from "../pr-comments/pr-comments-store";
+import { reviewHintsFor } from "../review-hints/review-hints-store";
+import { ReviewItemStepper } from "../review-items/ReviewItemStepper";
 import { DiffStats } from "./DiffStats";
 import { PrStatePill } from "./overview/OverviewTitle";
 import { prOverviewFor } from "./overview/overview-data";
 import type { ReviewOverview } from "./review-store";
 
-/** Review-wide actions and heading; once the overview title scrolls away, it carries the session's identity. */
+/**
+ * Review-wide actions, as one row of icon tools, and the heading. Once the overview title scrolls away the heading
+ * carries the session's identity and the row adds the review-submit control.
+ */
 export function UnifiedReviewHeader(props: {
   overview: () => ReviewOverview;
   session: ClientSession;
@@ -19,6 +25,26 @@ export function UnifiedReviewHeader(props: {
 }): JSX.Element {
   const detail = () => prOverviewFor(props.session)?.detail ?? null;
   const failing = () => detail()?.checks.filter((check) => check.state === "failure").length ?? 0;
+  const items = () =>
+    prCommentsFor(props.session)?.set != null || (reviewHintsFor(props.session)?.length ?? 0) > 0;
+  const tool = (spec: {
+    label: string;
+    command: string;
+    tone: "" | "keep" | "revert";
+    disabled: () => boolean;
+    icon: JSX.Element;
+  }) => (
+    <button
+      type="button"
+      class={`ui-icon-button review-tool ${spec.tone}`}
+      disabled={spec.disabled()}
+      title={`${spec.label}${keyHint(spec.command)}`}
+      aria-label={spec.label}
+      onClick={() => void runCommandWithFeedback(spec.command)}
+    >
+      <span class="ui-icon">{spec.icon}</span>
+    </button>
+  );
   return (
     <header class="unified-review-header">
       <div class="unified-review-heading">
@@ -28,14 +54,14 @@ export function UnifiedReviewHeader(props: {
         >
           <button
             type="button"
-            class="unified-review-action ui-button"
-            title={`Show the session overview${keyHint(CommandIds.reviewOverview)}`}
+            class="ui-icon-button review-tool"
+            title={`Show Session Overview${keyHint(CommandIds.reviewOverview)}`}
+            aria-label="Overview"
             onClick={() => props.onOverview()}
           >
             <span class="ui-icon">
               <ArrowUp />
             </span>
-            Overview
           </button>
           <Show when={detail()}>
             {(pull) => (
@@ -44,8 +70,14 @@ export function UnifiedReviewHeader(props: {
                 <span class="unified-review-identity-title">{pull().title}</span>
                 <span class="unified-review-status">#{pull().number}</span>
                 <Show when={failing() > 0}>
-                  <span class="unified-review-failing">
-                    {failing()} check{failing() === 1 ? "" : "s"} failing
+                  <span
+                    class="unified-review-failing"
+                    title={`${failing()} check${failing() === 1 ? "" : "s"} failing`}
+                  >
+                    <span class="ui-icon">
+                      <CircleX />
+                    </span>
+                    {failing()}
                   </span>
                 </Show>
               </span>
@@ -62,46 +94,35 @@ export function UnifiedReviewHeader(props: {
         </Show>
       </div>
       <div class="unified-review-header-actions">
-        <button
-          type="button"
-          class="unified-review-action ui-button"
-          disabled={!props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0)}
-          title={`Undo rejection${keyHint(CommandIds.undoRevert)}`}
-          aria-label="Undo rejection"
-          onClick={() => void runCommandWithFeedback(CommandIds.undoRevert)}
-        >
-          <span class="ui-icon">
-            <RotateCcw />
-          </span>
-          <Show when={!props.showIdentity()}> Undo rejection</Show>
-        </button>
-        <button
-          type="button"
-          class="unified-review-action keep ui-button"
-          disabled={!props.overview().fullyLoaded()}
-          title={`Keep all changes and close diff${keyHint(CommandIds.keepAll)}`}
-          onClick={() => void runCommandWithFeedback(CommandIds.keepAll)}
-        >
-          <span class="ui-icon">
-            <Check />
-          </span>
-          Keep all
-        </button>
-        <button
-          type="button"
-          class="unified-review-action revert ui-button"
-          disabled={!props.overview().fullyLoaded() || !props.overview().hasPending()}
-          title={`Revert every pending change${keyHint(CommandIds.undoChange)}`}
-          aria-label="Revert pending"
-          onClick={() => void runCommandWithFeedback(CommandIds.undoChange)}
-        >
-          <span class="ui-icon">
-            <RotateCcw />
-          </span>
-          <Show when={!props.showIdentity()}> Revert pending</Show>
-        </button>
-        <Show when={props.showIdentity()}>
-          <FinishReview session={props.session} />
+        <Show when={items()}>
+          <ReviewItemStepper session={props.session} />
+          <span class="unified-review-header-rule" />
+        </Show>
+        {tool({
+          label: "Undo Revert (Review)",
+          command: CommandIds.undoRevert,
+          tone: "",
+          disabled: () =>
+            !props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0),
+          icon: <Undo2 />,
+        })}
+        {tool({
+          label: "Undo All Changes",
+          command: CommandIds.undoChange,
+          tone: "revert",
+          disabled: () => !props.overview().fullyLoaded() || !props.overview().hasPending(),
+          icon: <RotateCcw />,
+        })}
+        {tool({
+          label: "Keep All Changes (Review)",
+          command: CommandIds.keepAll,
+          tone: "keep",
+          disabled: () => !props.overview().fullyLoaded(),
+          icon: <CheckCheck />,
+        })}
+        <Show when={props.showIdentity() && prCommentsFor(props.session)?.set != null}>
+          <span class="unified-review-header-rule" />
+          <FinishReview session={props.session} iconOnly={true} />
         </Show>
       </div>
     </header>

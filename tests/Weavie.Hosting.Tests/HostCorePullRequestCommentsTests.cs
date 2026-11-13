@@ -13,7 +13,7 @@ public sealed class HostCorePullRequestCommentsTests {
 		var pullRequests = new List<PullRequestSummary>();
 		var provider = new StaticPullRequestProvider(
 			pullRequests,
-			[(42, new ReviewThread("t1", "feature.txt", 1, "right", false, [new ReviewComment {
+			[(42, new ReviewThread("t1", "feature.txt", 1, "right", false, false, [new ReviewComment {
 				Id = "c1", Author = "ann", AuthorAvatarUrl = "https://a/ann", Url = string.Empty, Body = "why?",
 				CreatedAt = "2026-01-01T00:00:00Z", UpdatedAt = "2026-01-01T00:00:00Z", Pending = false, Mine = false,
 			}]))],

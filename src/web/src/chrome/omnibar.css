@@ -33,6 +33,9 @@
 }
 
 .tb-omnibar-input {
+  --control-h: 100%;
+  width: auto;
+  padding: 0;
   flex: 1 1 auto;
   min-width: 0;
   background: transparent;

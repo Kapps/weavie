@@ -21,15 +21,20 @@ internal sealed partial class AcpConversation {
 			&& (previous.TurnId != turnId || previous.ItemType != itemType || previous.MessageId != messageId)) {
 			CompleteContentStreams();
 		}
-		_contentRun ??= new ContentRun($"content:{Guid.NewGuid():N}", _endpoint.Value.SessionId, turnId, messageId, itemType);
-		Emit(new AgentPaneMessage {
-			Type = deltaType,
-			ProviderId = Definition.Id,
-			ThreadId = _contentRun.ThreadId,
-			TurnId = turnId,
-			MessageId = messageId,
-			ItemId = _contentRun.ItemId,
-			ItemType = itemType,
+		_contentRun ??= new ContentRun($"content:{Guid.NewGuid():N}", _endpoint.Value.SessionId, turnId, messageId, itemType) {
+			Held = itemType == "agentMessage" ? "" : null,
+		};
+		// A reply is held back while it can still turn out to be the no-reply message, which is never shown.
+		if (_contentRun.Held is { } held) {
+			if (type == "text" && AgentNoReply.CouldBecome(held + text)) {
+				_contentRun.Held = held + text;
+				return;
+			}
+			_contentRun.Held = null;
+			if (type == "text") text = held + text;
+			else if (held.Length > 0) Emit(ContentMessage(_contentRun, deltaType) with { Text = held });
+		}
+		Emit(ContentMessage(_contentRun, deltaType) with {
 			Text = text,
 			MediaType = type is "image" or "audio" ? OptionalString(content, "mimeType") : null,
 			MediaData = type is "image" or "audio" ? OptionalString(content, "data") : null,
@@ -44,9 +49,22 @@ internal sealed partial class AcpConversation {
 	private IReadOnlyList<AgentPaneMessage> DrainContentStreams() {
 		var run = _contentRun;
 		_contentRun = null;
-		return run is not null && _port.CompleteContent(run.ThreadId, run.TurnId, run.ItemId) is { } message
-			? [message] : [];
+		if (run is null) return [];
+		if (run.Held is { } held) {
+			return AgentNoReply.Is(held) ? [] : [ContentMessage(run, "item-completed") with { Text = held, Status = "completed" }];
+		}
+		return _port.CompleteContent(run.ThreadId, run.TurnId, run.ItemId) is { } message ? [message] : [];
 	}
+
+	private AgentPaneMessage ContentMessage(ContentRun run, string type) => new() {
+		Type = type,
+		ProviderId = Definition.Id,
+		ThreadId = run.ThreadId,
+		TurnId = run.TurnId,
+		MessageId = run.MessageId,
+		ItemId = run.ItemId,
+		ItemType = run.ItemType,
+	};
 
 	private static string? ResourceText(JsonElement content) {
 		if (!content.TryGetProperty("resource", out var resource)) {
@@ -58,5 +76,8 @@ internal sealed partial class AcpConversation {
 	private static string? EmbeddedUri(JsonElement content) =>
 		content.TryGetProperty("resource", out var resource) ? OptionalString(resource, "uri") : null;
 
-	private sealed record ContentRun(string ItemId, string? ThreadId, string TurnId, string? MessageId, string ItemType);
+	private sealed record ContentRun(string ItemId, string? ThreadId, string TurnId, string? MessageId, string ItemType) {
+		// The run's text so far while nothing of it has been emitted; null once it has.
+		public string? Held { get; set; }
+	}
 }

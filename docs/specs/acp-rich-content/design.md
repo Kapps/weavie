@@ -169,6 +169,12 @@ the same x values. Column `type` is `time | number | text | level`.
 **`updateBlock`** — a whole new `chart` or `table` replaces the block's data; `append` adds points to existing
 series, or rows, and keeps the newest `append.keep`, which the schema requires inside `append`.
 
+**A turn with nothing to say.** A refresh is a turn of its own, and an agent ends every turn with some text. The
+`updateBlock` result tells it to reply with exactly `[[weavie:no-reply]]` (`AgentNoReply`) when updating is all
+the turn did. The conversation holds a reply back while its text can still become that message, and a reply that
+is exactly it is never emitted or saved. A reply that diverges is released whole, so nothing but that one string is
+ever dropped, and an agent that ignores the instruction shows its text as before.
+
 ```json
 { "id": "p95",
   "append": { "keep": 60,

@@ -234,6 +234,16 @@ test("a table scrolled out of the transcript and back keeps its sort and filters
   );
 });
 
+test("a reply that is only the no-reply message draws nothing", async ({ page }) => {
+  const surface = await createAcpSession(page, "agent-blocks-no-reply");
+
+  await submitAcpDraft(surface, "say:[[wea|vie:no-|reply]]");
+  await submitAcpDraft(surface, "after");
+
+  await expect(surface.getByText("echo: after")).toBeVisible();
+  await expect(surface.getByText("[[weavie:no-reply]]", { exact: true })).toHaveCount(0);
+});
+
 test("/clear removes the conversation's blocks", async ({ page }) => {
   const surface = await createAcpSession(page, "agent-blocks-clear");
   await submitAcpDraft(surface, `block:claude:showBlock:${JSON.stringify(chart)}`);

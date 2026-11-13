@@ -76,7 +76,7 @@ public sealed partial class McpServer {
 				["table"] = Table(),
 			}, "id", "title"));
 		var update = Tool(UpdateBlockTool,
-			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention. A turn that only updated blocks ends with no text at all, not even a full stop.",
+			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention. When updating blocks is all a turn did, reply with exactly " + AgentNoReply.Text + " and nothing else; Weavie shows no reply for it.",
 			Object(new JsonObject {
 				["id"] = Text(),
 				["title"] = Text(),
@@ -105,7 +105,7 @@ public sealed partial class McpServer {
 			string kind = operation is AgentBlockOperation.Show shown ? shown.Block.Kind : "Block";
 			text = call.Blocks.Stage(operation) + (show
 				? $" The {kind} '{request.Id}' is shown to the user. Don't repeat its data; change it with updateBlock."
-				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, end it with no text.");
+				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.");
 		} catch (JsonException ex) {
 			await SendToolErrorAsync(responder, idRaw, $"Invalid {(show ? ShowBlockTool : UpdateBlockTool)} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
 			return;

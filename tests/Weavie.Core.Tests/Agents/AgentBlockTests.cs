@@ -95,6 +95,15 @@ public sealed class AgentBlockTests {
 	public void OnlyAToolTitleNamesAnUpdate(string? title, bool names) =>
 		Assert.Equal(names, AgentBlockRules.NamesUpdate(title));
 
+	[Theory]
+	[InlineData("", true, false)]
+	[InlineData("\n[[weavie", true, false)]
+	[InlineData(" [[weavie:no-reply]]\n", true, true)]
+	[InlineData("[[weavie:no-reply]] x", false, false)]
+	[InlineData("Updated.", false, false)]
+	public void TheNoReplyMessageIsMatchedWholeAndByPrefix(string text, bool couldBecome, bool isNoReply) =>
+		Assert.Equal((couldBecome, isNoReply), (AgentNoReply.CouldBecome(text), AgentNoReply.Is(text)));
+
 	[Fact]
 	public void ClaimsAreSingleUseAndFoundInAnyRelayShape() {
 		var claims = new AgentBlockClaims();

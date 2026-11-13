@@ -341,9 +341,10 @@ public void SetCardCollapsed(AgentCardRef card, bool collapsed) {
 Collapse is its own row type and not a re-emitted dashboard row, because every `item-completed` is tracked
 against the publishing conversation's turn.
 
-### Projection — `AgentPaneMessages.ts`
+### Projection — `AgentPaneBlocks.ts`
 
-One branch in `projectAgentTranscript`'s loop (`:52-117`), ahead of `durableEntry`:
+`AgentPaneBlocks.take` runs in `projectAgentTranscript`'s loop, ahead of `durableEntry`, and returns the entries a
+block or dashboard row adds at its place:
 
 ```ts
 if (message.itemType === "dashboard") {
@@ -526,7 +527,7 @@ No timeouts, caps, or defaults are added.
 | `src/Weavie.Core/Commands/CoreCommands.cs` | The four command changes |
 | `src/Weavie.AgentClientProtocol/AcpConversation.Blocks.cs`, `AcpConversationPort.cs`, `AcpAgentSession.SideConversations.cs` | Build and track rows; commit rows; `SetCardCollapsed` |
 | `src/Weavie.Hosting/HostSession.Messages.cs`, `HostSession.EditorState.cs`, `Messaging/WireJson.cs`, `McpDiffPresenter.cs`, `Agents/AgentSessionHost.cs`, and the three `OpenEditorOverlay` callers | `setCardCollapsed`, overlay intent, `OpenTabAsync`, `Cards` |
-| `src/web/src/agent/AgentPaneMessages.ts`, `AgentPaneTranscriptTypes.ts`, `AgentTranscriptSnapshot.ts`, `AgentPaneActivitySummary.ts`, `AgentPaneModel.ts`, `AgentPaneEstimate.ts` | Two entry kinds, `cardIndexes`, lookups, estimates |
+| `src/web/src/agent/AgentPaneBlocks.ts` (new), `AgentPaneMessages.ts`, `AgentPaneTranscriptTypes.ts`, `AgentTranscriptSnapshot.ts`, `AgentPaneActivitySummary.ts`, `AgentPaneModel.ts`, `AgentPaneEstimate.ts` | Block and dashboard projection, two entry kinds, `cardIndexes`, lookups, estimates |
 | `src/web/src/agent/AgentCardShell.tsx`, `AgentDashboardEntry.tsx`, `AgentAsideReplyBox.tsx` (new), `AgentAsideEntry.tsx`, `AgentAsideReply.tsx` | The shared box, the dashboard card, focus only where opened |
 | `src/web/src/agent/AgentBlockEntry.tsx`, `agent-blocks.css`, `agent.css` | `onOpen`, `height`, row context, no member accent, the table cap variable, strip label CSS removed |
 | `src/web/src/agent/AgentTranscriptEntry.tsx`, `AgentTranscript.tsx`, `AgentPaneScroll.ts` | Two entry kinds, `AgentRowContext`, `revealEntry` |
@@ -534,7 +535,7 @@ No timeouts, caps, or defaults are added.
 | `src/web/src/agent/AgentSubagentTab.tsx` → `AgentConversationTab.tsx`, `AgentBlocksTab.tsx` (new), `subagent-tab.ts` | The two tab components and their lookups |
 | `src/web/src/agent/AgentBackgroundTray.tsx` → `AgentStrip.tsx`, `AgentPaneBody.tsx`, `background-tab.ts` | Two groups, `agentStripActive`, a required id |
 | `src/web/src/editor/session-types.ts`, `tab-entry.ts`, `TabContent.tsx`, `TabStrip.tsx`, `editor-controller.ts` | Kinds, paths, the view-state signal, labels, intent |
-| `src/web/src/chrome/width-drag.ts`, `commands/types.ts`, `App.tsx` | Either-axis drag; command ids and the two handlers |
+| `src/web/src/chrome/width-drag.ts` → `resize-drag.ts`, `agent/agent-cards.ts`, `agent/agent-row-context.ts` (new), `commands/types.ts`, `App.tsx` | Either-axis drag; card helpers and the row context; command ids and the two handlers |
 | `src/web/e2e/mock-host.ts` | The `openOverlay` intent |
 | `docs/specs/background-work.md`, `docs/concepts/mcp-registry.md`, `docs/specs/acp-rich-content/design.md`, `AGENTS.md` | The strip, the tool, the `dashboard` argument, a Concepts line |
 
@@ -559,18 +560,18 @@ take hook lines only; new code goes in new files.
 
 One PR, one commit per step; each step is testable alone.
 
-- [ ] 1. Core: the dashboard request, the rule, `AgentDashboards.Rows`; `AgentBlockTests`.
-- [ ] 2. `ConversationView.Dashboard`, `WriteBlock(rows)`, the claims lookups; ledger tests.
-- [ ] 3. The port and `ClaimBlock`; schema and result text; `AcpBlockTests` and the rewind tests. Then real
+- [x] 1. Core: the dashboard request, the rule, `AgentDashboards.Rows`; `AgentBlockTests`.
+- [x] 2. `ConversationView.Dashboard`, `WriteBlock(rows)`, the claims lookups; ledger tests.
+- [x] 3. The port and `ClaimBlock`; schema and result text; `AcpBlockTests` and the rewind tests. Then real
       Claude and Codex: show, parallel, later add, update refusal.
-- [ ] 4. `SetCardCollapsed`, `setCardCollapsed`, the web publish rename; `AcpSideCollapseTests`.
-- [ ] 5. Web projection, types, estimates, model lookups, `cardIndexes`; vitest.
-- [ ] 6. `AgentCardShell`, `AgentDashboardEntry`, the added line, `AgentRowContext`, CSS;
+- [x] 4. `SetCardCollapsed`, `setCardCollapsed`, the web publish rename; `AcpSideCollapseTests`.
+- [x] 5. Web projection, types, estimates, model lookups, `cardIndexes`; vitest.
+- [x] 6. `AgentCardShell`, `AgentDashboardEntry`, the added line, `AgentRowContext`, CSS;
       `agent-blocks.spec.ts`; `pnpm e2e:perf`.
-- [ ] 7. `ownTarget`, `openCard`, the generalized toggle, the deletions.
-- [ ] 8. Tab kinds and paths, `openAgentTab` with an intent, `AgentConversationTab` with `AgentAsideReplyBox`,
+- [x] 7. `ownTarget`, `openCard`, the generalized toggle, the deletions.
+- [x] 8. Tab kinds and paths, `openAgentTab` with an intent, `AgentConversationTab` with `AgentAsideReplyBox`,
       `AgentBlocksTab` with heights and view state, `TabStrip`; `card-tabs.spec.ts`.
-- [ ] 9. `AgentStrip` with two groups and `agentStripActive`; the background specs.
-- [ ] 10. `OpenTabAsync`, the overlay intent, `openDashboard`; MCP tests. Then real Claude and Codex: open
+- [x] 9. `AgentStrip` with two groups and `agentStripActive`; the background specs.
+- [x] 10. `OpenTabAsync`, the overlay intent, `openDashboard`; MCP tests. Then real Claude and Codex: open
       with and without focus.
-- [ ] 11. The iPhone check, docs, `dotnet format`, `biome check --write`, the PR.
+- [ ] 11. The iPhone check (open: needs the user), docs, `dotnet format`, `biome check --write`, the PR.

@@ -258,16 +258,32 @@
 
 .agent-aside-head {
   font: var(--font-chrome-body);
-  width: 100%;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 10px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--dim);
+}
+
+.agent-aside-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agent-aside-head .agent-entry-open {
+  margin-left: 0;
+  opacity: 1;
 }
 
 .editor-agent-view {
@@ -1137,8 +1153,7 @@ a:has(> .agent-path-dir) {
   --fade-right: 1.5em;
 }
 
-.agent-background-label {
-  flex: 0 0 auto;
+.agent-strip-collapse {
   color: var(--dim);
 }
 

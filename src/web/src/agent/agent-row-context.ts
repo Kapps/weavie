@@ -1,0 +1,10 @@
+import { createContext } from "solid-js";
+
+/** The transcript row an entry renders in: what stays mounted for it, and how to scroll to another entry. */
+export interface AgentRow {
+  readonly rowId: string;
+  reveal(entryId: string): void;
+}
+
+/** Absent outside the agent pane's transcript, such as in an editor tab. */
+export const AgentRowContext = createContext<AgentRow>();

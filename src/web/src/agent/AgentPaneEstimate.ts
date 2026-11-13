@@ -27,11 +27,13 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   }
   const prose =
     entry.kind === "thought" || (entry.kind === "message" && entry.tone === "assistant");
-  if (entry.kind === "aside" || entry.kind === "subagent") {
+  if (entry.kind === "aside" || entry.kind === "subagent" || entry.kind === "dashboard") {
     const children =
       entry.kind === "subagent"
         ? subagentCardEntries(entry.asideEntries ?? [], false)
-        : (entry.asideEntries ?? []);
+        : entry.kind === "dashboard" && entry.asideCollapsed
+          ? []
+          : (entry.asideEntries ?? []);
     const size = 76 + children.reduce((sum, child) => sum + estimateEntrySize(child), 0);
     estimates.set(entry, size);
     return size;

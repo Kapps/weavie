@@ -295,6 +295,10 @@ export function createAgentPaneScroll(
     holding: () => held() !== null,
     jumpToLatest,
     jumpToTurn,
+    revealEntry: (id: string): void => {
+      const index = shown().entryIndexes.get(id);
+      if (index !== undefined) reveal(index);
+    },
     shown,
     turnNavigable,
     turnStartAbove,

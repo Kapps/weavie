@@ -3,6 +3,7 @@ import { setContext } from "../commands/context";
 import { registerCommand } from "../commands/registry";
 
 const owners = new Map<string, () => void>();
+const targets = new Map<string, unknown>();
 
 /**
  * Gives `element` command `commandId` until the user moves on: a press anywhere but the element and the omnibar
@@ -17,8 +18,37 @@ export function ownCommand(
   run: () => boolean | undefined,
   pressReleases: boolean,
 ): () => void {
-  owners.get(commandId)?.();
-  const off = registerCommand(commandId, run);
+  return own(commandId, context, element, pressReleases, registerCommand(commandId, run));
+}
+
+/**
+ * Makes `target` what context `context`'s commands act on, under {@link ownCommand}'s release rules; the commands
+ * keep one handler that reads it with {@link ownedTarget}.
+ */
+export function ownTarget<T>(context: string, element: Element, target: T): () => void {
+  const release = own(context, context, element, false, () => targets.delete(context));
+  targets.set(context, target);
+  return release;
+}
+
+/** The target that owns context `context`, if one does. */
+export function ownedTarget<T>(context: string): T | undefined {
+  return targets.get(context) as T | undefined;
+}
+
+/** Whether `release` is the current owner's release for `key`, a command id or a target's context. */
+export function ownsCommand(key: string, release: (() => void) | null): boolean {
+  return release !== null && owners.get(key) === release;
+}
+
+function own(
+  key: string,
+  context: string,
+  element: Element,
+  pressReleases: boolean,
+  off: () => void,
+): () => void {
+  owners.get(key)?.();
   setContext(context, true);
   const onPress = (event: Event): void => {
     const target = event.target as Node | null;
@@ -26,18 +56,13 @@ export function ownCommand(
     release();
   };
   const release = (): void => {
-    if (owners.get(commandId) !== release) return;
-    owners.delete(commandId);
+    if (owners.get(key) !== release) return;
+    owners.delete(key);
     document.removeEventListener("pointerdown", onPress, true);
     off();
     setContext(context, false);
   };
   document.addEventListener("pointerdown", onPress, true);
-  owners.set(commandId, release);
+  owners.set(key, release);
   return release;
-}
-
-/** Whether `release` is the current owner's release for `commandId`. */
-export function ownsCommand(commandId: string, release: (() => void) | null): boolean {
-  return release !== null && owners.get(commandId) === release;
 }

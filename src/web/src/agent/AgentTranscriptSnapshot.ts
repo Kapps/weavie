@@ -1,3 +1,4 @@
+import { isCard } from "./AgentPaneBlocks";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { isResult } from "./AgentTranscriptLabels";
 
@@ -7,6 +8,7 @@ export const emptyTranscript: AgentTranscriptSnapshot = {
   currentThought: null,
   entries: [],
   entryIndexes: new Map(),
+  cardIndexes: [],
   latestResultIndex: null,
   pendingRowIndexes: [],
   sectionLabels: new Map(),
@@ -53,6 +55,7 @@ export function shareTranscript(
     next.turnActive === previous.turnActive &&
     next.currentThought === previous.currentThought &&
     sameItems(next.pendingRowIndexes, previous.pendingRowIndexes) &&
+    sameItems(next.cardIndexes, previous.cardIndexes) &&
     next.sectionLabels.size === previous.sectionLabels.size &&
     [...next.sectionLabels].every(([id, label]) => previous.sectionLabels.get(id) === label);
   return unchanged ? previous : { ...next, entries };
@@ -112,6 +115,7 @@ export function withLivePending(
     ...held,
     entries,
     entryIndexes,
+    cardIndexes: cardIndexes(entries),
     pendingRowIndexes,
     agentTurnStartIndex:
       held.agentTurnStartId === null ? null : (entryIndexes.get(held.agentTurnStartId) ?? null),
@@ -140,6 +144,11 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
       };
     }),
   };
+}
+
+/** The indexes of the entries that are cards. */
+export function cardIndexes(entries: readonly AgentTranscriptEntry[]): number[] {
+  return entries.flatMap((entry, index) => (isCard(entry) ? [index] : []));
 }
 
 /** The last row's index, if it is a result. */

@@ -64,7 +64,7 @@ test("a background task waits in the tray until Stop ends it with a notice", asy
   await expect(surface.locator(".agent-entry-notice")).toContainText("Task stopped by user");
 });
 
-test("a workflow renders a card, and Show Background Work focuses the tray", async ({
+test("a workflow renders a card, and Focus Agent Strip focuses the strip", async ({
   page,
   weavie,
 }) => {
@@ -78,10 +78,10 @@ test("a workflow renders a card, and Show Background Work focuses the tray", asy
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Shift+p");
-  await page.locator(".tb-omnibar-input").fill(">Show Background Work");
+  await page.locator(".tb-omnibar-input").fill(">Focus Agent Strip");
   await page
     .locator(".tb-omnibar-row")
-    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Show Background Work$/ }) })
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Focus Agent Strip$/ }) })
     .click();
   await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
   await page.keyboard.press("ArrowRight");
@@ -106,7 +106,7 @@ test("an overflowing tray fades the edge hiding pills, and roving focus scrolls 
   await expect(scroller).toHaveClass(/overflow-right/);
   await expect(scroller).not.toHaveClass(/overflow-left/);
 
-  await runPalette(page, "Show Background Work");
+  await runPalette(page, "Focus Agent Strip");
   await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
   await page.keyboard.press("End");
   const last = pills.last().getByRole("button", { name: "Stop", exact: true });

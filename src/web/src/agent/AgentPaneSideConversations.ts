@@ -113,7 +113,8 @@ export function sideConversationEntry(
     label: marker?.summary ?? "BTW",
     status: state.active ? "thinking" : state.failed ? "failed" : null,
     streaming: state.active,
-    summary: null,
+    // The question that started it, which names it where its label alone can't tell BTWs apart.
+    summary: marker?.text ?? null,
     text: null,
     tone: state.failed ? "error" : "assistant",
   };

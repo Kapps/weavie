@@ -1,8 +1,9 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { AgentActivitySegments } from "./AgentActivitySegments";
 import { isAgentActivity } from "./AgentPaneActivitySummary";
+import { AgentPaneBlocks } from "./AgentPaneBlocks";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
-import { blockKey, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -40,6 +41,7 @@ export function projectAgentTranscript(
   const entries: AgentTranscriptEntry[] = [];
   const segments = new AgentActivitySegments();
   const knownTurns = new Set<string>();
+  const blocks = new AgentPaneBlocks();
   let activeTurn = "startup";
   let currentThought: string | null = null;
   let previousWasUserInput = false;
@@ -89,6 +91,16 @@ export function projectAgentTranscript(
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
+    }
+
+    const shown = blocks.take(message, sequence);
+    if (shown !== null) {
+      for (const block of shown) {
+        segments.boundary();
+        entries.push(block);
+      }
+      sequence += 1;
+      continue;
     }
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
@@ -172,23 +184,6 @@ function durableEntry(
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "agent-message-delta":
     case "item-completed":
-      if (message.itemType === "block" && message.blockId) {
-        const kind = message.category === "table" ? "table" : "chart";
-        return {
-          ...entry(
-            message,
-            sequence,
-            "block",
-            "assistant",
-            kind === "table" ? "Table" : "Chart",
-            null,
-          ),
-          block: {
-            key: blockKey(message.providerId, message.conversationId, message.blockId),
-            kind,
-          },
-        };
-      }
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
       }

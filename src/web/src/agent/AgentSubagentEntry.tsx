@@ -1,11 +1,11 @@
-import { createMemo, type JSX, onMount, Show } from "solid-js";
+import { createMemo, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
-import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
+import { NestedTranscript } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { openCard, ownCardOnFocus } from "./agent-cards";
 import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
@@ -25,15 +25,16 @@ export function AgentSubagentEntry(props: {
   const now = liveNow(running);
   const toggleTitle = () =>
     `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
-  let card: HTMLElement | undefined;
-  onMount(() => registerNestedToggle(card!, toggle));
+  const card = { kind: "subagent", conversationId: props.entry.conversationId! } as const;
+  const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
 
   return (
     <article
-      ref={card}
       class={`agent-entry agent-entry-subagent agent-tone-${props.entry.tone}`}
       data-agent-subagent={props.entry.conversationId}
       data-state={info().state}
+      onFocusIn={own}
+      onPointerDown={own}
     >
       <div class="agent-entry-head">
         <button
@@ -54,12 +55,8 @@ export function AgentSubagentEntry(props: {
         <button
           type="button"
           class="agent-entry-rewind agent-entry-open"
-          title={`Open the subagent's transcript in a tab${liveKeyHint(CommandIds.openSubagent)}`}
-          onClick={() =>
-            void runCommandWithFeedback(CommandIds.openSubagent, {
-              conversationId: props.entry.conversationId,
-            })
-          }
+          title={`Open Card in Tab${liveKeyHint(CommandIds.openAgentCard)}`}
+          onClick={() => void openCard(card)}
         >
           Open
         </button>

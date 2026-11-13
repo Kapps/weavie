@@ -5,6 +5,7 @@ import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
+import { AgentRowContext } from "./agent-row-context";
 
 export function AgentTranscript(props: {
   compact: boolean;
@@ -15,6 +16,8 @@ export function AgentTranscript(props: {
   onDetailsToggle: (entryId: string, open: boolean) => void;
   onLayout: () => void;
   providerName: string;
+  /** Scrolls the transcript to entry `id`. */
+  revealEntry: (id: string) => void;
   session: ClientSession;
   transcript: AgentTranscriptSnapshot;
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
@@ -99,15 +102,26 @@ export function AgentTranscript(props: {
                   }}
                   style={row().gap > 0 ? `margin-top:${row().gap}px` : undefined}
                 >
-                  <TranscriptEntry
-                    expandedDetails={props.expandedDetails}
-                    entry={entry()}
-                    keyboardRequestKey={props.keyboardRequestKey}
-                    latestPromptTurn={latestPromptTurn()}
-                    onDetailsToggle={props.onDetailsToggle}
-                    sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
-                    session={props.session}
-                  />
+                  <AgentRowContext.Provider
+                    value={{
+                      get rowId() {
+                        return entry().id;
+                      },
+                      // An entry inside a card is revealed by revealing the card's row.
+                      reveal: (id) =>
+                        props.revealEntry(props.transcript.entryIndexes.has(id) ? id : entry().id),
+                    }}
+                  >
+                    <TranscriptEntry
+                      expandedDetails={props.expandedDetails}
+                      entry={entry()}
+                      keyboardRequestKey={props.keyboardRequestKey}
+                      latestPromptTurn={latestPromptTurn()}
+                      onDetailsToggle={props.onDetailsToggle}
+                      sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
+                      session={props.session}
+                    />
+                  </AgentRowContext.Provider>
                 </div>
               );
             }}

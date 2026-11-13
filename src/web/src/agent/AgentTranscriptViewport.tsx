@@ -188,6 +188,7 @@ export function AgentTranscriptViewport(props: {
             setExpandedDetails((current) => toggleMember(current, entryId, open));
           }}
           providerName={props.providerName}
+          revealEntry={scroll.revealEntry}
           session={props.model.session}
           transcript={scroll.shown()}
           virtualizer={virtualizer}

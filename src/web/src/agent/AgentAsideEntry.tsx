@@ -3,7 +3,7 @@ import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
-import { NestedTranscript } from "./AgentNestedCard";
+import { CollapsibleCardContent, NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 
@@ -49,13 +49,15 @@ export function AsideEntry(props: {
           onUpdatesToggle={props.onUpdatesToggle}
           session={props.session}
         />
-        <Show when={!collapsed() && props.entry.asideReplyable !== false}>
-          <AgentAsideReplyBox
-            session={props.session}
-            conversationId={conversationId}
-            disabled={props.entry.asideActive === true}
-          />
-        </Show>
+        <CollapsibleCardContent collapsed={collapsed()}>
+          <Show when={props.entry.asideReplyable !== false}>
+            <AgentAsideReplyBox
+              session={props.session}
+              conversationId={conversationId}
+              disabled={props.entry.asideActive === true}
+            />
+          </Show>
+        </CollapsibleCardContent>
       </div>
     </AgentCardShell>
   );

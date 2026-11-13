@@ -1,4 +1,3 @@
-import { ChevronRight } from "lucide-solid";
 import { createMemo, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { Disclosure } from "./AgentDisclosure";
@@ -23,9 +22,6 @@ export function AgentThoughtEntry(props: {
           class="agent-thought"
           label={
             <span class="agent-thought-row ui-row ui-row-compact">
-              <span class="ui-icon">
-                <ChevronRight aria-hidden="true" />
-              </span>
               <span class="agent-thought-label">Thinking</span>
               <span class="agent-thought-preview">{preview()}</span>
             </span>

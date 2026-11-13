@@ -2,6 +2,13 @@ import { isCard } from "./AgentPaneBlocks";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { isResult } from "./AgentTranscriptLabels";
 
+const activityOrigins = new WeakMap<AgentTranscriptEntry, AgentTranscriptEntry>();
+
+/** Freezing activity output changes its representation, not the geometry it already measured. */
+export function entryMeasurementSource(entry: AgentTranscriptEntry): AgentTranscriptEntry {
+  return activityOrigins.get(entry) ?? entry;
+}
+
 export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartId: null,
   agentTurnStartIndex: null,
@@ -128,6 +135,18 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
   return {
     ...snapshot,
     entries: snapshot.entries.map((entry) => {
+      if (entry.activityDetails !== undefined) {
+        const { activityDetails, ...held } = entry;
+        const details = activityDetails.freeze();
+        const frozen = {
+          ...held,
+          get details() {
+            return details();
+          },
+        };
+        activityOrigins.set(frozen, entryMeasurementSource(entry));
+        return frozen;
+      }
       const view = entry.conversation;
       if (view === undefined) return entry;
       const held = holdTranscript(view.transcript());

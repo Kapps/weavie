@@ -120,10 +120,10 @@ describe("pending requests in the agent transcript", () => {
       const updates = [input, command];
       model.replace(updates);
       expect(model.transcript().entries[0]?.kind).toBe("activity");
-      model.setActivityExpanded(model.transcript().entries[0]!.id, true);
+      const reader = model.transcript().entries[0]!.activityDetails!.retain();
       const completed = { ...command, type: "item-completed", status: "completed", text: "clean" };
       model.publish([input, completed], [completed]);
-      expect(model.transcript().entries[0]?.details[0]?.detailText).toBe("clean");
+      expect(reader.steps()[0]?.detailText).toBe("clean");
       expect(model.transcript().entries[1]?.id).toBe(paneItemIdentity(input));
       dispose();
     });

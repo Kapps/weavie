@@ -3,6 +3,7 @@ import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentCardOpenButton } from "./AgentCardOpenButton";
+import { DisclosureIcon } from "./AgentDisclosure";
 import { NestedTranscript } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -47,7 +48,7 @@ export function AgentSubagentEntry(props: {
           title={toggleTitle()}
           onClick={toggle}
         >
-          <span aria-hidden="true">{collapsed() ? "▸" : "▾"}</span>
+          <DisclosureIcon />
           <span class="agent-entry-label">Subagent</span>
         </button>
         <Show when={running()}>

@@ -62,20 +62,16 @@ it("keeps Thinking after its steer and owns late tool updates in the original se
     ]);
     expect(entries[3]).toMatchObject({ text: "I am building it.", streaming: true, details: [] });
     expect(model.transcript().latestResultIndex).toBeNull();
-    const oldId = entries[1]!.id;
-    const newId = entries[4]!.id;
     const project = vi.spyOn(projection, "projectAgentTranscript");
     send({ ...tool("old"), type: "item-completed", status: "completed" }, tool("next"));
     expect(project).not.toHaveBeenCalled();
     expect(model.transcript().entries.map((entry) => entry.id)).toEqual(
       entries.map((entry) => entry.id),
     );
-    model.setActivityExpanded(oldId, true);
-    model.setActivityExpanded(newId, true);
-    expect(model.transcript().entries[1]!.details).toMatchObject([
-      { id: "old", status: "completed" },
-    ]);
-    expect(model.transcript().entries[4]!.details.map((step) => step.id)).toEqual(["new", "next"]);
+    const oldReader = model.transcript().entries[1]!.activityDetails!.retain();
+    const newReader = model.transcript().entries[4]!.activityDetails!.retain();
+    expect(oldReader.steps()).toMatchObject([{ id: "old", status: "completed" }]);
+    expect(newReader.steps().map((step) => step.id)).toEqual(["new", "next"]);
     project.mockRestore();
     send(
       { ...base, type: "user-steer", text: "What happens next?" },

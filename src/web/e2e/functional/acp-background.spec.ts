@@ -28,6 +28,10 @@ test("a subagent starts collapsed and keeps explicit expansion when it finishes"
   await expect(surface.locator(".agent-aside")).toContainText("echo: side question");
 
   await signal(weavie.workspace, "release-subagent");
+  await surface
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(card).toContainText("held subagent finished");
@@ -43,6 +47,11 @@ test("a subagent starts collapsed and keeps explicit expansion when it finishes"
   await expect(tab).toHaveCount(0);
 
   await submitAcpDraft(surface, "subagent-failed");
+  const histories = surface.locator(
+    ".agent-transcript > .agent-virtual-row > .agent-entry-updates .agent-updates-toggle",
+  );
+  await expect(histories).toHaveCount(2);
+  await histories.last().click();
   const failed = surface.locator('[data-agent-subagent][data-state="failed"]');
   await expect(failed).toHaveClass(/agent-tone-error/);
   await expect(failed.locator(".agent-entry-status")).toContainText("failed");
@@ -167,6 +176,10 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(dialog).toBeHidden();
   // The dialog closes on the click; the restart lands when its command reports back.
   await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
+  await surface
+    .getByRole("button", { name: /Earlier updates/ })
+    .first()
+    .click();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
     "data-agent-controls-ready",
@@ -250,6 +263,7 @@ test.describe("with approvals", () => {
       '"old_string": "# soak"',
     );
     await request.getByRole("button", { name: "Allow" }).click();
+    await surface.getByRole("button", { name: /Earlier updates/ }).click();
     await expect(surface.locator("[data-agent-subagent]")).toHaveAttribute(
       "data-state",
       "completed",

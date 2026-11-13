@@ -7,6 +7,7 @@ import {
 import { type Accessor, createEffect, createMemo, on } from "solid-js";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
+import { entryMeasurementSource } from "./AgentTranscriptSnapshot";
 import { selectingBlockEntry } from "./agent-block-selection";
 
 /** Maps the shown transcript onto the virtualizer, which measures from the bottom: index 0 is the newest row. */
@@ -38,6 +39,7 @@ export function createAgentPaneLayout(
           if (
             old !== undefined &&
             old !== entry &&
+            entryMeasurementSource(old) !== entryMeasurementSource(entry) &&
             virtualizer().elementsCache.get(entry.id)?.isConnected !== true
           ) {
             onEstimated(entry.id);

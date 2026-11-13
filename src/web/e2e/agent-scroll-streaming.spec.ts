@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { CommandIds } from "../src/commands/types";
 import {
   type AgentPane,
   agentTurns,
@@ -13,7 +14,7 @@ import {
 } from "./harness/agent-pane";
 import { frames } from "./harness/render-budget";
 import { fromReplyStart } from "./harness/reply-start";
-import { mockSession } from "./mock-host";
+import { mockCommand, mockSession } from "./mock-host";
 
 // The pane is bottom-origin: the reader stays still while a turn streams below them, a touch gesture holds the
 // transcript it is reading until the finger and its momentum are done, and following tracks the latest output.
@@ -52,6 +53,21 @@ async function stream(pane: AgentPane, itemId: string, count: number): Promise<v
 async function readAway(pane: AgentPane): Promise<{ id: string; top: number }> {
   await wheelUp(pane, 1500, 1000);
   return pane.body.evaluate(readAnchor);
+}
+
+async function visibleActivity(body: Locator): Promise<Locator> {
+  const entryId = await body.evaluate((element) => {
+    const viewport = element.getBoundingClientRect();
+    const summary = [...element.querySelectorAll(".agent-activity-details > summary")].find(
+      (summary) => {
+        const bounds = summary.getBoundingClientRect();
+        return bounds.top > viewport.top && bounds.bottom < viewport.bottom;
+      },
+    );
+    return summary?.closest("[data-transcript-entry]")?.getAttribute("data-transcript-entry");
+  });
+  expect(entryId).toBeTruthy();
+  return body.locator(`[data-transcript-entry=${JSON.stringify(entryId)}]`);
 }
 
 const jumpToLatest = (page: Page): Locator =>
@@ -399,18 +415,7 @@ test("expanding details while reading keeps the toggled header still", async ({
   await expect(jumpToLatest(page)).toHaveCount(0);
   await summaries.last().click();
   await readAway(pane);
-  const entryId = await body.evaluate((element) => {
-    const viewport = element.getBoundingClientRect();
-    const summary = [...element.querySelectorAll(".agent-activity-details > summary")].find(
-      (summary) => {
-        const bounds = summary.getBoundingClientRect();
-        return bounds.top > viewport.top && bounds.bottom < viewport.bottom;
-      },
-    );
-    return summary?.closest("[data-transcript-entry]")?.getAttribute("data-transcript-entry");
-  });
-  expect(entryId).toBeTruthy();
-  const entry = body.locator(`[data-transcript-entry=${JSON.stringify(entryId)}]`);
+  const entry = await visibleActivity(body);
   const summary = entry.locator(".agent-activity-details > summary");
   await expect(summary).toBeInViewport();
   const before = await summary.evaluate((element) => element.getBoundingClientRect().top);
@@ -561,6 +566,45 @@ test.describe("touch on iOS", () => {
     await latest.tap();
     await expect.poll(() => fromBottom(body)).toBeLessThanOrEqual(1);
     await expect(page.getByText("Held marker", { exact: true })).toBeInViewport();
+  });
+
+  test("an expanded activity remounts with its output while touch holds the transcript", async ({
+    openPanes,
+  }) => {
+    const pane = await openPane(openPanes, "touch-held-details");
+    const { body } = pane;
+    pane.host.publishHost("commands", "catalog", {
+      commands: [
+        mockCommand({
+          id: CommandIds.toggleAgentToolOutput,
+          title: "Toggle Agent Tool Output",
+          runsIn: "web",
+          owner: "backend",
+          executionLane: CommandIds.toggleAgentToolOutput,
+          scope: "session",
+          keys: [],
+        }),
+      ],
+      keybindings: [],
+    });
+    await readAway(pane);
+    const entry = await visibleActivity(body);
+    await entry.locator(".agent-activity-details > summary").click();
+    await expect(entry.locator(".agent-activity-step")).toHaveCount(1);
+    const position = await scrollTop(body);
+    await body.press("Home");
+    await expect(entry).toHaveCount(0);
+
+    await send(body, "touchstart", true);
+    await body.evaluate((element, position) => {
+      element.scrollTop = position;
+    }, position);
+    await expect(entry.locator(".agent-activity-details")).toHaveAttribute("open", "");
+    await expect(entry.locator(".agent-activity-step")).toHaveCount(1);
+    await entry.getByText("show output", { exact: true }).click();
+    await expect(entry.locator(".agent-tool-output")).toContainText("matched");
+    await send(body, "touchend", false);
+    await expect(entry.locator(".agent-tool-output")).toContainText("matched");
   });
 
   test("a dragging finger holds through its momentum; a resting one releases as it lifts", async ({

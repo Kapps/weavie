@@ -3,6 +3,7 @@ import { liveKeyHint } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import { AgentCardOpenButton } from "./AgentCardOpenButton";
+import { DisclosureIcon } from "./AgentDisclosure";
 import { AgentCardToggleContext } from "./agent-row-context";
 
 /** The box a BTW or dashboard card sits in: a head that collapses it and opens it in a tab, then its content. */
@@ -33,9 +34,8 @@ export function AgentCardShell(props: {
           title={`${toggleLabel()}${liveKeyHint(CommandIds.toggleAgentAside)}`}
           onClick={props.onToggle}
         >
-          <span class="agent-aside-toggle-label">
-            {props.collapsed ? "▸" : "▾"} {props.label}
-          </span>
+          <DisclosureIcon />
+          <span class="agent-aside-toggle-label">{props.label}</span>
         </button>
         {props.meta}
         <AgentCardOpenButton card={props.card} />

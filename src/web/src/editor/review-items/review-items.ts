@@ -11,10 +11,11 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { editorContexts } from "../editor-context";
+import { samePath } from "../fs-path";
 import { prCommentsFor } from "../pr-comments/pr-comments-store";
 import { openedHint, openHint, reviewHintsFor } from "../review-hints/review-hints-store";
 import { reviewOptions } from "./review-options";
-import { buildSequence, type ItemKey, type ReviewItem } from "./review-sequence";
+import { buildSequence, type ItemKey, type ItemLocation, type ReviewItem } from "./review-sequence";
 
 interface CurrentThread {
   id: string;
@@ -23,6 +24,8 @@ interface CurrentThread {
 }
 
 interface SessionItems {
+  /** The item the last step went to, and where it left the cursor. */
+  landing: { key: ItemKey; path: string; line: number } | null;
   sequence: Accessor<ReviewItem[]>;
   reviewPaths: Accessor<readonly string[]>;
   counts: Accessor<ItemCounts>;
@@ -84,6 +87,7 @@ function createItems(
     });
     const isCurrentThread = createSelector(() => thread()?.id);
     return {
+      landing: null,
       sequence,
       reviewPaths: paths,
       counts,
@@ -149,6 +153,23 @@ export const reviewItems = {
     if (open?.pinned && open.owner !== null)
       return editorContexts.fromEditor(open.owner)?.reviewHints.lineOf(open.id) ?? null;
     return roots.get(session)?.thread()?.claimed ?? null;
+  },
+  /** Records where a step left the cursor: on `key`'s line of `path`. */
+  land(session: ClientSession, key: ItemKey, path: string, line: number): void {
+    const items = roots.get(session);
+    if (items !== undefined) items.landing = { key, path, line };
+  },
+  /**
+   * Where a step from `location` starts: the item the last step went to while the cursor is still on its line, so
+   * Escape followed by a step moves on rather than reopening it; otherwise the location itself.
+   */
+  resumeFrom(session: ClientSession, location: ItemLocation): ItemKey | ItemLocation {
+    const landing = roots.get(session)?.landing;
+    return landing != null &&
+      landing.line === location.line &&
+      samePath(landing.path, location.path)
+      ? landing.key
+      : location;
   },
   /** Clears a current thread; false when there was none. */
   clearThread(session: ClientSession): boolean {

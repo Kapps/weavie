@@ -21,11 +21,11 @@ function step(
   from: ItemKey | null,
   revealFile: RevealFile,
 ): void {
+  const cursor = activeTabFor(session)?.presentation?.capture().text ?? null;
   const origin =
     from ??
     reviewItems.current(session) ??
-    activeTabFor(session)?.presentation?.capture().text ??
-    null;
+    (cursor === null ? null : reviewItems.resumeFrom(session, cursor));
   const target = stepItem(
     reviewItems.sequence(session),
     reviewItems.reviewPaths(session),
@@ -40,6 +40,7 @@ function step(
   reviewItems.setCurrent(session, target.key);
   const claimed = reviewItems.claimedLine(session);
   const line = claimed ?? Math.max(1, target.line);
+  reviewItems.land(session, target.key, target.path, line);
   // The unified review still reveals a claimed item, which opens a fold over it; a claiming file tab already has.
   if (activeTabFor(session)?.presentation?.actions()?.revealLine?.(target.path, line)) return;
   if (claimed === null) revealFile(session, target.path, line);

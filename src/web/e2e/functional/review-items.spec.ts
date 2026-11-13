@@ -107,13 +107,40 @@ test("steps by key across the review's files, wrapping, with the position in the
   await next(page);
   await expect(position(page)).toHaveText("1 of 3");
 
-  // Escape clears it too: from the cursor the thread the step left it on is next again, not the one after it.
+  // Escape clears it too, and with the cursor still where the step left it, either step moves on from that item.
   await page.keyboard.press("Escape");
   await expect(position(page)).toHaveText("3");
   await next(page);
+  await expect(position(page)).toHaveText("2 of 3");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+Alt+BracketLeft");
   await expect(position(page)).toHaveText("1 of 3");
   await page.mouse.wheel(0, 400);
   await expect(position(page)).toHaveText("1 of 3");
+});
+
+test("a hovered hint's arrows step from that hint, and the header's from the current item", async ({
+  page,
+}) => {
+  await openReview(page);
+  await runCommand(page, "Next Comment or Hint");
+  await next(page);
+  const greeting = prCard(page, "Why change this greeting?");
+  await expect(greeting).toHaveClass(/weavie-pr-card-current/);
+
+  // The hint is item 3; its popover's Next wraps to item 1, not to item 3 after the current item 2.
+  await page.locator(".weavie-hint-pill").hover();
+  await expect(popover(page).locator(".review-item-position > span")).toHaveText("3 of 3");
+  await expect(position(page)).toHaveText("2 of 3");
+  await popover(page).getByRole("button", { name: "Next Comment or Hint" }).click();
+  await expect(position(page)).toHaveText("1 of 3");
+
+  await page
+    .locator(".unified-review-header")
+    .getByRole("button", { name: "Next Comment or Hint" })
+    .click();
+  await expect(position(page)).toHaveText("2 of 3");
+  await expect(greeting).toHaveClass(/weavie-pr-card-current/);
 });
 
 test("the filter hides a kind, adds resolved threads, and is remembered; Dismiss drops a hint", async ({

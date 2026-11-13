@@ -106,6 +106,7 @@ public sealed partial class HostCore {
 			(_, _) => Task.FromResult(RunLearn(session)));
 		RegisterCredentialHandlers(session);
 		RegisterDecisionProviderHandler(session);
+		session.Commands.RegisterHandler(CoreCommands.ResetCommandLearning, (_, _) => Task.FromResult(ResetCommandLearning()));
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));

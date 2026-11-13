@@ -15,6 +15,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void WireHostMessages() {
 		WireSystemNotificationMessages();
+		WireCommandUsage();
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse(
@@ -222,6 +223,7 @@ public sealed partial class HostCore {
 		var args = message.Args;
 		string? id = ReadString(args, "id");
 		return message.Id switch {
+			CoreCommands.ResetCommandLearning => ResetCommandLearning(),
 			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
 				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),

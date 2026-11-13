@@ -226,6 +226,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_sessionStore = new SessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceSessionsFile(Id));
 		_sessionStore.Log += Log;
+		_commandUsage = new CommandUsageStore(new LocalFileSystem(), WeaviePaths.WorkspaceCommandUsageFile(Id));
 		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
 		_recentFiles.Log += Log;
 		// One correction ring per workspace, shared by every session/worktree: rules about how the agent codes
@@ -413,6 +414,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Live settings groups: re-push the resolved values so the web applies them in place.
 		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
+			if (change.Key == CoreSettings.CommandLearning) PushCommandUsage();
 			if (change.Key == EditorSettings.SpellCheckLocale) InvalidateSpelling();
 			foreach (var (keys, eventName, _, build) in LiveSettingGroups) {
 				if (keys.Contains(change.Key)) {

@@ -108,6 +108,8 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.ReviewOverviewCollapse))]
 [JsonSerializable(typeof(RecentWorkspacesChanged))]
 [JsonSerializable(typeof(RecentFilesChanged))]
+[JsonSerializable(typeof(CommandUsageSnapshot))]
+[JsonSerializable(typeof(RecordCommandUsage))]
 [JsonSerializable(typeof(FileProviderChanged))]
 [JsonSerializable(typeof(FileIndexWire))]
 [JsonSerializable(typeof(AttachmentState))]

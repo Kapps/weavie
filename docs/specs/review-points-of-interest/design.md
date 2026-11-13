@@ -397,5 +397,5 @@ No host budget changes: no git process and no page message is added to any opera
 8. [x] Check a hint on a line the unified review hides; add the context span if it stays hidden. It stayed hidden,
    and Monaco also kept the hint's widgets hidden after the fold opened; both are fixed and covered.
 9. [x] `review-items.spec.ts`; update the existing specs and the mock-host fixture.
-10. [ ] `dotnet format`, `biome check --write`, `pnpm e2e:perf`, then `weavie-reviewer` and `weavie-tester`.
+10. [x] `dotnet format`, `biome check --write`, `pnpm e2e:perf`, then `weavie-reviewer` and `weavie-tester`.
 11. [x] Update `pr-comments.md` and `inline-review-hints.md`.

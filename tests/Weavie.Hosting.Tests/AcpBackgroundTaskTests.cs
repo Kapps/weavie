@@ -64,6 +64,18 @@ public sealed class AcpBackgroundTaskTests {
 	}
 
 	[Fact]
+	public async Task AnUnpromptedTurnThatEndsIsNoLongerListed() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		fixture.Submit("task-turn");
+		await Wait.UntilAsync(() => fixture.Session.BackgroundWork.Count == 1);
+
+		Signal(fixture, "release-turn");
+
+		await Wait.UntilAsync(() => fixture.Session.BackgroundWork.Count == 0);
+		await fixture.Events.WaitForAsync(value => value is AgentBackgroundChanged { Running: false });
+	}
+
+	[Fact]
 	public async Task AFailedTaskCarriesItsErrorOutputFileAndLateAttributedToolCall() {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-failed", "1");

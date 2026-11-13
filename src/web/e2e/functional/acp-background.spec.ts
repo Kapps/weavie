@@ -198,6 +198,30 @@ test("the agent's own unprompted turn shows in the tray but never asks to be sto
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("an unprompted turn leaves the tray when it ends, and Stop never changes the tray's height", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "acp-background-turn-ends");
+  const tray = surface.locator(".agent-background-tray");
+  const items = tray.locator("[data-background-item]");
+
+  await submitAcpDraft(surface, "task-held");
+  await expect(items.getByRole("button", { name: "Stop" })).toBeVisible();
+  const stoppable = (await tray.boundingBox())!.height;
+  await signal(weavie.workspace, "release-task");
+  await expect(items).toHaveAttribute("data-state", "completed");
+  await expect(items.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  expect((await tray.boundingBox())!.height).toBe(stoppable);
+
+  // The next prompt forgets the finished task, so the turn is the tray's only item.
+  await submitAcpDraft(surface, "task-turn");
+  await expect(items).toHaveCount(1);
+  await expect(items).toContainText("Claude is working");
+  await signal(weavie.workspace, "release-turn");
+  await expect(tray).toHaveCount(0);
+});
+
 test.describe("with approvals", () => {
   test.use({
     fakeScript: {

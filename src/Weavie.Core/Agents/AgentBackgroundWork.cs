@@ -80,6 +80,12 @@ public sealed record AgentBackgroundItem {
 	/// <summary>Whether the work is still live.</summary>
 	public bool Running => State is AgentBackgroundState.Running or AgentBackgroundState.Paused;
 
+	/// <summary>
+	/// Whether the work is shown: a turn of the agent's own that has ended leaves nothing to open or stop, unless it
+	/// failed, when its item is the only place the failure shows.
+	/// </summary>
+	public bool Listed => Running || Kind != AgentBackgroundKind.Turn || State == AgentBackgroundState.Failed;
+
 	/// <summary>Whether ending the session now would lose this work's result; the agent's own turn is never orphaned.</summary>
 	public bool Orphanable => Running && Kind != AgentBackgroundKind.Turn;
 }

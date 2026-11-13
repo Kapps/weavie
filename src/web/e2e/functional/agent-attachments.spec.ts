@@ -76,6 +76,8 @@ test("with attach-on-select off, highlighting attaches nothing until the command
 });
 
 async function highlight(page: Page, reply: Locator): Promise<void> {
+  // A reply is drawn again when its turn ends, which replaces its paragraph, so it is measured once the turn is over.
+  await expect(page.locator(".agent-working")).toHaveCount(0);
   const box = (await reply.locator("p").first().boundingBox())!;
   await page.mouse.move(box.x + 1, box.y + box.height / 2);
   await page.mouse.down();

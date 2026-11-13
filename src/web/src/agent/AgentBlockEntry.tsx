@@ -12,7 +12,7 @@ import { chartHeight } from "./agent-block-layout";
 import { noteBlockSelecting, wholeBlockSelection } from "./agent-block-selection";
 import { blockUpdatedAt, cardOf, ownCardOnFocus } from "./agent-cards";
 import { ownCommand, ownsCommand } from "./agent-command-owner";
-import { AgentRowContext } from "./agent-row-context";
+import { AgentCardToggleContext, AgentRowContext } from "./agent-row-context";
 import { agentBlock, tableView } from "./block-store";
 import type { AgentSelection } from "./composer-state";
 import { attachAgentSelection } from "./composer-store";
@@ -59,8 +59,10 @@ export function AgentBlockEntry(props: {
     );
   };
   onCleanup(() => release?.());
+  // A lone block has no collapsed state; Alt+B over it acts on the card around it, a BTW's.
+  const enclosing = useContext(AgentCardToggleContext);
   const ownCard = ownCardOnFocus(() =>
-    card === null ? null : { session: props.session, card, toggle: null },
+    card === null ? null : { session: props.session, card, toggle: enclosing ?? null },
   );
   const press = (event: Event): void => {
     own(event);
@@ -70,6 +72,7 @@ export function AgentBlockEntry(props: {
     <div
       class="agent-entry agent-entry-block"
       data-block={props.entry.block.kind}
+      data-sized={props.height === null ? undefined : ""}
       style={{
         height:
           props.height !== null

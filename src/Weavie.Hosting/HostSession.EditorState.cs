@@ -92,7 +92,7 @@ public sealed partial class HostSession {
 
 	private static EditorSession WithOpen(EditorSession current, string path, bool preview, bool scratch, string? kind) {
 		var open = current.Open.ToList();
-		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
+		int existing = open.FindIndex(entry => IsTab(entry, path, OperatingSystem.IsWindows()));
 		if (existing >= 0) {
 			var entry = open[existing];
 			bool sameKind = (entry.Kind ?? "file") == (kind ?? "file");
@@ -121,22 +121,25 @@ public sealed partial class HostSession {
 	}
 
 	private static EditorSession? WithClosed(EditorSession current, string path) {
-		int index = current.Open.ToList().FindIndex(entry => SameEditorPath(entry.Path, path));
+		bool windows = OperatingSystem.IsWindows();
+		int index = current.Open.ToList().FindIndex(entry => IsTab(entry, path, windows));
 		if (index < 0) return null;
-		var open = current.Open.Where(entry => !SameEditorPath(entry.Path, path)).ToArray();
+		var closed = current.Open[index];
+		var open = current.Open.Where(entry => !IsTab(entry, path, windows)).ToArray();
 		string? active = current.Active;
-		if (active is not null && SameEditorPath(active, path)) {
+		if (active is not null && IsTab(closed, active, windows)) {
 			active = open.Length == 0 ? null : open[Math.Min(index, open.Length - 1)].Path;
 		}
 
 		return current with { Active = active, Open = open };
 	}
 
-	private static bool SameEditorPath(string left, string right) =>
+	// A file path follows its file system's case rule; any other tab's path is an id, such as a dashboard's.
+	internal static bool IsTab(EditorSessionEntry entry, string path, bool caseInsensitiveFiles) =>
 		string.Equals(
-			left,
-			right,
-			OperatingSystem.IsWindows()
+			entry.Path,
+			path,
+			entry.IsFile && caseInsensitiveFiles
 				? StringComparison.OrdinalIgnoreCase
 				: StringComparison.Ordinal);
 }

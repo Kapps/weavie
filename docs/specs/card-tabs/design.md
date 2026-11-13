@@ -432,7 +432,7 @@ if (message.type === "item-completed" && message.itemType === "block" && message
 | Command | Change |
 | --- | --- |
 | `weavie.agent.openCard` (new, web, unbound) | *Open Card in Tab*. Args `{ kind, conversationId?, dashboardId?, blockId?, background? }`; with no args it opens the focused card. `When = "agentCardFocused"`. Replaces `weavie.agent.openSubagent`, which is deleted |
-| `weavie.agent.toggleAside` | Id and `Alt+B` kept. Title *Collapse or Expand Card*, `When = "agentCardFocused"`, args `{ conversationId?, dashboardId?, collapsed }`. The "newest visible" fallback goes, and with it `toggleAgentAside`, `registerNestedToggle` and the DOM query (`AgentNestedCard.tsx:10-28`) |
+| `weavie.agent.toggleAside` | Id and `Alt+B` kept. Title *Collapse or Expand Card*, `When = "agentFocused && agentCardFocused"` so `Alt+B` reaches a shell or the editor once the keyboard is there, args `{ kind, conversationId, dashboardId?, collapsed }` (a card named without `collapsed` is refused). Over a lone block it acts on the card around it. The "newest visible" fallback goes, and with it `toggleAgentAside`, `registerNestedToggle` and the DOM query (`AgentNestedCard.tsx:10-28`) |
 | `weavie.agent.openBackgroundItem` | `id` required and hidden from the palette; the "most recent" branch goes (`background-tab.ts:15-20`). The strip is its keyboard path |
 | `weavie.agent.showBackgroundWork` | `When = "agentStripActive"`; title *Focus Agent Strip* |
 

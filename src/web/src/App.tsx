@@ -22,7 +22,7 @@ import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
 import { backgroundItemToOpen, backgroundTab } from "./agent/background-tab";
-import { cardEntry } from "./agent/card-tab";
+import { liveCard } from "./agent/card-tab";
 import {
   type AgentPaneModel,
   agentAuthenticationTerminalActive,
@@ -173,15 +173,7 @@ import { onSourceEditError, openSelectedSourceTarget } from "./editor/source/sou
 import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
-import { type AgentCardRef, cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
-
-/** `session`, once it holds `card`; throws for a card that is gone, so a command never acts on nothing. */
-function liveCard(session: ClientSession | null, card: AgentCardRef): ClientSession {
-  if (session === null) throw new Error("Select a session to act on its cards.");
-  if (cardEntry(session, card) === undefined)
-    throw new Error("That card is no longer in this conversation.");
-  return session;
-}
+import { cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
 
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {

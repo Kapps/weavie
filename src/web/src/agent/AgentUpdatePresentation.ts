@@ -2,7 +2,12 @@ import { type Accessor, createMemo, createSignal } from "solid-js";
 import type { AgentDefaults } from "../bridge";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
+import {
+  cardIndexes,
+  emptyTranscript,
+  latestResultIndex,
+  shareTranscript,
+} from "./AgentTranscriptSnapshot";
 
 export type ProgressDisplay = AgentDefaults["progressDisplay"];
 
@@ -55,6 +60,7 @@ export function presentUpdates(
     ...source,
     entries,
     entryIndexes,
+    cardIndexes: cardIndexes(entries),
     agentTurnStartId: turnStart,
     agentTurnStartIndex: turnStart === null ? null : (entryIndexes.get(turnStart) ?? null),
     latestResultIndex: latestResultIndex(entries),

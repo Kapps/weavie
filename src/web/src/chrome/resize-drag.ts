@@ -6,7 +6,7 @@ export function createResizeDrag(options: {
   save: (size: number) => void;
   // Measures the layout as a drag starts, returning the size each later pointer position asks for.
   measure: (start: PointerEvent) => (move: PointerEvent) => number;
-}): { size: Accessor<number>; start: (event: PointerEvent) => void } {
+}): { size: Accessor<number>; dragging: Accessor<boolean>; start: (event: PointerEvent) => void } {
   const [dragSize, setDragSize] = createSignal<number | null>(null);
   const start = (event: PointerEvent): void => {
     if (event.button !== 0) return;
@@ -29,5 +29,5 @@ export function createResizeDrag(options: {
     handle.addEventListener("pointermove", move);
     handle.addEventListener("lostpointercapture", end);
   };
-  return { size: () => dragSize() ?? options.saved(), start };
+  return { size: () => dragSize() ?? options.saved(), dragging: () => dragSize() !== null, start };
 }

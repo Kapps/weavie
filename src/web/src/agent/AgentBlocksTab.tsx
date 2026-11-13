@@ -4,7 +4,7 @@ import { createResizeDrag } from "../chrome/resize-drag";
 import { AgentBlockEntry } from "./AgentBlockEntry";
 import { AgentCardTabFrame } from "./AgentCardTabFrame";
 import type { AgentBlockTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { chartHeight, tableHeightEstimate } from "./agent-block-layout";
+import { chartHeight } from "./agent-block-layout";
 
 /** What a blocks tab saves with its tab: each block's height as the user sized it, by block id. */
 export interface BlocksTabViewState {
@@ -65,31 +65,39 @@ function BlockRow(props: {
   height: number | null;
   setHeight: (height: number) => void;
 }): JSX.Element {
-  // Until the user sizes it, a block is as tall here as in the transcript.
-  const height = () =>
-    props.height ?? (props.block.block.kind === "chart" ? chartHeight : tableHeightEstimate);
+  let frame!: HTMLDivElement;
+  // Read only as a drag or a key starts, never while rendering.
+  const current = (): number => props.height ?? frame.getBoundingClientRect().height;
   const drag = createResizeDrag({
-    saved: height,
+    saved: current,
     save: props.setHeight,
     measure: (start) => {
-      const from = height();
+      const from = current();
       return (move) => Math.max(minimumHeight, from + move.clientY - start.clientY);
     },
   });
+  // Until the user sizes it, a block is as tall here as in the transcript.
+  const height = (): number | null =>
+    drag.dragging() || props.height !== null
+      ? drag.size()
+      : props.block.block.kind === "chart"
+        ? chartHeight
+        : null;
   return (
     <div class="agent-blocks-tab-row">
-      <AgentBlockEntry entry={props.block} session={props.session} height={drag.size()} />
-      {/* A drag resizes the block, and so do ArrowUp and ArrowDown while the handle has focus. */}
+      <div ref={frame}>
+        <AgentBlockEntry entry={props.block} session={props.session} height={height()} />
+      </div>
       <button
         type="button"
         class="agent-blocks-tab-handle"
         aria-label={`Resize ${props.block.summary ?? props.block.label}`}
-        title="Resize"
+        title="Drag, or press ArrowUp or ArrowDown, to resize"
         onPointerDown={drag.start}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
           event.preventDefault();
-          props.setHeight(height() + (event.key === "ArrowDown" ? keyStep : -keyStep));
+          props.setHeight(current() + (event.key === "ArrowDown" ? keyStep : -keyStep));
         }}
       />
     </div>

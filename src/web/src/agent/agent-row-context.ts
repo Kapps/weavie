@@ -8,3 +8,6 @@ export interface AgentRow {
 
 /** Absent outside the agent pane's transcript, such as in an editor tab. */
 export const AgentRowContext = createContext<AgentRow>();
+
+/** The toggle of the card an entry renders inside, for a lone block's Alt+B. */
+export const AgentCardToggleContext = createContext<() => void>();

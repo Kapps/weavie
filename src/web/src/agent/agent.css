@@ -272,6 +272,11 @@
   --row-pad-x: 0px;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* The row is a flex container, so the label is the item that ellipsizes. */
+.agent-aside-toggle-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

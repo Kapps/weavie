@@ -179,16 +179,16 @@
   color: var(--dim);
 }
 
-/* In a tab a block's frame takes the height the user gives it, a table's rows included. */
-.agent-blocks-tab .agent-entry-block[data-block="table"] .agent-block-body {
+/* A table the user sized in a tab fills that height, its rows included; one never sized keeps its own. */
+.agent-entry-block[data-sized][data-block="table"] .agent-block-body {
   flex: 1 1 0;
 }
 
-.agent-blocks-tab .agent-table {
+.agent-entry-block[data-sized] .agent-table {
   height: 100%;
 }
 
-.agent-blocks-tab .agent-table-body {
+.agent-entry-block[data-sized] .agent-table-body {
   max-height: 100%;
 }
 

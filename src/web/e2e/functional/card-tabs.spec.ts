@@ -205,3 +205,33 @@ test("an agent's background open of its dashboard keeps the editor and the keybo
   );
   await expect(page.locator(".editor-tab.active")).toContainText("Checkout rollout");
 });
+
+test("Alt+B over a chart in a BTW collapses the BTW, and an unsized table keeps its own height in a tab", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "card-tabs-lone");
+  const lone = { ...chart("solo"), dashboard: undefined };
+  await submitAcpDraft(surface, `/btw block:claude:showBlock:${JSON.stringify(lone)}`);
+  const aside = surface.locator(".agent-aside[data-agent-aside]");
+  const block = aside.locator(".agent-entry-block");
+  await expect(block.locator(".agent-chart canvas")).toBeVisible();
+  await block.locator(".agent-block-title").click();
+  await page.keyboard.press("Alt+b");
+  await expect(aside.getByRole("button", { name: "Expand BTW", exact: true })).toBeVisible();
+
+  const table = {
+    id: "errors",
+    title: "Recent errors",
+    table: {
+      columns: [{ name: "message", type: "text" }],
+      rows: [["one"], ["two"], ["three"]],
+    },
+  };
+  await submitAcpDraft(surface, `block:codex:showBlock:${JSON.stringify(table)}`);
+  const row = surface.locator('.agent-entry-block[data-block="table"]');
+  const inChat = (await row.boundingBox())!.height;
+  await row.getByRole("button", { name: "Open", exact: true }).click();
+  const inTab = page.locator('.agent-blocks-tab .agent-entry-block[data-block="table"]');
+  await expect(inTab.locator(".agent-table-row")).toHaveCount(3);
+  expect((await inTab.boundingBox())!.height).toBe(inChat);
+});

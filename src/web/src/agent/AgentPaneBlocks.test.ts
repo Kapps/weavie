@@ -8,6 +8,7 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
+import type { ProgressDisplay } from "./AgentUpdatePresentation";
 import { chartHeight } from "./agent-block-layout";
 
 const row = (fields: Partial<AgentPaneUpdate>): AgentPaneUpdate => ({
@@ -34,12 +35,16 @@ const member = (id: string, turnId: string, text?: string): AgentPaneUpdate =>
     ...(text === undefined ? {} : { text }),
   });
 
-function withModel(messages: readonly AgentPaneUpdate[], check: (model: AgentPaneModel) => void) {
+function withModel(
+  messages: readonly AgentPaneUpdate[],
+  check: (model: AgentPaneModel) => void,
+  progress: ProgressDisplay = "all",
+) {
   createRoot((dispose) => {
     const model = createAgentPaneModel(
       {} as ClientSession,
       () => "all",
-      () => "all",
+      () => progress,
     );
     let flush = () => {};
     new AgentPaneAccumulator((callback) => {
@@ -123,6 +128,28 @@ describe("dashboards", () => {
         expect(model.transcript().entries).toEqual([]);
         expect(model.dashboard(null, "rollout")).toBeUndefined();
       },
+    );
+  });
+
+  it("lists a card the strip can read once earlier replies are folded ahead of it", () => {
+    const reply = (n: number) =>
+      row({ itemId: `a${n}`, itemType: "agentMessage", text: `reply ${n}` });
+    withModel(
+      [
+        row({ type: "user-message", itemId: "u1", text: "go" }),
+        reply(1),
+        reply(2),
+        reply(3),
+        reply(4),
+        row({ type: "user-message", turnId: "2", itemId: "u2", text: "watch it" }),
+        member("p95", "2"),
+        { ...marker, turnId: "2" },
+      ],
+      (model) => {
+        expect(model.transcript().entries.map((entry) => entry.kind)).toContain("updates");
+        expect(model.cards().map((card) => card.dashboardId)).toEqual(["rollout"]);
+      },
+      "latest",
     );
   });
 });

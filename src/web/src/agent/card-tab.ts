@@ -29,3 +29,11 @@ export function cardEntry(
       return model?.block(card.conversationId, card.blockId);
   }
 }
+
+/** `session`, once it holds `card`; throws for a card that is gone, so a command never acts on nothing. */
+export function liveCard(session: ClientSession | null, card: AgentCardRef): ClientSession {
+  if (session === null) throw new Error("Select a session to act on its cards.");
+  if (cardEntry(session, card) === undefined)
+    throw new Error("That card is no longer in this conversation.");
+  return session;
+}

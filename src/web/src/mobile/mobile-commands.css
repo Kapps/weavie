@@ -35,7 +35,6 @@
     display: none;
     position: absolute;
     inset: calc(env(safe-area-inset-top) + 8px) 8px auto;
-    z-index: 85;
     width: auto;
     max-height: calc(100% - env(safe-area-inset-top) - 16px);
     border: 1px solid var(--border);

@@ -17,7 +17,7 @@ import type { BlocksTabViewState } from "../agent/AgentBlocksTab";
 import { type ClientSession, selectedSession } from "../bridge";
 import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
-import MediaPane from "./media/MediaPane";
+import MediaPane, { type EditorPanePresence } from "./media/MediaPane";
 import { mediaTypeOf } from "./media/media-types";
 import { canPreview } from "./preview/preview-registry";
 import { activeTabFor, openTabsFor, tabOwnerFor } from "./session-store";
@@ -39,6 +39,7 @@ function ActiveTabContent(props: {
   tab: TabOwner;
   controller: EditorController;
   active: () => boolean;
+  pane: EditorPanePresence;
 }): JSX.Element {
   const { tab, controller } = props;
   const kind = tabKind(tab.entry);
@@ -162,7 +163,7 @@ function ActiveTabContent(props: {
             <PlanView session={tab.session} path={tab.entry.path} bind={bind} />
           </Match>
           <Match when={media}>
-            <MediaPane session={tab.session} path={tab.entry.path} bind={bind} />
+            <MediaPane session={tab.session} path={tab.entry.path} pane={props.pane} bind={bind} />
           </Match>
           <Match when={preview()}>
             <PreviewPane
@@ -186,6 +187,7 @@ function ActiveTabContent(props: {
 export default function TabContent(props: {
   controller: EditorController;
   sessions: () => ClientSession[];
+  pane: EditorPanePresence;
 }): JSX.Element {
   const active = createMemo(() => {
     const session = selectedSession();
@@ -227,6 +229,7 @@ export default function TabContent(props: {
             tab={tab}
             controller={props.controller}
             active={() => active() === tab}
+            pane={props.pane}
           />
         </ErrorBoundary>
       )}

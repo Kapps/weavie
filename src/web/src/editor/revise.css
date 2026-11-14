@@ -19,7 +19,7 @@
   padding: 0 6px;
   border-radius: 8px;
   white-space: nowrap;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   color: var(--dim);
   background: color-mix(in srgb, var(--accent) 18%, var(--bg));
 }

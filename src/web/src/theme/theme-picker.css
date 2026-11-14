@@ -13,11 +13,11 @@
 }
 .theme-picker small {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 .theme-picker p {
   margin: 0;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 .theme-picker .confirm-actions > small {
   padding: 0 16px;
@@ -72,7 +72,7 @@
   align-items: baseline;
   gap: 8px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 .theme-picker-sort > .ui-field {
   width: auto;

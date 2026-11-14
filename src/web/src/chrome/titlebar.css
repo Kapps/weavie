@@ -93,7 +93,7 @@
 /* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular
    numerals keep it from jittering; the full version sits in its tooltip. */
 .tb-build {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
   padding: 0 10px;
   color: var(--dim);

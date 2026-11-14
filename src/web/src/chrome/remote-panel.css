@@ -55,7 +55,7 @@
 }
 .remote-agent-state {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 .remote-agent-x {
   flex: 0 0 auto;

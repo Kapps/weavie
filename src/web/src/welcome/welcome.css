@@ -96,7 +96,7 @@
 .welcome-empty {
   margin: 0;
   padding: 1.1rem 0;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   color: var(--dim);
 }
 
@@ -146,7 +146,7 @@
 }
 
 .welcome-row-path {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;

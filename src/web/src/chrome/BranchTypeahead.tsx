@@ -45,7 +45,7 @@ export function BranchTypeahead(props: {
   return (
     <>
       <input
-        class="session-prompt-input ui-field ui-field-content"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder={props.placeholder}
         role="combobox"
@@ -78,7 +78,7 @@ export function BranchTypeahead(props: {
             {(name, i) => (
               <div
                 {...nav.row(i())}
-                class="session-prompt-suggestion ui-row ui-row-content"
+                class="session-prompt-suggestion ui-row"
                 role="option"
                 tabindex={-1}
                 id={`${props.idPrefix}-opt-${i()}`}

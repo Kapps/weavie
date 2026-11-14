@@ -96,7 +96,7 @@
 
 .getting-started small:not(.ui-section-label) {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .getting-started small.gs-warning {
@@ -507,7 +507,7 @@ fieldset.gs-choices {
   gap: 6px;
   margin: 0;
   color: var(--warn);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .control-menu.gs-menu {

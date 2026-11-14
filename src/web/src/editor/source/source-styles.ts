@@ -53,7 +53,7 @@ export const SOURCE_STYLES = `
   border-radius: 4px; padding: 0.15em 0.6em;
 }
 .wv-source .wv-open-external {
-  float: right; margin-left: 12px; cursor: pointer; font: var(--font-chrome-secondary);
+  float: right; margin-left: 12px; cursor: pointer; font: var(--font-chrome-body);
   color: var(--accent, #54c6a4); background: none; border: 1px solid var(--border, #191c21);
   border-radius: 4px; padding: 3px 9px;
 }
@@ -127,7 +127,7 @@ export const SOURCE_STYLES = `
 .wv-source pre.mermaid-pending { color: var(--dim, #6f7884); }
 .wv-source pre.mermaid-source[data-mermaid-error]::before {
   content: attr(data-mermaid-error); display: block; margin-bottom: 8px; color: var(--bad, #e07a7a);
-  font: var(--font-chrome-secondary); white-space: normal;
+  font: var(--font-chrome-body); white-space: normal;
 }
 .wv-source .mermaid-rendered { margin: 1em 0; text-align: center; }
 .wv-source .mermaid-rendered svg { max-width: 100%; height: auto; }

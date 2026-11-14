@@ -46,7 +46,7 @@ export function RevisePrompt(props: {
         {props.lineCount === 1 ? "this line" : `these ${props.lineCount} lines`}?
       </div>
       <input
-        class="session-prompt-input ui-field ui-field-content"
+        class="session-prompt-input ui-field"
         type="text"
         spellcheck={false}
         autocomplete="off"

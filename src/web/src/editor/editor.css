@@ -44,7 +44,7 @@
 
 .editor-empty-tagline {
   margin: 2px 0 0;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   color: var(--dim);
 }
 
@@ -487,7 +487,7 @@ button.editor-review-action:not(:disabled):hover {
   border-radius: 6px;
   background: var(--bar);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .editor-media-controls {
@@ -503,7 +503,7 @@ button.editor-review-action:not(:disabled):hover {
   border-radius: 8px;
   background: var(--bar);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
   pointer-events: auto;
 }
@@ -536,7 +536,7 @@ video.editor-media-content {
 .editor-plan-notice {
   padding: 12px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   text-align: center;
 }
 

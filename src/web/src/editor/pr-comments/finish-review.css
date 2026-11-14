@@ -51,14 +51,15 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font: var(--font-chrome-title);
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
 }
 
 .finish-review-title span,
 .finish-review-note,
 .finish-review-detail {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .finish-review-title span {

@@ -43,10 +43,8 @@
   --font-chrome-hero-size: 36px;
   --font-chrome-display-size: 20px;
   --font-chrome-lead-size: 16px;
-  --font-chrome-title-size: 13px;
-  --font-chrome-size: 12px;
-  --font-chrome-secondary-size: 11px;
-  --font-chrome-badge-size: 10px;
+  --font-chrome-size: 12px; /* all interface text */
+  --font-chrome-badge-size: 11px; /* key hints, counts, badges, session names */
   --font-chrome-line: 16px; /* every single-line chrome role */
   --font-chrome-line-wrap: 18px; /* wrapping body text; the inherited default */
   --font-chrome-display-line: 24px;
@@ -62,17 +60,11 @@
   --font-chrome-lead:
     var(--font-weight-regular) var(--font-chrome-lead-size) / var(--font-chrome-display-line)
     var(--font-chrome-family);
-  --font-chrome-title:
-    var(--font-weight-emphasis) var(--font-chrome-title-size) / var(--font-chrome-line)
-    var(--font-chrome-family);
   --font-chrome-body:
     var(--font-weight-regular) var(--font-chrome-size) / var(--font-chrome-line)
     var(--font-chrome-family);
   --font-chrome-body-wrap:
     var(--font-weight-regular) var(--font-chrome-size) / var(--font-chrome-line-wrap)
-    var(--font-chrome-family);
-  --font-chrome-secondary:
-    var(--font-weight-regular) var(--font-chrome-secondary-size) / var(--font-chrome-line)
     var(--font-chrome-family);
   --font-chrome-badge:
     var(--font-weight-emphasis) var(--font-chrome-badge-size) / var(--font-chrome-line)

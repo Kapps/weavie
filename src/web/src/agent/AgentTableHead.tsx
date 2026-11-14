@@ -57,7 +57,7 @@ export function AgentTableHead(props: {
           <span class="agent-table-column">
             <button
               type="button"
-              class="ui-button ui-button-content agent-table-sort"
+              class="ui-button agent-table-sort"
               title={`Sort by ${column().name}`}
               onClick={() =>
                 props.onSort((current) =>

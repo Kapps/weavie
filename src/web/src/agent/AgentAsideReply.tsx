@@ -74,15 +74,10 @@ export function AgentAsideReply(props: {
         <div class="agent-compose-error">{composer.state().error}</div>
       </Show>
       <div class="agent-aside-reply-actions">
-        <button type="button" class="ui-button ui-button-content" onClick={props.onClose}>
+        <button type="button" class="ui-button" onClick={props.onClose}>
           Cancel
         </button>
-        <button
-          type="button"
-          class="ui-button ui-button-content"
-          disabled={!canSubmit()}
-          onClick={submit}
-        >
+        <button type="button" class="ui-button" disabled={!canSubmit()} onClick={submit}>
           {composer.state().pendingSubmission !== null ? "Sending…" : "Reply"}
         </button>
       </div>

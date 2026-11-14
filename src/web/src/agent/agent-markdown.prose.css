@@ -190,7 +190,7 @@
 .github-media-status,
 .agent-image-status {
   color: var(--dim);
-  font-size: var(--font-content-secondary-size);
+  font-size: var(--font-chrome-size);
 }
 
 .github-media > video {

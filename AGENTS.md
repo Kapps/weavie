@@ -196,10 +196,12 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
 
 ## Code standards
 
-- **Type comes from roles, never from values.** Chrome is fixed px: `font: var(--font-chrome-title | -body |
-  -body-wrap | -secondary | -badge | -mono | -display)`, with `-hero` and `-lead` for landing surfaces only.
-  Editor-adjacent text uses `var(--font-content)` (small text inside it `--font-content-secondary-size`) and
-  rendered documents `var(--font-prose)`; only these follow the editor font. Emphasis is the same role plus
+- **Type comes from roles, never from values.** Chrome is fixed px in two sizes, 12 and the 11px badge role
+  (key hints, counts, session names): `font: var(--font-chrome-body | -body-wrap | -badge | -mono |
+  -display)`, with `-hero` and `-lead` for landing surfaces only. Content (editor, terminal,
+  transcript, composer text) uses `var(--font-content)`, small content text `--font-content-secondary-size`,
+  and rendered documents `var(--font-prose)`; only these follow the editor font. Controls, dialog inputs and
+  the labels around content are chrome. Emphasis is the same role plus
   `--font-weight-emphasis` (`--font-weight-mono-bold` in the mono face), never a second `font-family`. Raw
   `font`, `font-size`, `font-weight` and `line-height`, and `--font-*` declarations outside `styles.css`, fail
   `biome check`. `em` font sizes live only in prose (`*.prose.css`, `SOURCE_STYLES`); new chrome geometry is

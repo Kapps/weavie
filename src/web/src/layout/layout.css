@@ -95,7 +95,7 @@
   border-radius: 8px;
   background: var(--bar);
   color: var(--fg);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   box-shadow: 0 6px 22px rgb(0 0 0 / 50%);
 }
 .update-card-head {
@@ -104,7 +104,8 @@
   justify-content: space-between;
 }
 .update-card-title {
-  font: var(--font-chrome-title);
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
 }
 .update-card-collapse {
   color: var(--dim);
@@ -465,7 +466,7 @@
   background: var(--bar);
   border-top: 1px solid var(--border);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   user-select: none;
   overflow: hidden;
   white-space: nowrap;

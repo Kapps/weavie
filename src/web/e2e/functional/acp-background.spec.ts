@@ -28,7 +28,7 @@ test("subagents group outside the transcript and remain selectable after complet
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(group).toContainText("1 running");
   await expect(surface.locator(".agent-transcript [data-agent-subagent]")).toHaveCount(0);
-  await expect(surface.locator(".agent-background-tray [data-background-item]")).toHaveCount(0);
+  await expect(group.locator("[data-background-item]")).toHaveCount(0);
   await surface.getByRole("button", { name: /Earlier updates/ }).click();
   const working = surface.locator(".agent-entry-activity");
   await expect(working).toHaveCount(1);
@@ -63,26 +63,31 @@ test("subagents group outside the transcript and remain selectable after complet
   await expect(page.locator(".editor-agent-view")).toContainText("review failed");
 });
 
-test("a background task waits in the tray until Stop ends it with a notice", async ({ page }) => {
+test("a background task waits in the collapsed roster until Stop ends it with a notice", async ({
+  page,
+}) => {
   const surface = await createAcpSession(page, "acp-background-task");
   await submitAcpDraft(surface, "task-held");
 
-  const pill = surface.locator(".agent-background-tray [data-background-item]");
+  const group = surface.locator("[data-agent-subagents]");
+  const pill = group.locator("[data-background-item]");
+  await expect(group).toContainText("1 running");
+  await expect(group.locator(".agent-working-spinner")).toBeVisible();
+  await expect(pill).toHaveCount(0);
+  await expect(surface.locator(".agent-strip")).toHaveCount(0);
+  await expect(page.locator(".session-chip.active")).toHaveClass(/status-waiting/);
+  await runCommand(page, "Expand or Collapse Subagents");
   await expect(pill).toHaveAttribute("data-state", "running");
   await expect(pill).toContainText("sleep 30");
-  await expect(surface.locator(".agent-background-tray")).toHaveAttribute("role", "toolbar");
-  await expect(page.locator(".session-chip.active")).toHaveClass(/status-waiting/);
 
   await pill.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(pill).toHaveAttribute("data-state", "stopped");
   await expect(pill.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+  await expect(group.locator(".agent-working-spinner")).toHaveCount(0);
   await expect(surface.locator(".agent-entry-notice")).toContainText("Task stopped by user");
 });
 
-test("a workflow renders a card, and Focus Agent Strip focuses the strip", async ({
-  page,
-  weavie,
-}) => {
+test("a workflow renders a card whose Stop the roster shares", async ({ page, weavie }) => {
   const surface = await createAcpSession(page, "acp-background-workflow");
   await submitAcpDraft(surface, "workflow-held");
 
@@ -92,48 +97,14 @@ test("a workflow renders a card, and Focus Agent Strip focuses the strip", async
   await expect(card).toContainText("3 tools");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+Shift+p");
-  await page.locator(".tb-omnibar-input").fill(">Focus Agent Strip");
-  await page
-    .locator(".tb-omnibar-row")
-    .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Focus Agent Strip$/ }) })
-    .click();
-  await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
-  await page.keyboard.press("ArrowRight");
-  await expect(surface.locator(".agent-background-tray .agent-background-stop")).toBeFocused();
+  await runPalette(page, "Expand or Collapse Subagents");
+  const row = surface.locator("[data-agent-subagents] [data-background-item]");
+  await expect(row).toHaveAttribute("data-state", "running");
+  await expect(row.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
   await signal(weavie.workspace, "release-workflow");
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
-});
-
-test("an overflowing tray fades the edge hiding pills, and roving focus scrolls them into view", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 900, height: 720 });
-  const surface = await createAcpSession(page, "acp-background-overflow");
-  const pills = surface.locator(".agent-background-tray [data-background-item]");
-  for (let count = 1; count <= 6; count++) {
-    await submitAcpDraft(surface, "task-held");
-    await expect(pills).toHaveCount(count);
-  }
-  const scroller = surface.locator(".agent-background-tray .agent-status-scroll");
-  await expect(scroller).toHaveClass(/overflow-right/);
-  await expect(scroller).not.toHaveClass(/overflow-left/);
-
-  await runPalette(page, "Focus Agent Strip");
-  await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
-  await page.keyboard.press("End");
-  const last = pills.last().getByRole("button", { name: "Stop", exact: true });
-  await expect(last).toBeFocused();
-  await expect(scroller).toHaveClass(/overflow-left/);
-  await expect(scroller).not.toHaveClass(/overflow-right/);
-  const inside = await last.evaluate((button) => {
-    const pill = button.getBoundingClientRect();
-    const view = button.closest(".agent-status-scroll")!.getBoundingClientRect();
-    return pill.left >= view.left && pill.right <= view.right;
-  });
-  expect(inside).toBe(true);
 });
 
 async function runPalette(page: import("@playwright/test").Page, title: string): Promise<void> {
@@ -155,7 +126,7 @@ test("running work survives a page reload, and stopping actions confirm against 
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   await expect(card).toHaveAttribute("data-state", "running");
   await submitAcpDraft(surface, "task-held");
-  const tray = surface.locator(".agent-background-tray [data-background-item]");
+  const tray = surface.locator("[data-agent-subagents] [data-background-item]");
   await expect(tray).toHaveCount(1);
 
   await page.reload();
@@ -191,7 +162,7 @@ test("running work survives a page reload, and stopping actions confirm against 
   );
 
   await submitAcpDraft(surface, "task-held");
-  await expect(tray).toHaveAttribute("data-state", "running");
+  await expect(tray.filter({ hasText: "sleep 30" })).toHaveAttribute("data-state", "running");
   await surface.locator("[data-agent-composer] textarea").focus();
   await runPalette(page, "Start Fresh Agent Conversation");
   await expect(listed).toHaveCount(1);
@@ -201,12 +172,13 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(surface.locator(".agent-entry-message.agent-tone-user")).toHaveCount(0);
 });
 
-test("the agent's own unprompted turn shows in the tray but never asks to be stopped", async ({
+test("the agent's own unprompted turn shows in the roster but never asks to be stopped", async ({
   page,
 }) => {
   const surface = await createAcpSession(page, "acp-background-turn");
   await submitAcpDraft(surface, "task-turn");
-  const tray = surface.locator(".agent-background-tray [data-background-item]");
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
+  const tray = surface.locator("[data-agent-subagents] [data-background-item]");
   await expect(tray).toHaveAttribute("data-state", "running");
   await expect(tray).toContainText("Claude is working");
 
@@ -215,28 +187,24 @@ test("the agent's own unprompted turn shows in the tray but never asks to be sto
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("an unprompted turn leaves the tray when it ends, and Stop never changes the tray's height", async ({
-  page,
-  weavie,
-}) => {
+test("an unprompted turn leaves the roster when it ends", async ({ page, weavie }) => {
   const surface = await createAcpSession(page, "acp-background-turn-ends");
-  const tray = surface.locator(".agent-background-tray");
-  const items = tray.locator("[data-background-item]");
+  const group = surface.locator("[data-agent-subagents]");
+  const items = group.locator("[data-background-item]");
 
   await submitAcpDraft(surface, "task-held");
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   await expect(items.getByRole("button", { name: "Stop" })).toBeVisible();
-  const stoppable = (await tray.boundingBox())!.height;
   await signal(weavie.workspace, "release-task");
   await expect(items).toHaveAttribute("data-state", "completed");
   await expect(items.getByRole("button", { name: "Stop" })).toHaveCount(0);
-  expect((await tray.boundingBox())!.height).toBe(stoppable);
 
-  // The next prompt forgets the finished task, so the turn is the tray's only item.
+  // The next prompt forgets the finished task, so the turn is the roster's only item.
   await submitAcpDraft(surface, "task-turn");
   await expect(items).toHaveCount(1);
   await expect(items).toContainText("Claude is working");
   await signal(weavie.workspace, "release-turn");
-  await expect(tray).toHaveCount(0);
+  await expect(group).toHaveCount(0);
 });
 
 test.describe("with approvals", () => {

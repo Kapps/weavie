@@ -1142,13 +1142,13 @@ a:has(> .agent-path-dir) {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.agent-background-tray {
+.agent-strip {
   align-items: center;
   border-top: 1px solid var(--border);
 }
 
 /* Fade whichever edge has pills scrolled out of view. */
-.agent-background-tray .agent-status-scroll {
+.agent-strip .agent-status-scroll {
   --fade-left: 0px;
   --fade-right: 0px;
   scroll-padding-inline: 1.5em;
@@ -1161,11 +1161,11 @@ a:has(> .agent-path-dir) {
   );
 }
 
-.agent-background-tray .agent-status-scroll.overflow-left {
+.agent-strip .agent-status-scroll.overflow-left {
   --fade-left: 1.5em;
 }
 
-.agent-background-tray .agent-status-scroll.overflow-right {
+.agent-strip .agent-status-scroll.overflow-right {
   --fade-right: 1.5em;
 }
 
@@ -1173,39 +1173,17 @@ a:has(> .agent-path-dir) {
   color: var(--dim);
 }
 
-.agent-background-item {
+.agent-strip-card {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   margin-inline-end: 8px;
 }
 
-.agent-background-item .agent-working-spinner {
-  align-self: center;
-}
-
-.agent-background-name {
+.agent-strip-name {
   max-width: 26ch;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.agent-background-time {
-  font-variant-numeric: tabular-nums;
-}
-
-.agent-background-item[data-state="failed"] .agent-background-dot {
-  color: var(--bad);
-}
-
-.agent-background-item .agent-status-segment[aria-disabled="true"] {
-  cursor: default;
-}
-
-/* An inset ring, not a border, so the tray is no taller while something can be stopped. */
-.agent-background-stop {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 85%, var(--fg));
-  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
 .agent-status-pr {

@@ -32,3 +32,9 @@
 .agent-subagent-select .agent-entry-status {
   font: var(--font-chrome-body);
 }
+
+.agent-background-task {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}

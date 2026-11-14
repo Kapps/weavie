@@ -1188,7 +1188,8 @@ public static partial class CoreCommands {
 			Title = "Expand or Collapse Subagents",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Show or hide the subagent roster above the composer.",
+			Description = "Show or hide the subagents and background tasks listed above the composer.",
+			Aliases = ["background tasks", "running work", "show background work"],
 			When = "agentSubagentsAvailable",
 		});
 
@@ -1197,8 +1198,8 @@ public static partial class CoreCommands {
 			Title = "Focus Agent Strip",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Focus the strip above the agent composer: background tasks, then expanded dashboards and BTWs.",
-			Aliases = ["background tasks", "subagents", "running work", "dashboards", "show background work"],
+			Description = "Focus the strip above the agent composer: expanded dashboards and BTWs.",
+			Aliases = ["dashboards", "btw", "cards"],
 			When = "agentStripActive",
 		});
 

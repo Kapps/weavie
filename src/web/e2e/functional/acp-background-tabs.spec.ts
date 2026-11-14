@@ -1,9 +1,11 @@
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 
-test("selecting subagents and tray tasks opens their transcripts and results", async ({ page }) => {
+test("selecting subagents and tasks in the roster opens their transcripts and results", async ({
+  page,
+}) => {
   const surface = await createAcpSession(page, "acp-background-tabs");
-  const pills = surface.locator(".agent-background-tray [data-background-item]");
+  const pills = surface.locator("[data-agent-subagents] [data-background-item]");
   await submitAcpDraft(surface, "subagent-held");
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   const subagent = surface
@@ -17,7 +19,7 @@ test("selecting subagents and tray tasks opens their transcripts and results", a
   await submitAcpDraft(surface, "task-failed");
   const task = pills.filter({ hasText: "Consult Astra" });
   await expect(task).toHaveAttribute("data-state", "failed");
-  await task.locator(".agent-status-segment").first().click();
+  await task.getByRole("button", { name: /Consult Astra/ }).click();
   await expect(page.locator(".editor-tab", { hasText: "Task · Consult Astra" })).toBeVisible();
   const view = page.locator('.editor-agent-view [data-agent-task][data-state="failed"]');
   await expect(view.locator(".agent-entry-status")).toContainText("failed");

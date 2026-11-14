@@ -58,6 +58,15 @@
   flex: 1;
 }
 
+/* A cell is flush with the card, so its focus ring sits inside it; on the solid cell it takes the label colour. */
+.confirm-actions > .ui-button:focus-visible {
+  outline-offset: -3px;
+}
+
+.confirm-actions > .ui-button-primary:focus-visible {
+  outline-color: var(--button-fg);
+}
+
 /* Acknowledgement controls inside a delete confirm: a warning line and the checkbox gating a destructive delete. */
 .confirm-warn {
   margin-top: 8px;

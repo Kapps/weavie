@@ -1,6 +1,11 @@
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
+import {
+  documentFullscreen,
+  landscapeMedia,
+  renderedFit,
+  zoomMatrix,
+} from "../harness/media-fixtures";
 
 test.use({ workspaceSeed: landscapeMedia });
 
@@ -96,6 +101,39 @@ test("rotating a small image keeps it at its natural size", async ({ page }) => 
   expect(await renderedFit(pane)).toMatchObject({ natural: true, fitsInside: true });
 });
 
+// Media fullscreen leaves focus free: the palette opens over it, and going to another pane ends it with that
+// pane clickable, whether or not the editor pane was itself fullscreened.
+test("media fullscreen sits under the palette and ends on leaving the editor pane", async ({
+  page,
+}) => {
+  await openFile(page, "landscape.png");
+  const pane = page.locator(".editor-media");
+  const agent = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  await expect(pane.locator("img")).toHaveJSProperty("naturalWidth", 1600);
+  for (const paneFullscreen of [false, true]) {
+    if (paneFullscreen) {
+      await pane.focus();
+      await runCommand(page, "Toggle Fullscreen Pane");
+      await expect(agent).toBeHidden();
+    }
+    await pane.getByRole("button", { name: "Fullscreen" }).click();
+    await expect(pane).toHaveClass(/\bfullscreen\b/);
+    await expect.poll(() => documentFullscreen(page)).toBe(true);
+
+    await page.keyboard.press("ControlOrMeta+Shift+p");
+    await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+    await page.locator(".tb-omnibar-input").click({ trial: true });
+    await page.keyboard.press("Escape");
+    await expect(pane).toHaveClass(/\bfullscreen\b/);
+
+    await page.keyboard.press("Control+1");
+    await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+    await expect.poll(() => documentFullscreen(page)).toBe(false);
+    await expect(agent.locator(".xterm-helper-textarea")).toBeFocused();
+    await agent.locator(".xterm-screen").click();
+  }
+});
+
 // The pane's own playback bar plays, pauses, and seeks at 1×, zoomed, and rotated; fullscreen keeps the rotation.
 test("a video tab plays through its own controls, zoomed and rotated, and fullscreen keeps the turn", async ({
   page,
@@ -149,13 +187,11 @@ test("a video tab plays through its own controls, zoomed and rotated, and fullsc
   await pane.getByRole("button", { name: "Fullscreen" }).focus();
   await page.keyboard.press(" ");
   expect(await paused()).toBe(true);
-  await expect
-    .poll(() => page.evaluate(() => document.fullscreenElement?.className))
-    .toContain("editor-media");
+  await expect.poll(() => documentFullscreen(page)).toBe(true);
   await expect.poll(() => renderedFit(pane)).toEqual(fit);
   expect((await zoomMatrix(pane)).a).toBeCloseTo(0, 5);
   await pane.getByRole("button", { name: "Exit fullscreen" }).click();
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+  await expect.poll(() => documentFullscreen(page)).toBe(false);
   await expect(pane).not.toHaveClass(/\bfullscreen\b/);
   // Flaked 2026-11-07 19:04 and 19:14 UTC (Linux shard 7; palette input never focused on the last command):
   // https://github.com/Kapps/weavie/actions/runs/42402842992 and .../42403834090. The `fullscreen` class is
@@ -164,13 +200,11 @@ test("a video tab plays through its own controls, zoomed and rotated, and fullsc
   // Fixed by waiting for the grant before leaving fullscreen.
   await runCommand(page, "Toggle Media Fullscreen");
   await expect(pane).toHaveClass(/\bfullscreen\b/);
-  await expect
-    .poll(() => page.evaluate(() => document.fullscreenElement?.className))
-    .toContain("editor-media");
+  await expect.poll(() => documentFullscreen(page)).toBe(true);
   await pane.focus();
   await page.keyboard.press("Escape");
   await expect(pane).not.toHaveClass(/\bfullscreen\b/);
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+  await expect.poll(() => documentFullscreen(page)).toBe(false);
 
   await runCommand(page, "Rotate Media");
   expect((await renderedFit(pane)).portrait).toBe(false);

@@ -39,6 +39,7 @@ function ActiveTabContent(props: {
   tab: TabOwner;
   controller: EditorController;
   active: () => boolean;
+  paneActive: () => boolean;
 }): JSX.Element {
   const { tab, controller } = props;
   const kind = tabKind(tab.entry);
@@ -162,7 +163,12 @@ function ActiveTabContent(props: {
             <PlanView session={tab.session} path={tab.entry.path} bind={bind} />
           </Match>
           <Match when={media}>
-            <MediaPane session={tab.session} path={tab.entry.path} bind={bind} />
+            <MediaPane
+              session={tab.session}
+              path={tab.entry.path}
+              paneActive={props.paneActive}
+              bind={bind}
+            />
           </Match>
           <Match when={preview()}>
             <PreviewPane
@@ -186,6 +192,8 @@ function ActiveTabContent(props: {
 export default function TabContent(props: {
   controller: EditorController;
   sessions: () => ClientSession[];
+  /** Whether the editor is the pane the user is at. */
+  paneActive: () => boolean;
 }): JSX.Element {
   const active = createMemo(() => {
     const session = selectedSession();
@@ -227,6 +235,7 @@ export default function TabContent(props: {
             tab={tab}
             controller={props.controller}
             active={() => active() === tab}
+            paneActive={props.paneActive}
           />
         </ErrorBoundary>
       )}

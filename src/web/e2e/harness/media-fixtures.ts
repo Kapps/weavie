@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { WorkspaceSeed } from "./weavie-host";
 
 // A 640×360 (16:9) 20s VP9 clip: a landscape video long enough to toggle playback mid-test.
@@ -23,6 +23,11 @@ export const landscapeMedia: WorkspaceSeed = {
     await writeFile(join(workspace, "landscape.webm"), LANDSCAPE_WEBM);
   },
 };
+
+/** Whether the browser holds fullscreen for the whole document, as media fullscreen requests it. */
+export function documentFullscreen(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.fullscreenElement === document.documentElement);
+}
 
 /** The media pane's live transform as a matrix (identity at the fitted, unrotated view). */
 export function zoomMatrix(pane: Locator): Promise<{ a: number; b: number; e: number; f: number }> {

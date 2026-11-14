@@ -29,8 +29,11 @@ import VideoControls, { togglePlayback } from "./VideoControls";
 export default function MediaPane(props: {
   session: ClientSession;
   path: string;
+  /** Whether the editor is the pane the user is at. */
+  paneActive: () => boolean;
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
+  const root = document.documentElement;
   let host!: HTMLDivElement;
   const zoom = createPanZoom(() => host);
   const compact = useCompactMode();
@@ -38,16 +41,22 @@ export default function MediaPane(props: {
   const [rotated, setRotated] = createSignal(false);
   const [fullscreen, setFullscreen] = createSignal(false);
   const [video, setVideo] = createSignal<HTMLVideoElement>();
-  // The pane covers the viewport itself (iPhone has no element fullscreen); the Fullscreen API, where the
-  // browser grants it, also hides the browser's own chrome.
+  // The pane covers the viewport itself, under the palette, toasts and dialogs. Browser fullscreen, where
+  // granted, takes the whole document: it hides the window chrome without confining focus to the pane.
   const showFullscreen = (on: boolean): void => {
-    setFullscreen(on);
-    if (on && document.fullscreenEnabled) {
-      host.requestFullscreen().catch(() => undefined);
-    } else if (!on && document.fullscreenElement === host) {
+    // Fullscreen belongs to the editor pane, so entering it arrives there.
+    if (on && !host.contains(document.activeElement)) host.focus();
+    const shown = on && props.paneActive();
+    setFullscreen(shown);
+    if (shown && document.fullscreenEnabled) {
+      root.requestFullscreen().catch(() => undefined);
+    } else if (!shown && document.fullscreenElement === root) {
       void document.exitFullscreen();
     }
   };
+  createEffect(() => {
+    if (fullscreen() && !props.paneActive()) showFullscreen(false);
+  });
   const toggleFullscreen = (): void => showFullscreen(!fullscreen());
   const rotate = (): void => {
     zoom.reset();
@@ -58,7 +67,7 @@ export default function MediaPane(props: {
   // Keeps the browser's fullscreen in step: leaving it (Escape, back) exits, and one granted after a quick
   // toggle back out is released.
   const syncFullscreen = (): void => {
-    const granted = document.fullscreenElement === host;
+    const granted = document.fullscreenElement === root;
     if (!granted && fullscreen()) setFullscreen(false);
     else if (granted && !fullscreen()) void document.exitFullscreen();
   };
@@ -69,7 +78,7 @@ export default function MediaPane(props: {
     document.addEventListener("fullscreenchange", syncFullscreen);
     onCleanup(() => {
       document.removeEventListener("fullscreenchange", syncFullscreen);
-      if (document.fullscreenElement === host) void document.exitFullscreen();
+      showFullscreen(false);
     });
   });
   const loaded = (): void => {

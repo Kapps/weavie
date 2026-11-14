@@ -4,7 +4,12 @@ import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
-import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
+import {
+  documentFullscreen,
+  landscapeMedia,
+  renderedFit,
+  zoomMatrix,
+} from "../harness/media-fixtures";
 import { PNG_B64 } from "../harness/pasted-image";
 
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
@@ -1088,11 +1093,7 @@ test.describe("landscape media", () => {
     // A quarter turn resets the zoom and covers the whole screen, bottom nav included.
     await pane.getByRole("button", { name: "Rotate 90°" }).click();
     await expect(pane).toHaveClass(/\bfullscreen\b/);
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.fullscreenElement?.classList.contains("editor-media")),
-      )
-      .toBe(true);
+    await expect.poll(() => documentFullscreen(page)).toBe(true);
     await expect(pane).not.toHaveClass(/\bzoomed\b/);
     expect(await pane.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
     expect(

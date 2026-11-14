@@ -1341,7 +1341,11 @@ export default function App(): JSX.Element {
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
-            <TabContent sessions={editorSessions} controller={editor} />
+            <TabContent
+              sessions={editorSessions}
+              controller={editor}
+              paneActive={() => activePane() === "editor"}
+            />
           </div>
           <PlanReviewBar afterFlush={editor.afterFlush} />
           <EditorFooter

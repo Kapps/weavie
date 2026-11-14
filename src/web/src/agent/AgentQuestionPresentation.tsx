@@ -41,9 +41,9 @@ export function QuestionFooter(props: InputRequestProps & { children: JSX.Elemen
   return (
     <div class="agent-question-footer">
       <InputRequestContext message={props.message} session={props.session} />
-      <div class="agent-question-actions">
+      <div class="agent-question-actions ui-button-group">
         {props.children}
-        <DismissButtons {...props} buttonClass="ui-button agent-question-dismiss" />
+        <DismissButtons {...props} />
       </div>
     </div>
   );

@@ -9,9 +9,9 @@
   --border: #191c21;
   --fg: #cdd5dc;
   --accent: #54c6a4;
-  --button-bg: #54c6a4;
-  --button-fg: #042019;
-  --button-hover-bg: #63d2b1;
+  --button-bg: #228a6b;
+  --button-fg: #ffffff;
+  --button-hover-bg: #1d7c60;
   --list-active-bg: #161a21;
   --list-active-fg: #eef2f8;
   --list-hover-bg: #111419;
@@ -28,10 +28,10 @@
   --chart-4: #c08cff;
   --chart-5: #e07a7a;
   --chart-6: #5fd0c0;
-  /* Destructive-action fill (delete buttons). Distinct from --bad: that's the "error status" FOREGROUND,
-     kept light/rosy so error text reads on black — too pale for a solid button. This is a deeper, saturated
-     red that carries white text and reads as a real danger affordance. */
-  --danger: #c0302a;
+  /* Destructive-action fill, carrying white text; error text is --bad. Muted on dark, where a pure red glares. */
+  --danger: #8b2d28;
+  /* A thin edge that shows on any theme, unlike --border, which sits close to the panel tone. */
+  --hairline: color-mix(in srgb, var(--fg) 15%, transparent);
   --font-chrome-family: var(--interface-font-family);
   --font-content-family: var(--editor-font-family, ui-monospace, monospace);
   --font-prose-family: var(--prose-font-family);
@@ -104,9 +104,9 @@
   --row-gap: 8px;
   --control-height: 24px;
   --control-height-lg: 28px;
-  --control-height-xl: 40px; /* landing surfaces, dialog action cells */
-  --control-radius-round: 4px;
-  --control-radius: var(--control-radius-round); /* 0 inside a .ui-card */
+  --control-height-cell: 32px; /* dialog and card action cells */
+  --control-height-xl: 40px; /* landing surfaces */
+  --control-radius: 0px;
   --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
   --touch-target: 44px;
   --icon-size-sm: 12px;
@@ -118,6 +118,10 @@
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
      theme stylesheet (injected later) overrides this once the theme is applied. */
   --vscode-editor-background: #000000;
+}
+
+:root[data-theme-type="light"] {
+  --danger: #c0302a;
 }
 
 * {

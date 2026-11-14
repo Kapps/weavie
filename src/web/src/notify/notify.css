@@ -134,11 +134,6 @@
 
 .toast-action {
   flex: 0 0 auto;
-  border-color: var(--dim);
-}
-
-.toast-action:hover {
-  border-color: var(--fg);
 }
 
 /* Icon-only, so no baseline: centred on the toast instead. */

@@ -200,26 +200,28 @@ export function ReviewFileSection(props: {
           </button>
         </span>
         <Show when={pending()} fallback={<ReviewStatus file={props.file} />}>
-          <button
-            type="button"
-            class="unified-review-file-action keep ui-button"
-            title={`Keep file${keyHint(CommandIds.keepFile)}`}
-            onClick={() =>
-              void runCommandWithFeedback(CommandIds.keepFile, { path: summary().path })
-            }
-          >
-            Keep file
-          </button>
-          <button
-            type="button"
-            class="unified-review-file-action revert ui-button"
-            title={`Revert file${keyHint(CommandIds.revertFile)}`}
-            onClick={() =>
-              void runCommandWithFeedback(CommandIds.revertFile, { path: summary().path })
-            }
-          >
-            Revert file
-          </button>
+          <span class="ui-button-group">
+            <button
+              type="button"
+              class="unified-review-file-action keep ui-button"
+              title={`Keep file${keyHint(CommandIds.keepFile)}`}
+              onClick={() =>
+                void runCommandWithFeedback(CommandIds.keepFile, { path: summary().path })
+              }
+            >
+              Keep file
+            </button>
+            <button
+              type="button"
+              class="unified-review-file-action revert ui-button"
+              title={`Revert file${keyHint(CommandIds.revertFile)}`}
+              onClick={() =>
+                void runCommandWithFeedback(CommandIds.revertFile, { path: summary().path })
+              }
+            >
+              Revert file
+            </button>
+          </span>
         </Show>
       </header>
       <Show when={!collapsed()}>

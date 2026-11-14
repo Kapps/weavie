@@ -46,16 +46,16 @@
 
 /* Bleeds through the card's padding to its edges; each button is a cell sharing the row equally. */
 .confirm-actions {
-  --button-plain-bg: transparent;
   display: flex;
   align-items: baseline;
   margin: 4px calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad));
-  border-top: 1px solid color-mix(in srgb, var(--fg) 11%, transparent);
+  border-top: 1px solid var(--hairline);
 }
 
 .confirm-actions > .ui-button {
-  --control-h: var(--control-height-xl);
+  --control-h: var(--control-height-cell);
   flex: 1;
+  border-color: transparent;
 }
 
 /* A cell is flush with the card, so its focus ring sits inside it; on the solid cell it takes the label colour. */

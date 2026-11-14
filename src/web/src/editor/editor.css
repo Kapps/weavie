@@ -224,7 +224,6 @@
   align-self: center;
   margin: 0 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-  border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 

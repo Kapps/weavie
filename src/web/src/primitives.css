@@ -84,9 +84,9 @@
     box-sizing: border-box;
     height: var(--control-h);
     padding: calc((var(--control-h) - var(--control-line)) / 2 - 1px) 10px;
-    border: 1px solid var(--button-plain-edge, var(--border));
+    border: 1px solid var(--hairline);
     border-radius: var(--control-radius);
-    background: var(--button-plain-bg, transparent);
+    background: transparent;
     color: var(--fg);
     font: var(--font-chrome-body);
     white-space: nowrap;
@@ -112,15 +112,7 @@
   }
 
   .ui-button:hover:not(:disabled) {
-    background: var(--button-plain-hover, rgba(255, 255, 255, 0.08));
-  }
-
-  /* A plain button as a tinted fill with no outline, for a surface whose border tone would not show one. */
-  .ui-button-quiet,
-  .ui-card {
-    --button-plain-edge: transparent;
-    --button-plain-bg: color-mix(in srgb, var(--fg) 9%, transparent);
-    --button-plain-hover: color-mix(in srgb, var(--fg) 15%, transparent);
+    background: color-mix(in srgb, var(--fg) 9%, transparent);
   }
 
   .ui-button-primary {
@@ -158,6 +150,23 @@
     outline-color: color-mix(in srgb, var(--danger) 45%, #fff);
   }
 
+  /* Related buttons joined into one frame, each sharing an edge with its neighbour. */
+  .ui-button-group {
+    display: inline-flex;
+  }
+
+  .ui-button-group > .ui-button {
+    position: relative;
+  }
+
+  .ui-button-group > .ui-button + .ui-button {
+    margin-left: -1px;
+  }
+
+  .ui-button-group > .ui-button:focus-visible {
+    z-index: 1;
+  }
+
   .ui-icon-button {
     display: inline-grid;
     place-items: center;
@@ -178,9 +187,8 @@
     text-transform: uppercase;
   }
 
-  /* A square panel: the controls inside go square with it and its plain buttons go quiet. */
+  /* A square panel on the panel tone. */
   .ui-card {
-    --control-radius: 0px;
     --card-pad: 0px;
     position: relative;
     padding: var(--card-pad);

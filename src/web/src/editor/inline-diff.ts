@@ -21,10 +21,13 @@ import {
 } from "./review/diff-markers";
 import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./review/diff-zones";
 import {
+  buttonGroup,
   createParkedNavigation,
   createParkedToolbar,
+  KEEP_BUTTON,
   makeButton,
   mountReviewToolbar,
+  REVERT_BUTTON,
   withShortcut,
 } from "./review/review-toolbar";
 import { sessionFileUri } from "./session-uri";
@@ -861,7 +864,7 @@ export function createInlineDiff(
     dotsNode = document.createElement("span");
     dotsNode.className = "weavie-inline-dots";
     bar.appendChild(dotsNode);
-    bar.append(...navButtons(), ...presentation.toolbarItems());
+    bar.append(buttonGroup(...navButtons()), ...presentation.toolbarItems());
     const divider = document.createElement("span");
     divider.className = "weavie-inline-divider";
     bar.appendChild(divider);
@@ -884,13 +887,13 @@ export function createInlineDiff(
           ? "Revert this file"
           : `Revert ${allTarget}`;
     const keep = makeButton(
-      "weavie-inline-accept ui-button",
+      KEEP_BUTTON,
       "Keep",
       withShortcut(keepTip, CommandIds.acceptChange),
       accept,
     );
     const revert = makeButton(
-      "weavie-inline-reject ui-button",
+      REVERT_BUTTON,
       "Revert",
       withShortcut(revertTip, CommandIds.rejectChange),
       reject,
@@ -900,7 +903,7 @@ export function createInlineDiff(
       trackScopeAction(keep);
       trackScopeAction(revert);
     }
-    bar.append(keep, revert);
+    bar.append(buttonGroup(keep, revert));
     // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
     // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
     const histDivider = document.createElement("span");
@@ -918,7 +921,7 @@ export function createInlineDiff(
       withShortcut("Redo review action", CommandIds.redoReview),
       redoReview,
     );
-    bar.append(undoButton, redoButton);
+    bar.append(buttonGroup(undoButton, redoButton));
     syncHistoryButtons();
     renderCounter();
   };
@@ -933,12 +936,13 @@ export function createInlineDiff(
       buildAppliedBar(bar, options);
       return bar;
     }
-    bar.append(...navButtons());
+    bar.append(buttonGroup(...navButtons()));
     if (options.mode === "review") {
+      const decisions: HTMLElement[] = [];
       if (options.onAccept !== undefined) {
-        bar.appendChild(
+        decisions.push(
           makeButton(
-            "weavie-inline-accept ui-button",
+            KEEP_BUTTON,
             "Keep",
             withShortcut("Keep this change", CommandIds.acceptChange),
             accept,
@@ -946,15 +950,16 @@ export function createInlineDiff(
         );
       }
       if (options.onReject !== undefined) {
-        bar.appendChild(
+        decisions.push(
           makeButton(
-            "weavie-inline-reject ui-button",
+            REVERT_BUTTON,
             "Reject",
             withShortcut("Reject this change", CommandIds.rejectChange),
             reject,
           ),
         );
       }
+      bar.append(buttonGroup(...decisions));
     }
     return bar;
   };
@@ -1007,32 +1012,36 @@ export function createInlineDiff(
       if (options.mode === "applied" && !fileKept) {
         // No hunk geometry to act on, so only the whole-file actions are offered.
         bar.append(
-          makeButton(
-            "weavie-inline-accept ui-button",
-            "Keep file",
-            withShortcut("Keep this file", CommandIds.acceptChange),
-            () => runAction(options.onKeepFile),
-          ),
-          makeButton(
-            "weavie-inline-reject ui-button",
-            "Revert file",
-            withShortcut("Revert this file", CommandIds.rejectChange),
-            () => runAction(options.onRevertFile),
+          buttonGroup(
+            makeButton(
+              KEEP_BUTTON,
+              "Keep file",
+              withShortcut("Keep this file", CommandIds.acceptChange),
+              () => runAction(options.onKeepFile),
+            ),
+            makeButton(
+              REVERT_BUTTON,
+              "Revert file",
+              withShortcut("Revert this file", CommandIds.rejectChange),
+              () => runAction(options.onRevertFile),
+            ),
           ),
         );
       } else if (options.mode === "review") {
         bar.append(
-          makeButton(
-            "weavie-inline-accept ui-button",
-            "Keep",
-            withShortcut("Keep this change", CommandIds.acceptChange),
-            () => runAction(options.onAccept),
-          ),
-          makeButton(
-            "weavie-inline-reject ui-button",
-            "Reject",
-            withShortcut("Reject this change", CommandIds.rejectChange),
-            () => runAction(options.onReject),
+          buttonGroup(
+            makeButton(
+              KEEP_BUTTON,
+              "Keep",
+              withShortcut("Keep this change", CommandIds.acceptChange),
+              () => runAction(options.onAccept),
+            ),
+            makeButton(
+              REVERT_BUTTON,
+              "Reject",
+              withShortcut("Reject this change", CommandIds.rejectChange),
+              () => runAction(options.onReject),
+            ),
           ),
         );
       }

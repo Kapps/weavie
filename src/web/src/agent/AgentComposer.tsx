@@ -461,7 +461,7 @@ export function AgentComposer(props: {
           }
         }}
       />
-      <div class="agent-compose-actions">
+      <div class="agent-compose-actions ui-button-group">
         <Show when={canInterrupt()}>
           <button
             type="button"
@@ -475,7 +475,8 @@ export function AgentComposer(props: {
         </Show>
         <button
           type="submit"
-          class="mobile-primary-action ui-button ui-button-content"
+          class="ui-button ui-button-content"
+          classList={{ "ui-button-primary": canSubmit() }}
           aria-label={props.turnActive ? "Steer" : "Run"}
           title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}

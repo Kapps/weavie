@@ -1,12 +1,18 @@
+/* A .ui-card in the transcript, restating the card's box over the pending entry's own bar and tint; the top
+   margin leaves room for the half of its tag above it. */
 .agent-entry-question.agent-entry-waiting {
+  --card-pad: 18px;
   width: auto;
   max-width: 920px;
-  margin: 12px;
-  padding: 18px;
+  margin: 22px 12px 12px;
+  padding: var(--card-pad);
   border: 1px solid var(--border);
-  border-radius: 6px;
   background: var(--bar);
   font: var(--font-chrome-body-wrap);
+}
+
+.agent-entry-question > .ui-card-tag {
+  margin-bottom: 12px;
 }
 
 .agent-entry-question .agent-entry-main {
@@ -48,12 +54,30 @@
   --row-pad-x: 12px;
   gap: 16px;
   border: 1px solid var(--border);
-  border-radius: 4px;
   overflow-wrap: anywhere;
 }
 
+/* The recommended option: an accent bar, on a faint row in dark and on the solid action fill in light. */
 .agent-choice-row.default {
   background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+:root[data-theme-type="light"] .agent-choice-row.default {
+  border-color: transparent;
+  background: var(--button-bg);
+  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--button-bg) 50%, var(--fg));
+  color: var(--button-fg);
+  font-weight: var(--font-weight-emphasis);
+}
+
+:root[data-theme-type="light"] .agent-choice-row.default:hover {
+  background: var(--button-hover-bg);
+}
+
+:root[data-theme-type="light"] .agent-choice-row.default .ui-row-desc {
+  color: inherit;
+  opacity: 0.85;
 }
 
 .agent-choice-row:hover {
@@ -69,6 +93,12 @@
 .agent-choice-key {
   flex: none;
   background: var(--bg);
+}
+
+:root[data-theme-type="light"] .agent-choice-row.default .agent-choice-key {
+  border-color: transparent;
+  background: rgb(0 0 0 / 20%);
+  color: inherit;
 }
 
 .agent-choice-custom {
@@ -104,17 +134,12 @@
 }
 
 .agent-question-actions {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px;
   margin-left: auto;
 }
 
-.agent-question-dismiss {
-  padding-inline: 7px;
-  border-color: transparent;
-  color: var(--dim);
+.agent-question-actions > .ui-button {
+  --control-h: var(--control-height-cell);
+  padding-inline: 18px;
 }
 
 .agent-input-question {

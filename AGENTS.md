@@ -209,8 +209,9 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   `.ui-field`, section headings `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons
   `.ui-icon`; editor-font-sized surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title`
   and `actions`) with `PromptButton`s; a titled panel is a `.ui-card` with a `.ui-card-tag`, and any other
-  modal surface sits on `.ui-scrim` with `--shadow-modal`. Add the primitive beside the feature class; never
-  restyle a button, row or field from scratch, never set a font on a control, and never set a
+  modal surface sits on `.ui-scrim` with `--shadow-modal`. Related buttons join in a `.ui-button-group`,
+  with at most one `-primary` and one `-danger` action per group. Add the primitive beside the feature
+  class; never restyle a button, row or field from scratch, never set a font on a control, and never set a
   `border-radius` on a card or the controls inside one.
 - **Alignment and height by construction.** Text beside text aligns on the baseline; an icon or control
   beside text sits in a box one line tall (`.ui-icon`). Rows and controls take their height from the row and

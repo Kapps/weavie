@@ -393,9 +393,9 @@ test("the header's text shares one baseline, Review's count sits beside its icon
   expect(count.y).toBeGreaterThan(bar.y + 2);
 
   const keepFile = page.locator(".unified-review-file-action.keep").first();
-  const rest = await keepFile.evaluate((element) => getComputedStyle(element).borderTopColor);
+  const rest = await keepFile.evaluate((element) => getComputedStyle(element).backgroundColor);
   await keepFile.hover();
   await expect
-    .poll(() => keepFile.evaluate((element) => getComputedStyle(element).borderTopColor))
+    .poll(() => keepFile.evaluate((element) => getComputedStyle(element).backgroundColor))
     .not.toBe(rest);
 });

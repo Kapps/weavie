@@ -717,8 +717,8 @@ test.describe("touch on iOS", () => {
     await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeLessThan(-50);
     await expect(hint).toHaveCount(0);
     await end("touchEnd");
-
-    await body.evaluate(untilStill);
+    // Flaked 2026-11-14 08:56 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, Windows): Home during the
+    // swipe's momentum left the pane re-picking its anchor, so Prompt 0 stayed above view. Jumps now end the gesture.
     await body.press("Home");
     await expect(page.getByText("Prompt 0", { exact: true })).toBeInViewport();
     await body.evaluate(untilStill);

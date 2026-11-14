@@ -9,13 +9,9 @@ export function backgroundStatus(
   now: number,
   usage: AgentBackgroundItem["usage"],
 ): string {
-  // A card the host settled after a restart has no end time, so its duration is unknown.
-  const live = state === "running" || state === "paused";
   return [
     state,
-    startedAtMs === null || (!live && endedAtMs === null)
-      ? null
-      : formatElapsed((endedAtMs ?? now) - startedAtMs),
+    backgroundElapsed(state, startedAtMs, endedAtMs, now),
     usage?.toolUses ? `${usage.toolUses} tool${usage.toolUses === 1 ? "" : "s"}` : null,
     usage?.totalTokens ? `${compactCount(usage.totalTokens)} tokens` : null,
   ]
@@ -23,23 +19,20 @@ export function backgroundStatus(
     .join(" · ");
 }
 
-function compactCount(value: number): string {
-  return value >= 1000 ? `${Math.round(value / 1000)}k` : String(value);
+/** "4m 12s": how long a background item has run or ran, or null when that is unknown. */
+export function backgroundElapsed(
+  state: string,
+  startedAtMs: number | null,
+  endedAtMs: number | null,
+  now: number,
+): string | null {
+  // A card the host settled after a restart has no end time, so its duration is unknown.
+  const live = state === "running" || state === "paused";
+  return startedAtMs === null || (!live && endedAtMs === null)
+    ? null
+    : formatElapsed((endedAtMs ?? now) - startedAtMs);
 }
 
-/** Where an arrow, Home, or End key moves focus in a roving toolbar of `count` controls, or null to ignore it. */
-export function rovingTarget(key: string, current: number, count: number): number | null {
-  if (current < 0 || count === 0) return null;
-  switch (key) {
-    case "ArrowRight":
-      return (current + 1) % count;
-    case "ArrowLeft":
-      return (current - 1 + count) % count;
-    case "Home":
-      return 0;
-    case "End":
-      return count - 1;
-    default:
-      return null;
-  }
+function compactCount(value: number): string {
+  return value >= 1000 ? `${Math.round(value / 1000)}k` : String(value);
 }

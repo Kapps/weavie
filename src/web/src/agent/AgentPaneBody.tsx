@@ -28,13 +28,7 @@ export function AgentPaneBody(props: {
     ),
   );
   onCleanup(() => setContext("agentBackgroundActive", false));
-  createEffect(() =>
-    setContext(
-      "agentStripActive",
-      agentBackground(props.model.session).some((item) => item.kind !== "subagent") ||
-        props.model.cards().length > 0,
-    ),
-  );
+  createEffect(() => setContext("agentStripActive", props.model.cards().length > 0));
   onCleanup(() => setContext("agentStripActive", false));
   let jumpToLatest = (): boolean => false;
   // Each transcript generation gets its own viewport, so /clear and Rewind carry no reading state across.

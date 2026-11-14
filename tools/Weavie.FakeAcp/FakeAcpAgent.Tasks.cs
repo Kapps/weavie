@@ -11,9 +11,11 @@ internal sealed partial class FakeAcpAgent {
 	private JsonObject TaskPrompt(string text, CancellationToken ct) {
 		switch (text) {
 			case "task-held":
+			case "task-long":
 				string tool = "exec-" + Guid.NewGuid().ToString("N");
-				BackgroundedTool(tool, "sleep 30");
-				SpawnTask(_sessionId!, tool, "sleep 30", "shell", tool);
+				string command = text == "task-long" ? "sleep 30 && " + new string('x', 200) : "sleep 30";
+				BackgroundedTool(tool, command);
+				SpawnTask(_sessionId!, tool, command, "shell", tool);
 				_ = ReleaseTaskAsync(_sessionId!, tool, "release-task", tool, ct);
 				break;
 			case "workflow-held":

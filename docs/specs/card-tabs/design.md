@@ -13,7 +13,7 @@ Approving needs only this section. **Reference for the build**, below it, is for
 - Ask for a dashboard and the charts arrive in one card in the chat, full size, collapsible.
 - Open on that card, on a `/btw`, or on a single chart shows the same content in an editor tab at full width,
   live in both places. In the tab, each chart or table can be dragged taller.
-- The strip above the composer lists running work, then every expanded dashboard and `/btw`. ✕ collapses the
+- The strip above the composer lists every expanded dashboard and `/btw`. ✕ collapses the
   card, which takes it off the strip.
 - The agent can open a dashboard's tab when asked, without taking focus.
 
@@ -433,8 +433,8 @@ if (message.type === "item-completed" && message.itemType === "block" && message
 | --- | --- |
 | `weavie.agent.openCard` (new, web, unbound) | *Open Card in Tab*. Args `{ kind, conversationId?, dashboardId?, blockId?, background? }`; with no args it opens the focused card. `When = "agentCardFocused"`. Replaces `weavie.agent.openSubagent`, which is deleted |
 | `weavie.agent.toggleAside` | Id and `Alt+B` kept. Title *Collapse or Expand Card*, `When = "agentFocused && agentCardFocused"` so `Alt+B` reaches a shell or the editor once the keyboard is there, args `{ kind, conversationId, dashboardId?, collapsed }` (a card named without `collapsed` is refused). Over a lone block it acts on the card around it. The "newest visible" fallback goes, and with it `toggleAgentAside`, `registerNestedToggle` and the DOM query (`AgentNestedCard.tsx:10-28`) |
-| `weavie.agent.openBackgroundItem` | `id` required and hidden from the palette; the "most recent" branch goes (`background-tab.ts:15-20`). The strip is its keyboard path |
-| `weavie.agent.showBackgroundWork` | `When = "agentStripActive"`; title *Focus Agent Strip* |
+| `weavie.agent.openBackgroundItem` | `id` required and hidden from the palette; the "most recent" branch goes (`background-tab.ts:15-20`). The roster's task rows run it |
+| `weavie.agent.focusStrip` | `When = "agentStripActive"`; title *Focus Agent Strip* |
 
 - **Owner.** Each card (dashboard, `/btw`, subagent, lone block) calls
   `ownTarget("agentCardFocused", element, { session, card, toggle })` on `focusin` and `pointerdown`, as
@@ -461,22 +461,13 @@ The path mirrors `openFile`: presenter → `HostSession.OpenEditorOverlay(path, 
 
 ### Strip — `AgentStrip.tsx` (renamed from `AgentBackgroundTray.tsx`)
 
-```mermaid
-flowchart LR
-  Store["host background-work store<br/>(also the stop guards' source)"] --> G1["running work: Stop, no ✕"]
-  Cards["model.cards()<br/>expanded dashboards and /btws"] --> G2["cards: open, ✕ = collapse"]
-  G1 --> Strip["one roving-focus toolbar, no label"]
-  G2 --> Strip
-```
-
-- Group 1 is `agentBackground(session)`, unchanged.
-- Group 2 is `model.cards()`: a memo over `transcript().cardIndexes` filtered by `asideCollapsed !== true`. An
-  expanded `/btw` is followed by the expanded dashboards inside it. `cardIndexes` is computed in the projection
-  pass and joins `shareTranscript`'s unchanged check, so the memo costs O(cards) per flush.
+- The strip is one roving-focus toolbar over `model.cards()`: a memo over `transcript().cardIndexes` filtered by
+  `asideCollapsed !== true`. An expanded `/btw` is followed by the expanded dashboards inside it. `cardIndexes` is
+  computed in the projection pass and joins `shareTranscript`'s unchanged check, so the memo costs O(cards) per
+  flush. Background tasks are listed in the Subagents roster ([background work](../background-work.md)).
 - A card entry is a pill that runs `openCard` with the explicit ref, and a ✕ that runs `toggleAside` with
   `{ …ref, collapsed: true }`.
-- The strip shows when either group is non-empty. The label span and its CSS are deleted.
-- `AgentPaneBody` sets `agentStripActive` beside `agentBackgroundActive`, which still gates Stop.
+- The strip shows while a card is expanded, and `AgentPaneBody` sets `agentStripActive` to match.
 
 ### Card and tab showing at once
 
@@ -534,7 +525,7 @@ No timeouts, caps, or defaults are added.
 | `src/web/src/agent/AgentTranscriptEntry.tsx`, `AgentTranscript.tsx`, `AgentPaneScroll.ts` | Two entry kinds, `AgentRowContext`, `revealEntry` |
 | `src/web/src/agent/AgentNestedCard.tsx`, `AgentSubagentEntry.tsx`, `agent-command-owner.ts` | The DOM toggle removed; `ownTarget` |
 | `src/web/src/agent/AgentSubagentTab.tsx` → `AgentConversationTab.tsx`, `AgentBlocksTab.tsx` (new), `subagent-tab.ts` | The two tab components and their lookups |
-| `src/web/src/agent/AgentBackgroundTray.tsx` → `AgentStrip.tsx`, `AgentPaneBody.tsx`, `background-tab.ts` | Two groups, `agentStripActive`, a required id |
+| `src/web/src/agent/AgentBackgroundTray.tsx` → `AgentStrip.tsx`, `AgentPaneBody.tsx`, `background-tab.ts` | The card strip, `agentStripActive`, a required id |
 | `src/web/src/editor/session-types.ts`, `tab-entry.ts`, `TabContent.tsx`, `TabStrip.tsx`, `editor-controller.ts` | Kinds, paths, the view-state signal, labels, intent |
 | `src/web/src/chrome/width-drag.ts` → `resize-drag.ts`, `agent/agent-cards.ts`, `agent/agent-row-context.ts` (new), `commands/types.ts`, `App.tsx` | Either-axis drag; card helpers and the row context; command ids and the two handlers |
 | `src/web/e2e/mock-host.ts` | The `openOverlay` intent |
@@ -572,7 +563,7 @@ One PR, one commit per step; each step is testable alone.
 - [x] 7. `ownTarget`, `openCard`, the generalized toggle, the deletions.
 - [x] 8. Tab kinds and paths, `openAgentTab` with an intent, `AgentConversationTab` with `AgentAsideReplyBox`,
       `AgentBlocksTab` with heights and view state, `TabStrip`; `card-tabs.spec.ts`.
-- [x] 9. `AgentStrip` with two groups and `agentStripActive`; the background specs.
+- [x] 9. `AgentStrip` over the cards and `agentStripActive`; the background specs.
 - [x] 10. `OpenTabAsync`, the overlay intent, `openDashboard`; MCP tests. Then real Claude and Codex: open
       with and without focus.
 - [ ] 11. The iPhone check (open: needs the user), docs, `dotnet format`, `biome check --write`, the PR.

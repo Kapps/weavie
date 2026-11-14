@@ -163,8 +163,8 @@ public static partial class CoreCommands {
 	/// <summary>Expand or collapse the subagent roster.</summary>
 	public const string ToggleSubagents = "weavie.agent.toggleSubagents";
 
-	/// <summary>Moves focus to the strip of running work and cards above the focused agent's composer.</summary>
-	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
+	/// <summary>Moves focus to the strip of expanded cards above the focused agent's composer.</summary>
+	public const string FocusAgentStrip = "weavie.agent.focusStrip";
 
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
@@ -1148,7 +1148,7 @@ public static partial class CoreCommands {
 				+ "\"collapsed\":{\"type\":\"boolean\",\"description\":\"Collapse (true) or expand (false) the named card; name no card to toggle the focused one\"}}",
 		});
 
-		// Neither has a default keybinding: background work is occasional, and the strip already offers both.
+		// Neither has a default keybinding: background work is occasional, and the roster already offers both.
 		registry.Register(new CommandDefinition {
 			Id = StopBackgroundTask,
 			Title = "Stop Background Task",
@@ -1190,17 +1190,18 @@ public static partial class CoreCommands {
 			Title = "Expand or Collapse Subagents",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Show or hide the subagent roster above the composer.",
+			Description = "Show or hide the subagents and background tasks listed above the composer.",
+			Aliases = ["background tasks", "running work", "show background work"],
 			When = "agentSubagentsAvailable",
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = ShowBackgroundWork,
+			Id = FocusAgentStrip,
 			Title = "Focus Agent Strip",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Focus the strip above the agent composer: background tasks, then expanded dashboards and BTWs.",
-			Aliases = ["background tasks", "subagents", "running work", "dashboards", "show background work"],
+			Description = "Focus the strip above the agent composer: expanded dashboards and BTWs.",
+			Aliases = ["dashboards", "btw", "cards"],
 			When = "agentStripActive",
 		});
 

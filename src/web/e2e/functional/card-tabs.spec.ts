@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, setFakeAcpMode, submitAcpDraft } from "../harness/acp-session";
-import { openFile } from "../harness/actions";
+import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 import { focusEditor } from "../harness/navigator";
@@ -59,7 +59,7 @@ test("a dashboard gathers its blocks into one card that opens in a tab and leave
   await expect(view.locator(".agent-entry-block .agent-chart canvas")).toHaveCount(3);
 
   // The strip lists the dashboard; ✕ collapses its card, which takes it off the strip.
-  const entry = surface.locator('.agent-background-tray [data-strip-card^="dashboard-rollout"]');
+  const entry = surface.locator('.agent-strip [data-strip-card^="dashboard-rollout"]');
   await expect(entry).toContainText("Checkout rollout");
   await entry.getByRole("button", { name: "Collapse Checkout rollout" }).click();
   await expect(entry).toHaveCount(0);
@@ -74,9 +74,36 @@ test("a dashboard gathers its blocks into one card that opens in a tab and leave
   await expect(restored.locator(".agent-aside-head small")).toHaveText("3 charts");
   await restored.getByRole("button", { name: /^Expand Dashboard/ }).click();
   await expect(restored.locator(".agent-entry-block")).toHaveCount(3);
-  await expect(
-    page.locator('.agent-background-tray [data-strip-card^="dashboard-rollout"]'),
-  ).toHaveCount(1);
+  await expect(page.locator('.agent-strip [data-strip-card^="dashboard-rollout"]')).toHaveCount(1);
+});
+
+test("an overflowing strip fades the edge hiding cards, and roving focus scrolls them into view", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 720 });
+  const surface = await createAcpSession(page, "card-tabs-overflow");
+  const cards = surface.locator(".agent-strip [data-strip-card]");
+  for (let count = 1; count <= 6; count++) {
+    await submitAcpDraft(surface, `/btw side question number ${count}`);
+    await expect(cards).toHaveCount(count);
+  }
+  const scroller = surface.locator(".agent-strip .agent-status-scroll");
+  await expect(scroller).toHaveClass(/overflow-right/);
+  await expect(scroller).not.toHaveClass(/overflow-left/);
+
+  await runCommand(page, "Focus Agent Strip");
+  await expect(surface.locator(".agent-strip button").first()).toBeFocused();
+  await page.keyboard.press("End");
+  const last = cards.last().getByRole("button", { name: /^Collapse / });
+  await expect(last).toBeFocused();
+  await expect(scroller).toHaveClass(/overflow-left/);
+  await expect(scroller).not.toHaveClass(/overflow-right/);
+  const inside = await last.evaluate((button) => {
+    const pill = button.getBoundingClientRect();
+    const view = button.closest(".agent-status-scroll")!.getBoundingClientRect();
+    return pill.left >= view.left && pill.right <= view.right;
+  });
+  expect(inside).toBe(true);
 });
 
 test("a block's height in a tab is the user's to drag, and the tab keeps it", async ({

@@ -37,7 +37,7 @@ flowchart LR
   Sub -- nested spawn --> Work
   Work --> Tasks["async tasks"]
   Session["AcpAgentSession"] -- aggregates roots --> Items["BackgroundWork / agent/background"]
-  Items --> Tray["strip, cards, rail status"]
+  Items --> Tray["roster, cards, rail status"]
 ```
 
 - A `subagent_spawned` update adopts the child session as a read-only `AcpConversation`: its endpoint is opened
@@ -79,27 +79,30 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
 
 ## Presentation
 
-- **Subagents card** — one collapsed roster above the composer, with running agents first and finished
-  conversations retained from history. Selecting an agent opens its live read-only transcript tab
-  (`weavie.agent.openCard`). Pending permissions and questions remain visible while the roster is collapsed.
-  Nested agents keep their parent label. Spawn announcements leave no transcript row, so surrounding work
-  groups together. Current-only thoughts likewise do not split work; visible thoughts and replies do.
+- **Subagents card** — one collapsed roster above the composer: subagents, then background tasks, each with
+  running items first; its header shows a spinner and the running count while any of them runs. Finished
+  subagent conversations are retained from history. Selecting an agent opens its live read-only transcript tab
+  (`weavie.agent.openCard`); selecting a task opens its tab. Every running row has a Stop icon, greyed out with the reason as its tooltip
+  when the work cannot be stopped on its own: a subagent, or a task the agent does not mark stoppable. Pending
+  permissions and questions remain visible while the roster is collapsed. Nested agents keep their parent label.
+  Spawn announcements leave no transcript row, so surrounding work groups together. Current-only thoughts
+  likewise do not split work; visible thoughts and replies do. A turn the agent started without a prompt is
+  listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`): otherwise it has nothing to
+  open or stop, and an agent refreshing on a timer would leave one behind per tick until the next prompt.
 - **Workflow card** — a Claude workflow (`taskType` `workflow`; Claude reports `showInTranscript: false` for
   workflows) journals an item `task:<id>` from spawn to its final state, joined live with the task's usage and
   Stop. Phase 2 (phases, agent rows, log lines) attaches to this item.
 - **Task tab** — a task's own read-only editor tab (path = its item id): type, live state and elapsed time, start
   time, usage, detail, last activity, result or error, a link to its output file, and the output of the tool call
   that started it. It follows the task live and says so once the task is cleared.
-- **Strip** — a roving-focus toolbar above the composer lists background tasks, then the expanded dashboards and BTWs
-  ([card tabs](card-tabs/design.md)); clicking or Enter opens the task in its tab, and Stop appears only for
-  stoppable tasks. A turn the agent started without a prompt is listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`):
-  otherwise it has nothing to open or stop, and an agent refreshing on a timer would leave one behind per tick
-  until the next prompt.
+- **Strip** — a roving-focus toolbar above the composer lists the expanded dashboards and BTWs
+  ([card tabs](card-tabs/design.md)); clicking or Enter opens one in its tab, and ✕ collapses it.
 - **Commands** — `weavie.agent.toggleSubagents` (Web, *Expand or Collapse Subagents*), gated by
-  `agentSubagentsAvailable`; `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
-  stoppable task), gated by `agentBackgroundActive`; `weavie.agent.showBackgroundWork` (Web, *Focus Agent Strip*),
-  gated by `agentStripActive`; `weavie.agent.openBackgroundItem` (Web, `{id}`, out of the palette; an unlisted id is
-  refused), which the strip runs. None has a default keybinding.
+  `agentSubagentsAvailable` (a subagent or task is listed), which focuses the roster's header when it expands; `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id
+  stops the most recently started stoppable task), gated by `agentBackgroundActive`;
+  `weavie.agent.focusStrip` (Web, *Focus Agent Strip*), gated by `agentStripActive` (a card is expanded);
+  `weavie.agent.openBackgroundItem` (Web, `{id}`, out of the palette; an unlisted id is refused), which the roster's
+  task rows run. None has a default keybinding.
 
 ## Stopping actions
 
@@ -107,7 +110,7 @@ Unload, delete, Recreate, Restart Agent, `/clear`, and Rewind refuse while backg
 `{"session":{slot,incarnation},"backgroundWork":[{name,type,state,startedAtMs}]}` as the result data, unless called with
 `stopBackgroundWork: true` (MCP callers see the same refusal, naming the work in its text). A turn the agent started
 without a prompt (Claude's adapter reports it as a task of type `turn`, e.g. answering a finished task) is the session's
-own work, like a prompted turn: it shows in the strip but never refuses. The web
+own work, like a prompted turn: it shows in the roster but never refuses. The web
 turns it into a "Stop background work?" confirm whose list follows that session's work live. Its confirm names the
 action ("Stop and restart", "Stop and unload", …) and re-runs with consent; Keep running is the Enter/Esc default. Work
 that finishes while it is open, or whose session goes away, re-runs the action without consent, so anything started

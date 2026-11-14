@@ -123,5 +123,5 @@
 
 .url-prompt-error {
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }

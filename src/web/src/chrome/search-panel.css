@@ -85,7 +85,7 @@
 }
 
 .search-summary {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   flex: 0 0 auto;
   padding: 6px 12px;
   color: var(--dim);
@@ -97,7 +97,7 @@
 }
 
 .search-error {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   flex: 0 0 auto;
   padding: 6px 12px;
   color: var(--err, #e06c75);
@@ -182,7 +182,7 @@
 
 /* Keyboard hints footer — the discoverable map of the panel's keys. */
 .search-hints {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   flex: 0 0 auto;
   display: flex;
   gap: 12px;

@@ -27,12 +27,13 @@
 
 .suggestion-title {
   margin-bottom: 4px;
-  font: var(--font-chrome-title);
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
 }
 
 .suggestion-body {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .suggestion-actions {

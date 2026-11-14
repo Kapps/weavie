@@ -196,6 +196,7 @@
   margin: 0 0 auto;
   padding: 14px 12px;
   color: var(--dim);
+  font: var(--font-chrome-body-wrap);
 }
 
 .agent-empty-title {
@@ -222,23 +223,9 @@
   margin: 0;
 }
 
-.agent-empty-hints kbd {
-  display: inline-block;
-  min-width: 1.4em;
-  padding: 0 5px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
-  border-radius: 3px;
-  color: color-mix(in srgb, var(--fg) 80%, var(--dim));
-  background: color-mix(in srgb, var(--bar) 70%, transparent);
-  font: inherit;
-  font-size: var(--font-content-secondary-size);
-  text-align: center;
-}
-
 .agent-empty-controls {
   margin: 0;
   color: color-mix(in srgb, var(--dim) 88%, transparent);
-  font-size: var(--font-content-secondary-size);
 }
 
 .agent-entry {
@@ -298,7 +285,7 @@
   grid-template-columns: max-content 1fr;
   gap: 2px 12px;
   margin: 6px 0 0;
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
 }
 
 .agent-task-facts dt {
@@ -323,7 +310,7 @@
 
 .agent-aside-head small {
   margin-left: auto;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .agent-aside-transcript {
@@ -371,7 +358,7 @@
   min-width: 0;
   overflow: hidden;
   color: color-mix(in srgb, var(--fg) 68%, var(--dim));
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
   font-weight: var(--font-weight-mono-bold);
   letter-spacing: var(--font-label-tracking);
   text-overflow: ellipsis;
@@ -382,7 +369,7 @@
 .agent-entry-status,
 .agent-step-status {
   color: var(--dim);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
   text-transform: lowercase;
 }
 
@@ -394,7 +381,7 @@
 /* A card's latest activity, beneath what the card is. */
 .agent-entry-detail {
   color: var(--dim);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -409,7 +396,7 @@
   border: 0;
   background: none;
   color: var(--dim);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
   cursor: pointer;
   opacity: 0;
 }
@@ -623,7 +610,7 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-entry-waiting:not(.agent-entry-question) .agent-entry-status {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   margin-left: auto;
 }
 
@@ -948,7 +935,7 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-attachment-label {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -972,7 +959,7 @@ a:has(> .agent-path-dir) {
   align-items: center;
   min-width: 0;
   color: var(--dim);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
 }
 
 .agent-compose-queued span + span {
@@ -988,7 +975,7 @@ a:has(> .agent-path-dir) {
 .agent-compose-error {
   grid-column: 1 / -1;
   color: var(--bad);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
 }
 
 .agent-working {
@@ -998,7 +985,7 @@ a:has(> .agent-path-dir) {
   gap: 7px;
   padding: 1px 0 2px;
   color: var(--busy);
-  font-size: var(--font-content-secondary-size);
+  font: var(--font-chrome-mono);
 }
 
 .agent-working-spinner {
@@ -1108,7 +1095,6 @@ a:has(> .agent-path-dir) {
   background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
-/* Content-relative size in the chrome face. */
 .agent-status-line {
   position: relative;
   flex: 0 0 auto;
@@ -1117,9 +1103,7 @@ a:has(> .agent-path-dir) {
   gap: 4px;
   padding: 3px 8px 4px;
   background: var(--bar);
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-content-secondary-size);
-  line-height: var(--font-content-line);
+  font: var(--font-chrome-body);
 }
 
 .agent-status-scroll {
@@ -1343,7 +1327,7 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-usage-tooltip-detail {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
   grid-column: 1 / -1;
   color: var(--dim);

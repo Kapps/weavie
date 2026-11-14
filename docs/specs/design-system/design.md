@@ -1,5 +1,9 @@
 # Design system — design
 
+> Superseded in part by [docs/concepts/design-system.md](../../concepts/design-system.md), which is current: chrome
+> has two sizes (12px and the 11px badge role), the `title` and `secondary` roles and the `-content` field and
+> button variants are gone, and controls are square.
+
 Design for [brief.md](brief.md). Evidence: the rendered census in `temp/design-census/REPORT.md`.
 
 ## Summary

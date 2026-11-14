@@ -18,41 +18,45 @@ them, and per-file `em` multipliers. The roles and primitives remove those sourc
 Chrome is fixed px and does not follow the editor font. Each role is one `font` shorthand built from atomic
 size, line and weight tokens; consumers write the shorthand.
 
+Interface text has two sizes: 12px for everything, and 11px for the short list the badge role names.
+Hierarchy comes from weight, dimness and the uppercase label, never from another pixel of size; the display
+role is the one heading size, for a surface's own title.
+
 | Role | Size / line / weight | Token | Use |
 |---|---|---|---|
 | hero | 36 / 40 / 600 | `--font-chrome-hero` | welcome window wordmark |
 | display | 20 / 24 / 600 | `--font-chrome-display` | page headings: Getting Started, editor empty state, session inbox |
 | lead | 16 / 24 / 400 | `--font-chrome-lead` | welcome tagline, recent rows, `.ui-button-xl` |
-| title | 13 / 16 / 600 | `--font-chrome-title` | popover and in-pane card titles (a dialog or `.ui-card` title is a `.ui-card-tag`) |
-| body | 12 / 16 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers (+ emphasis) |
+| body | 12 / 16 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers, descriptions; titles at 600 |
 | body-wrap | 12 / 18 / 400 | `--font-chrome-body-wrap` | wrapping text; `body`'s inherited default |
-| secondary | 11 / 16 / 400 | `--font-chrome-secondary` | descriptions, metadata; section labels at 600 |
-| badge | 10 / 16 / 600 | `--font-chrome-badge` | key hints, counts |
+| badge | 11 / 16 / 600 | `--font-chrome-badge` | key hints and badges; counts and session names at 400 |
 | mono | 12 / 16 / editor weight | `--font-chrome-mono` | branch names, paths and other mono text in chrome |
 
 Hero and lead exist only for landing surfaces. The family is `--font-chrome-family` (the
 `interface.font.family` setting); mono uses `--font-content-family`.
 
-- **Line heights.** Every single-line role uses 16px, so 10–13px text shares one line box. Wrapping body
+- **Line heights.** Every single-line role uses 16px, so both sizes share one line box. Wrapping body
   text uses 18px, which is also what everything inherits.
 - **Emphasis** is the same role followed by `font-weight: var(--font-weight-emphasis)` (600), or
   `--font-weight-mono-bold` (700) in the mono face, which ships only 400/700. There is no other bold.
 - **`font:` goes first in a rule.** The shorthand resets `font-style` and `font-variant-numeric`; restate
   them after it.
-- **Section labels** (the only uppercase style) are `.ui-section-label`: secondary at 600 with
+- **Section labels** (the only uppercase style) are `.ui-section-label`: body at 600 with
   `--font-label-tracking`.
 
 ## Content and prose roles
 
 Content roles follow the editor font — `font.size` and `editor.font.size`, including the font-zoom commands
-— through the `--editor-font-*` variables `fonts.ts` publishes.
+— through the `--editor-font-*` variables `fonts.ts` publishes. They are for content only: the editor, the
+terminal, the transcript, search results and the text typed into the composer. Buttons, dialog inputs, and
+the labels and status lines around content are chrome and stay at the interface size.
 
 | Token | Value | Use |
 |---|---|---|
-| `--font-content` | editor family, size and weight; line 1.24 | code-adjacent text: agent transcript and composer, search results, slash menu, prompt suggestions, fields where the user types a prompt |
-| `--font-content-secondary-size` | editor size × 0.8125 | small text inside a content scope (entry labels, status lines, line numbers) |
+| `--font-content` | editor family, size and weight; line 1.24 | code-adjacent text: agent transcript and composer, search results, slash menu |
+| `--font-content-secondary-size` | editor size × 0.8125 | small text that is itself content: blame annotations, quoted and inline code, thought text, search line numbers |
 | `--font-content-title-size` | editor size × 1.3 | headings inside a content scope |
-| `--font-content-row-line` | editor size × 1.5 | line box of content rows, buttons and fields |
+| `--font-content-row-line` | editor size × 1.5 | line box of content rows |
 | `--font-prose` | prose family, editor size; line 1.5 | rendered documents: agent markdown, preview, plans, PR comments |
 
 `em` font sizes are allowed only in prose: the four `*.prose.css` files (`agent/agent-markdown.prose.css`,
@@ -72,9 +76,9 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
-  `-content` (editor-font sized), `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
+  `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
   one frame. **`.ui-icon-button`** — 20px square, no border. See [Buttons](#buttons).
-- **`.ui-field`** — 28px text input. Variants: `-mono`, `-content` (editor-font sized).
+- **`.ui-field`** — 28px text input. Variant: `-mono`.
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
   `<small>`); `-plain` drops the chip border, `-cap` is a filled keycap tinted from the text colour of the
@@ -153,7 +157,7 @@ flowchart TB
     subgraph line["line box: --row-line (16px), children on one baseline"]
       direction LR
       icon[".ui-icon: one line tall, svg centred"] --- text[".ui-row-text: label (body 12px)"]
-      text --- trail[".ui-row-end: .ui-kbd (badge 10px)"]
+      text --- trail[".ui-row-end: .ui-kbd (badge 11px)"]
     end
     padBottom["--row-pad (5px)"]
     padTop --- line --- padBottom

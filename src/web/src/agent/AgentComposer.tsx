@@ -465,7 +465,7 @@ export function AgentComposer(props: {
         <Show when={canInterrupt()}>
           <button
             type="button"
-            class="ui-button ui-button-content"
+            class="ui-button ui-button-lg"
             aria-label="Interrupt"
             title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
@@ -475,7 +475,7 @@ export function AgentComposer(props: {
         </Show>
         <button
           type="submit"
-          class="ui-button ui-button-content"
+          class="ui-button ui-button-lg"
           classList={{ "ui-button-primary": canSubmit() }}
           aria-label={props.turnActive ? "Steer" : "Run"}
           title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}

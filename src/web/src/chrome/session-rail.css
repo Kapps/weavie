@@ -36,7 +36,8 @@
   border-radius: 5px;
   background: transparent;
   color: var(--fg);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-badge);
+  font-weight: var(--font-weight-regular);
   cursor: pointer;
 }
 /* The chip's dot over the first words of its name, unchanged when the rail expands. */
@@ -126,7 +127,8 @@
   border-top: 1px solid var(--border);
   background: transparent;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-badge);
+  font-weight: var(--font-weight-regular);
   cursor: pointer;
 }
 .session-rail-parked:hover {

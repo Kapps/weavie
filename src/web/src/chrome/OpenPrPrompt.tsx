@@ -113,7 +113,7 @@ export function OpenPrPrompt(props: {
     >
       <div class="session-prompt-field">
         <input
-          class="session-prompt-input ui-field ui-field-content"
+          class="session-prompt-input ui-field ui-field-mono"
           type="text"
           placeholder="search, #number, or URL"
           spellcheck={false}
@@ -131,7 +131,7 @@ export function OpenPrPrompt(props: {
         <Show when={directRef() !== null}>
           <ul class="session-prompt-suggestions">
             <li
-              class="session-prompt-suggestion ui-row ui-row-content active"
+              class="session-prompt-suggestion ui-row active"
               onPointerDown={(event) => {
                 event.preventDefault();
                 openTarget(directRef() ?? undefined);
@@ -166,7 +166,7 @@ export function OpenPrPrompt(props: {
               {(pr, i) => (
                 <li
                   {...nav.row(i())}
-                  class="session-prompt-suggestion ui-row ui-row-content"
+                  class="session-prompt-suggestion ui-row"
                   classList={{ active: i() === nav.index() }}
                   title={`Open #${pr.number}`}
                   onPointerDown={(event) => {

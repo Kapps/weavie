@@ -55,6 +55,7 @@
 .review-item-count {
   padding-inline: 2px;
   color: var(--fg);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-badge);
+  font-weight: var(--font-weight-regular);
   font-variant-numeric: tabular-nums;
 }

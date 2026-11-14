@@ -146,7 +146,7 @@
   flex: none;
   white-space: nowrap;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .weavie-pr-comment-actions {
@@ -184,7 +184,7 @@
   padding: 2px 0;
   border: none;
   background: none;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   color: var(--accent);
   cursor: pointer;
 }
@@ -292,7 +292,8 @@
   align-self: center;
   align-items: center;
   gap: 3px;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-badge);
+  font-weight: var(--font-weight-regular);
 }
 
 .weavie-pr-composer {
@@ -323,7 +324,7 @@
 
 .weavie-pr-composer-error {
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .weavie-pr-composer-actions {
@@ -336,7 +337,7 @@
   margin-right: auto;
   align-self: center;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 /* Drafts in the viewer's pending review: same card, dashed amber outline, only they can see it yet. */

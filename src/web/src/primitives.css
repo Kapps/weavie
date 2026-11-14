@@ -45,7 +45,7 @@
 
   .ui-row-desc {
     color: var(--dim);
-    font: var(--font-chrome-secondary);
+    font: var(--font-chrome-body);
   }
 
   .ui-row-end {
@@ -102,13 +102,6 @@
     --control-line: var(--font-chrome-display-line);
     padding-inline: 16px;
     font: var(--font-chrome-lead);
-  }
-
-  .ui-button-content {
-    --control-line: var(--font-content-row-line);
-    --control-h: calc(var(--control-line) + 6px);
-    font: var(--font-content);
-    line-height: var(--font-content-row-line);
   }
 
   .ui-button:hover:not(:disabled) {
@@ -181,7 +174,7 @@
 
   .ui-section-label {
     color: var(--dim);
-    font: var(--font-chrome-secondary);
+    font: var(--font-chrome-body);
     font-weight: var(--font-weight-emphasis);
     letter-spacing: var(--font-label-tracking);
     text-transform: uppercase;
@@ -274,11 +267,6 @@
     font: var(--font-chrome-mono);
   }
 
-  .ui-field-content {
-    --control-h: calc(var(--font-content-row-line) + 10px);
-    font: var(--font-content);
-  }
-
   /* A count between previous/next arrows ("‹ 1 / 4 ›"): the count carries the baseline, the arrows centre on it. */
   .ui-stepper {
     display: flex;
@@ -286,7 +274,8 @@
     align-items: baseline;
     gap: 2px;
     color: var(--dim);
-    font: var(--font-chrome-secondary);
+    font: var(--font-chrome-badge);
+    font-weight: var(--font-weight-regular);
     font-variant-numeric: tabular-nums;
   }
 

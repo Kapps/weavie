@@ -103,7 +103,8 @@
 }
 
 .browser-filter-count {
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-badge);
+  font-weight: var(--font-weight-regular);
   color: var(--dim);
 }
 

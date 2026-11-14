@@ -42,7 +42,7 @@
 .session-composer-destination-error {
   grid-column: 1 / -1;
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-composer .agent-attachments {
@@ -97,7 +97,7 @@
   gap: 6px 10px;
   padding: 7px 12px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-composer-roles > .ui-section-label,

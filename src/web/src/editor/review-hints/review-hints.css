@@ -60,7 +60,7 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--sev) 20%, transparent);
   color: color-mix(in srgb, var(--sev) 40%, var(--fg));
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -113,7 +113,7 @@
   gap: 8px;
   white-space: nowrap;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .weavie-hint-meta b {

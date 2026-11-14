@@ -69,7 +69,7 @@
   gap: 6px;
   margin-top: 7px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-overview-byline .weavie-pr-avatar {
@@ -196,7 +196,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-overview-description {
@@ -249,7 +249,7 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 .session-overview-when {
   flex: none;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-overview-sha {
@@ -320,13 +320,13 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 .session-overview-error {
   margin: 0 0 12px;
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .session-overview-empty {
   margin: 2px 0;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 /* Inside the overview's column the tree has no scrollbar beside it, so its totals end at the column edge. */

@@ -36,7 +36,7 @@
 
 .editor-preview-error {
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   text-align: center;
 }
 
@@ -46,7 +46,7 @@
   display: block;
   margin-bottom: 8px;
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   white-space: normal;
 }
 
@@ -126,7 +126,7 @@
   padding: 0 4px;
   color: var(--dim);
   background: var(--bg);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 /* Pending agent changes, read as margin bars; the shown change marks its words. */
@@ -135,7 +135,7 @@
 .editor-preview-body .wv-md-fold,
 .editor-preview-body .wv-md-note {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .wv-md-banner {

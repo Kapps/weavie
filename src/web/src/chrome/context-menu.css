@@ -16,7 +16,7 @@
 .context-menu-header {
   padding: 6px 8px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   font-weight: var(--font-weight-emphasis);
   /* Bounded + ellipsis so a long header (e.g. a URL) truncates instead of stretching the menu. */
   max-width: 280px;
@@ -65,7 +65,7 @@
 }
 .context-menu-detail {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
 }
 .context-menu-item:hover .context-menu-detail,

@@ -65,7 +65,7 @@ export function FixPrompt(): JSX.Element {
               How should the agent fix {basename(current.item.path)}:{current.item.line}?
             </div>
             <input
-              class="session-prompt-input ui-field ui-field-content"
+              class="session-prompt-input ui-field"
               type="text"
               spellcheck={false}
               autocomplete="off"

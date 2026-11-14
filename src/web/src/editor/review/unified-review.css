@@ -71,7 +71,7 @@
 .unified-review-kicker,
 .unified-review-status {
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .unified-review-kicker {
@@ -122,7 +122,7 @@
 
 .unified-review-file-stats {
   flex: none;
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .unified-review-diffs {
@@ -306,7 +306,7 @@
   border-block: 1px dashed color-mix(in srgb, var(--border) 80%, var(--fg));
   background: color-mix(in srgb, var(--border) 25%, transparent);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   cursor: pointer;
 }
 
@@ -352,14 +352,14 @@
 .unified-review-notice {
   padding: 14px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   text-align: center;
 }
 
 .unified-review-rejection {
   padding: 12px;
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 .unified-review-rejection pre {
@@ -469,7 +469,7 @@
   flex: none;
   width: 1em;
   color: var(--accent);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
   text-align: center;
 }
 
@@ -540,7 +540,7 @@
   padding: 0.4em 0.8em;
   border-top: 1px solid var(--border);
   color: var(--dim);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }
 
 /* Scrolled past the session overview, the header names the PR it's reviewing. */
@@ -580,5 +580,5 @@
 
 .unified-review-failing {
   color: var(--bad);
-  font: var(--font-chrome-secondary);
+  font: var(--font-chrome-body);
 }

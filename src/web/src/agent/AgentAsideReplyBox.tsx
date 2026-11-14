@@ -21,7 +21,7 @@ export function AgentAsideReplyBox(props: {
       fallback={
         <button
           type="button"
-          class="agent-aside-reply-button ui-button ui-button-content"
+          class="agent-aside-reply-button ui-button"
           disabled={props.disabled}
           onClick={() => {
             setOpenedHere(true);

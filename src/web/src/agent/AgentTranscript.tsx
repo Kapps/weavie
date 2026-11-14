@@ -157,7 +157,7 @@ function EmptyState(props: { compact: boolean; providerName: string }): JSX.Elem
           {(hint) => (
             <>
               <dt>
-                <kbd>{hint.key}</kbd>
+                <kbd class="ui-kbd">{hint.key}</kbd>
               </dt>
               <dd>{hint.text}</dd>
             </>

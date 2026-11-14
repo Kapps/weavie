@@ -1191,7 +1191,6 @@ test.describe("session-addressed WebSocket transport", () => {
           (target) => target.getBoundingClientRect().height,
         ),
         optionTargetFontSize: getComputedStyle(optionButton).fontSize,
-        optionTargetRadius: getComputedStyle(optionButton).borderRadius,
         optionTargetRows: new Set(
           [...options.querySelectorAll("select, button")].map((target) =>
             Math.round(target.getBoundingClientRect().top),
@@ -1336,7 +1335,6 @@ test.describe("session-addressed WebSocket transport", () => {
           (button) => button.getBoundingClientRect().height,
         ),
         buttonFontSize: getComputedStyle(actionButton).fontSize,
-        buttonRadius: getComputedStyle(actionButton).borderRadius,
         textareaHeight: textarea.getBoundingClientRect().height,
         textareaRight: textarea.getBoundingClientRect().right,
         textareaTop: textarea.getBoundingClientRect().top,
@@ -1348,7 +1346,6 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(composerGeometry.actionsLeft).toBeGreaterThanOrEqual(composerGeometry.textareaRight);
     expect(Math.min(...composerGeometry.buttonHeights)).toBeGreaterThanOrEqual(44);
     expect(composerGeometry.buttonFontSize).toBe(geometry.optionTargetFontSize);
-    expect(composerGeometry.buttonRadius).toBe(geometry.optionTargetRadius);
     expect(composerGeometry.textareaHeight).toBeGreaterThanOrEqual(44);
     host.publishHost("notifications", "show", {
       level: "error",

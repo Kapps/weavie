@@ -20,10 +20,10 @@
   font: var(--font-chrome-secondary);
 }
 .theme-picker .confirm-actions > small {
-  flex: 1;
+  padding: 0 16px;
 }
 .theme-picker-sources [aria-pressed="true"] {
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .theme-picker-list {
   max-height: 340px;
@@ -34,7 +34,6 @@
 }
 .theme-picker-list .ui-row {
   flex-shrink: 0;
-  border-radius: 4px;
 }
 .theme-picker-list .ui-row:disabled {
   opacity: 0.6;
@@ -47,8 +46,6 @@
 }
 .theme-picker-list [aria-selected="true"] {
   background: var(--list-active-bg);
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
 }
 .theme-description {
   width: 100%;

@@ -1,4 +1,4 @@
-/* The one dialog stylesheet: ModalShell's backdrop, card, title and action row, plus shared dialog content. */
+/* The one dialog stylesheet: ModalShell's backdrop, card and action cells, plus shared dialog content. */
 
 /* Above the panels/toolbars but below toasts, so a failed-save toast still shows. */
 .modal-backdrop {
@@ -9,36 +9,19 @@
   /* The backdrop scrolls (not the card), so a tall card stays reachable and the typeahead can overlay its edge. */
   overflow: auto;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.5);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
 }
 
+/* A .ui-card whose actions are cells along its bottom edge. */
 .confirm-dialog {
+  --card-pad: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: min(420px, 86vw);
   /* Auto margins centre the card and collapse when it is taller than the viewport, keeping its top reachable. */
   margin: auto;
-  padding: 16px;
-  background: var(--bar);
   color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-}
-
-.confirm-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.confirm-title {
-  margin: 0;
-  font: var(--font-chrome-title);
+  box-shadow: var(--shadow-modal);
 }
 
 .confirm-body {
@@ -61,12 +44,18 @@
   gap: 6px;
 }
 
+/* Bleeds through the card's padding to its edges; each button is a cell sharing the row equally. */
 .confirm-actions {
+  --button-plain-bg: transparent;
   display: flex;
   align-items: baseline;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  margin: 4px calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad));
+  border-top: 1px solid color-mix(in srgb, var(--fg) 11%, transparent);
+}
+
+.confirm-actions > .ui-button {
+  --control-h: var(--control-height-xl);
+  flex: 1;
 }
 
 /* Acknowledgement controls inside a delete confirm: a warning line and the checkbox gating a destructive delete. */
@@ -98,7 +87,6 @@
   list-style: none;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
   color: var(--fg);
   font: var(--font-chrome-mono);
 }

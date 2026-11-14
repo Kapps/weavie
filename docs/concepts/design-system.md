@@ -23,7 +23,7 @@ size, line and weight tokens; consumers write the shorthand.
 | hero | 36 / 40 / 600 | `--font-chrome-hero` | welcome window wordmark |
 | display | 20 / 24 / 600 | `--font-chrome-display` | page headings: Getting Started, editor empty state, session inbox |
 | lead | 16 / 24 / 400 | `--font-chrome-lead` | welcome tagline, recent rows, `.ui-button-xl` |
-| title | 13 / 16 / 600 | `--font-chrome-title` | dialog, popover and card titles |
+| title | 13 / 16 / 600 | `--font-chrome-title` | popover and in-pane card titles (a dialog or `.ui-card` title is a `.ui-card-tag`) |
 | body | 12 / 16 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers (+ emphasis) |
 | body-wrap | 12 / 18 / 400 | `--font-chrome-body-wrap` | wrapping text; `body`'s inherited default |
 | secondary | 11 / 16 / 400 | `--font-chrome-secondary` | descriptions, metadata; section labels at 600 |
@@ -72,16 +72,55 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
-  `-content` (editor-font sized), `-primary`, `-danger`. **`.ui-icon-button`** — 20px square, no border.
+  `-content` (editor-font sized), `-primary`, `-danger`, `-quiet` (a tinted fill with no outline).
+  **`.ui-icon-button`** — 20px square, no border.
 - **`.ui-field`** — 28px text input. Variants: `-mono`, `-content` (editor-font sized).
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
-  `<small>`); `-plain` drops the chip border. Inside a button it is `aria-hidden` so the accessible name
-  stays the label.
-- **`ModalShell`** (`chrome/ModalShell.tsx`, styled by `editor/confirm-dialog.css`) — every dialog. It
-  renders the title role in `header.confirm-head > h2.confirm-title` (with an optional `titleEnd`), the body,
-  and `footer.confirm-actions`; a surface that draws its own display heading passes `labelledBy` instead of
-  `title`. **`PromptButton`** is its action: `.ui-button.ui-button-lg` plus an optional `.ui-kbd` hint.
+  `<small>`); `-plain` drops the chip border, `-cap` is a filled keycap tinted from the text colour of the
+  button it sits in. Inside a button it is `aria-hidden` so the accessible name stays the label.
+- **`.ui-card`**, **`.ui-card-tag`**, **`.ui-scrim`** — the square panel, its title tag and the layer behind
+  a modal one. See [Cards and dialogs](#cards-and-dialogs).
+- **`ModalShell`** (`chrome/ModalShell.tsx`, styled by `editor/confirm-dialog.css`) — every dialog: a
+  `.ui-card` over a `.ui-scrim`, with **`PromptButton`** as its action.
+
+## Cards and dialogs
+
+A card is a square panel on the panel tone. Buttons, fields and key hints take their corner from
+`--control-radius` (4px), which a card sets to 0, so everything inside one is square without a rule of its
+own. A card's plain buttons are quiet fills, because its border tone is too close to the panel tone to
+outline them; the same look is `.ui-button-quiet` outside a card.
+
+- **Title.** `.ui-section-label.ui-card-tag` as the card's first child: a tag half above the top edge, in the
+  well colour of the fields below it. It is in flow, so a long title wraps and the content starts under it.
+  A card sets its padding through `--card-pad`, which the tag reads to stay 16px in from the side.
+- **Exception.** Getting Started is a landing surface with its own look, shown inline or in a dialog, so it
+  resets the card's control variables.
+- **Dialog.** `ModalShell` renders the tag from `title`, the body at a 16px inset, and
+  `footer.confirm-actions`, which bleeds through `--card-pad`. A surface that draws its own display heading
+  passes `labelledBy` instead of `title`. Controls that belong beside the title (a host picker, a close
+  button) are the body's first row.
+- **Actions.** Each `PromptButton` is a 40px cell along the card's bottom edge, sharing the row equally: the
+  default action is `primary` or `danger` and solid, the rest are plain. A shortcut shows as a `.ui-kbd-cap`
+  (`↵` for Enter, `esc` for Esc).
+- **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts
+  it. A modal that cannot be a `ModalShell` uses both, never its own copy.
+
+```mermaid
+flowchart TB
+  subgraph scrim[".ui-scrim"]
+    subgraph card[".confirm-dialog.ui-card: square, --control-radius 0, --card-pad 16px, --shadow-modal"]
+      direction TB
+      tag[".ui-section-label.ui-card-tag: half above the top edge"]
+      body["body: 16px inset, .ui-field and .ui-button square"]
+      subgraph actions["footer.confirm-actions: edge to edge, 40px"]
+        direction LR
+        cancel["PromptButton: plain cell, esc"] --- go["PromptButton: primary or danger cell, ↵"]
+      end
+      tag --- body --- actions
+    end
+  end
+```
 
 ## Alignment and height
 
@@ -115,6 +154,7 @@ flowchart TB
 |---|---|
 | Rows | 26, compact 24, two-line stack 42, touch 44 |
 | Text buttons | 24, `-lg` 28, `-xl` 40, touch 44 |
+| Dialog action cells | 40, touch 44 |
 | Icon buttons / fields | 20 / 28 |
 
 ## Cascade layers
@@ -143,7 +183,8 @@ unlayered `button { font: inherit }` would beat every `.ui-button`.
   `font-tokens.grit` skips only `styles.css`.
 - **Reviewer.** The lint does not see `font-family`, CSS held in TypeScript (`SOURCE_STYLES`), inline
   `style`, alignment, heights or UI text. `AGENTS.md` states those rules and `weavie-reviewer` checks them:
-  hand-styled controls, dialog titles outside `ModalShell`, centred mixed-size rows, `em` or literal
+  hand-styled controls, dialog titles outside `ModalShell`, a `border-radius` on a card or its controls, a
+  hand-rolled modal backdrop or shadow, centred mixed-size rows, `em` or literal
   heights, icons sized with `font-size`, non-prose rules in a prose file, and unexplained UI text.
 
 ## Adding a role or primitive

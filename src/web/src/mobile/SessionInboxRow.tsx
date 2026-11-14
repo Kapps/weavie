@@ -20,7 +20,7 @@ export function SessionInboxRow(props: {
   const now = useNow();
   return (
     <div
-      class="session-inbox-row"
+      class="session-inbox-row ui-card"
       classList={{ active: session().active, offline: session().offline }}
       data-session-id={session().id}
       data-backend-id={session().backendId}

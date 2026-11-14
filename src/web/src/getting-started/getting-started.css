@@ -1,12 +1,17 @@
 /* Getting Started: inline on the welcome screen, or inside .getting-started-dialog over a workspace. */
 
 .confirm-dialog.getting-started-dialog {
+  --card-pad: 0px;
   width: min(680px, 94vw);
-  padding: 0;
   overflow: hidden;
 }
 
 .getting-started {
+  /* A landing surface with its own look, inline or in a dialog, so it opts out of a card's square, quiet controls. */
+  --control-radius: var(--control-radius-round);
+  --button-plain-edge: initial;
+  --button-plain-bg: initial;
+  --button-plain-hover: initial;
   --gs-surface: color-mix(in srgb, var(--fg) 5%, transparent);
   --gs-surface-hover: color-mix(in srgb, var(--fg) 9%, transparent);
   --gs-line: color-mix(in srgb, var(--fg) 18%, transparent);

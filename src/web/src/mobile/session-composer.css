@@ -33,11 +33,10 @@
 
 .session-composer-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) 64px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) var(--session-action-w);
   align-items: baseline;
   gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  padding: 0 12px 8px;
 }
 
 .session-composer-destination-error {
@@ -48,7 +47,6 @@
 
 .session-composer .agent-attachments {
   padding: 7px 12px;
-  border-top: 1px solid var(--border);
 }
 
 .session-composer-error {
@@ -58,11 +56,10 @@
 
 .session-composer-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--session-action-w);
   align-items: baseline;
-  gap: 6px 10px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  gap: 6px 8px;
+  padding: 0 12px 8px;
 }
 
 .session-composer-field > .session-composer-control {
@@ -77,8 +74,8 @@
 .session-composer-resuggest {
   --icon-button-size: var(--control-height-lg);
   align-self: center;
+  width: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
   background: var(--bg);
   color: var(--dim);
 }
@@ -99,7 +96,6 @@
   align-items: baseline;
   gap: 6px 10px;
   padding: 7px 12px;
-  border-top: 1px solid var(--border);
   color: var(--dim);
   font: var(--font-chrome-secondary);
 }
@@ -156,13 +152,10 @@
 }
 
 .session-open-branch .session-composer-branch {
-  border-top: 0;
+  padding-top: 8px;
 }
 
 .session-composer-options .session-composer-submit {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: var(--font-weight-emphasis);
   grid-column: 3;
   grid-row: 1;
 }

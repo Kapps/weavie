@@ -143,7 +143,7 @@ src/chrome/foo.css:8:9 plugin
 
 ```tsx
 type ModalHeading =
-  | { title: JSX.Element; titleEnd?: JSX.Element }
+  | { title: JSX.Element }
   | { labelledBy: string }; // the surface draws its own display heading (Getting Started)
 
 export function ModalShell(
@@ -281,13 +281,13 @@ Rules the primitives encode:
 ModalShell renders:
   backdrop
     div.confirm-dialog[.class][role=dialog]  aria-labelledby = generated id | props.labelledBy
-      if title:  header.confirm-head > h2.confirm-title#id {title} + {titleEnd}
+      if title:  h2.ui-section-label.ui-card-tag#id {title}
       {children}
       if actions: footer.confirm-actions {actions}
 PromptButton renders:
   button.session-prompt-btn.ui-button.ui-button-lg[.ui-button-primary|.ui-button-danger][.class]
     {label}
-    if shortcut != "": span.ui-kbd.ui-kbd-plain[aria-hidden] {shortcut}
+    if shortcut != "": span.ui-kbd.ui-kbd-cap[aria-hidden] {keycap}
 ```
 
 - `aria-hidden` on the hint keeps accessible names equal to the label (specs match button names exactly).
@@ -309,7 +309,7 @@ Existing class names stay on every element that survives; the primitive class is
 | File tree, filter results | Rows `.ui-row`; twisty and icon in `.ui-icon`; folder names keep their label style through `.ui-section-label`. |
 | Search panel | Group head `.ui-row`; result rows `.ui-row-content`; group name is chrome body + emphasis; line numbers content-secondary. |
 | Session panel / rail | Rows are stack rows; group heads `.ui-section-label`; key hints `.ui-kbd`. |
-| Theme picker, ACP registry | Header moves into the `ModalShell` title/`titleEnd`; lists use rows; buttons and inputs use primitives. |
+| Theme picker, ACP registry | Title moves into the `ModalShell` title, header controls into the body's first row; lists use rows; buttons and inputs use primitives. |
 | Agent pane | Transcript, entry labels, status and composer stay content-relative. Composer buttons are `.ui-button-content`; approval and question cards are chrome (`.ui-button`, `.ui-field`). Choice cards, usage tooltip and model picker use chrome roles and rows. Slash menu rows are `.ui-row-content`. |
 | Review / diff | Inline tags and toolbar take the chrome family through the shorthand (the two `ui-sans-serif` declarations go). File header is a fixed 32px. |
 | Onboarding | Getting Started `h2` and the editor empty-state wordmark are display; eyebrows are `.ui-section-label`; nav buttons `.ui-button-lg`. |

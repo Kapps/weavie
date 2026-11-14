@@ -19,7 +19,7 @@ export function modalSubmitKeys(
 }
 
 // labelledBy: the surface draws its own display heading (Getting Started).
-type ModalHeading = { title: JSX.Element; titleEnd?: JSX.Element } | { labelledBy: string };
+type ModalHeading = { title: JSX.Element } | { labelledBy: string };
 
 export function ModalShell(
   props: ModalHeading & {
@@ -52,9 +52,9 @@ export function ModalShell(
   return (
     <Portal>
       <Show when={active()}>
-        <div class="modal-backdrop" onPointerDown={() => props.onDismiss()}>
+        <div class="modal-backdrop ui-scrim" onPointerDown={() => props.onDismiss()}>
           <div
-            class={`confirm-dialog${props.class === undefined ? "" : ` ${props.class}`}`}
+            class={`confirm-dialog ui-card${props.class === undefined ? "" : ` ${props.class}`}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby={"labelledBy" in props ? props.labelledBy : titleId}
@@ -62,12 +62,9 @@ export function ModalShell(
           >
             <Show when={"title" in props && props}>
               {(heading) => (
-                <header class="confirm-head">
-                  <h2 class="confirm-title" id={titleId}>
-                    {heading().title}
-                  </h2>
-                  {heading().titleEnd}
-                </header>
+                <h2 class="ui-section-label ui-card-tag" id={titleId}>
+                  {heading().title}
+                </h2>
               )}
             </Show>
             {props.children}
@@ -80,6 +77,8 @@ export function ModalShell(
     </Portal>
   );
 }
+
+const KEYCAPS: Record<string, string> = { Enter: "↵", Esc: "esc" };
 
 export function PromptButton(props: {
   label: JSX.Element;
@@ -96,15 +95,15 @@ export function PromptButton(props: {
     <button
       ref={props.ref}
       type="button"
-      class={`session-prompt-btn ui-button ui-button-lg${props.primary === true ? " ui-button-primary" : ""}${props.danger === true ? " ui-button-danger" : ""}${props.class === undefined ? "" : ` ${props.class}`}`}
+      class={`ui-button ui-button-lg${props.primary === true ? " ui-button-primary" : ""}${props.danger === true ? " ui-button-danger" : ""}${props.class === undefined ? "" : ` ${props.class}`}`}
       disabled={props.disabled}
       onClick={() => props.onClick()}
       title={props.title}
     >
       {props.label}
       <Show when={props.shortcut !== ""}>
-        <span class="ui-kbd ui-kbd-plain" aria-hidden="true">
-          {props.shortcut}
+        <span class="ui-kbd ui-kbd-cap" aria-hidden="true">
+          {KEYCAPS[props.shortcut] ?? props.shortcut}
         </span>
       </Show>
     </button>

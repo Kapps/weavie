@@ -248,7 +248,7 @@
     flex-wrap: wrap;
   }
 
-  .session-prompt-btn {
+  .modal-backdrop .confirm-actions > .ui-button {
     --control-h: var(--touch-target);
   }
 }

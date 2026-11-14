@@ -258,7 +258,7 @@ export function NewSessionComposer(props: {
         {props.destination}
         <button
           type="submit"
-          class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
+          class="session-composer-submit ui-button ui-button-lg ui-button-primary"
           aria-label={props.starting ? "Starting session" : "Start"}
           title={`Start${keyHint(CommandIds.submitNewSession)}`}
           disabled={!canStart()}

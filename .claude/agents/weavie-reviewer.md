@@ -78,7 +78,8 @@ Then Weavie's hard rules (these override generic "best practice"):
   rejects raw typography in `.css`; flag what it cannot see. Chrome that bypasses the primitives: a
   hand-styled button, row, field, uppercase label or key hint instead of `.ui-button`/`.ui-row`/`.ui-field`/
   `.ui-section-label`/`.ui-kbd`; a dialog title or action row not rendered by `ModalShell`; a font set on a
-  control. `align-items: center` on a row mixing text sizes; an icon beside text without a line-tall box
+  control; a `border-radius` on a `.ui-card` or the controls inside one; a modal backdrop or shadow that is
+  not `.ui-scrim` and `--shadow-modal`. `align-items: center` on a row mixing text sizes; an icon beside text without a line-tall box
   (`.ui-icon`); a height from `em` padding or a literal instead of the row/control tokens. Typography outside
   the lint: CSS-in-TS (`SOURCE_STYLES` and the like), inline `style`, a raw `font-family`, `font-size` used to
   size an icon, and non-prose rules placed in a `*.prose.css` file to dodge the lint. UI text beyond a title

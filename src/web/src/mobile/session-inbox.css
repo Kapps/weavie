@@ -12,6 +12,7 @@
   overflow: hidden auto;
   overscroll-behavior: contain;
   background: var(--bg);
+  --control-radius: 0px;
 }
 
 .session-inbox-surface,
@@ -26,9 +27,6 @@
   display: flex;
   overflow: auto;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.5);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
 }
 
 .session-inbox-surface.open .session-inbox-dialog {
@@ -40,9 +38,8 @@
   margin: auto;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 12px;
   background: var(--bg);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-modal);
 }
 
 .session-inbox-surface.open .session-inbox {
@@ -57,7 +54,6 @@
   top: 16px;
   right: 16px;
   z-index: 11;
-  border-radius: 4px;
   color: var(--dim);
 }
 
@@ -103,11 +99,6 @@
   margin-left: auto;
 }
 
-.session-inbox-manage-acp:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .session-inbox-actions,
 .session-inbox-action {
   display: flex;
@@ -119,28 +110,14 @@
   gap: 8px;
 }
 
+/* Room above each card for the half of its title tag outside it. */
 .session-inbox-action {
-  gap: 6px;
+  /* The column shared by the refresh buttons and the send button. */
+  --session-action-w: 64px;
+  margin-top: 10px;
 }
 
-.session-inbox-action h2 {
-  margin: 0 2px;
-  color: var(--dim);
-  font: var(--font-chrome-body);
-  font-weight: var(--font-weight-emphasis);
-}
-
-.session-composer,
-.session-open-branch {
-  flex: 0 0 auto;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bar);
-}
-
-.session-composer:focus-within,
-.session-open-branch:focus-within {
+.session-inbox-action:focus-within {
   border-color: var(--accent);
 }
 
@@ -177,14 +154,11 @@
   display: flex;
   align-items: stretch;
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--bar);
   color: var(--fg);
 }
 
 .session-inbox-row.active {
-  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 
 .session-inbox-open {
@@ -196,7 +170,6 @@
   min-height: 58px;
   padding: 8px 10px;
   border: 0;
-  border-radius: inherit;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -214,7 +187,6 @@
   min-height: var(--touch-target);
   padding: 0;
   border: 0;
-  border-radius: inherit;
   background: transparent;
   color: var(--dim);
   cursor: pointer;

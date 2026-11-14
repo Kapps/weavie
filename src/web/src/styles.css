@@ -104,7 +104,10 @@
   --row-gap: 8px;
   --control-height: 24px;
   --control-height-lg: 28px;
-  --control-height-xl: 40px; /* landing surfaces */
+  --control-height-xl: 40px; /* landing surfaces, dialog action cells */
+  --control-radius-round: 4px;
+  --control-radius: var(--control-radius-round); /* 0 inside a .ui-card */
+  --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
   --touch-target: 44px;
   --icon-size-sm: 12px;
   --icon-size: 14px;

@@ -9,18 +9,28 @@ export function backgroundStatus(
   now: number,
   usage: AgentBackgroundItem["usage"],
 ): string {
-  // A card the host settled after a restart has no end time, so its duration is unknown.
-  const live = state === "running" || state === "paused";
   return [
     state,
-    startedAtMs === null || (!live && endedAtMs === null)
-      ? null
-      : formatElapsed((endedAtMs ?? now) - startedAtMs),
+    backgroundElapsed(state, startedAtMs, endedAtMs, now),
     usage?.toolUses ? `${usage.toolUses} tool${usage.toolUses === 1 ? "" : "s"}` : null,
     usage?.totalTokens ? `${compactCount(usage.totalTokens)} tokens` : null,
   ]
     .filter((part) => part !== null)
     .join(" · ");
+}
+
+/** "4m 12s": how long a background item has run or ran, or null when that is unknown. */
+export function backgroundElapsed(
+  state: string,
+  startedAtMs: number | null,
+  endedAtMs: number | null,
+  now: number,
+): string | null {
+  // A card the host settled after a restart has no end time, so its duration is unknown.
+  const live = state === "running" || state === "paused";
+  return startedAtMs === null || (!live && endedAtMs === null)
+    ? null
+    : formatElapsed((endedAtMs ?? now) - startedAtMs);
 }
 
 function compactCount(value: number): string {

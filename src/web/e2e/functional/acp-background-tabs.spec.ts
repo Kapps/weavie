@@ -19,6 +19,18 @@ test("selecting subagents and tasks in the roster opens their transcripts and re
   await submitAcpDraft(surface, "task-failed");
   const task = rows.filter({ hasText: "Consult Astra" });
   await expect(task).toHaveAttribute("data-state", "failed");
+  // "running" and "failed" start at one x and their times end at one x, whatever their lengths.
+  const edges = await surface.locator("[data-agent-subagents]").evaluate((roster) => {
+    const of = (selector: string, side: "left" | "right") =>
+      [...roster.querySelectorAll(selector)].map((cell) => cell.getBoundingClientRect()[side]);
+    return {
+      states: of(".agent-entry-status:not(.agent-roster-time)", "left"),
+      times: of(".agent-roster-time", "right"),
+    };
+  });
+  expect(new Set(edges.states).size).toBe(1);
+  expect(new Set(edges.times).size).toBe(1);
+  expect(edges.states).toHaveLength(2);
   await task.getByRole("button", { name: /Consult Astra/ }).click();
   await expect(page.locator(".editor-tab", { hasText: "Task · Consult Astra" })).toBeVisible();
   const view = page.locator('.editor-agent-view [data-agent-task][data-state="failed"]');

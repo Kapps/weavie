@@ -18,10 +18,27 @@ import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { agentBackground, backgroundItem, backgroundRunning } from "./agent-background-store";
 import { cardOf, openCard, openCardTitle, ownCardOnFocus } from "./agent-cards";
+import { backgroundElapsed } from "./background-format";
 import { liveNow } from "./live-clock";
 import type { AgentPaneModel } from "./pane-store";
-import { SubagentStatus, TaskStatus } from "./SubagentStatus";
 import "./agent-subagents.css";
+
+/** A row's state and elapsed time, each in its own column of the roster. */
+function RosterStatus(props: {
+  state: string;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
+  now: number;
+}): JSX.Element {
+  return (
+    <>
+      <small class="agent-entry-status">{props.state}</small>
+      <small class="agent-entry-status agent-roster-time">
+        {backgroundElapsed(props.state, props.startedAtMs, props.endedAtMs, props.now)}
+      </small>
+    </>
+  );
+}
 
 /** A running row's Stop: greyed out with the reason while its work can't be stopped, and an empty slot once it ends. */
 function RosterStop(props: {
@@ -147,8 +164,18 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                         title={openCardTitle()}
                         onClick={() => void openCard(cardOf(entry)!)}
                       >
-                        <span class="agent-subagent-name">{entry.subagent!.name}</span>
-                        <SubagentStatus info={entry.subagent!} now={now()} />
+                        <span class="agent-subagent-name">
+                          {entry.subagent!.name}
+                          <Show when={entry.subagent!.via}>
+                            {(via) => <span class="agent-roster-via"> · via {via()}</span>}
+                          </Show>
+                        </span>
+                        <RosterStatus
+                          state={entry.subagent!.state}
+                          startedAtMs={entry.subagent!.startedAtMs}
+                          endedAtMs={entry.subagent!.completedAtMs}
+                          now={now()}
+                        />
                       </button>
                       <RosterStop
                         name={entry.subagent!.name}
@@ -197,7 +224,12 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                           }
                         >
                           <span class="agent-subagent-name">{item().name}</span>
-                          <TaskStatus item={item()} now={now()} usage={null} />
+                          <RosterStatus
+                            state={item().state}
+                            startedAtMs={item().startedAtMs}
+                            endedAtMs={item().endedAtMs}
+                            now={now()}
+                          />
                         </button>
                         <RosterStop
                           name={item().name}

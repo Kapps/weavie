@@ -12,35 +12,52 @@
   gap: 8px;
 }
 
+/* Name, state, elapsed time and Stop are columns shared by every row. */
 .agent-subagents-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   padding: 0 8px 8px;
 }
 
+.agent-subagents-list > article,
+.agent-roster-row,
 .agent-subagent-select {
-  width: 100%;
-  gap: 8px;
-  text-align: left;
+  display: grid;
+  grid-template-columns: subgrid;
+}
+
+.agent-subagents-list > article,
+.agent-subagents-list > article > *,
+.agent-roster-row {
+  grid-column: 1 / -1;
+}
+
+.agent-roster-row {
+  align-items: center;
+}
+
+.agent-subagent-select {
+  grid-column: 1 / 4;
+  column-gap: 8px;
 }
 
 .agent-subagent-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.agent-roster-via {
+  color: var(--dim);
+}
+
 .agent-subagent-select .agent-entry-status {
   font: var(--font-chrome-body);
+  font-variant-numeric: tabular-nums;
 }
 
-.agent-roster-row {
-  display: flex;
-  align-items: center;
-}
-
-.agent-roster-row > .agent-subagent-select {
-  flex: 1;
-  min-width: 0;
+.agent-roster-time {
+  justify-self: end;
 }
 
 .agent-roster-stop {

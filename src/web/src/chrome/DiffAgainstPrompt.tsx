@@ -54,7 +54,7 @@ export function DiffAgainstPrompt(props: {
       onDismiss={props.onCancel}
       class="session-prompt"
     >
-      <div class="confirm-body">Changes since the merge-base with HEAD</div>
+      <div class="confirm-hint">Changes since the merge-base with HEAD</div>
       <div class="session-prompt-field">
         <BranchTypeahead
           idPrefix="diff-against"

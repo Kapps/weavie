@@ -70,7 +70,7 @@ export function RegisterAgentModal(props: {
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-body">The runner prints its URL and token at startup</div>
+      <div class="confirm-hint">The runner prints its URL and token at startup</div>
       <input
         class="session-prompt-input ui-field ui-field-mono"
         type="text"

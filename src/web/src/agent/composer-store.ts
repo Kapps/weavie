@@ -1,5 +1,6 @@
 import { type ClientSession, invokeCommandInSession } from "../bridge";
 import { CommandIds } from "../commands/types";
+import { captureCommandUsage } from "../commands/usage-store";
 import * as state from "./composer-state";
 
 export type {
@@ -72,9 +73,11 @@ export function submitAgentAside(
   session: ClientSession,
   prompt: string,
   invocation: AgentInvocation | null,
+  query: string,
 ): boolean {
   const submission = state.prepareSubmission(main(session), prompt, invocation);
   if (submission === null) return false;
+  const record = captureCommandUsage(session.connection.id, CommandIds.askAgentAside, query);
   void invokeCommandInSession(session, CommandIds.askAgentAside, {
     question: submission.prompt,
     submissionId: submission.id,
@@ -82,7 +85,8 @@ export function submitAgentAside(
     commandName: submission.commandName,
     attachmentIds: submission.attachmentIds,
     selections: submission.selections,
-  }).then((result) =>
+  }).then((result) => {
+    if (result.ok && !result.cancelled) record();
     state.settleSubmission(main(session), {
       id: submission.id,
       attachmentIds: result.ok
@@ -90,7 +94,7 @@ export function submitAgentAside(
         : [],
       status: result.ok ? "accepted" : "rejected",
       error: result.error ?? "",
-    }),
-  );
+    });
+  });
   return true;
 }

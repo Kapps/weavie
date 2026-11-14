@@ -1,4 +1,5 @@
 import { type ClientSession, registerSessionFeature } from "../bridge";
+import { captureCommandUsage, slashUsageId } from "../commands/usage-store";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { encodeAgentImage, takePastedImages } from "./pasted-images";
@@ -36,7 +37,11 @@ export interface AgentComposerState {
   draft: string;
   attachments: AgentComposerAttachment[];
   draftRevision: number;
-  pendingSubmission: { id: string; draftRevision: number } | null;
+  pendingSubmission: {
+    id: string;
+    draftRevision: number;
+    recordUsage?: () => void;
+  } | null;
   error: string | null;
   // Whether a BTW reply box is open; an accepted reply closes it unless more was typed while it sent.
   replyOpen: boolean;
@@ -170,6 +175,7 @@ export function attachSelection(owner: ComposerOwner, selection: AgentSelection)
 export interface AgentInvocation {
   kind: "providerCommand" | "mcpPrompt";
   name: string;
+  query?: string;
 }
 
 export function prepareSubmission(
@@ -195,7 +201,19 @@ export function prepareSubmission(
   const id = nextId("submission");
   update(owner, (current) => ({
     ...current,
-    pendingSubmission: { id, draftRevision: current.draftRevision },
+    pendingSubmission: {
+      id,
+      draftRevision: current.draftRevision,
+      ...(invocation === null
+        ? {}
+        : {
+            recordUsage: captureCommandUsage(
+              owner.session.connection.id,
+              slashUsageId(owner.session, { ...invocation, commandId: null }),
+              invocation.query ?? invocation.name,
+            ),
+          }),
+    },
     error: null,
   }));
   return {
@@ -311,6 +329,7 @@ export function settleSubmission(owner: ComposerOwner, message: SubmissionState)
     }));
     return;
   }
+  state.pendingSubmission.recordUsage?.();
   for (const attachment of state.attachments) {
     if (message.attachmentIds.includes(attachment.id)) {
       revoke(attachment);

@@ -18,6 +18,8 @@ public static partial class CoreCommands {
 	public const string SpellAddUser = "weavie.spell.addUser";
 	/// <summary>Adds the word at the editor cursor to the project dictionary.</summary>
 	public const string SpellAddProject = "weavie.spell.addProject";
+	/// <summary>Clears workspace command-picker learning.</summary>
+	public const string ResetCommandLearning = "weavie.commands.resetLearning";
 	private const string AgentInputExecutionLane = "weavie.agent.input";
 	private const string FontExecutionLane = "weavie.font";
 	private const string TestExecutionLane = "weavie.tests.execution";
@@ -2495,6 +2497,15 @@ public static partial class CoreCommands {
 
 		RegisterReviewHints(registry);
 		RegisterWorkflows(registry);
+		registry.Register(new CommandDefinition {
+			Id = ResetCommandLearning,
+			Scope = CommandScope.Host,
+			Title = "Reset Command Learning",
+			Category = "Commands",
+			Description = "Clear learned command ordering for this workspace.",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+		});
 		InferenceCommands.Register(registry);
 		CredentialCommands.Register(registry);
 

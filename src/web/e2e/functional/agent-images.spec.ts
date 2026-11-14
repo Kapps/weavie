@@ -25,22 +25,15 @@ test("an agent reply shows a workspace image in a fixed frame, from a same-origi
   await expect
     .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
     .toBe(2);
-  // A reply re-renders once more when its completion arrives, replacing the frame; read the one that stays.
+  // The image reserves a fixed-height frame while its reply renders.
   await expect
     .poll(() => surface.locator(".agent-image").evaluate((element) => element.clientHeight))
     .toBe(240);
-  // A reply that finishes rendering can reinsert its image mid-drag; the crop keeps the frame it started on.
-  let box: { x: number; y: number; width: number; height: number } | null = null;
-  await expect(async () => {
-    await image.scrollIntoViewIfNeeded();
-    box = await image.boundingBox();
-    expect(box).not.toBeNull();
-  }).toPass();
-  box = box!;
-  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.1);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9, { steps: 4 });
-  await page.mouse.up();
+  // A remounted image can measure zero before layout; these points stay inside its 240px frame.
+  await image.dragTo(image, {
+    sourcePosition: { x: 24, y: 80 },
+    targetPosition: { x: 120, y: 160 },
+  });
   await expect(
     surface.locator("[data-agent-composer] .agent-attachment:not(.agent-attachment-selection)"),
   ).toHaveCount(1);

@@ -1,3 +1,4 @@
+import type { CommandUsageSnapshot } from "../commands/ranking";
 import type { CommandInfo, ResolvedKeybinding } from "../commands/types";
 import { ClientSessionState } from "./client-session-state";
 import { MessageBus } from "./message-bus";
@@ -50,6 +51,7 @@ export interface HostHello {
   testProfile: string;
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
+  commandUsage: CommandUsageSnapshot;
   commandCatalog: {
     commands: CommandInfo[];
     keybindings: ResolvedKeybinding[];

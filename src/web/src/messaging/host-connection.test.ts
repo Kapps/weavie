@@ -61,6 +61,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
     thoughtDisplay: "all",
     providers: [],
   },
+  commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
 

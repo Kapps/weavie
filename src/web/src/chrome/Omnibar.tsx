@@ -1,4 +1,3 @@
-import { byLengthAsc, Fzf } from "fzf";
 import { Search, X } from "lucide-solid";
 import {
   createEffect,
@@ -12,8 +11,15 @@ import {
 } from "solid-js";
 import { selectedSession } from "../bridge";
 import { evaluateWhen, paneFocusContext, setContext } from "../commands/context";
-import { captureCommandRunner, getCommands, onCommandsChanged } from "../commands/registry";
+import { rankCommands } from "../commands/ranking";
+import {
+  captureCommandRunner,
+  getActiveCatalogBackendId,
+  getCommands,
+  onCommandsChanged,
+} from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
+import { captureCommandUsage, commandUsage } from "../commands/usage-store";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import {
@@ -204,19 +210,20 @@ export function Omnibar(props: {
     const focus = paneFocusContext(priorFocus);
     const all = commandList().filter((c) => c.showInPalette && evaluateWhen(c.when, focus));
     const q = query().slice(1).trim();
-    if (q.length === 0) {
-      return [...all]
-        .sort(
-          (a, b) =>
-            (a.category ?? "").localeCompare(b.category ?? "") || a.title.localeCompare(b.title),
-        )
-        .map((cmd) => ({ cmd }));
-    }
-    const fzf = new Fzf(all, {
-      selector: (c) => [c.title, c.category ?? "", ...c.aliases].join(" "),
-      tiebreakers: [byLengthAsc],
-    });
-    return fzf.find(q).map((r) => ({ cmd: r.item, positions: r.positions }));
+    return rankCommands(
+      all.map((cmd) => ({
+        item: cmd,
+        id: cmd.id,
+        title: cmd.title,
+        aliases: cmd.aliases,
+        metadata: cmd.category ?? "",
+      })),
+      q,
+      commandUsage(getActiveCatalogBackendId()),
+    ).map((row) => ({
+      cmd: row.item,
+      ...(row.positions === undefined ? {} : { positions: row.positions }),
+    }));
   });
 
   const activeLen = (): number =>
@@ -402,19 +409,26 @@ export function Omnibar(props: {
     }
     // The omnibar's own focus commands just re-aim it at a mode — do that in place (the input already has focus)
     // rather than close()+re-open, which races the reset and lands in plain file mode.
+    const backend = getActiveCatalogBackendId();
+    const learnedQuery = query().slice(1).trim();
+    const record = captureCommandUsage(backend, cmd.id, learnedQuery);
     const focusMode = FOCUS_COMMAND_MODE[cmd.id];
     if (focusMode !== undefined) {
+      record();
       setQuery(MODE_PREFIX[focusMode]);
       setSelected(0);
       return;
     }
     // Open-by-path re-aims in place too, but its seed is the worktree root rather than a static prefix.
     if (cmd.id === CommandIds.openFileByPath) {
+      record();
       setQuery(pathSeed(props.root ?? ""));
       setSelected(0);
       return;
     }
-    void runCapturedCommand(cmd.id, undefined);
+    void runCapturedCommand(cmd.id, undefined).then((result) => {
+      if (result.ok && !result.cancelled) record();
+    });
     close();
   };
 

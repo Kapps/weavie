@@ -203,9 +203,9 @@
 
   /* The dimmed, blurred layer behind a modal surface. */
   .ui-scrim {
-    background: rgba(0, 0, 0, 0.5);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
+    background: rgba(0, 0, 0, 0.7);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
   }
 
   .ui-kbd {

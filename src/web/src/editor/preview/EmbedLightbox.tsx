@@ -114,7 +114,7 @@ export function EmbedLightbox(props: {
       <Show when={active() ? props.state() : null}>
         {(state) => (
           <div
-            class="embed-lightbox"
+            class="embed-lightbox ui-scrim"
             role="dialog"
             aria-modal="true"
             aria-label="Zoomed embed"

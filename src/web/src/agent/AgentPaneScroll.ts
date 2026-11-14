@@ -198,25 +198,36 @@ export function createAgentPaneScroll(
     updateTurnStartAbove();
   };
 
-  const jumpToLatest = (): boolean => {
-    // Asking for the latest output stops a reply already in view from pinning at its top.
-    topSeen = false;
-    if (following() && nearBottom()) return false;
+  // A jump takes the position from any wheel or touch momentum. iOS ignores scroll writes during momentum, so
+  // scrolling is suspended for a frame to stop it, then `resume` reapplies the jump.
+  const jump = (move: () => void, resume: () => void): void => {
     const momentum = gesture.touching();
     wheel.cancel();
     gesture.reset();
     pinned = false;
-    setFollowing(true);
-    moveTo(0);
-    if (momentum) {
-      // iOS ignores scroll writes during momentum; suspending scrolling for a frame stops it first.
-      const scroller = element();
-      scroller.style.overflowY = "hidden";
-      requestAnimationFrame(() => {
-        scroller.style.overflowY = "";
-        if (following() && scroller.isConnected) moveTo(0);
-      });
-    }
+    move();
+    if (!momentum) return;
+    const scroller = element();
+    scroller.style.overflowY = "hidden";
+    requestAnimationFrame(() => {
+      scroller.style.overflowY = "";
+      if (scroller.isConnected) resume();
+    });
+  };
+
+  const jumpToLatest = (): boolean => {
+    // Asking for the latest output stops a reply already in view from pinning at its top.
+    topSeen = false;
+    if (following() && nearBottom()) return false;
+    jump(
+      () => {
+        setFollowing(true);
+        moveTo(0);
+      },
+      () => {
+        if (following()) moveTo(0);
+      },
+    );
     return true;
   };
 
@@ -224,12 +235,12 @@ export function createAgentPaneScroll(
   const reveal = (index: number): void => {
     const row = layout().rowAt(index);
     if (row === undefined) return;
-    wheel.cancel();
-    pinned = false;
-    setFollowing(false);
-    place(startOf(row));
-    anchor.reveal(row, position);
-    notifyOffset();
+    jump(() => {
+      setFollowing(false);
+      place(startOf(row));
+      anchor.reveal(row, position);
+      notifyOffset();
+    }, keepAnchor);
   };
 
   const jumpToTurn = (): boolean => {

@@ -90,8 +90,9 @@ internal sealed class AcpInferenceClient {
 		} catch (AcpProtocolException ex) {
 			return Failure(model, InferenceFailureKind.ProviderUnavailable, ex.Message);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
-			return Failure(model, InferenceFailureKind.ProviderUnavailable,
-				$"The ACP agent '{_connection.Definition.Name}' did not complete the inference query.");
+			var failure = await _connection.FailureAsync(
+				$"The ACP agent '{_connection.Definition.Name}' did not complete the inference query", ex).ConfigureAwait(false);
+			return Failure(model, InferenceFailureKind.ProviderUnavailable, failure.Message);
 		}
 	}
 

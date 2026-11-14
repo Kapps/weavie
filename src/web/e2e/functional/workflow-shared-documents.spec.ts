@@ -1,8 +1,15 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { EOL } from "node:os";
 import { join } from "node:path";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
-import { clickIntoEditor, runCommand, showParked, typeInEditor } from "../harness/actions";
+import {
+  clickIntoEditor,
+  pressDocumentEnd,
+  runCommand,
+  showParked,
+  typeInEditor,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 import { workflowTool, writeWorkflow } from "../harness/workflows";
@@ -53,7 +60,10 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
   const plan = "# Shared monitoring log\n\n- Feature plan approved in the parent session.\n";
   await typeInEditor(page, plan);
   await page.keyboard.press("ControlOrMeta+s");
-  await expect.poll(() => readFile(monitoring, "utf8")).toBe(plan);
+  // Flaked 2026-11-14 09:00 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, Windows): a file with no
+  // line break takes the OS line ending, CRLF on Windows, but the test expected LF. Expect the OS line ending.
+  const saved = (text: string): string => text.replaceAll("\n", EOL);
+  await expect.poll(() => readFile(monitoring, "utf8")).toBe(saved(plan));
 
   await workflowTool(surface, "runCommand", {
     id: "weavie.session.new",
@@ -75,11 +85,13 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
   await workflowTool(surface, "openFile", { filePath: monitoring, focus: true });
   await expect(page.locator(".view-lines")).toContainText("Feature plan approved");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+End");
+  // Flaked 2026-11-14 09:00 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, macOS): ⌘End is unbound in
+  // Monaco on macOS, so the update was typed at the top. Use the platform's document-end key.
+  await pressDocumentEnd(page);
   const update = "- PR session implemented the first task.\n";
   await typeInEditor(page, update);
   await page.keyboard.press("ControlOrMeta+s");
-  await expect.poll(() => readFile(monitoring, "utf8")).toBe(plan + update);
+  await expect.poll(() => readFile(monitoring, "utf8")).toBe(saved(plan + update));
 
   await runCommand(page, "Unload Session");
   await showParked(page);
@@ -96,7 +108,7 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
   await page.locator('.session-chip[title^="feature-plan —"]').click();
   await workflowTool(surface, "openFile", { filePath: monitoring, focus: true });
   await expect(page.locator(".view-lines")).toContainText("PR session implemented");
-  expect(await readFile(monitoring, "utf8")).toBe(plan + update);
+  expect(await readFile(monitoring, "utf8")).toBe(saved(plan + update));
 
   await page.locator('.session-chip[title^="feature-task —"]').click();
   await workflowTool(surface, "runCommand", {
@@ -104,7 +116,7 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
     args: { id: "feature-plan", force: true },
   });
   await expect(page.locator('.session-chip[title^="feature-plan —"]')).toHaveCount(0);
-  expect(await readFile(monitoring, "utf8")).toBe(plan + update);
+  expect(await readFile(monitoring, "utf8")).toBe(saved(plan + update));
 
   await runCommand(page, "Delete Session…");
   await page.getByRole("button", { name: "Delete untracked files…", exact: true }).click();

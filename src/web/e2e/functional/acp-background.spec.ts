@@ -70,24 +70,48 @@ test("a background task waits in the collapsed roster until Stop ends it with a 
   await submitAcpDraft(surface, "task-held");
 
   const group = surface.locator("[data-agent-subagents]");
-  const pill = group.locator("[data-background-item]");
+  const row = group.locator("[data-background-item]");
   await expect(group).toContainText("1 running");
   await expect(group.locator(".agent-working-spinner")).toBeVisible();
-  await expect(pill).toHaveCount(0);
+  await expect(row).toHaveCount(0);
   await expect(surface.locator(".agent-strip")).toHaveCount(0);
   await expect(page.locator(".session-chip.active")).toHaveClass(/status-waiting/);
   await runCommand(page, "Expand or Collapse Subagents");
-  await expect(pill).toHaveAttribute("data-state", "running");
-  await expect(pill).toContainText("sleep 30");
+  await expect(
+    group.getByRole("button", { name: "Collapse Subagents", exact: true }),
+  ).toBeFocused();
+  await expect(row).toHaveAttribute("data-state", "running");
+  await expect(row).toContainText("sleep 30");
 
-  await pill.getByRole("button", { name: "Stop", exact: true }).click();
-  await expect(pill).toHaveAttribute("data-state", "stopped");
-  await expect(pill.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+  await row.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(row).toHaveAttribute("data-state", "stopped");
+  await expect(row.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
   await expect(group.locator(".agent-working-spinner")).toHaveCount(0);
   await expect(surface.locator(".agent-entry-notice")).toContainText("Task stopped by user");
 });
 
-test("a workflow renders a card whose Stop the roster shares", async ({ page, weavie }) => {
+test("a long task name is cut short, keeping Stop inside the roster", async ({ page }) => {
+  const surface = await createAcpSession(page, "acp-background-long");
+  await submitAcpDraft(surface, "task-long");
+  await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
+  const stop = surface
+    .locator("[data-agent-subagents] [data-background-item]")
+    .getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toBeVisible();
+  const inside = await stop.evaluate((button) => {
+    const roster = button.closest("[data-agent-subagents]")!;
+    return (
+      roster.scrollWidth <= roster.clientWidth &&
+      button.getBoundingClientRect().right <= roster.getBoundingClientRect().right
+    );
+  });
+  expect(inside).toBe(true);
+});
+
+test("a workflow renders a card and is listed in the roster with Stop", async ({
+  page,
+  weavie,
+}) => {
   const surface = await createAcpSession(page, "acp-background-workflow");
   await submitAcpDraft(surface, "workflow-held");
 
@@ -97,7 +121,7 @@ test("a workflow renders a card whose Stop the roster shares", async ({ page, we
   await expect(card).toContainText("3 tools");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
-  await runPalette(page, "Expand or Collapse Subagents");
+  await runCommand(page, "Expand or Collapse Subagents");
   const row = surface.locator("[data-agent-subagents] [data-background-item]");
   await expect(row).toHaveAttribute("data-state", "running");
   await expect(row.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
@@ -106,15 +130,6 @@ test("a workflow renders a card whose Stop the roster shares", async ({ page, we
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 });
-
-async function runPalette(page: import("@playwright/test").Page, title: string): Promise<void> {
-  await page.keyboard.press("ControlOrMeta+Shift+p");
-  await page.locator(".tb-omnibar-input").fill(`>${title}`);
-  await page
-    .locator(".tb-omnibar-row")
-    .filter({ has: page.locator(".tb-row-leaf", { hasText: new RegExp(`^${title}$`) }) })
-    .click();
-}
 
 test("running work survives a page reload, and stopping actions confirm against the live work", async ({
   page,
@@ -126,14 +141,14 @@ test("running work survives a page reload, and stopping actions confirm against 
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   await expect(card).toHaveAttribute("data-state", "running");
   await submitAcpDraft(surface, "task-held");
-  const tray = surface.locator("[data-agent-subagents] [data-background-item]");
-  await expect(tray).toHaveCount(1);
+  const rows = surface.locator("[data-agent-subagents] [data-background-item]");
+  await expect(rows).toHaveCount(1);
 
   await page.reload();
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
-  await expect(tray.first()).toHaveAttribute("data-state", "running");
+  await expect(rows.first()).toHaveAttribute("data-state", "running");
 
-  await runPalette(page, "Unload Session");
+  await runCommand(page, "Unload Session");
   const dialog = page.getByRole("dialog");
   const listed = dialog.locator(".confirm-background-list li");
   await expect(dialog).toContainText("Stop background work?");
@@ -146,7 +161,7 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(dialog).toBeHidden();
   await expect(card).toHaveAttribute("data-state", "running");
 
-  await runPalette(page, "Restart Agent");
+  await runCommand(page, "Restart Agent");
   await expect(listed).toHaveCount(2);
   await signal(weavie.workspace, "release-subagent");
   await expect(listed).toHaveCount(1);
@@ -162,9 +177,9 @@ test("running work survives a page reload, and stopping actions confirm against 
   );
 
   await submitAcpDraft(surface, "task-held");
-  await expect(tray.filter({ hasText: "sleep 30" })).toHaveAttribute("data-state", "running");
+  await expect(rows.filter({ hasText: "sleep 30" })).toHaveAttribute("data-state", "running");
   await surface.locator("[data-agent-composer] textarea").focus();
-  await runPalette(page, "Start Fresh Agent Conversation");
+  await runCommand(page, "Start Fresh Agent Conversation");
   await expect(listed).toHaveCount(1);
   // Work that finishes while the user looks leaves nothing to stop, so the action goes ahead.
   await signal(weavie.workspace, "release-task");
@@ -178,11 +193,11 @@ test("the agent's own unprompted turn shows in the roster but never asks to be s
   const surface = await createAcpSession(page, "acp-background-turn");
   await submitAcpDraft(surface, "task-turn");
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
-  const tray = surface.locator("[data-agent-subagents] [data-background-item]");
-  await expect(tray).toHaveAttribute("data-state", "running");
-  await expect(tray).toContainText("Claude is working");
+  const rows = surface.locator("[data-agent-subagents] [data-background-item]");
+  await expect(rows).toHaveAttribute("data-state", "running");
+  await expect(rows).toContainText("Claude is working");
 
-  await runPalette(page, "Restart Agent");
+  await runCommand(page, "Restart Agent");
   await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

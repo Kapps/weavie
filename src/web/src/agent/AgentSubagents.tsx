@@ -15,12 +15,11 @@ import { CommandIds } from "../commands/types";
 import { DisclosureIcon } from "./AgentDisclosure";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { agentBackground, backgroundRunning } from "./agent-background-store";
+import { agentBackground, backgroundItem, backgroundRunning } from "./agent-background-store";
 import { cardOf, openCard, openCardTitle, ownCardOnFocus } from "./agent-cards";
-import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 import type { AgentPaneModel } from "./pane-store";
-import { SubagentStatus } from "./SubagentStatus";
+import { SubagentStatus, TaskStatus } from "./SubagentStatus";
 import "./agent-subagents.css";
 
 const runningFirst = <T,>(items: readonly T[], running: (item: T) => boolean): T[] =>
@@ -33,6 +32,7 @@ const runningFirst = <T,>(items: readonly T[], running: (item: T) => boolean): T
 export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [details, setDetails] = createSignal<ReadonlySet<string>>(new Set());
+  let toggle: HTMLButtonElement | undefined;
   const subagentRunning = (entry: AgentTranscriptEntry) => entry.subagent?.state === "running";
   const entries = createMemo(() => runningFirst(props.model.subagents(), subagentRunning));
   const tasks = createMemo(() =>
@@ -41,6 +41,8 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
       backgroundRunning,
     ),
   );
+  // Ids, not items: the host replaces every item per update, and a row must keep its focus across one.
+  const taskIds = createMemo(() => tasks().map((item) => item.id));
   const count = () => entries().length + tasks().length;
   const running = () =>
     entries().filter(subagentRunning).length + tasks().filter(backgroundRunning).length;
@@ -60,6 +62,7 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
     registerCommand(CommandIds.toggleSubagents, (_args, context) => {
       if (context.session !== props.model.session || count() === 0) return false;
       setExpanded((value) => !value);
+      if (expanded()) toggle?.focus({ preventScroll: true });
       return true;
     }),
   );
@@ -68,6 +71,7 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
     <Show when={count() > 0}>
       <section class="agent-subagents" data-agent-subagents="" aria-label="Subagents">
         <button
+          ref={toggle}
           type="button"
           class="ui-row agent-subagents-toggle"
           aria-expanded={expanded()}
@@ -85,7 +89,7 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
             <span>{running()} running</span>
           </Show>
         </button>
-        <Show when={visible().length > 0 || (expanded() && tasks().length > 0)}>
+        <Show when={expanded() || visible().length > 0}>
           <div class="agent-subagents-list">
             <For each={visible()}>
               {(entry) => {
@@ -133,47 +137,41 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
               }}
             </For>
             <Show when={expanded()}>
-              <For each={tasks()}>
-                {(item) => (
-                  <div
-                    class="agent-background-task"
-                    data-background-item={item.id}
-                    data-state={item.state}
-                  >
-                    <button
-                      type="button"
-                      class="ui-row agent-subagent-select"
-                      title={`Open Background Work${liveKeyHint(CommandIds.openBackgroundItem)}`}
-                      onClick={() =>
-                        void runCommandWithFeedback(CommandIds.openBackgroundItem, { id: item.id })
-                      }
-                    >
-                      <span class="agent-subagent-name">{item.name}</span>
-                      <small class="agent-entry-status">
-                        {backgroundStatus(
-                          item.state,
-                          item.startedAtMs,
-                          item.endedAtMs,
-                          now(),
-                          null,
-                        )}
-                      </small>
-                    </button>
-                    <Show when={item.canStop}>
-                      <button
-                        type="button"
-                        class="ui-button"
-                        title={`Stop Background Task${liveKeyHint(CommandIds.stopBackgroundTask)}`}
-                        onClick={() =>
-                          void runCommandWithFeedback(CommandIds.stopBackgroundTask, {
-                            id: item.id,
-                          })
-                        }
+              <For each={taskIds()}>
+                {(id) => (
+                  <Show when={backgroundItem(props.model.session, id)}>
+                    {(item) => (
+                      <div
+                        class="agent-background-task"
+                        data-background-item={id}
+                        data-state={item().state}
                       >
-                        Stop
-                      </button>
-                    </Show>
-                  </div>
+                        <button
+                          type="button"
+                          class="ui-row agent-subagent-select"
+                          title="Open Background Work"
+                          onClick={() =>
+                            void runCommandWithFeedback(CommandIds.openBackgroundItem, { id })
+                          }
+                        >
+                          <span class="agent-subagent-name">{item().name}</span>
+                          <TaskStatus item={item()} now={now()} usage={null} />
+                        </button>
+                        <Show when={item().canStop}>
+                          <button
+                            type="button"
+                            class="ui-button agent-background-stop"
+                            title={`Stop Background Task${liveKeyHint(CommandIds.stopBackgroundTask)}`}
+                            onClick={() =>
+                              void runCommandWithFeedback(CommandIds.stopBackgroundTask, { id })
+                            }
+                          >
+                            Stop
+                          </button>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
                 )}
               </For>
             </Show>

@@ -5,7 +5,7 @@ test("selecting subagents and tasks in the roster opens their transcripts and re
   page,
 }) => {
   const surface = await createAcpSession(page, "acp-background-tabs");
-  const pills = surface.locator("[data-agent-subagents] [data-background-item]");
+  const rows = surface.locator("[data-agent-subagents] [data-background-item]");
   await submitAcpDraft(surface, "subagent-held");
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   const subagent = surface
@@ -17,7 +17,7 @@ test("selecting subagents and tasks in the roster opens their transcripts and re
   await expect(page.locator(".editor-agent-view")).toContainText("counting");
 
   await submitAcpDraft(surface, "task-failed");
-  const task = pills.filter({ hasText: "Consult Astra" });
+  const task = rows.filter({ hasText: "Consult Astra" });
   await expect(task).toHaveAttribute("data-state", "failed");
   await task.getByRole("button", { name: /Consult Astra/ }).click();
   await expect(page.locator(".editor-tab", { hasText: "Task · Consult Astra" })).toBeVisible();

@@ -3,9 +3,9 @@ import type { ClientSession } from "../bridge";
 import { ActivityStepOutput } from "./AgentActivityDetails";
 import { AgentPathLink } from "./AgentPaneLinks";
 import { backgroundItem, backgroundRunning } from "./agent-background-store";
-import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 import { agentPaneModel } from "./pane-store";
+import { TaskStatus } from "./SubagentStatus";
 
 /** One background task as an editor tab: its state, timing, usage, activity, and result, following it live. */
 export default function AgentTaskTab(props: {
@@ -39,15 +39,7 @@ export default function AgentTaskTab(props: {
               <Show when={backgroundRunning(task())}>
                 <span class="agent-working-spinner" aria-hidden="true" />
               </Show>
-              <small class="agent-entry-status">
-                {backgroundStatus(
-                  task().state,
-                  task().startedAtMs,
-                  task().endedAtMs,
-                  now(),
-                  task().usage,
-                )}
-              </small>
+              <TaskStatus item={task()} now={now()} usage={task().usage} />
             </div>
             <div class="agent-entry-main">
               <div class="agent-entry-summary">{task().name}</div>

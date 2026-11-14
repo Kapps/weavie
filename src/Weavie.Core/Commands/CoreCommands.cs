@@ -161,8 +161,8 @@ public static partial class CoreCommands {
 	/// <summary>Expand or collapse the subagent roster.</summary>
 	public const string ToggleSubagents = "weavie.agent.toggleSubagents";
 
-	/// <summary>Moves focus to the strip of running work and cards above the focused agent's composer.</summary>
-	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
+	/// <summary>Moves focus to the strip of expanded cards above the focused agent's composer.</summary>
+	public const string FocusAgentStrip = "weavie.agent.focusStrip";
 
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
@@ -1146,7 +1146,7 @@ public static partial class CoreCommands {
 				+ "\"collapsed\":{\"type\":\"boolean\",\"description\":\"Collapse (true) or expand (false) the named card; name no card to toggle the focused one\"}}",
 		});
 
-		// Neither has a default keybinding: background work is occasional, and the strip already offers both.
+		// Neither has a default keybinding: background work is occasional, and the roster already offers both.
 		registry.Register(new CommandDefinition {
 			Id = StopBackgroundTask,
 			Title = "Stop Background Task",
@@ -1194,7 +1194,7 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = ShowBackgroundWork,
+			Id = FocusAgentStrip,
 			Title = "Focus Agent Strip",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",

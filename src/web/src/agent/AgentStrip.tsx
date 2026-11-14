@@ -1,19 +1,19 @@
 import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { createHorizontalOverflow, scrollWheelHorizontally } from "../chrome/horizontal-overflow";
+import { rovingTarget } from "../chrome/roving-focus";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { cardName, cardOf, openCard, openCardTitle } from "./agent-cards";
-import { rovingTarget } from "./background-format";
 
 /** A roving-focus toolbar above the composer: every expanded dashboard and BTW, which ✕ collapses. */
 export function AgentStrip(props: {
   session: ClientSession;
   cards: readonly AgentTranscriptEntry[];
 }): JSX.Element {
-  let tray: HTMLDivElement | undefined;
-  const buttons = (): HTMLButtonElement[] => [...(tray?.querySelectorAll("button") ?? [])];
+  let strip: HTMLDivElement | undefined;
+  const buttons = (): HTMLButtonElement[] => [...(strip?.querySelectorAll("button") ?? [])];
   const focusAt = (index: number): void => {
     const all = buttons();
     const target = all[index];
@@ -36,7 +36,7 @@ export function AgentStrip(props: {
   };
   onMount(() =>
     onCleanup(
-      registerCommand(CommandIds.showBackgroundWork, (_args, context) => {
+      registerCommand(CommandIds.focusAgentStrip, (_args, context) => {
         if (context.session !== props.session || buttons().length === 0) return false;
         focusAt(0);
         return true;
@@ -47,7 +47,7 @@ export function AgentStrip(props: {
   return (
     <Show when={props.cards.length > 0}>
       <div
-        ref={tray}
+        ref={strip}
         class="agent-status-line agent-strip"
         role="toolbar"
         aria-label="Cards"

@@ -97,9 +97,9 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
 - **Strip** — a roving-focus toolbar above the composer lists the expanded dashboards and BTWs
   ([card tabs](card-tabs/design.md)); clicking or Enter opens one in its tab, and ✕ collapses it.
 - **Commands** — `weavie.agent.toggleSubagents` (Web, *Expand or Collapse Subagents*), gated by
-  `agentSubagentsAvailable` (a subagent or task is listed); `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id
+  `agentSubagentsAvailable` (a subagent or task is listed), which focuses the roster's header when it expands; `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id
   stops the most recently started stoppable task), gated by `agentBackgroundActive`;
-  `weavie.agent.showBackgroundWork` (Web, *Focus Agent Strip*), gated by `agentStripActive` (a card is expanded);
+  `weavie.agent.focusStrip` (Web, *Focus Agent Strip*), gated by `agentStripActive` (a card is expanded);
   `weavie.agent.openBackgroundItem` (Web, `{id}`, out of the palette; an unlisted id is refused), which the roster's
   task rows run. None has a default keybinding.
 

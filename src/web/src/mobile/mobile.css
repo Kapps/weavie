@@ -207,7 +207,8 @@
   .app.compact .toast-action,
   .app.compact .agent-compose-actions > button,
   .app.compact .agent-question-actions > button,
-  .app.compact .agent-approval-actions > button {
+  .app.compact .agent-approval-actions > button,
+  .app.compact .agent-background-stop {
     --control-h: var(--touch-target);
     min-width: var(--touch-target);
   }

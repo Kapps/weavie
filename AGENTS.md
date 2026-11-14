@@ -86,7 +86,7 @@ load it only when you need it.
   [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
 - **Background work** — native ACP subagents run as owned read-only `AcpConversation`s adopted from their
   parent's announcement, and AIR async tasks join the root conversation's background work; the pane renders
-  subagent and workflow cards plus a tray with Stop, and actions that would end running work confirm first. See
+  a collapsed roster of subagents and tasks with Stop, plus workflow cards, and actions that would end running work confirm first. See
   [docs/specs/background-work.md](docs/specs/background-work.md).
 - **Agent blocks** — an ACP agent shows charts and tables in its pane through `showBlock`/`updateBlock`; Weavie
   draws them (ECharts, theme-driven) and keeps only each block's latest state. The tool returns a random token,

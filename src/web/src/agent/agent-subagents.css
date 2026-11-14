@@ -38,3 +38,8 @@
   align-items: baseline;
   gap: 8px;
 }
+
+.agent-background-task > .agent-subagent-select {
+  flex: 1;
+  min-width: 0;
+}

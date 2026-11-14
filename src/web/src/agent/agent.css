@@ -1147,7 +1147,7 @@ a:has(> .agent-path-dir) {
   border-top: 1px solid var(--border);
 }
 
-/* Fade whichever edge has pills scrolled out of view. */
+/* Fade whichever edge has cards scrolled out of view. */
 .agent-strip .agent-status-scroll {
   --fade-left: 0px;
   --fade-right: 0px;

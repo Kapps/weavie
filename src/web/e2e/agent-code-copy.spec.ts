@@ -46,8 +46,13 @@ test.describe("agent code block copy", () => {
     await host.close();
   });
 
+  // Failed 2026-10-12 05:50 UTC on Windows (release run https://github.com/Kapps/weavie/actions/runs/38208880127):
+  // the Windows OS clipboard stores newlines as CRLF, so readText returns "\r\n" for the exact "\n" the app wrote.
+  // Fix: compare in the clipboard's platform-neutral form instead of the platform's newline encoding.
   const clipboard = (page: Page): Promise<string> =>
-    page.evaluate(() => navigator.clipboard.readText());
+    page.evaluate(() =>
+      navigator.clipboard.readText().then((text) => text.replaceAll("\r\n", "\n")),
+    );
 
   test("copies a block's exact contents from its button or the shortcut", async ({ page }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });

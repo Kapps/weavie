@@ -117,6 +117,10 @@ A card is a square panel on the panel tone.
   sharing the row equally: the default action is `primary` or `danger` and solid, the rest are plain with
   no outline, since the card frames them. A
   shortcut shows as a `.ui-kbd-cap` (`↵` for Enter, `esc` for Esc).
+- **Containers.** A surface that holds a thread or other cards (a `/btw` side conversation, a subagent) is
+  square and tinted, with a header row for its controls: collapse, status, Open. The tag is for a surface
+  that asks one thing; a container's header is a control strip, and a tag on it competes with the tags of the
+  cards inside.
 - **Pending requests.** A request waiting on the user in the agent transcript (permission, question, sign-in,
   link) is a card whose tag carries an amber dot, with its decisions as joined 32px cells.
 - **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts

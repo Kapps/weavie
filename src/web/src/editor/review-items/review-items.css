@@ -37,8 +37,8 @@
   color: var(--diff-removed);
 }
 
-/* `‹ 3 of 8 ›`: the arrows are tools in their row's font, and the count carries its own smaller role. In a centred row
-   (a thread card, the hint popover) both are centred, as every icon and label there is. */
+/* `‹ 3 of 8 ›`: the arrows are tools in their row's font, and the position reads as text at the size of the labels
+   beside it. In a centred row (a thread card, the hint popover) both are centred, as every icon and label there is. */
 .review-item-position {
   display: inline-flex;
   flex: none;
@@ -55,7 +55,6 @@
 .review-item-count {
   padding-inline: 2px;
   color: var(--fg);
-  font: var(--font-chrome-badge);
-  font-weight: var(--font-weight-regular);
+  font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
 }

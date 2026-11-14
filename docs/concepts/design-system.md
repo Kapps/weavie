@@ -29,7 +29,7 @@ role is the one heading size, for a surface's own title.
 | lead | 16 / 24 / 400 | `--font-chrome-lead` | welcome tagline, recent rows, `.ui-button-xl` |
 | body | 12 / 16 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers, descriptions; titles at 600 |
 | body-wrap | 12 / 18 / 400 | `--font-chrome-body-wrap` | wrapping text; `body`'s inherited default |
-| badge | 11 / 16 / 600 | `--font-chrome-badge` | key hints and badges; counts and session names at 400 |
+| badge | 11 / 16 / 600 | `--font-chrome-badge` | key hints and badges; counts and session names at 400. A count centred beside 12px text takes body, since centring two sizes splits their baselines |
 | mono | 12 / 16 / editor weight | `--font-chrome-mono` | branch names, paths and other mono text in chrome |
 
 Hero and lead exist only for landing surfaces. The family is `--font-chrome-family` (the

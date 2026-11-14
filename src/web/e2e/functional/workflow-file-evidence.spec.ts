@@ -94,6 +94,8 @@ ${REVIEW.replace(
     };
     await answer(worktree, { accept: 0, revise: 1 });
     await complete(surface, outputs);
+    // Flaked 2026-11-14 08:54 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, Windows): the inference
+    // fake died mid-turn, likely on the inference-receipt.txt write the fakes now replace whole. Failures now carry stderr.
     await expect(run).toHaveAttribute("title", /review · waiting on you/);
     await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
       "Revise the work accordingly",

@@ -96,6 +96,8 @@ test("the composer asks for each role a workflow needs, suggests a model, and sa
   await expect(inbox.getByText("Roles for spec-driven")).toBeVisible();
   const planner = inbox.getByRole("group", { name: "planner role" });
   const builder = inbox.getByRole("group", { name: "builder role" });
+  // Flaked 2026-11-14 08:55 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, Windows): both roles' fakes wrote
+  // inference-receipt.txt at once and one crashed on the sharing violation. The fakes now replace the receipt whole.
   await expect(planner.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
   await expect(builder.getByRole("button")).toHaveText(["ModelBeta", "Fast modeOff"]);
   await planner.getByRole("button", { name: /Fast mode/ }).click();

@@ -175,6 +175,14 @@ public sealed class AcpInferenceTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task AnAgentThatDiesMidTurnIsUnavailableWithItsOwnStderr() {
+		var failure = Assert.IsType<InferenceProviderFailure>(await Query("crash"));
+
+		Assert.Equal(InferenceFailureKind.ProviderUnavailable, failure.Kind);
+		Assert.Contains("fake inference crashed mid-turn", failure.Detail, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task ReportsAMissingAgentBinaryAsNotConfigured() {
 		var provider = Provider(_workspace.Combine("does-not-exist"), []);
 

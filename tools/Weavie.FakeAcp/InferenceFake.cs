@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Fakes;
 
 namespace Weavie.FakeAcp;
 
@@ -67,11 +68,15 @@ internal static class InferenceFake {
 					});
 					break;
 				case "session/prompt":
+					if (variant == "crash") {
+						await Console.Error.WriteLineAsync("fake inference crashed mid-turn").ConfigureAwait(false);
+						Environment.Exit(3);
+					}
 					if (variant == "workflow") {
 						string prompt = string.Concat(root.GetProperty("params").GetProperty("prompt")
 							.EnumerateArray().Where(block => AcpJson.OptionalString(block, "type") == "text")
 							.Select(block => block.GetProperty("text").GetString()));
-						await File.WriteAllTextAsync(Path.Combine(cwd, "inference-receipt.txt"), prompt).ConfigureAwait(false);
+						await InferenceReceipt.WriteAsync(cwd, prompt).ConfigureAwait(false);
 						if (File.Exists(Path.Combine(cwd, "inference-reject"))) {
 							Write(new JsonObject {
 								["jsonrpc"] = "2.0",

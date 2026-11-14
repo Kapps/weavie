@@ -122,11 +122,11 @@ internal sealed partial class FakeAcpAgent {
 		var properties = multiple
 			? new JsonObject {
 				["question_0"] = new JsonObject { ["type"] = "array", ["title"] = "Pick", ["items"] = new JsonObject { ["anyOf"] = choices } },
-				["question_0_custom"] = new JsonObject { ["type"] = "string", ["title"] = "Other", ["_meta"] = AirCustomAnswer(new JsonObject { ["questionId"] = "question_0", ["isCustomAnswer"] = true }) },
+				["question_0_custom"] = new JsonObject { ["type"] = "string", ["title"] = "Other", ["_meta"] = Air("customAnswer", new JsonObject { ["questionId"] = "question_0", ["isCustomAnswer"] = true }) },
 			}
 			: new JsonObject {
 				["choice"] = new JsonObject { ["type"] = "string", ["title"] = "Pick", ["oneOf"] = choices },
-				["choice_note"] = new JsonObject { ["type"] = "string", ["title"] = "Additional answer or note", ["_meta"] = AirCustomAnswer(true) },
+				["choice_note"] = new JsonObject { ["type"] = "string", ["title"] = "Additional answer or note", ["_meta"] = Air("customAnswer", true) },
 			};
 		var schema = new JsonObject { ["type"] = "object", ["properties"] = properties };
 		if (!multiple) schema["required"] = new JsonArray("choice");
@@ -138,8 +138,4 @@ internal sealed partial class FakeAcpAgent {
 		}, ct).ConfigureAwait(false);
 		Message("custom answer: " + JsonSerializer.Serialize(result.GetProperty("content")));
 	}
-
-	private static JsonObject AirCustomAnswer(JsonNode marker) => new() {
-		["jetbrains"] = new JsonObject { ["air"] = new JsonObject { ["version"] = 1, ["customAnswer"] = marker } },
-	};
 }

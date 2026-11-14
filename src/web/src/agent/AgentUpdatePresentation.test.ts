@@ -272,3 +272,46 @@ it("keeps all explicitly opened subagent history in its transcript tab", () =>
     expect(child.conversation!.estimatedHeight).toBe(height);
     dispose();
   }));
+
+it("keeps every reply the agent stopped on visible in one group of earlier updates", () =>
+  createRoot((dispose) => {
+    const { model, send, entries } = fixture();
+    const final = (id: string, text: string) => ({ ...reply(id, text), final: true });
+    const shown = () =>
+      entries()
+        .filter((entry) => entry.kind === "updates" || entry.tone === "assistant")
+        .map((entry) => (entry.kind === "updates" ? entry.detailCount : entry.text));
+    send(
+      { ...base, type: "user-message", text: "Check the settings" },
+      { ...base, type: "turn-started" },
+      reply("note", "Reading the settings"),
+      tool("read", "completed"),
+      final("answer", "Nothing is overridden"),
+    );
+    expect(shown()).toEqual([2, "Nothing is overridden"]);
+    const group = entries().find((entry) => entry.kind === "updates")!;
+
+    send(tool("check", "completed"), reply("woke", "Checks pass, reading the review"));
+    expect(shown()).toEqual([3, "Nothing is overridden", "Checks pass, reading the review"]);
+    send(tool("review", "completed"), reply("publish", "Publishing"), tool("push", "completed"));
+    expect(shown()).toEqual([6, "Nothing is overridden", "Publishing"]);
+    // The agent stopped after the tool, so the message before it is marked late.
+    send(final("publish", "Publishing"), final("done", "Published"));
+    send({ ...base, type: "turn-completed", status: "end_turn" });
+    // A wake-up after the turn carries its turn id and joins its group.
+    send(tool("late", "completed"), final("late-reply", "The late job finished"));
+    expect(shown()).toEqual([
+      7,
+      "Nothing is overridden",
+      "Publishing",
+      "Published",
+      "The late job finished",
+    ]);
+    expect(entries().find((entry) => entry.kind === "updates")!.id).toBe(group.id);
+
+    model.setActivityExpanded(group.id, true);
+    expect(
+      entries().filter((entry) => entry.tone === "assistant" && entry.kind === "message"),
+    ).toHaveLength(6);
+    dispose();
+  }));

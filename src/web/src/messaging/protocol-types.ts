@@ -121,6 +121,8 @@ export interface AgentPaneUpdate {
   summary?: string | null;
   text?: string | null;
   status?: string | null;
+  /** Whether the agent stopped on this agent message, so it is a reply and not a progress note. */
+  final?: boolean | null;
   questions?: AgentInputQuestion[] | null;
   answers?: Record<string, string[]> | null;
   actions?: AgentActionOption[] | null;

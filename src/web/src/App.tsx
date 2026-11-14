@@ -311,6 +311,8 @@ export default function App(): JSX.Element {
   const layoutRoot = (): LayoutNode => layoutDocument()?.root ?? DEFAULT_LAYOUT_ROOT;
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
+  // Whether a tool panel holds keyboard focus; it is no pane, so the active pane stays behind it.
+  const [toolFocused, setToolFocused] = createSignal(false);
   // Whether the active pane is fullscreened (fills the whole pane area; the session rail stays). Pure
   // layout-view state — the saved layout is never touched, so toggling off restores it exactly.
   const [fullscreen, setFullscreen] = createSignal(false);
@@ -817,6 +819,11 @@ export default function App(): JSX.Element {
           ?.focus();
       }
     }
+  };
+
+  const editorPresence = {
+    active: () => activePane() === "editor" && !toolFocused(),
+    show: () => focusPane("editor"),
   };
 
   // Dismiss Sessions before focusing its destination: the modal makes the pane area inert.
@@ -1341,11 +1348,7 @@ export default function App(): JSX.Element {
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
-            <TabContent
-              sessions={editorSessions}
-              controller={editor}
-              paneActive={() => activePane() === "editor"}
-            />
+            <TabContent sessions={editorSessions} controller={editor} pane={editorPresence} />
           </div>
           <PlanReviewBar afterFlush={editor.afterFlush} />
           <EditorFooter
@@ -1944,6 +1947,7 @@ export default function App(): JSX.Element {
       const focus = paneFocusContext(element);
       const kind = typeof focus.focusedPane === "string" ? focus.focusedPane : null;
       setFocusedKind(kind);
+      setToolFocused(focus.focusedTool !== null);
       // Remember the last real pane (survives focus moving to the omnibar / a dialog) as the fullscreen target.
       if (kind !== null) {
         switchPane(kind);

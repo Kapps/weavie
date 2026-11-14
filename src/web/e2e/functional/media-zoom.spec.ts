@@ -1,4 +1,4 @@
-import { openFile, runCommand } from "../harness/actions";
+import { openFile, openSearch, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import {
   documentFullscreen,
@@ -101,8 +101,8 @@ test("rotating a small image keeps it at its natural size", async ({ page }) => 
   expect(await renderedFit(pane)).toMatchObject({ natural: true, fitsInside: true });
 });
 
-// Media fullscreen leaves focus free: the palette opens over it, and going to another pane ends it with that
-// pane clickable, whether or not the editor pane was itself fullscreened.
+// Media fullscreen leaves focus free: the palette opens over it, and going to another pane or a tool panel ends
+// it with the destination clickable, whether or not the editor pane was itself fullscreened.
 test("media fullscreen sits under the palette and ends on leaving the editor pane", async ({
   page,
 }) => {
@@ -124,7 +124,6 @@ test("media fullscreen sits under the palette and ends on leaving the editor pan
     await expect(page.locator(".tb-omnibar-input")).toBeFocused();
     await page.locator(".tb-omnibar-input").click({ trial: true });
     await page.keyboard.press("Escape");
-    await expect(pane).toHaveClass(/\bfullscreen\b/);
 
     await page.keyboard.press("Control+1");
     await expect(pane).not.toHaveClass(/\bfullscreen\b/);
@@ -132,6 +131,14 @@ test("media fullscreen sits under the palette and ends on leaving the editor pan
     await expect(agent.locator(".xterm-helper-textarea")).toBeFocused();
     await agent.locator(".xterm-screen").click();
   }
+
+  // From the fullscreened agent pane the command arrives at the editor; a tool panel taking focus ends it.
+  await runCommand(page, "Toggle Media Fullscreen");
+  await expect(pane).toHaveClass(/\bfullscreen\b/);
+  await expect(pane).toBeFocused();
+  await openSearch(page);
+  await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+  await page.locator(".search-input").click({ trial: true });
 });
 
 // The pane's own playback bar plays, pauses, and seeks at 1×, zoomed, and rotated; fullscreen keeps the rotation.

@@ -7,11 +7,8 @@
 }
 
 .getting-started {
-  /* A landing surface with its own look, inline or in a dialog, so it opts out of a card's square, quiet controls. */
-  --control-radius: var(--control-radius-round);
-  --button-plain-edge: initial;
-  --button-plain-bg: initial;
-  --button-plain-hover: initial;
+  /* A landing surface with its own rounded look, inline or in a dialog. */
+  --control-radius: 4px;
   --gs-surface: color-mix(in srgb, var(--fg) 5%, transparent);
   --gs-surface-hover: color-mix(in srgb, var(--fg) 9%, transparent);
   --gs-line: color-mix(in srgb, var(--fg) 18%, transparent);
@@ -345,7 +342,7 @@ fieldset.gs-choices {
 }
 
 .gs-switch:checked {
-  background: var(--accent);
+  background: var(--button-bg);
 }
 
 .gs-switch:checked::before {

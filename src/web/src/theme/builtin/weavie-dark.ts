@@ -117,9 +117,9 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     "tab.hoverBackground": "#101319",
 
     // ── Controls (buttons, inputs, lists, scrollbar) ────────────────────────────────────────────────
-    "button.background": "#54c6a4",
-    "button.foreground": "#042019",
-    "button.hoverBackground": "#63d2b1",
+    "button.background": "#228a6b",
+    "button.foreground": "#ffffff",
+    "button.hoverBackground": "#1d7c60",
     "button.secondaryBackground": "#161a21",
     "button.secondaryForeground": "#cdd5dc",
     "input.background": "#08090b",

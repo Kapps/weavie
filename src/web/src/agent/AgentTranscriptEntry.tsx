@@ -1,5 +1,5 @@
 import { ChevronRight, RotateCcw } from "lucide-solid";
-import { type JSX, Match, Show, Switch } from "solid-js";
+import { createUniqueId, type JSX, Match, Show, Switch } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
@@ -97,16 +97,26 @@ export function TranscriptEntry(props: {
       />
     );
   }
+  const questionTitleId = createUniqueId();
+  const pendingQuestion = (): boolean =>
+    isPendingRequest(props.entry) && isStructuredInput(props.entry.actionMessage);
   return (
     <article
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
+      aria-labelledby={pendingQuestion() ? questionTitleId : undefined}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
         "agent-entry-waiting": isPendingRequest(props.entry),
         "agent-entry-question": isStructuredInput(props.entry.actionMessage),
+        "ui-card": pendingQuestion(),
       }}
     >
+      <Show when={pendingQuestion()}>
+        <h3 id={questionTitleId} class="ui-section-label ui-card-tag">
+          Question
+        </h3>
+      </Show>
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
           <span class="agent-entry-label">

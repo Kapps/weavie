@@ -154,7 +154,6 @@
 
   .app.compact .agent-compose-actions {
     grid-column: auto;
-    flex-wrap: nowrap;
   }
 
   .app.compact .agent-compose-actions > button {
@@ -218,6 +217,7 @@
 
   .app.compact .toast-action,
   .app.compact .agent-compose-actions > button,
+  .app.compact .agent-question-actions > button,
   .app.compact .agent-approval-actions > button {
     --control-h: var(--touch-target);
     min-width: var(--touch-target);
@@ -307,12 +307,5 @@
 
   .app.compact .mobile-action-compact {
     display: inline-flex;
-  }
-
-  .app.compact .mobile-primary-action:not(:disabled) {
-    border-color: var(--button-bg);
-    background: var(--button-bg);
-    color: var(--button-fg);
-    box-shadow: 0 2px 10px color-mix(in srgb, var(--button-bg) 35%, transparent);
   }
 }

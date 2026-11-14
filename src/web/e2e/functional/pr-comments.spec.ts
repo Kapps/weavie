@@ -136,13 +136,13 @@ test("Escape keeps the draft, and the comment command reopens it", async ({ page
   await thread.locator(".weavie-pr-reply-stub").click();
   const input = thread.locator(".weavie-pr-composer-input");
   await input.fill("Half-written thought");
-  await expect(thread.locator(".weavie-pr-button-primary")).toBeEnabled();
+  await expect(thread.locator(".weavie-pr-button.ui-button-primary")).toBeEnabled();
   await input.press("Escape");
   await expect(input).toHaveCount(0);
   await thread.locator(".weavie-pr-reply-stub").click();
   await expect(thread.locator(".weavie-pr-composer-input")).toHaveValue("Half-written thought");
   await thread.locator(".weavie-pr-composer-input").fill("   ");
-  await expect(thread.locator(".weavie-pr-button-primary")).toBeDisabled();
+  await expect(thread.locator(".weavie-pr-button.ui-button-primary")).toBeDisabled();
 });
 
 test("stepping to a collapsed thread expands it, as the comment command does", async ({ page }) => {

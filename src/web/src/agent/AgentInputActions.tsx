@@ -51,7 +51,7 @@ function UrlInputActions(props: InputRequestProps): JSX.Element {
       >
         {props.message.actions?.[0]?.label ?? "Open link"}
       </button>
-      <DismissButtons {...props} buttonClass="ui-button" />
+      <DismissButtons {...props} />
     </div>
   );
 }
@@ -102,7 +102,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
       <QuestionFooter {...props}>
         <button
           type="submit"
-          class="default ui-button"
+          class="default ui-button ui-button-primary"
           title={withKey("Submit answers", ownedKeyLabel(props, CommandIds.agentAcceptInput))}
         >
           Submit answers

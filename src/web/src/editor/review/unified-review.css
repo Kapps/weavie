@@ -106,10 +106,6 @@
   margin-right: 3px;
 }
 
-.unified-review-file-action:hover {
-  border-color: var(--accent);
-}
-
 .unified-review-file-action.keep {
   color: var(--diff-added);
 }

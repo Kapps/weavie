@@ -59,7 +59,7 @@
 
 .session-prompt-error {
   white-space: pre-wrap;
-  color: var(--danger);
+  color: var(--bad);
   font: var(--font-chrome-secondary);
 }
 
@@ -138,7 +138,7 @@
 
 .acp-registry-agent-title > span.acp-registry-broken,
 .acp-registry-agent p.acp-registry-broken-reason {
-  color: var(--danger);
+  color: var(--bad);
 }
 
 .acp-registry-agent-actions {

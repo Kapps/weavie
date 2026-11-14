@@ -76,7 +76,7 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
   const thread = page.locator(".weavie-pr-card").first();
   await thread.locator(".weavie-pr-reply-stub").click();
   await thread.locator(".weavie-pr-composer-input").fill("Reply after switching back.");
-  await thread.locator(".weavie-pr-button-primary").click();
+  await thread.locator(".weavie-pr-button.ui-button-primary").click();
   await expect(
     page.locator(".weavie-pr-comment-body", { hasText: "Reply after switching back." }),
   ).toBeVisible({ timeout: 10_000 });

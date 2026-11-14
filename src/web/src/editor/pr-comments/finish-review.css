@@ -8,7 +8,6 @@
   background: var(--bg);
 }
 
-.finish-review-button.ui-button:hover,
 .finish-review-button.ui-button.finish-review-has {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }

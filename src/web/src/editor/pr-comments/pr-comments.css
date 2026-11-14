@@ -322,7 +322,7 @@
 }
 
 .weavie-pr-composer-error {
-  color: var(--danger);
+  color: var(--bad);
   font: var(--font-chrome-secondary);
 }
 
@@ -330,25 +330,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-}
-
-.weavie-pr-button {
-  border-color: var(--pr-line);
-}
-
-.weavie-pr-button:hover {
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-}
-
-.weavie-pr-button-primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--bg);
-  font-weight: var(--font-weight-emphasis);
-}
-
-.weavie-pr-button-primary:hover {
-  background: color-mix(in srgb, var(--accent) 85%, var(--fg));
 }
 
 .weavie-pr-composer-note {

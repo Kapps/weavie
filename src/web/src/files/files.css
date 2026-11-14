@@ -58,7 +58,7 @@
 
 .browser-filter-button:hover,
 .browser-filter-box button:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
   color: var(--fg);
 }
 

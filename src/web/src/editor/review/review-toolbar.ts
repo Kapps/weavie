@@ -25,6 +25,16 @@ export const makeButton = (
   return button;
 };
 
+export const KEEP_BUTTON = "weavie-inline-accept ui-button ui-button-primary";
+export const REVERT_BUTTON = "weavie-inline-reject ui-button ui-button-danger";
+
+export const buttonGroup = (...buttons: HTMLElement[]): HTMLElement => {
+  const group = document.createElement("span");
+  group.className = "ui-button-group";
+  group.append(...buttons);
+  return group;
+};
+
 // Every toolbar button advertises its shortcut on hover ("<label> (<shortcut>)") using the command's
 // effective keys; unbound commands show just the label.
 export const withShortcut = (label: string, commandId: string): string => {
@@ -71,17 +81,19 @@ export function createParkedToolbar(
     );
   }
   bar.append(
-    makeButton(
-      "weavie-inline-nav ui-button",
-      "↑",
-      withShortcut("Review changes", CommandIds.prevChange),
-      actions.stepIn,
-    ),
-    makeButton(
-      "weavie-inline-nav ui-button",
-      "↓",
-      withShortcut("Review changes", CommandIds.nextChange),
-      actions.stepIn,
+    buttonGroup(
+      makeButton(
+        "weavie-inline-nav ui-button",
+        "↑",
+        withShortcut("Review changes", CommandIds.prevChange),
+        actions.stepIn,
+      ),
+      makeButton(
+        "weavie-inline-nav ui-button",
+        "↓",
+        withShortcut("Review changes", CommandIds.nextChange),
+        actions.stepIn,
+      ),
     ),
   );
   const divider = document.createElement("span");
@@ -89,20 +101,20 @@ export function createParkedToolbar(
   bar.appendChild(divider);
   // Inert until a change is in view, but shown so the bar reads as the same toolbar at "change 0".
   const keep = makeButton(
-    "weavie-inline-accept ui-button",
+    KEEP_BUTTON,
     "Keep",
     withShortcut("Step into a change first", CommandIds.nextChange),
     () => {},
   );
   const revert = makeButton(
-    "weavie-inline-reject ui-button",
+    REVERT_BUTTON,
     "Revert",
     withShortcut("Step into a change first", CommandIds.nextChange),
     () => {},
   );
   keep.disabled = true;
   revert.disabled = true;
-  bar.append(keep, revert);
+  bar.append(buttonGroup(keep, revert));
   const histDivider = document.createElement("span");
   histDivider.className = "weavie-inline-divider";
   bar.appendChild(histDivider);
@@ -118,7 +130,7 @@ export function createParkedToolbar(
     withShortcut("Redo review action", CommandIds.redoReview),
     actions.redo,
   );
-  bar.append(undoButton, redoButton);
+  bar.append(buttonGroup(undoButton, redoButton));
   undoButton.disabled = !history.canUndo;
   redoButton.disabled = !history.canRedo;
   return { bar, undo: undoButton, redo: redoButton };

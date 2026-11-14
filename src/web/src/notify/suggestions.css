@@ -42,10 +42,6 @@
   margin-top: 10px;
 }
 
-.suggestion-action:hover {
-  border-color: var(--accent);
-}
-
 @keyframes suggestion-in {
   from {
     opacity: 0;

@@ -12,7 +12,6 @@
   overflow: hidden auto;
   overscroll-behavior: contain;
   background: var(--bg);
-  --control-radius: 0px;
 }
 
 .session-inbox-surface,

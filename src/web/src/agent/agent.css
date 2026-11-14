@@ -1072,7 +1072,6 @@ a:has(> .agent-path-dir) {
   box-shadow: 0 1px 0 var(--accent);
 }
 
-.agent-compose-actions,
 .agent-approval-actions {
   display: flex;
   align-items: center;
@@ -1102,16 +1101,6 @@ a:has(> .agent-path-dir) {
 
 .agent-entry-waiting:not(.agent-entry-question) .agent-approval-actions button.default {
   border-color: var(--warn);
-}
-
-.agent-compose-actions button,
-.agent-approval-actions button {
-  background: color-mix(in srgb, var(--bar) 84%, white);
-}
-
-.agent-compose-actions button:hover,
-.agent-approval-actions button:hover {
-  border-color: var(--accent);
 }
 
 .agent-key-chip {

@@ -77,8 +77,8 @@
   margin: 4px;
   background: var(--border);
 }
-/* Destructive item (e.g. Delete): red label at rest (the readable text-red), filled with the saturated danger
-   red on hover. */
+/* Destructive item (e.g. Delete): red label at rest (the readable text-red), filled with the danger fill on
+   hover. */
 .context-menu-item.danger {
   color: var(--bad);
 }

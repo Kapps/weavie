@@ -72,8 +72,8 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
-  `-content` (editor-font sized), `-primary`, `-danger`, `-quiet` (a tinted fill with no outline).
-  **`.ui-icon-button`** — 20px square, no border.
+  `-content` (editor-font sized), `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
+  one frame. **`.ui-icon-button`** — 20px square, no border. See [Buttons](#buttons).
 - **`.ui-field`** — 28px text input. Variants: `-mono`, `-content` (editor-font sized).
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
@@ -84,36 +84,46 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`ModalShell`** (`chrome/ModalShell.tsx`, styled by `editor/confirm-dialog.css`) — every dialog: a
   `.ui-card` over a `.ui-scrim`, with **`PromptButton`** as its action.
 
+## Buttons
+
+One formula everywhere, so a toolbar, a card and a dialog read alike.
+
+- **Plain** is a `--hairline` outline with no fill. The hairline is drawn from the text colour, so it shows
+  on every theme; `--border` sits too close to the panel tone to outline a control.
+- **Solid** is `-primary` (`--button-bg` with `--button-fg`) or `-danger` (`--danger`, white text): the
+  action a group exists for, at most one of each per group. `--danger` is a fill; error text is `--bad`.
+- **Joined.** Buttons that act on the same thing sit in a `.ui-button-group`, sharing edges: previous and
+  next, Keep and Revert, Decline and Cancel, Interrupt and Steer. A lone button stays on its own.
+- **Square.** Buttons, fields and key hints take their corner from `--control-radius`, which is 0.
+
 ## Cards and dialogs
 
-A card is a square panel on the panel tone. Buttons, fields and key hints take their corner from
-`--control-radius` (4px), which a card sets to 0, so everything inside one is square without a rule of its
-own. A card's plain buttons are quiet fills, because its border tone is too close to the panel tone to
-outline them; the same look is `.ui-button-quiet` outside a card.
+A card is a square panel on the panel tone.
 
 - **Title.** `.ui-section-label.ui-card-tag` as the card's first child: a tag half above the top edge, in the
   well colour of the fields below it. It is in flow, so a long title wraps and the content starts under it.
   A card sets its padding through `--card-pad`, which the tag reads to stay 16px in from the side.
-- **Exception.** Getting Started is a landing surface with its own look, shown inline or in a dialog, so it
-  resets the card's control variables.
+- **Exception.** Getting Started is a landing surface with its own rounded look, shown inline or in a
+  dialog, so it sets `--control-radius` to 4px.
 - **Dialog.** `ModalShell` renders the tag from `title`, the body at a 16px inset, and
   `footer.confirm-actions`, which bleeds through `--card-pad`. A surface that draws its own display heading
   passes `labelledBy` instead of `title`. Controls that belong beside the title (a host picker, a close
   button) are the body's first row.
-- **Actions.** Each `PromptButton` is a 40px cell along the card's bottom edge, sharing the row equally: the
-  default action is `primary` or `danger` and solid, the rest are plain. A shortcut shows as a `.ui-kbd-cap`
-  (`↵` for Enter, `esc` for Esc).
+- **Actions.** Each `PromptButton` is a 32px cell (`--control-height-cell`) along the card's bottom edge,
+  sharing the row equally: the default action is `primary` or `danger` and solid, the rest are plain with
+  no outline, since the card frames them. A
+  shortcut shows as a `.ui-kbd-cap` (`↵` for Enter, `esc` for Esc).
 - **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts
   it. A modal that cannot be a `ModalShell` uses both, never its own copy.
 
 ```mermaid
 flowchart TB
   subgraph scrim[".ui-scrim"]
-    subgraph card[".confirm-dialog.ui-card: square, --control-radius 0, --card-pad 16px, --shadow-modal"]
+    subgraph card[".confirm-dialog.ui-card: square, --card-pad 16px, --shadow-modal"]
       direction TB
       tag[".ui-section-label.ui-card-tag: half above the top edge"]
-      body["body: 16px inset, .ui-field and .ui-button square"]
-      subgraph actions["footer.confirm-actions: edge to edge, 40px"]
+      body["body: 16px inset"]
+      subgraph actions["footer.confirm-actions: edge to edge, 32px"]
         direction LR
         cancel["PromptButton: plain cell, esc"] --- go["PromptButton: primary or danger cell, ↵"]
       end
@@ -154,7 +164,7 @@ flowchart TB
 |---|---|
 | Rows | 26, compact 24, two-line stack 42, touch 44 |
 | Text buttons | 24, `-lg` 28, `-xl` 40, touch 44 |
-| Dialog action cells | 40, touch 44 |
+| Dialog and card action cells | 32, touch 44 |
 | Icon buttons / fields | 20 / 28 |
 
 ## Cascade layers

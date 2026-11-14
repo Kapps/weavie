@@ -228,7 +228,7 @@ export function SessionInbox(props: {
         </div>
         <button
           type="button"
-          class="session-inbox-manage-acp ui-button ui-button-quiet"
+          class="session-inbox-manage-acp ui-button"
           onClick={() => props.onManageAcp(backendId())}
           title={`Manage ACP agents${keyHint(CommandIds.manageAcpAgents)}`}
         >

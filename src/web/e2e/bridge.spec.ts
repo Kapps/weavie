@@ -1006,9 +1006,9 @@ test.describe("session-addressed WebSocket transport", () => {
       await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
       await expect.poll(editorBackground).toBe("#000000");
       await expect.poll(semanticColors).toEqual({
-        button: "#54c6a4",
-        buttonForeground: "#042019",
-        buttonHover: "#63d2b1",
+        button: "#228a6b",
+        buttonForeground: "#ffffff",
+        buttonHover: "#1d7c60",
         selection: "#161a21",
         selectionForeground: "#eef2f8",
       });

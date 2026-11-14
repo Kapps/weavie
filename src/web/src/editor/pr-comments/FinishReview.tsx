@@ -280,7 +280,7 @@ function ReviewPanel(props: {
         </button>
         <button
           type="button"
-          class="weavie-pr-button weavie-pr-button-primary ui-button"
+          class="weavie-pr-button ui-button ui-button-primary"
           disabled={busy()}
           title={`Submit review${keyHint(CommandIds.prSubmitComment)}`}
           onClick={() => void submit()}

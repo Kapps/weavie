@@ -173,7 +173,7 @@ export function PrCommentComposer(props: {
         </Show>
         <button
           type="button"
-          class="weavie-pr-button weavie-pr-button-primary ui-button"
+          class="weavie-pr-button ui-button ui-button-primary"
           disabled={busy() || text().trim() === ""}
           title={`${props.submitLabel}${keyHint(CommandIds.prSubmitComment)}`}
           onClick={() => handle.submit()}

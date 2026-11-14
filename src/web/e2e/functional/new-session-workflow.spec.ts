@@ -233,7 +233,8 @@ test("session controls align with inset icons that preserve native input on desk
     expect(geometry.suggestions).toHaveLength(2);
     for (const { button, field } of geometry.suggestions) {
       expect(button.height).toBe(field.height);
-      expect(button.width).toBe(button.height);
+      expect(button.x).toBe(geometry.footers[0][2].x);
+      expect(button.width).toBe(geometry.footers[0][2].width);
     }
     expect(geometry.footers).toHaveLength(2);
     for (const footer of geometry.footers) {

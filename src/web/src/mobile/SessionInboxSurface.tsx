@@ -133,7 +133,7 @@ export function SessionInboxSurface(props: {
 
   return (
     <div
-      class="session-inbox-surface"
+      class="session-inbox-surface ui-scrim"
       classList={{ open: desktopOpen() }}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget && desktopOpen()) {

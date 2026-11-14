@@ -228,7 +228,7 @@ export function SessionInbox(props: {
         </div>
         <button
           type="button"
-          class="session-inbox-manage-acp ui-button"
+          class="session-inbox-manage-acp ui-button ui-button-quiet"
           onClick={() => props.onManageAcp(backendId())}
           title={`Manage ACP agents${keyHint(CommandIds.manageAcpAgents)}`}
         >
@@ -237,8 +237,10 @@ export function SessionInbox(props: {
       </header>
 
       <div class="session-inbox-actions">
-        <section class="session-inbox-action" aria-labelledby="session-start-title">
-          <h2 id="session-start-title">Start a new session</h2>
+        <section class="session-inbox-action ui-card" aria-labelledby="session-start-title">
+          <h2 id="session-start-title" class="ui-section-label ui-card-tag">
+            Start a new session
+          </h2>
           <NewSessionComposer
             active={props.active}
             backendId={backendId()}
@@ -259,8 +261,10 @@ export function SessionInbox(props: {
           <span>OR</span>
         </div>
 
-        <section class="session-inbox-action" aria-labelledby="session-open-title">
-          <h2 id="session-open-title">Open an existing branch</h2>
+        <section class="session-inbox-action ui-card" aria-labelledby="session-open-title">
+          <h2 id="session-open-title" class="ui-section-label ui-card-tag">
+            Open an existing branch
+          </h2>
           <form
             class="session-open-branch"
             onSubmit={(event) => {
@@ -297,7 +301,7 @@ export function SessionInbox(props: {
               {destinationFields("Open on", "Open with")}
               <button
                 type="submit"
-                class="session-composer-submit mobile-primary-action ui-button ui-button-lg"
+                class="session-composer-submit ui-button ui-button-lg ui-button-primary"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
                 disabled={submitting() !== null || existingBranch().trim().length === 0}
               >

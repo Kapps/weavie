@@ -1,7 +1,5 @@
 import { For, onCleanup, Show } from "solid-js";
 import { ModalShell, PromptButton } from "../chrome/ModalShell";
-import { keyLabel } from "../commands/key-hint";
-import { CommandIds } from "../commands/types";
 import { currentThemeType } from "./controller";
 import { createThemePicker } from "./picker-model";
 import { type ThemePickerState, type ThemeSearchOrder, themePicker } from "./picker-state";
@@ -21,7 +19,6 @@ export function ThemePicker() {
 
 function Picker(props: { opened: ThemePickerState }) {
   const m = createThemePicker(props.opened);
-  const command = m.target === "editor" ? CommandIds.selectEditorTheme : CommandIds.selectTheme;
   const title = m.target === "editor" ? "Select Editor Theme" : "Select Color Theme";
   // The editor theme is saved per polarity, so say which one Apply sets.
   const mode = m.target === "editor" ? ` (${currentThemeType()} mode)` : "";
@@ -99,9 +96,6 @@ function Picker(props: { opened: ThemePickerState }) {
             <small>{mode}</small>
           </Show>
         </>
-      }
-      titleEnd={
-        <Show when={keyLabel(command)}>{(keys) => <span class="ui-kbd">{keys()}</span>}</Show>
       }
       actions={
         <>

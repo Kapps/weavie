@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Locator } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -182,6 +183,9 @@ test("running work survives a page reload, and stopping actions confirm against 
 
   await submitAcpDraft(surface, "task-held");
   await expect(rows.filter({ hasText: "sleep 30" })).toHaveAttribute("data-state", "running");
+  // Running work lists above finished work, whichever kind each is.
+  const y = async (row: Locator) => (await row.boundingBox())!.y;
+  expect(await y(rows.filter({ hasText: "sleep 30" }))).toBeLessThan(await y(card));
   await surface.locator("[data-agent-composer] textarea").focus();
   await runCommand(page, "Start Fresh Agent Conversation");
   await expect(listed).toHaveCount(1);

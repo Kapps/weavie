@@ -79,8 +79,8 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
 
 ## Presentation
 
-- **Subagents card** — one collapsed roster above the composer: subagents, then background tasks, each with
-  running items first; its header shows a spinner and the running count while any of them runs. Finished
+- **Subagents card** — one collapsed roster above the composer listing subagents and background tasks together,
+  running rows above finished ones and subagents ahead of tasks within each; its header shows a spinner and the running count while any of them runs. Finished
   subagent conversations are retained from history. Selecting an agent opens its live read-only transcript tab
   (`weavie.agent.openCard`); selecting a task opens its tab. Every running row has a Stop icon, greyed out with the reason as its tooltip
   when the work cannot be stopped on its own: a subagent, or a task the agent does not mark stoppable. Pending

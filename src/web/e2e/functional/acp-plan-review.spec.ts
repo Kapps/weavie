@@ -98,7 +98,9 @@ test.describe("ACP plan review with automatic tool approval", () => {
     const card = surface.locator(".agent-entry-request");
     await expect(card).toContainText("Ready to review in the editor");
     await expect(card.getByRole("button")).toHaveCount(1);
-    await expect(card.getByRole("button", { name: /Open plan/ }).locator("kbd")).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: /Open plan/ }).locator(".agent-key-chip"),
+    ).toBeVisible();
     const bar = page.locator(".plan-review-bar");
     await expectBelow(bar, page.locator(".editor"));
     const accept = bar.getByRole("button", { name: /Yes, manually approve edits/ });

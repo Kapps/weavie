@@ -10,7 +10,6 @@
   padding: 4px;
   background: var(--bar);
   border: 1px solid var(--border);
-  border-radius: 7px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 .context-menu-header {
@@ -28,7 +27,6 @@
 }
 .context-menu-item {
   gap: 20px;
-  border-radius: 5px;
   color: var(--fg);
 }
 .context-menu-item:hover,

@@ -146,14 +146,13 @@
   /* Related buttons joined into one frame, each sharing an edge with its neighbour. */
   .ui-button-group {
     display: inline-flex;
+    padding-right: 1px;
   }
 
+  /* Each button overlaps the one after it, so a wrapped row starts on the same edge as the first. */
   .ui-button-group > .ui-button {
     position: relative;
-  }
-
-  .ui-button-group > .ui-button + .ui-button {
-    margin-left: -1px;
+    margin-right: -1px;
   }
 
   .ui-button-group > .ui-button:focus-visible {

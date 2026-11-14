@@ -99,7 +99,6 @@ function Picker(props: { opened: ThemePickerState }) {
       }
       actions={
         <>
-          <small>{m.registry() ? "↑ ↓ Browse · → Open variants" : "↑ ↓ Preview"}</small>
           <Show when={m.reset}>
             {(reset) => (
               <PromptButton
@@ -256,6 +255,7 @@ function Picker(props: { opened: ThemePickerState }) {
               Load more ({m.extensions().length} of {m.total()})
             </button>
           </Show>
+          <small>{m.registry() ? "↑ ↓ Browse · → Open variants" : "↑ ↓ Preview"}</small>
         </section>
         <Show when={m.registry()}>
           <ThemeVariants

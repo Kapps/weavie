@@ -19,9 +19,6 @@
   margin: 0;
   font: var(--font-chrome-body);
 }
-.theme-picker .confirm-actions > small {
-  padding: 0 16px;
-}
 .theme-picker-sources [aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }

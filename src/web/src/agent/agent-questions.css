@@ -1,20 +1,3 @@
-/* A .ui-card in the transcript, restating the card's box over the pending entry's own bar and tint; the top
-   margin leaves room for the half of its tag above it. */
-.agent-entry-question.agent-entry-waiting {
-  --card-pad: 18px;
-  width: auto;
-  max-width: 920px;
-  margin: 22px 12px 12px;
-  padding: var(--card-pad);
-  border: 1px solid var(--border);
-  background: var(--bar);
-  font: var(--font-chrome-body-wrap);
-}
-
-.agent-entry-question > .ui-card-tag {
-  margin-bottom: 12px;
-}
-
 .agent-entry-question .agent-entry-main {
   min-width: 0;
 }
@@ -136,11 +119,6 @@
 
 .agent-question-actions {
   margin-left: auto;
-}
-
-.agent-question-actions > .ui-button {
-  --control-h: var(--control-height-cell);
-  padding-inline: 18px;
 }
 
 .agent-input-question {

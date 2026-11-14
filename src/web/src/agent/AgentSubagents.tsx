@@ -1,3 +1,4 @@
+import { CircleStop } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -21,6 +22,39 @@ import { liveNow } from "./live-clock";
 import type { AgentPaneModel } from "./pane-store";
 import { SubagentStatus, TaskStatus } from "./SubagentStatus";
 import "./agent-subagents.css";
+
+/** A running row's Stop: greyed out with the reason while its work can't be stopped, and an empty slot once it ends. */
+function RosterStop(props: {
+  name: string;
+  running: boolean;
+  stopId: string | null;
+  blocked: string;
+}): JSX.Element {
+  return (
+    <Show
+      when={props.running}
+      fallback={<span class="ui-icon-button agent-roster-stop-none" aria-hidden="true" />}
+    >
+      <button
+        type="button"
+        class="ui-icon-button agent-roster-stop"
+        aria-label={`Stop ${props.name}`}
+        aria-disabled={props.stopId === null}
+        title={
+          props.stopId === null
+            ? props.blocked
+            : `Stop Background Task${liveKeyHint(CommandIds.stopBackgroundTask)}`
+        }
+        onClick={() =>
+          props.stopId !== null &&
+          void runCommandWithFeedback(CommandIds.stopBackgroundTask, { id: props.stopId })
+        }
+      >
+        <CircleStop aria-hidden="true" />
+      </button>
+    </Show>
+  );
+}
 
 const runningFirst = <T,>(items: readonly T[], running: (item: T) => boolean): T[] =>
   [...items].sort((a, b) => Number(running(b)) - Number(running(a)));
@@ -105,16 +139,24 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                     onFocusIn={own}
                     onPointerDown={own}
                   >
-                    <button
-                      type="button"
-                      class="ui-row agent-subagent-select"
-                      aria-label={entry.subagent!.name}
-                      title={openCardTitle()}
-                      onClick={() => void openCard(cardOf(entry)!)}
-                    >
-                      <span class="agent-subagent-name">{entry.subagent!.name}</span>
-                      <SubagentStatus info={entry.subagent!} now={now()} />
-                    </button>
+                    <div class="agent-roster-row">
+                      <button
+                        type="button"
+                        class="ui-row agent-subagent-select"
+                        aria-label={entry.subagent!.name}
+                        title={openCardTitle()}
+                        onClick={() => void openCard(cardOf(entry)!)}
+                      >
+                        <span class="agent-subagent-name">{entry.subagent!.name}</span>
+                        <SubagentStatus info={entry.subagent!} now={now()} />
+                      </button>
+                      <RosterStop
+                        name={entry.subagent!.name}
+                        running={subagentRunning(entry)}
+                        stopId={null}
+                        blocked="A subagent can't be stopped on its own"
+                      />
+                    </div>
                     <Show when={(entry.pendingEntries?.length ?? 0) > 0}>
                       <NestedTranscript
                         currentThought={null}
@@ -142,7 +184,7 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                   <Show when={backgroundItem(props.model.session, id)}>
                     {(item) => (
                       <div
-                        class="agent-background-task"
+                        class="agent-roster-row"
                         data-background-item={id}
                         data-state={item().state}
                       >
@@ -157,18 +199,12 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                           <span class="agent-subagent-name">{item().name}</span>
                           <TaskStatus item={item()} now={now()} usage={null} />
                         </button>
-                        <Show when={item().canStop}>
-                          <button
-                            type="button"
-                            class="ui-button agent-background-stop"
-                            title={`Stop Background Task${liveKeyHint(CommandIds.stopBackgroundTask)}`}
-                            onClick={() =>
-                              void runCommandWithFeedback(CommandIds.stopBackgroundTask, { id })
-                            }
-                          >
-                            Stop
-                          </button>
-                        </Show>
+                        <RosterStop
+                          name={item().name}
+                          running={backgroundRunning(item())}
+                          stopId={item().canStop ? id : null}
+                          blocked="This task can't be stopped on its own"
+                        />
                       </div>
                     )}
                   </Show>

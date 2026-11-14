@@ -33,13 +33,29 @@
   font: var(--font-chrome-body);
 }
 
-.agent-background-task {
+.agent-roster-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
 }
 
-.agent-background-task > .agent-subagent-select {
+.agent-roster-row > .agent-subagent-select {
   flex: 1;
   min-width: 0;
+}
+
+.agent-roster-stop {
+  color: var(--dim);
+}
+
+.agent-roster-stop:not([aria-disabled="true"]):hover {
+  color: var(--fg);
+}
+
+.agent-roster-stop[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agent-roster-stop-none {
+  visibility: hidden;
 }

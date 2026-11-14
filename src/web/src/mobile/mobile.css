@@ -207,13 +207,13 @@
   .app.compact .toast-action,
   .app.compact .agent-compose-actions > button,
   .app.compact .agent-question-actions > button,
-  .app.compact .agent-approval-actions > button,
-  .app.compact .agent-background-stop {
+  .app.compact .agent-approval-actions > button {
     --control-h: var(--touch-target);
     min-width: var(--touch-target);
   }
 
-  .app.compact .toast-close {
+  .app.compact .toast-close,
+  .app.compact .agent-roster-row > .ui-icon-button {
     --icon-button-size: var(--touch-target);
   }
 

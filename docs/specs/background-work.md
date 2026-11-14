@@ -82,7 +82,8 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
 - **Subagents card** — one collapsed roster above the composer: subagents, then background tasks, each with
   running items first; its header shows a spinner and the running count while any of them runs. Finished
   subagent conversations are retained from history. Selecting an agent opens its live read-only transcript tab
-  (`weavie.agent.openCard`); selecting a task opens its tab, and Stop appears only for stoppable tasks. Pending
+  (`weavie.agent.openCard`); selecting a task opens its tab. Every running row has a Stop icon, greyed out with the reason as its tooltip
+  when the work cannot be stopped on its own: a subagent, or a task the agent does not mark stoppable. Pending
   permissions and questions remain visible while the roster is collapsed. Nested agents keep their parent label.
   Spawn announcements leave no transcript row, so surrounding work groups together. Current-only thoughts
   likewise do not split work; visible thoughts and replies do. A turn the agent started without a prompt is

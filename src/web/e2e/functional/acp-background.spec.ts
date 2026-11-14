@@ -40,6 +40,9 @@ test("subagents group outside the transcript and remain selectable after complet
   await runCommand(page, "Expand or Collapse Subagents");
   const card = group.locator("[data-agent-subagent]");
   await expect(card).toHaveAttribute("data-state", "running");
+  const blocked = card.getByRole("button", { name: "Stop Explore", exact: true });
+  await expect(blocked).toBeDisabled();
+  await expect(blocked).toHaveAttribute("title", "A subagent can't be stopped on its own");
   await card.getByRole("button", { name: "Explore", exact: true }).click();
   const tab = page.locator(".editor-tab", { hasText: "Subagent · Explore" });
   const transcript = page.locator(".editor-agent-view");
@@ -47,6 +50,7 @@ test("subagents group outside the transcript and remain selectable after complet
   await expect(transcript).toContainText("counting");
   await signal(weavie.workspace, "release-subagent");
   await expect(card).toHaveAttribute("data-state", "completed");
+  await expect(blocked).toHaveCount(0);
   await expect(
     group.getByRole("button", { name: "Collapse Subagents", exact: true }),
   ).toHaveAttribute("aria-expanded", "true");
@@ -83,9 +87,9 @@ test("a background task waits in the collapsed roster until Stop ends it with a 
   await expect(row).toHaveAttribute("data-state", "running");
   await expect(row).toContainText("sleep 30");
 
-  await row.getByRole("button", { name: "Stop", exact: true }).click();
+  await row.getByRole("button", { name: /^Stop / }).click();
   await expect(row).toHaveAttribute("data-state", "stopped");
-  await expect(row.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: /^Stop / })).toHaveCount(0);
   await expect(group.locator(".agent-working-spinner")).toHaveCount(0);
   await expect(surface.locator(".agent-entry-notice")).toContainText("Task stopped by user");
 });
@@ -96,7 +100,7 @@ test("a long task name is cut short, keeping Stop inside the roster", async ({ p
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
   const stop = surface
     .locator("[data-agent-subagents] [data-background-item]")
-    .getByRole("button", { name: "Stop", exact: true });
+    .getByRole("button", { name: /^Stop / });
   await expect(stop).toBeVisible();
   const inside = await stop.evaluate((button) => {
     const roster = button.closest("[data-agent-subagents]")!;
@@ -124,7 +128,7 @@ test("a workflow renders a card and is listed in the roster with Stop", async ({
   await runCommand(page, "Expand or Collapse Subagents");
   const row = surface.locator("[data-agent-subagents] [data-background-item]");
   await expect(row).toHaveAttribute("data-state", "running");
-  await expect(row.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: /^Stop / })).toBeVisible();
 
   await signal(weavie.workspace, "release-workflow");
   await expect(card).toHaveAttribute("data-state", "completed");
@@ -209,10 +213,10 @@ test("an unprompted turn leaves the roster when it ends", async ({ page, weavie 
 
   await submitAcpDraft(surface, "task-held");
   await surface.getByRole("button", { name: "Expand Subagents", exact: true }).click();
-  await expect(items.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(items.getByRole("button", { name: /^Stop / })).toBeVisible();
   await signal(weavie.workspace, "release-task");
   await expect(items).toHaveAttribute("data-state", "completed");
-  await expect(items.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  await expect(items.getByRole("button", { name: /^Stop / })).toHaveCount(0);
 
   // The next prompt forgets the finished task, so the turn is the roster's only item.
   await submitAcpDraft(surface, "task-turn");

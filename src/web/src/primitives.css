@@ -235,6 +235,11 @@
     opacity: 0.7;
   }
 
+  /* The cap's fill already sets it back from the label, so its glyph keeps the label's full contrast. */
+  .ui-button > .ui-kbd-cap {
+    opacity: 1;
+  }
+
   .ui-field {
     --control-h: var(--control-height-lg);
     box-sizing: border-box;

@@ -199,6 +199,21 @@ threshold is crossed, so a window renders its status and reset time even with no
 reports no window over the protocol at all — it renders them as markdown inside its `/status` reply — so its
 sessions show the context circle alone until it exposes structured data.
 
+### Replies
+
+An agent message the agent stopped on is a reply; one it wrote before going on to more work is a progress note.
+The conversation marks a reply `Final` on its completed row, and the pane keeps every final message visible
+while the rest of a turn folds into its one "Earlier updates" disclosure. Three things mark a stop:
+
+- The end of a prompt turn and the start of the next, for every agent: the last agent message before each is
+  final.
+- Claude's adapter ends each model cycle with a `usage_update` carrying `_meta["_claude/origin"]` (who started
+  the cycle: `human`, or `task-notification` for a background wake-up). The last agent message since the
+  previous stop is final, inside an open turn and after it.
+- Codex's adapter tags every `agent_message_chunk` with `_meta.jetbrains.air.phase`; `final_answer` is final.
+
+A message whose row already completed, because a tool call followed it, is marked by publishing that row again.
+
 ## Persistence
 
 Weavie owns the displayed transcript in the private `acp-conversations.db` SQLite database. Each display event

@@ -27,7 +27,7 @@ internal sealed partial class FakeAcpAgent {
 					["question_0_note"] = new JsonObject {
 						["type"] = "string",
 						["title"] = "Additional answer or note",
-						["_meta"] = AirCustomAnswer(true),
+						["_meta"] = Air("customAnswer", true),
 					},
 				},
 			},

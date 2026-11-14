@@ -56,6 +56,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>A status value from the provider contract.</summary>
 	public string? Status { get; init; }
 
+	/// <summary>Whether the agent stopped on this agent message, so it is a reply and not a progress note.</summary>
+	public bool? Final { get; init; }
+
 	/// <summary>Normalized questions for an input request, when any.</summary>
 	public IReadOnlyList<AgentInputQuestion>? Questions { get; init; }
 

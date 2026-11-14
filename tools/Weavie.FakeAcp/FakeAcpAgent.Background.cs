@@ -11,7 +11,7 @@ internal sealed partial class FakeAcpAgent {
 		switch (text) {
 			case "subagent":
 				var spawn = Tool("spawn-agent", "Spawn Explore", "in_progress");
-				spawn["_meta"] = new JsonObject { ["jetbrains"] = new JsonObject { ["air"] = new JsonObject { ["version"] = 1, ["subagent"] = new JsonObject() } } };
+				spawn["_meta"] = Air("subagent", new JsonObject());
 				Update(spawn);
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");
 				SubagentWork(child, "Counted 3 files");

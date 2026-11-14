@@ -68,7 +68,7 @@ internal sealed partial class AcpConversation {
 			_terminals.Close();
 			ObserveTerminalizedTools(tools);
 			Observe(new AgentTurnStopped(WillResume: false));
-			CompleteContentStreams();
+			CompleteReply();
 			PublishTerminalizedToolMessages(tools);
 			Emit(new AgentPaneMessage {
 				Type = "turn-completed",

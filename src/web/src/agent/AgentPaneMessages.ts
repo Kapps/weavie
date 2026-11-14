@@ -188,7 +188,8 @@ function durableEntry(
     case "agent-message-delta":
     case "item-completed":
       if (message.itemType === "agentMessage") {
-        return entry(message, sequence, "message", "assistant", "Agent", null);
+        const reply = entry(message, sequence, "message", "assistant", "Agent", null);
+        return message.final === true ? { ...reply, final: true } : reply;
       }
       return message.itemType === "plan"
         ? planEntry(

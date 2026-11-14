@@ -49,6 +49,8 @@ export interface AgentTranscriptEntry {
   text: string | null;
   tone: AgentTranscriptTone;
   updatesOpen?: boolean;
+  /** An agent message the agent stopped on, which never folds into earlier updates. */
+  final?: true;
   thoughtCollapsed?: true;
   thoughtOpen?: boolean;
   turnStart?: true;

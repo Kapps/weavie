@@ -187,6 +187,9 @@ test("an update that lands while a column filter is open leaves it open", async 
     surface,
     `block:claude:updateBlock:${JSON.stringify({ id: "errors", append })}`,
   );
+  // Flaked 2026-11-12 22:38 UTC (https://github.com/Kapps/weavie/actions/runs/43320722740): the filter opened
+  // before this prompt landed, whose arrival scrolled the column out of view and closed it. Wait for the prompt.
+  await expect(surface.locator(".agent-entry-message.agent-tone-user")).toHaveCount(2);
   await block.getByRole("button", { name: "Filter level" }).click();
   const byLevel = page.getByRole("dialog", { name: "Filter level" });
   await byLevel.getByRole("button", { name: "error" }).click();

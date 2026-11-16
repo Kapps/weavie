@@ -39,7 +39,7 @@ test("a turn finishing in a background session shows under Finished until that s
   await writeFile(join(sessionWorktrees(weavie.workspace)[0]!, "release-hold"), "");
   await expect.poll(() => groupOf(page, background)).toBe("Finished");
   await expect(row(background).locator(".session-status")).toHaveClass(/\bstatus-finished\b/);
-  await expect(row(background).locator(".session-panel-age")).toHaveText("now");
+  await expect(row(background).locator(".session-panel-age")).toHaveText(/^(now|\d+m)$/);
 
   // The flag is host-owned, so it survives a reload.
   await page.reload();

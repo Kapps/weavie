@@ -67,9 +67,10 @@
 .session-chip:hover {
   background: var(--list-hover-bg);
 }
-/* The current session, as a chip or a pinned panel row: a faint accent wash with a bar on the list's own edge. */
+/* The current session, on the rail, the pinned panel and the phone list: a faint accent wash with a bar on its edge. */
 .session-chip.active,
-.session-panel-row.active {
+.session-panel-row.active,
+.session-inbox-row.active {
   background: color-mix(in srgb, var(--accent) 9%, var(--list-active-bg));
   box-shadow: inset 3px 0 var(--accent);
 }

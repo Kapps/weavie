@@ -1,9 +1,8 @@
 import { EllipsisVertical } from "lucide-solid";
 import type { JSX } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
-import { SessionText } from "../chrome/SessionTools";
+import { SessionStatus, SessionText } from "../chrome/SessionTools";
 import type { RailSession } from "../chrome/session-store";
-import { statusDot } from "../chrome/session-summary";
 import { useNow } from "../compact-age";
 
 /**
@@ -32,7 +31,9 @@ export function SessionInboxRow(props: {
         disabled={session().pending || session().offline}
         onClick={() => void props.onOpen(session())}
       >
-        <span class={`session-status status-${statusDot(session())}`} />
+        <span class="ui-icon">
+          <SessionStatus session={session()} />
+        </span>
         <SessionText session={session()} now={now()} />
         <span class="session-inbox-where ui-row-note">
           {session().locationName} ·{" "}

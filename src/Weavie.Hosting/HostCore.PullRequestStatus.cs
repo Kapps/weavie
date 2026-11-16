@@ -94,8 +94,8 @@ public sealed partial class HostCore {
 
 	private static string StateName(PullRequestState state) => state switch {
 		PullRequestState.Open => PullRequestStatusInfo.Open,
-		PullRequestState.Merged => "merged",
-		PullRequestState.Closed => "closed",
+		PullRequestState.Merged => PullRequestStatusInfo.Merged,
+		PullRequestState.Closed => PullRequestStatusInfo.Closed,
 		_ => throw new ArgumentOutOfRangeException(nameof(state), state, "unhandled pull request state"),
 	};
 }

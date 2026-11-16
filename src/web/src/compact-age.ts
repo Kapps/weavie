@@ -4,34 +4,38 @@ const MINUTE = 60_000;
 
 const DAY = 60 * 24;
 
-/** The age in its coarsest useful unit ("5m", "2h", "3d"), or null under a minute and past a month. */
-function unitAge(thenMs: number, nowMs: number): string | null {
-  const minutes = Math.round((nowMs - thenMs) / MINUTE);
-  if (minutes < 1 || Math.round(minutes / DAY) >= 30) {
-    return null;
-  }
+const minutesSince = (thenMs: number, nowMs: number): number =>
+  Math.round((nowMs - thenMs) / MINUTE);
+
+/** `minutes` (at least one) in its coarsest useful unit ("5m", "2h", "3d"), or null past a month. */
+function unitAge(minutes: number): string | null {
   if (minutes < 60) {
     return `${minutes}m`;
   }
-  return minutes < DAY ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / DAY)}d`;
+  if (minutes < DAY) {
+    return `${Math.round(minutes / 60)}h`;
+  }
+  const days = Math.round(minutes / DAY);
+  return days < 30 ? `${days}d` : null;
 }
-
-const recent = (thenMs: number, nowMs: number): boolean => nowMs - thenMs < DAY * MINUTE;
 
 /** A short "2h ago"-style age of `thenMs` at `nowMs`, falling back to a local date past a month. */
 export function compactAge(thenMs: number, nowMs: number): string {
-  const age = unitAge(thenMs, nowMs);
-  if (age !== null) {
-    return `${age} ago`;
+  const minutes = minutesSince(thenMs, nowMs);
+  if (minutes < 1) {
+    return "just now";
   }
-  return recent(thenMs, nowMs) ? "just now" : new Date(thenMs).toLocaleDateString();
+  const age = unitAge(minutes);
+  return age === null ? new Date(thenMs).toLocaleDateString() : `${age} ago`;
 }
 
 /** A bare "2h"-style age for the end of a row: "now" under a minute, a short local date past a month. */
 export function briefAge(thenMs: number, nowMs: number): string {
-  const short = (): string =>
-    new Date(thenMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return unitAge(thenMs, nowMs) ?? (recent(thenMs, nowMs) ? "now" : short());
+  const minutes = minutesSince(thenMs, nowMs);
+  return minutes < 1
+    ? "now"
+    : (unitAge(minutes) ??
+        new Date(thenMs).toLocaleDateString(undefined, { month: "short", day: "numeric" }));
 }
 
 const [now, setNow] = createSignal(Date.now());

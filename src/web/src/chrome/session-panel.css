@@ -79,6 +79,10 @@
 .session-panel-title {
   flex: 1 1 auto;
 }
+.session-panel-age {
+  flex: none;
+  white-space: nowrap;
+}
 .session-panel-title,
 .session-panel-activity {
   min-width: 0;

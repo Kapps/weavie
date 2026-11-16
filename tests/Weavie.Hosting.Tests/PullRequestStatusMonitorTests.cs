@@ -33,33 +33,44 @@ public sealed class PullRequestStatusMonitorTests {
 	}
 
 	[Fact]
-	public async Task QuietSession_KeepsASlowPollOnlyWhileItsPullRequestIsOpen() {
+	public async Task QuietSession_PollsSlowlyWhileItsPullRequestIsOpenAndPublishesOnlyChanges() {
 		await using var background = new SessionTaskScope(_ => { });
 		var delay = new ManualDelay();
-		var states = new Queue<string>([PullRequestStatusInfo.Open, "merged"]);
-		int calls = 0;
+		var states = new Queue<string>([PullRequestStatusInfo.Open, PullRequestStatusInfo.Open, PullRequestStatusInfo.Merged]);
+		var published = new List<string>();
+		var reloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var monitor = new PullRequestStatusMonitor(
 			background,
-			_ => {
-				Interlocked.Increment(ref calls);
-				return Task.FromResult(new PullRequestStatusSnapshot(
-					"feature", new PullRequestStatusInfo(7, "https://example.test/pull/7", states.Dequeue()), null, null));
+			_ => Task.FromResult(new PullRequestStatusSnapshot(
+				"feature", new PullRequestStatusInfo(7, "https://example.test/pull/7", states.Dequeue()), null, null)),
+			(snapshot, _) => {
+				lock (published) {
+					published.Add(snapshot.PullRequest!.State);
+				}
+
+				return Task.CompletedTask;
 			},
-			(_, _) => Task.CompletedTask,
-			_ => Task.CompletedTask,
+			_ => {
+				reloaded.TrySetResult();
+				return Task.CompletedTask;
+			},
 			delay.WaitAsync,
 			Intervals);
 
 		monitor.RequestRefresh();
-		var quietPoll = await delay.NextAsync();
-		Assert.Equal(Intervals.QuietOpen, quietPoll.Duration);
+		var firstPoll = await delay.NextAsync();
+		Assert.Equal(Intervals.QuietOpen, firstPoll.Duration);
+		firstPoll.Elapsed.TrySetResult();
+		(await delay.NextAsync()).Elapsed.TrySetResult();
+		await Wait.UntilAsync(() => monitor.Latest?.PullRequest?.State == PullRequestStatusInfo.Merged);
 
-		quietPoll.Elapsed.TrySetResult();
-		await Wait.UntilAsync(() => calls == 2);
-		// Merged is final, so the monitor waits on a signal instead of another delay.
+		// The reload is read after the monitor has chosen whether to keep polling a merged pull request.
 		monitor.RequestReload();
-		await Wait.UntilAsync(() => monitor.Latest?.PullRequest?.State == "merged");
+		await reloaded.Task;
 		Assert.False(delay.HasPending);
+		lock (published) {
+			Assert.Equal([PullRequestStatusInfo.Open, PullRequestStatusInfo.Merged], published);
+		}
 	}
 
 	[Fact]

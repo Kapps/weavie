@@ -2,7 +2,6 @@ import type { ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
 import { gitStatusOf } from "./git-status-store";
 import type { RailSession } from "./session-store";
-import type { SessionWork } from "./session-summary";
 
 export interface PullRequestStatus {
   branch: string | null;
@@ -27,6 +26,12 @@ export const pullRequestStatus: (session: ClientSession | null) => PullRequestSt
 export function currentPullRequestStatus(session: ClientSession | null): PullRequestStatus | null {
   const status = pullRequestStatus(session);
   return status !== null && status.branch === gitStatusOf(session)?.branch ? status : null;
+}
+
+/** Where a session's work stands: its worktree and the pull request for its branch. */
+export interface SessionWork {
+  dirty: boolean;
+  pullRequest: PullRequest | null;
 }
 
 /** Where a loaded session's work stands; null until its Git status arrives, outside a branch, and when parked. */

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Pin, PinOff, Plus } from "lucide-solid";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -113,7 +113,7 @@ export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
  * or an expanded chip. A session with nothing to say is one line.
  */
 export function SessionText(props: { session: RailSession; now: number }): JSX.Element {
-  const line = (): string => sessionLine(props.session, sessionWork(props.session));
+  const line = createMemo(() => sessionLine(props.session, sessionWork(props.session)));
   return (
     <span class="session-panel-text ui-row-text">
       <span class="session-panel-name">

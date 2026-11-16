@@ -4,7 +4,7 @@ import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { briefAge, compactAge } from "../compact-age";
-import type { PullRequest } from "./pull-request-store";
+import type { SessionWork } from "./pull-request-store";
 import type { RailSession } from "./session-store";
 
 /** The session panel's sections, in display order. */
@@ -179,12 +179,6 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   return session.lastActiveAt !== null
     ? `${state} · ${compactAge(session.lastActiveAt, now)}`
     : state;
-}
-
-/** Where a session's work stands: its worktree and the pull request for its branch. */
-export interface SessionWork {
-  dirty: boolean;
-  pullRequest: PullRequest | null;
 }
 
 function workLine(work: SessionWork): string {

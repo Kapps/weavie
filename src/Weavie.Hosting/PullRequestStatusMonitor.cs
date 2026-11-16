@@ -63,23 +63,31 @@ internal sealed class PullRequestStatusMonitor {
 		while (true) {
 			bool probe = false;
 			bool reload = false;
+			bool quietPoll = false;
 			if (PollInterval(active) is { } interval && await PollElapsedBeforeSignalAsync(interval, ct).ConfigureAwait(false)) {
 				probe = true;
+				quietPoll = !active;
 			} else {
 				Apply(await _signals.Reader.ReadAsync(ct).ConfigureAwait(false), ref active, ref probe, ref reload);
 			}
 
 			while (_signals.Reader.TryRead(out var signal)) {
+				quietPoll = false;
 				Apply(signal, ref active, ref probe, ref reload);
 			}
 
 			if (probe) {
 				var snapshot = PreserveLastGood(await _resolve(ct).ConfigureAwait(false));
+				bool changed;
 				lock (_snapshotGate) {
+					changed = snapshot != _latest;
 					_latest = snapshot;
 				}
 
-				await _publish(snapshot, ct).ConfigureAwait(false);
+				// A quiet poll that finds the same pull request has nothing to tell the session.
+				if (changed || !quietPoll) {
+					await _publish(snapshot, ct).ConfigureAwait(false);
+				}
 			}
 
 			if (reload) {
@@ -155,6 +163,12 @@ internal sealed record PullRequestStatusInfo(
 	string State) {
 	/// <summary>The <see cref="State"/> of a pull request that can still change.</summary>
 	public const string Open = "open";
+
+	/// <summary>The <see cref="State"/> of a merged pull request.</summary>
+	public const string Merged = "merged";
+
+	/// <summary>The <see cref="State"/> of a pull request closed without merging.</summary>
+	public const string Closed = "closed";
 }
 
 /// <summary>How often a session's pull request is re-probed: during a turn, and while quiet with an open pull request.</summary>

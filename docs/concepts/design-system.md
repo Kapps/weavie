@@ -39,7 +39,7 @@ Hero and lead exist only for landing surfaces. The family is `--font-chrome-fami
   text uses 18px, which is also what everything inherits.
 - **Emphasis** is the same role followed by `font-weight: var(--font-weight-emphasis)` (600), or
   `--font-weight-mono-bold` (700) in the mono face, which ships only 400/700. The one other weight is
-  `--font-weight-medium` (500), which only `.ui-row-name` uses.
+  `--font-weight-medium` (500), the weight of `.ui-row-name`.
 - **`font:` goes first in a rule.** The shorthand resets `font-style` and `font-variant-numeric`; restate
   them after it.
 - **Section labels** (the only uppercase style) are `.ui-section-label`: body at 600 with

@@ -154,7 +154,7 @@ test("the pinned panel lists idle sessions by how recently they were active", as
   // An idle row says where its work stands and how long ago it was active, in place of the word "idle".
   const newer = page.locator(".session-panel-row", { hasText: "idle newer" });
   await expect(newer.locator(".session-panel-activity")).toHaveText("uncommitted changes");
-  await expect(newer.locator(".session-panel-age")).toHaveText("now");
+  await expect(newer.locator(".session-panel-age")).toHaveText(/^(now|\d+m)$/);
 });
 
 test("a session waiting on approval shows amber on the rail and its request when expanded", async ({

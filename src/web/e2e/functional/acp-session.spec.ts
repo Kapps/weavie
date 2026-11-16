@@ -355,3 +355,32 @@ test("ACP steering and background completion return the session to idle @cross",
     "Write a prompt — / for commands and skills",
   );
 });
+
+test.describe("at a large editor font", () => {
+  test.use({
+    fakeScript: {
+      steps: [{ op: "mcp", tool: "setSetting", args: { key: "font.size", value: 22 } }],
+    },
+  });
+
+  test("the composer's buttons are as tall as one line of the draft and stay on its last", async ({
+    page,
+  }) => {
+    const surface = await createAcpSession(page, "acp-composer-row");
+    const draft = surface.locator("[data-agent-composer] textarea");
+    const run = surface.getByRole("button", { name: "Run", exact: true });
+    const edges = async (locator: typeof draft) => {
+      const box = (await locator.boundingBox())!;
+      return { top: box.y, bottom: box.y + box.height };
+    };
+
+    await draft.fill("one line");
+    await expect(draft).toHaveCSS("font-size", "22px");
+    expect(await edges(run)).toEqual(await edges(draft));
+
+    await draft.fill("one\ntwo\nthree");
+    const [button, field] = [await edges(run), await edges(draft)];
+    expect(button.bottom).toBe(field.bottom);
+    expect(button.top).toBeGreaterThan(field.top);
+  });
+});

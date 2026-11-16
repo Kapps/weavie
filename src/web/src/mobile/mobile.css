@@ -146,14 +146,9 @@
   }
 
   .app.compact .agent-compose {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+    --agent-compose-min: var(--touch-target);
     gap: 5px;
     padding: 4px 6px;
-  }
-
-  .app.compact .agent-compose-actions {
-    grid-column: auto;
   }
 
   .app.compact .agent-compose-actions > button {
@@ -163,7 +158,6 @@
   }
 
   .app.compact .agent-compose textarea {
-    min-height: var(--touch-target);
     max-height: 96px;
   }
 
@@ -205,7 +199,6 @@
   }
 
   .app.compact .toast-action,
-  .app.compact .agent-compose-actions > button,
   .app.compact .agent-question-actions > button,
   .app.compact .agent-approval-actions > button {
     --control-h: var(--touch-target);

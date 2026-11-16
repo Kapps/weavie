@@ -515,6 +515,33 @@ test("touching the agent panel only focuses the composer when its input is tappe
   }
 });
 
+test("the composer sends and interrupts with the keyboard dismissed", async ({ page }) => {
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("Start");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("bug/blurred-send");
+  await inbox.getByRole("button", { name: "Start", exact: true }).tap();
+
+  const surface = page.locator(".agent-surface");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await expect(surface).toContainText("echo: Start");
+  // An iOS tap never moves focus to a button, so the pane stays unfocused; a synthetic click does the same.
+  const pressUnfocused = async (name: string): Promise<void> => {
+    await composer.evaluate((element) => (element as HTMLTextAreaElement).blur());
+    await expect(surface).not.toHaveClass(/\bactive\b/);
+    await surface
+      .getByRole("button", { name, exact: true })
+      .evaluate((element) => (element as HTMLButtonElement).click());
+  };
+
+  await composer.fill("hold");
+  await pressUnfocused("Run");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+  await pressUnfocused("Interrupt");
+  await expect(surface).toContainText("steered: cancelled");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+});
+
 test("the software keyboard keeps Claude reachable without scrolling the document", async ({
   page,
 }) => {

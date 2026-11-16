@@ -103,7 +103,6 @@ export function AgentPane(props: {
         {props.headEnd}
       </div>
       <AgentPaneBody
-        active={props.active}
         compact={props.compact}
         inputProtocol={props.inputProtocol}
         model={props.model}

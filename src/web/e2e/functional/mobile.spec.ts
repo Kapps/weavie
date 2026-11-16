@@ -4,7 +4,12 @@ import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
-import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
+import {
+  documentFullscreen,
+  landscapeMedia,
+  renderedFit,
+  zoomMatrix,
+} from "../harness/media-fixtures";
 import { PNG_B64 } from "../harness/pasted-image";
 
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
@@ -456,14 +461,18 @@ test("focusing the recent-files search keeps the app viewport fixed", async ({ p
   await expect(page.getByPlaceholder("Search recent files…")).toBeFocused();
 });
 
+async function startFakeAcpSession(page: Page, prompt: string, branch: string): Promise<void> {
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(prompt);
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(branch);
+  await inbox.getByRole("button", { name: "Start", exact: true }).tap();
+}
+
 test("touching the agent panel only focuses the composer when its input is tapped", async ({
   page,
 }) => {
-  const inbox = page.locator(".session-inbox");
-  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
-  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("Check touch focus");
-  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("bug/touch-focus");
-  await inbox.getByRole("button", { name: "Start", exact: true }).tap();
+  await startFakeAcpSession(page, "Check touch focus", "bug/touch-focus");
 
   const surface = page.locator(".agent-surface");
   const composer = surface.locator("[data-agent-composer] textarea");
@@ -513,6 +522,37 @@ test("touching the agent panel only focuses the composer when its input is tappe
       await expect(composer).toHaveValue("");
     });
   }
+});
+
+test("the composer sends and interrupts with the keyboard dismissed", async ({ page }) => {
+  await startFakeAcpSession(page, "Start", "bug/blurred-send");
+
+  const surface = page.locator(".agent-surface");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await expect(surface).toContainText("echo: Start");
+  const edges = async (locator: Locator) => {
+    const box = (await locator.boundingBox())!;
+    return { top: box.y, bottom: box.y + box.height };
+  };
+  await expect(composer).toHaveValue("");
+  expect(await edges(surface.getByRole("button", { name: "Run", exact: true }))).toEqual(
+    await edges(composer),
+  );
+  // An iOS tap never moves focus to a button, so the pane stays unfocused; a synthetic click does the same.
+  const pressUnfocused = async (name: string): Promise<void> => {
+    await composer.evaluate((element) => (element as HTMLTextAreaElement).blur());
+    await expect(surface).not.toHaveClass(/\bactive\b/);
+    await surface
+      .getByRole("button", { name, exact: true })
+      .evaluate((element) => (element as HTMLButtonElement).click());
+  };
+
+  await composer.fill("hold");
+  await pressUnfocused("Run");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+  await pressUnfocused("Interrupt");
+  await expect(surface).toContainText("steered: cancelled");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
 });
 
 test("the software keyboard keeps Claude reachable without scrolling the document", async ({
@@ -765,7 +805,7 @@ test.describe("compact session status groups", () => {
     const inbox = page.locator(".session-inbox");
     const headings = inbox.locator(".session-inbox-group-title");
     const group = (name: string) => inbox.getByRole("region", { name, exact: true });
-    const titles = (name: string) => group(name).locator(".session-inbox-details strong");
+    const titles = (name: string) => group(name).locator(".session-panel-title");
     const sessions = () => page.getByRole("button", { name: "Sessions", exact: true }).click();
     const create = async (branch: string): Promise<string> => {
       const before = new Set(sessionWorktrees(weavie.workspace));
@@ -823,12 +863,14 @@ test.describe("compact session status groups", () => {
     await expect(inbox).toBeHidden();
     await sessions();
     await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
-    await expect(titles("Idle")).toHaveText(["main", "status first"]);
+    // Idle sessions list the most recently active first.
+    await expect(titles("Idle")).toHaveText(["status first", "main"]);
 
     await parked.getByRole("button", { name: /^Manage / }).click();
     await page.locator(".context-menu-item", { hasText: "Load session" }).click();
     await expect(headings).toHaveText(["Needs you", "Working", "Idle"]);
-    await expect(titles("Idle")).toHaveText(["main", "status parked", "status first"]);
+    // A session that never ran a turn has no last-active time, so it lists last in rail order.
+    await expect(titles("Idle")).toHaveText(["status first", "main", "status parked"]);
   });
 });
 
@@ -905,7 +947,7 @@ test("a compact session row manages its session from a hold and its actions butt
   expect(Math.min(...rowHeights)).toBeGreaterThanOrEqual(44);
 
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).toHaveClass(/\bstatus-unloaded\b/);
   await dismissSessionNotice("was unloaded");
 
   // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
@@ -921,13 +963,13 @@ test("a compact session row manages its session from a hold and its actions butt
     "Recreate with…",
   ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
-  await expect(row.locator(".session-inbox-status")).not.toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).not.toHaveClass(/\bstatus-unloaded\b/);
   await dismissSessionNotice("Loaded session");
 
   // The actions button opens the same command rows and runs them.
   await manage.click();
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).toHaveClass(/\bstatus-unloaded\b/);
 });
 
 // The review scrolls by transform, so the browser can't pan it: a finger drags it through its own scroller.
@@ -1088,11 +1130,7 @@ test.describe("landscape media", () => {
     // A quarter turn resets the zoom and covers the whole screen, bottom nav included.
     await pane.getByRole("button", { name: "Rotate 90°" }).click();
     await expect(pane).toHaveClass(/\bfullscreen\b/);
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.fullscreenElement?.classList.contains("editor-media")),
-      )
-      .toBe(true);
+    await expect.poll(() => documentFullscreen(page)).toBe(true);
     await expect(pane).not.toHaveClass(/\bzoomed\b/);
     expect(await pane.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
     expect(
@@ -1533,8 +1571,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(inbox).toContainText("mobile navigation");
   // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
   const tapped = await inbox
-    .locator(".session-inbox-open")
-    .first()
+    .locator(".session-inbox-row:not(.active) .session-inbox-open")
     .evaluate((button) => {
       (button as HTMLButtonElement).click();
       return { length: history.length, state: history.state.__weavieMobileNavigation };

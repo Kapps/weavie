@@ -136,7 +136,7 @@ public static partial class CoreCommands {
 	/// <summary>Pastes the local clipboard into the focused structured-agent composer.</summary>
 	public const string AgentPaste = "weavie.agent.paste";
 
-	/// <summary>Submits the focused structured-agent composer.</summary>
+	/// <summary>Submits the structured-agent composer's draft.</summary>
 	public const string AgentSubmit = "weavie.agent.submit";
 
 	/// <summary>Interrupts the active structured-agent turn.</summary>
@@ -1091,7 +1091,7 @@ public static partial class CoreCommands {
 			Title = "Submit Agent Prompt",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Submit the focused agent composer.",
+			Description = "Submit the agent composer's draft.",
 			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
 			// While a composer overlay (slash menu or control picker) is open, Enter drives it, not submission.

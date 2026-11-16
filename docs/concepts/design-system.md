@@ -38,7 +38,8 @@ Hero and lead exist only for landing surfaces. The family is `--font-chrome-fami
 - **Line heights.** Every single-line role uses 16px, so both sizes share one line box. Wrapping body
   text uses 18px, which is also what everything inherits.
 - **Emphasis** is the same role followed by `font-weight: var(--font-weight-emphasis)` (600), or
-  `--font-weight-mono-bold` (700) in the mono face, which ships only 400/700. There is no other bold.
+  `--font-weight-mono-bold` (700) in the mono face, which ships only 400/700. The one other weight is
+  `--font-weight-medium` (500), the weight of `.ui-row-name`.
 - **`font:` goes first in a rule.** The shorthand resets `font-style` and `font-variant-numeric`; restate
   them after it.
 - **Section labels** (the only uppercase style) are `.ui-section-label`: body at 600 with
@@ -73,6 +74,9 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-row`** — 26px list/menu row, baseline-aligned, body role. Variants: `-compact` (24px), `-content`
   (editor-font line box), `-stack` (multi-line; `min-height` instead of a fixed height). Slots:
   `.ui-row-text` (label column), `.ui-row-desc` (secondary, dim), `.ui-row-end` (trailing shortcut or meta).
+  A row that names a thing and reports on it (a session and where its work stands) uses `.ui-row-name`
+  (500) for the name and `.ui-row-note` (11px, dim, regular)
+  for the line under it and for a value at the name's end.
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
@@ -117,6 +121,10 @@ A card is a square panel on the panel tone.
   sharing the row equally: the default action is `primary` or `danger` and solid, the rest are plain with
   no outline, since the card frames them. A
   shortcut shows as a `.ui-kbd-cap` (`↵` for Enter, `esc` for Esc).
+- **Containers.** A surface that holds a thread or other cards (a `/btw` side conversation, a subagent) is
+  square and tinted, with a header row for its controls: collapse, status, Open. The tag is for a surface
+  that asks one thing; a container's header is a control strip, and a tag on it competes with the tags of the
+  cards inside.
 - **Pending requests.** A request waiting on the user in the agent transcript (permission, question, sign-in,
   link) is a card whose tag carries an amber dot, with its decisions as joined 32px cells.
 - **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts
@@ -170,6 +178,7 @@ flowchart TB
 |---|---|
 | Rows | 26, compact 24, two-line stack 42, touch 44 |
 | Text buttons | 24, `-lg` 28, `-xl` 40, touch 44 |
+| Agent composer line and its buttons | 28 or one content line if taller, touch 44 |
 | Dialog and card action cells | 32, touch 44 |
 | Icon buttons / fields | 20 / 28 |
 

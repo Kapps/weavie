@@ -24,6 +24,7 @@ internal sealed partial class AcpConversation {
 						_endpoint.Value.Terminate(ex.Message);
 						throw;
 					}
+					CompleteReply();
 					Emit(new AgentPaneMessage {
 						Type = "turn-started",
 						ProviderId = Definition.Id,
@@ -64,7 +65,7 @@ internal sealed partial class AcpConversation {
 				}
 				CompletePermissionTools(turnId);
 				Observe(new AgentTurnStopped(WillResume: background));
-				CompleteContentStreams();
+				CompleteReply();
 				NoticeUnclaimedBlocks();
 				if (stopReason == "refusal") RetractTurn(turnId);
 				else ForgetTurnItems(turnId);
@@ -94,7 +95,7 @@ internal sealed partial class AcpConversation {
 					}
 					ObserveTerminalizedTools(tools);
 					Observe(new AgentTurnStopped(WillResume: false));
-					CompleteContentStreams();
+					CompleteReply();
 					NoticeUnclaimedBlocks();
 					PublishTerminalizedToolMessages(tools);
 					RetractTurn(turnId);
@@ -121,7 +122,7 @@ internal sealed partial class AcpConversation {
 					}
 					ObserveTerminalizedTools(tools);
 					Observe(new AgentTurnStopped(WillResume: background));
-					CompleteContentStreams();
+					CompleteReply();
 					NoticeUnclaimedBlocks();
 					PublishTerminalizedToolMessages(tools);
 					Emit(new AgentPaneMessage {

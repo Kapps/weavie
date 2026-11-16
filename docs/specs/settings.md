@@ -410,7 +410,7 @@ applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no r
 | `terminal.font.family` | String | `""` → inherit                  | terminal family override                 |
 | `terminal.font.size`   | Int    | `0` → inherit                   | terminal size override (0, or 6–72)      |
 | `terminal.font.weight` | String | `inherit`                       | terminal weight override                 |
-| `interface.font.family`| String | bundled Chivo stack             | interface (chrome) family                |
+| `interface.font.family`| String | bundled Sora stack              | interface (chrome) family                |
 | `prose.font.family`    | String | `""` → interface font          | agent replies + rendered markdown family |
 
 An override left at its **inherit sentinel** — empty family, `0` size, `"inherit"` weight — falls

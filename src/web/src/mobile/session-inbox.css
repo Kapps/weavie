@@ -87,9 +87,7 @@
 .session-inbox-empty,
 .session-inbox-divider,
 .session-composer-error,
-.session-composer-field,
-.session-inbox-status,
-.session-inbox-where {
+.session-composer-field {
   color: var(--dim);
   font: var(--font-chrome-body);
 }
@@ -156,15 +154,14 @@
   color: var(--fg);
 }
 
-.session-inbox-row.active {
-  box-shadow: inset 4px 0 0 var(--accent);
-}
-
+/* Dot, name and location share the name line's baseline; the row centres that block. */
 .session-inbox-open {
-  display: flex;
+  display: grid;
   flex: 1 1 auto;
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) fit-content(35%);
+  align-content: center;
+  align-items: baseline;
+  column-gap: 10px;
   min-width: 0;
   min-height: 58px;
   padding: 8px 10px;
@@ -195,23 +192,7 @@
   color: var(--fg);
 }
 
-.session-inbox-details {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.session-inbox-details strong,
-.session-inbox-details span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .session-inbox-where {
-  flex: 0 0 auto;
-  max-width: 35%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

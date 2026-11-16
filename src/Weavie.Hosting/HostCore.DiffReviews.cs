@@ -146,7 +146,7 @@ public sealed partial class HostCore {
 
 	/// <summary>The remote-tracking ref of the branch the session's open pull request targets, if it has one.</summary>
 	private static string? PullRequestBase(HostSession session) =>
-		session.PullRequestStatus.Latest is { PullRequest.State: "open", Target: { } target }
+		session.PullRequestStatus.Latest is { PullRequest.State: PullRequestStatusInfo.Open, Target: { } target }
 			? $"{target.Remote}/{target.BaseRef}"
 			: null;
 

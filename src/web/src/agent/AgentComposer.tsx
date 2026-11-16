@@ -61,7 +61,6 @@ import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines"
 import type { PendingRequestKind } from "./turn-progress";
 
 export function AgentComposer(props: {
-  active: boolean;
   compact: boolean;
   history: readonly string[];
   inputProtocol: number;
@@ -284,7 +283,7 @@ export function AgentComposer(props: {
   // A refusal shows its reason in the composer and still consumes Enter, so it never types a newline.
   const submit = (): boolean => {
     const session = props.session;
-    if (!props.active || session === null) {
+    if (session === null) {
       return false;
     }
     const action = draftAction();
@@ -346,7 +345,7 @@ export function AgentComposer(props: {
 
   const interrupt = (): boolean => {
     const session = props.session;
-    if (!props.active || session === null || !canInterrupt()) {
+    if (session === null || !canInterrupt()) {
       return false;
     }
     session.feature("agent").publish("interrupt", {});
@@ -487,7 +486,9 @@ export function AgentComposer(props: {
         placeholder={
           props.turnActive
             ? "Steer the running turn…"
-            : "Write a prompt — / for commands and skills"
+            : props.compact
+              ? "Prompt — / for commands"
+              : "Write a prompt — / for commands and skills"
         }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
@@ -514,7 +515,7 @@ export function AgentComposer(props: {
         <Show when={canInterrupt()}>
           <button
             type="button"
-            class="ui-button ui-button-lg"
+            class="ui-button"
             aria-label="Interrupt"
             title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
@@ -524,7 +525,7 @@ export function AgentComposer(props: {
         </Show>
         <button
           type="submit"
-          class="ui-button ui-button-lg"
+          class="ui-button"
           classList={{ "ui-button-primary": canSubmit() }}
           aria-label={props.turnActive ? "Steer" : "Run"}
           title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}

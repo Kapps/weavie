@@ -87,13 +87,10 @@ function foldSpan(
 ): void {
   const { prompt, pending, expanded } = options;
   const latest = source.findLastIndex(isReply);
-  const folded = new Set(
-    source.flatMap((entry, index) =>
-      !pending.has(entry.id) && ((isReply(entry) && index !== latest) || isSettledWork(entry))
-        ? [index]
-        : [],
-    ),
-  );
+  const kept = (entry: AgentTranscriptEntry, index: number) =>
+    pending.has(entry.id) ||
+    (isReply(entry) ? index === latest || entry.final : !isSettledWork(entry));
+  const folded = new Set(source.flatMap((entry, index) => (kept(entry, index) ? [] : [index])));
   if (folded.size === 0) {
     for (const entry of source) output.push(entry);
     return;
@@ -102,8 +99,9 @@ function foldSpan(
   const id = `updates:${anchor}`;
   const open = expanded.has(id);
   const first = folded.values().next().value!;
-  // A history disclosure precedes the reply even when all of its work followed that reply.
-  const position = latest < 0 ? first : Math.min(first, latest);
+  // One disclosure per span, ahead of its first shown reply even when all of its work followed that reply.
+  const shown = source.findIndex((entry, index) => isReply(entry) && !folded.has(index));
+  const position = shown < 0 ? first : Math.min(first, shown);
   source.forEach((entry, index) => {
     if (index === position) {
       output.push({

@@ -6,7 +6,7 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
-	private static readonly TimeSpan PullRequestPollInterval = TimeSpan.FromSeconds(30);
+	private static readonly PullRequestPollIntervals PullRequestPolling = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
 
 	private void AttachPullRequestStatus(HostSession session) {
 		var comments = new PullRequestComments(
@@ -26,7 +26,7 @@ public sealed partial class HostCore {
 			},
 			ct => Task.WhenAll(comments.RefreshAsync(ct), overview.RefreshAsync(ct)),
 			Task.Delay,
-			PullRequestPollInterval);
+			PullRequestPolling);
 		session.AttachPullRequestStatus(monitor, comments, overview);
 	}
 
@@ -93,9 +93,9 @@ public sealed partial class HostCore {
 		new(branch, null, $"Automatic pull request detection doesn't support {host}.", null);
 
 	private static string StateName(PullRequestState state) => state switch {
-		PullRequestState.Open => "open",
-		PullRequestState.Merged => "merged",
-		PullRequestState.Closed => "closed",
+		PullRequestState.Open => PullRequestStatusInfo.Open,
+		PullRequestState.Merged => PullRequestStatusInfo.Merged,
+		PullRequestState.Closed => PullRequestStatusInfo.Closed,
 		_ => throw new ArgumentOutOfRangeException(nameof(state), state, "unhandled pull request state"),
 	};
 }

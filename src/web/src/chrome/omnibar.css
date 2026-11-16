@@ -8,6 +8,11 @@
   app-region: no-drag;
 }
 
+/* Open, the box and its popup share the palette layer, above a modal-layer surface such as fullscreen media. */
+.tb-omnibar.open {
+  z-index: 85;
+}
+
 .tb-omnibar-box {
   display: flex;
   align-items: center;
@@ -58,7 +63,6 @@
   top: calc(100% + 4px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 85;
   width: min(640px, 92vw);
   max-height: 45vh;
   display: flex;

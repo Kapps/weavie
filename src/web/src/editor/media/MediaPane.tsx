@@ -19,6 +19,12 @@ import { registerMediaPane } from "./media-commands";
 import { mediaTypeOf } from "./media-types";
 import VideoControls, { togglePlayback } from "./VideoControls";
 
+/** The editor pane as the user's place: whether they are at it, and the way to it. */
+export interface EditorPanePresence {
+  active(): boolean;
+  show(): void;
+}
+
 /**
  * The media-tab surface: the active image/video file rendered over the (kept-mounted) Monaco host, at the
  * same layer as the Preview/Web overlays. The browser streams bytes directly from the workspace HTTP server.
@@ -29,8 +35,10 @@ import VideoControls, { togglePlayback } from "./VideoControls";
 export default function MediaPane(props: {
   session: ClientSession;
   path: string;
+  pane: EditorPanePresence;
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
+  const root = document.documentElement;
   let host!: HTMLDivElement;
   const zoom = createPanZoom(() => host);
   const compact = useCompactMode();
@@ -38,16 +46,27 @@ export default function MediaPane(props: {
   const [rotated, setRotated] = createSignal(false);
   const [fullscreen, setFullscreen] = createSignal(false);
   const [video, setVideo] = createSignal<HTMLVideoElement>();
-  // The pane covers the viewport itself (iPhone has no element fullscreen); the Fullscreen API, where the
-  // browser grants it, also hides the browser's own chrome.
+  // The pane covers the viewport itself, under the palette, toasts and dialogs. Browser fullscreen, where
+  // granted, takes the whole document: it hides the window chrome without confining focus to the pane.
   const showFullscreen = (on: boolean): void => {
+    // Fullscreen belongs to the editor pane, so entering it arrives there.
+    if (on && !host.contains(document.activeElement)) props.pane.show();
     setFullscreen(on);
     if (on && document.fullscreenEnabled) {
-      host.requestFullscreen().catch(() => undefined);
-    } else if (!on && document.fullscreenElement === host) {
+      // A grant that lands once fullscreen has ended, or the pane is gone, is released.
+      root.requestFullscreen().then(
+        () => {
+          if (!fullscreen()) void document.exitFullscreen();
+        },
+        () => undefined,
+      );
+    } else if (!on && document.fullscreenElement === root) {
       void document.exitFullscreen();
     }
   };
+  createEffect(() => {
+    if (fullscreen() && !props.pane.active()) showFullscreen(false);
+  });
   const toggleFullscreen = (): void => showFullscreen(!fullscreen());
   const rotate = (): void => {
     zoom.reset();
@@ -55,12 +74,9 @@ export default function MediaPane(props: {
     // A phone held sideways: the turned media takes the whole screen. A narrow desktop window just turns.
     if (compact() && coarse.matches) showFullscreen(rotated());
   };
-  // Keeps the browser's fullscreen in step: leaving it (Escape, back) exits, and one granted after a quick
-  // toggle back out is released.
+  // Leaving the browser's fullscreen (Escape, back) leaves the pane's.
   const syncFullscreen = (): void => {
-    const granted = document.fullscreenElement === host;
-    if (!granted && fullscreen()) setFullscreen(false);
-    else if (granted && !fullscreen()) void document.exitFullscreen();
+    if (document.fullscreenElement !== root) setFullscreen(false);
   };
   onMount(() => {
     onCleanup(props.bind(host));
@@ -69,7 +85,7 @@ export default function MediaPane(props: {
     document.addEventListener("fullscreenchange", syncFullscreen);
     onCleanup(() => {
       document.removeEventListener("fullscreenchange", syncFullscreen);
-      if (document.fullscreenElement === host) void document.exitFullscreen();
+      showFullscreen(false);
     });
   });
   const loaded = (): void => {

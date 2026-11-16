@@ -3,19 +3,19 @@
    scheme. Imported once by both main.tsx and welcome/index.tsx. The per-surface defaults live in
    FontSettings.cs; bundling means each renders even on machines where the font isn't installed.
 
-   • Chivo — Weavie's chrome typeface (tabs, title bar, menus, panels), deliberately NOT the soft
-     system-UI / VS Code (Segoe UI) look, and chosen because it stays crisp/technical at 12–14px (where
-     a display grotesque washes out). Single variable woff2 (100–900). SIL OFL 1.1: public/fonts/OFL.txt.
+   • Sora — Weavie's chrome typeface (tabs, title bar, menus, panels): a wide geometric sans with open,
+     sturdy letterforms at 11–12px. Single variable woff2, Latin (100–800). SIL OFL 1.1:
+     public/fonts/Sora-OFL.txt.
    • JetBrains Mono — the terminal's default monospace. Single variable woff2 (100–900). SIL OFL 1.1:
      public/fonts/JetBrainsMono-OFL.txt.
    • Go Mono (Bigelow & Holmes, for the Go project) — the editor's default monospace. Not a variable
      font, so four static faces (regular/bold/italic/bold-italic). BSD-3-Clause: public/fonts/GoMono-LICENSE.txt. */
 @font-face {
-  font-family: "Chivo";
+  font-family: "Sora";
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 100 800;
   font-display: swap;
-  src: url("/fonts/chivo-variable.woff2") format("woff2");
+  src: url("/fonts/sora-variable.woff2") format("woff2");
 }
 
 @font-face {

@@ -465,6 +465,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (text == "thought-disclosures") return await ThoughtDisclosuresAsync(ct).ConfigureAwait(false);
 		if (text is "activity-progress" or "activity-progress-long") return await ActivityProgressAsync(text == "activity-progress-long", ct).ConfigureAwait(false);
 		if (text == "activity-mixed") return await ActivityMixedAsync(ct).ConfigureAwait(false);
+		if (text == "replies-claude") return await ClaudeRepliesAsync(ct).ConfigureAwait(false);
+		if (text == "replies-codex") return CodexReplies();
+		if (text == "replies-no-reply") return NoReplyStop();
+		if (text == "replies-cut-short") return CutShortReply(ct);
+		if (text == "replies-silent") return SilentTurn();
 		if (text is "input-with-parallel-tool" or "permission-with-parallel-tool") return await InteractionAlongsideToolAsync(text == "input-with-parallel-tool", ct).ConfigureAwait(false);
 		if (text == "completed-tool-then-hold") return await CompletedToolThenHoldAsync(ct).ConfigureAwait(false);
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);

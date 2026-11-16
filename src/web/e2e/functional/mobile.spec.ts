@@ -863,12 +863,14 @@ test.describe("compact session status groups", () => {
     await expect(inbox).toBeHidden();
     await sessions();
     await expect(headings).toHaveText(["Needs you", "Working", "Idle", "Parked"]);
-    await expect(titles("Idle")).toHaveText(["main", "status first"]);
+    // Idle sessions list the most recently active first.
+    await expect(titles("Idle")).toHaveText(["status first", "main"]);
 
     await parked.getByRole("button", { name: /^Manage / }).click();
     await page.locator(".context-menu-item", { hasText: "Load session" }).click();
     await expect(headings).toHaveText(["Needs you", "Working", "Idle"]);
-    await expect(titles("Idle")).toHaveText(["main", "status parked", "status first"]);
+    // A session that never ran a turn has no last-active time, so it lists last in rail order.
+    await expect(titles("Idle")).toHaveText(["status first", "main", "status parked"]);
   });
 });
 

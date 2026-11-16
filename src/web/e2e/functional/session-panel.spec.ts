@@ -138,6 +138,20 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   await expect(panel).toBeHidden();
 });
 
+test("the pinned panel lists idle sessions by how recently they were active", async ({ page }) => {
+  for (const name of ["older", "newer"]) {
+    const surface = await createAcpSession(page, `feature/idle-${name}`);
+    await submitAcpDraft(surface, name);
+    await expect(surface).toContainText(`echo: ${name}`);
+  }
+  await page.locator(".session-rail").hover();
+  await page.getByRole("button", { name: /Pin session panel/ }).click();
+
+  // Rail order is older, then newer.
+  const titles = page.locator(".session-panel-row .session-panel-title", { hasText: "idle " });
+  await expect(titles).toHaveText(["idle newer", "idle older"]);
+});
+
 test("a session waiting on approval shows amber on the rail and its request when expanded", async ({
   page,
 }) => {

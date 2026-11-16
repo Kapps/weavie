@@ -100,6 +100,23 @@ describe("panelOrder", () => {
       "parked",
     ]);
   });
+
+  it("lists idle sessions by how recently they were active, none recorded last", () => {
+    const sessions = [
+      session({ id: "never" }),
+      session({ id: "older", lastActiveAt: NOW - 2000 }),
+      session({ id: "parked-new", loaded: false, lastActiveAt: NOW }),
+      session({ id: "newest", lastActiveAt: NOW - 1000 }),
+      session({ id: "parked-old", loaded: false, lastActiveAt: NOW - 5000 }),
+    ];
+    expect(panelOrder(sessions).map((s) => s.id)).toEqual([
+      "newest",
+      "older",
+      "never",
+      "parked-new",
+      "parked-old",
+    ]);
+  });
 });
 
 describe("sessionSubtitle", () => {

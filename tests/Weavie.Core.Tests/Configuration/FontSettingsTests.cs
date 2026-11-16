@@ -144,7 +144,7 @@ public sealed class FontSettingsTests : IDisposable {
 	public void Prose_InheritsInterface_UntilSetItself() {
 		using var store = NewStore();
 		string bundled = FontSettings.ResolveInterfaceFamily(store);
-		Assert.Contains("Chivo", bundled, StringComparison.Ordinal);
+		Assert.Contains("Sora", bundled, StringComparison.Ordinal);
 		Assert.Equal(bundled, FontSettings.ResolveProseFamily(store));
 
 		store.Set(FontSettings.InterfaceFamily, Json("\"\\\"Archivo\\\", sans-serif\""));

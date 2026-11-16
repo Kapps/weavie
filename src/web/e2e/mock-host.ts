@@ -968,8 +968,8 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: {
     editor: FONT_SPEC,
     terminal: FONT_SPEC,
-    interface: '"Chivo", system-ui, sans-serif',
-    prose: '"Chivo", system-ui, sans-serif',
+    interface: '"Sora", system-ui, sans-serif',
+    prose: '"Sora", system-ui, sans-serif',
   },
   __WEAVIE_NOTIFICATIONS__: {
     sounds: true,

@@ -1043,6 +1043,13 @@ a:has(> .agent-path-dir) {
   padding: calc((var(--agent-compose-h) - var(--agent-compose-line) - 1px) / 2) 0;
 }
 
+/* The placeholder never wraps, so an empty draft is one line tall at any pane width. */
+.agent-compose textarea::placeholder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .agent-compose textarea:focus {
   outline: 0;
   border-color: var(--accent);

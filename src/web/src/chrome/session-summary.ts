@@ -38,11 +38,21 @@ export function sessionGroup(session: RailSession): SessionGroup {
   }
 }
 
-/** `sessions` in the session panel's display order: grouped by SESSION_GROUPS, rail order within a group. */
+/**
+ * `sessions` in the session panel's display order: grouped by SESSION_GROUPS, then idle sessions by how recently
+ * they were active (none recorded last) and every other group in rail order.
+ */
 export function panelOrder(sessions: RailSession[]): RailSession[] {
   const rank = (session: RailSession): number =>
     SESSION_GROUPS.findIndex((group) => group.id === sessionGroup(session));
-  return [...sessions].sort((a, b) => rank(a) - rank(b));
+  const idleSince = (session: RailSession): number =>
+    sessionGroup(session) === "idle" ? (session.lastActiveAt ?? 0) : 0;
+  return [...sessions].sort((a, b) => rank(a) - rank(b) || idleSince(b) - idleSince(a));
+}
+
+/** The members of `group` among `ordered`, a `panelOrder` result. */
+export function sessionsIn(group: SessionGroup, ordered: RailSession[]): RailSession[] {
+  return ordered.filter((session) => sessionGroup(session) === group);
 }
 
 const RUN_PHRASE: Record<SessionRunState, string> = {

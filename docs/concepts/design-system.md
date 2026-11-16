@@ -174,6 +174,7 @@ flowchart TB
 |---|---|
 | Rows | 26, compact 24, two-line stack 42, touch 44 |
 | Text buttons | 24, `-lg` 28, `-xl` 40, touch 44 |
+| Agent composer line and its buttons | 28 or one content line if taller, touch 44 |
 | Dialog and card action cells | 32, touch 44 |
 | Icon buttons / fields | 20 / 28 |
 

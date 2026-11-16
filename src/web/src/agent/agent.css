@@ -848,7 +848,9 @@ a:has(> .agent-path-dir) {
 /* One line of the draft is as tall as its buttons; a longer draft keeps them on its last line. */
 .agent-compose {
   --agent-compose-min: var(--control-height-lg);
+  --agent-compose-lines: 6;
   --agent-compose-line: calc(var(--font-content-size) * var(--font-content-line));
+  /* The line, its 1px underline, and at least 2px above and below. */
   --agent-compose-h: max(var(--agent-compose-min), var(--agent-compose-line) + 5px);
   font: var(--font-content);
   position: relative;
@@ -857,7 +859,6 @@ a:has(> .agent-path-dir) {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
-  min-height: 42px;
   padding: 5px 8px;
   border-top: 1px solid var(--border);
   background:
@@ -1031,7 +1032,11 @@ a:has(> .agent-path-dir) {
 
 .agent-compose textarea {
   min-height: var(--agent-compose-h);
-  max-height: 116px;
+  max-height: calc(
+    var(--agent-compose-h) +
+    (var(--agent-compose-lines) - 1) *
+    var(--agent-compose-line)
+  );
   field-sizing: content;
   resize: none;
   color: var(--fg);

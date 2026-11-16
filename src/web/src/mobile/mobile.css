@@ -147,6 +147,7 @@
 
   .app.compact .agent-compose {
     --agent-compose-min: var(--touch-target);
+    --agent-compose-lines: 4;
     gap: 5px;
     padding: 4px 6px;
   }
@@ -155,10 +156,6 @@
     width: var(--touch-target);
     flex: 0 0 var(--touch-target);
     padding-inline: 0;
-  }
-
-  .app.compact .agent-compose textarea {
-    max-height: 96px;
   }
 
   .app.compact .agent-working-compact {

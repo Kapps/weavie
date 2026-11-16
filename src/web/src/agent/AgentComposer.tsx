@@ -486,7 +486,9 @@ export function AgentComposer(props: {
         placeholder={
           props.turnActive
             ? "Steer the running turn…"
-            : "Write a prompt — / for commands and skills"
+            : props.compact
+              ? "Prompt — / for commands"
+              : "Write a prompt — / for commands and skills"
         }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {

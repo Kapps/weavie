@@ -207,7 +207,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ProgressDisplay,
 			Kind = SettingKind.String,
-			Description = "Show the latest agent update with earlier updates and completed work collapsed, or show all updates. Pending questions and running work stay visible.",
+			Description = "Show the agent's replies and latest update with earlier updates and completed work collapsed, or show all updates. Pending questions and running work stay visible.",
 			Aliases = ["progress updates", "collapse updates", "agent narration"],
 			Apply = ApplyMode.Live,
 			Default = "latest",

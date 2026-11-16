@@ -110,6 +110,46 @@ test("earlier updates fold away while live work stays visible and tool failures 
   await expect(failed).toHaveCount(0);
 });
 
+test("replies the agent stopped on stay visible while later work joins the one group of earlier updates", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "reply-stops");
+  const workspace = sessionWorktrees(weavie.workspace)[0]!;
+  await writeFile(join(workspace, "hold-replies-wake"), "");
+  await submitAcpDraft(surface, "replies-claude");
+  const earlier = surface.getByRole("button", { name: /Earlier updates/ });
+  const replies = surface.locator(".agent-entry-message.agent-tone-assistant");
+  const answer = "Nothing is overridden, and the checks are running.";
+  await expect(replies).toContainText([answer]);
+  await expect(earlier).toHaveText("Earlier updates · 2");
+
+  // The agent is woken inside the open turn, then stops three more times.
+  await writeFile(join(workspace, "release-replies-wake"), "");
+  const stops = [
+    answer,
+    "The review is clean.",
+    "Publishing the change.",
+    "Everything is published.",
+  ];
+  await expect(replies).toContainText(stops);
+  await expect(earlier).toHaveText("Earlier updates · 6");
+
+  // A background job wakes it after the turn completed.
+  await writeFile(join(workspace, "release-replies-late"), "");
+  const shown = [...stops, "The late job finished."];
+  await expect(replies).toContainText(shown);
+  await expect(earlier).toHaveText("Earlier updates · 7");
+
+  await page.reload();
+  await expect(replies).toContainText(shown);
+  await expect(earlier).toHaveText("Earlier updates · 7");
+  await earlier.click();
+  for (const note of ["Reading the settings first.", "Checks pass; reading the review next."]) {
+    await expect(replies.filter({ hasText: note })).toBeVisible();
+  }
+});
+
 for (const side of [false, true]) {
   test(`expanding long earlier updates in ${side ? "BTW" : "main"} keeps their header and first text in view`, async ({
     page,

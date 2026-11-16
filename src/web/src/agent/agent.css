@@ -845,15 +845,20 @@ a:has(> .agent-path-dir) {
   justify-self: end;
 }
 
+/* One line of the draft is as tall as its buttons; a longer draft keeps them on its last line. */
 .agent-compose {
+  --agent-compose-min: var(--control-height-lg);
+  --agent-compose-lines: 6;
+  --agent-compose-line: calc(var(--font-content-size) * var(--font-content-line));
+  /* The line, its 1px underline, and at least 2px above and below. */
+  --agent-compose-h: max(var(--agent-compose-min), var(--agent-compose-line) + 5px);
   font: var(--font-content);
   position: relative;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: end;
   gap: 8px;
-  min-height: 42px;
   padding: 5px 8px;
   border-top: 1px solid var(--border);
   background:
@@ -1021,9 +1026,17 @@ a:has(> .agent-path-dir) {
   color: color-mix(in srgb, var(--warn) 72%, var(--dim));
 }
 
+.agent-compose-actions > button {
+  --control-h: var(--agent-compose-h);
+}
+
 .agent-compose textarea {
-  min-height: 26px;
-  max-height: 116px;
+  min-height: var(--agent-compose-h);
+  max-height: calc(
+    var(--agent-compose-h) +
+    (var(--agent-compose-lines) - 1) *
+    var(--agent-compose-line)
+  );
   field-sizing: content;
   resize: none;
   color: var(--fg);
@@ -1032,13 +1045,20 @@ a:has(> .agent-path-dir) {
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   margin-left: var(--agent-control-inline-padding);
-  padding: 3px 0 2px;
+  padding: calc((var(--agent-compose-h) - var(--agent-compose-line) - 1px) / 2) 0;
+}
+
+/* The placeholder never wraps, so an empty draft is one line tall at any pane width. */
+.agent-compose textarea::placeholder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .agent-compose textarea:focus {
   outline: 0;
   border-color: var(--accent);
-  box-shadow: 0 1px 0 var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
 }
 
 .agent-approval-actions {

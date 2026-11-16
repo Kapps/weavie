@@ -75,7 +75,7 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
   (editor-font line box), `-stack` (multi-line; `min-height` instead of a fixed height). Slots:
   `.ui-row-text` (label column), `.ui-row-desc` (secondary, dim), `.ui-row-end` (trailing shortcut or meta).
   A row that names a thing and reports on it (a session and where its work stands) uses `.ui-row-name`
-  (500, tightened by `--font-chrome-name-tracking`) for the name and `.ui-row-note` (11px, dim, regular)
+  (500) for the name and `.ui-row-note` (11px, dim, regular)
   for the line under it and for a value at the name's end.
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.

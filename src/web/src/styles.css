@@ -37,6 +37,7 @@
   --font-prose-family: var(--prose-font-family);
 
   --font-weight-regular: 400;
+  --font-weight-medium: 500; /* the name line of a row that carries a note */
   --font-weight-emphasis: 600;
   --font-weight-mono-bold: 700; /* Go Mono ships 400/700 only */
 
@@ -50,6 +51,7 @@
   --font-chrome-display-line: 24px;
   --font-chrome-hero-line: 40px;
   --font-label-tracking: 0.06em;
+  --font-chrome-name-tracking: -0.012em; /* tightens the chrome face's wide spacing in a row name */
 
   --font-chrome-hero:
     var(--font-weight-emphasis) var(--font-chrome-hero-size) / var(--font-chrome-hero-line)

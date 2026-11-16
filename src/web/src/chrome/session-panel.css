@@ -3,9 +3,9 @@
   position: relative;
   flex: 0 0 auto;
   display: flex;
+  --row-pad-x: 12px;
   flex-direction: column;
-  gap: 1px;
-  padding: 6px;
+  padding: 6px 0;
   overflow-y: auto;
   box-sizing: border-box;
   background: var(--bar);
@@ -15,7 +15,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px 6px;
+  padding: 4px var(--row-pad-x) 8px;
   color: var(--dim);
   font: var(--font-chrome-body);
   font-weight: var(--font-weight-emphasis);
@@ -24,15 +24,11 @@
   flex: 1;
 }
 .session-panel-pin {
-  border-radius: 3px;
   color: var(--dim);
 }
 .session-panel-pin:hover,
 .session-panel-pin.on {
   color: var(--fg);
-}
-.session-panel-group {
-  padding: 10px 8px 3px;
 }
 .session-panel-parked {
   display: flex;
@@ -46,8 +42,16 @@
 .session-panel-parked:hover {
   color: var(--fg);
 }
+/* Each group opens with a rule across the panel. */
+.session-panel-group {
+  margin-top: 8px;
+  padding: 10px var(--row-pad-x) 3px;
+  border-top: 1px solid var(--hairline);
+}
+.session-panel-head + .session-panel-group {
+  margin-top: 0;
+}
 .session-panel-row {
-  border-radius: 5px;
   color: var(--fg);
 }
 .session-panel-row:hover {
@@ -56,10 +60,6 @@
 .session-panel-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-.session-panel-row.active {
-  background: var(--list-active-bg);
-  box-shadow: inset 2px 0 var(--accent);
 }
 .session-panel-row.parked,
 .session-panel-row.offline {
@@ -70,8 +70,18 @@
   color: var(--dim);
   font: var(--font-chrome-badge);
 }
+/* The name takes the line and its age keeps the end. */
+.session-panel-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.session-panel-title {
+  flex: 1 1 auto;
+}
 .session-panel-title,
 .session-panel-activity {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

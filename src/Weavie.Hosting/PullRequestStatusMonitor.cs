@@ -5,7 +5,7 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
-/// <summary>Owns one session incarnation's coalesced pull-request probes, forge reloads, and active-turn polling loop.</summary>
+/// <summary>Owns one session incarnation's coalesced pull-request probes, forge reloads, and polling loop.</summary>
 internal sealed class PullRequestStatusMonitor {
 	private readonly Lock _snapshotGate = new();
 	private readonly Channel<Signal> _signals = Channel.CreateUnbounded<Signal>(
@@ -14,7 +14,7 @@ internal sealed class PullRequestStatusMonitor {
 	private readonly Func<PullRequestStatusSnapshot, CancellationToken, Task> _publish;
 	private readonly Func<CancellationToken, Task> _reload;
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-	private readonly TimeSpan _pollInterval;
+	private readonly PullRequestPollIntervals _intervals;
 	private PullRequestStatusSnapshot? _latest;
 
 	public PullRequestStatusMonitor(
@@ -23,21 +23,22 @@ internal sealed class PullRequestStatusMonitor {
 		Func<PullRequestStatusSnapshot, CancellationToken, Task> publish,
 		Func<CancellationToken, Task> reload,
 		Func<TimeSpan, CancellationToken, Task> delay,
-		TimeSpan pollInterval) {
+		PullRequestPollIntervals intervals) {
 		ArgumentNullException.ThrowIfNull(background);
 		ArgumentNullException.ThrowIfNull(resolve);
 		ArgumentNullException.ThrowIfNull(publish);
 		ArgumentNullException.ThrowIfNull(reload);
 		ArgumentNullException.ThrowIfNull(delay);
-		if (pollInterval <= TimeSpan.Zero) {
-			throw new ArgumentOutOfRangeException(nameof(pollInterval));
+		ArgumentNullException.ThrowIfNull(intervals);
+		if (intervals.Active <= TimeSpan.Zero || intervals.QuietOpen <= TimeSpan.Zero) {
+			throw new ArgumentOutOfRangeException(nameof(intervals));
 		}
 
 		_resolve = resolve;
 		_publish = publish;
 		_reload = reload;
 		_delay = delay;
-		_pollInterval = pollInterval;
+		_intervals = intervals;
 		_ = background.Run(RunAsync);
 	}
 
@@ -62,7 +63,7 @@ internal sealed class PullRequestStatusMonitor {
 		while (true) {
 			bool probe = false;
 			bool reload = false;
-			if (active && await PollElapsedBeforeSignalAsync(ct).ConfigureAwait(false)) {
+			if (PollInterval(active) is { } interval && await PollElapsedBeforeSignalAsync(interval, ct).ConfigureAwait(false)) {
 				probe = true;
 			} else {
 				Apply(await _signals.Reader.ReadAsync(ct).ConfigureAwait(false), ref active, ref probe, ref reload);
@@ -98,10 +99,16 @@ internal sealed class PullRequestStatusMonitor {
 		}
 	}
 
-	private async Task<bool> PollElapsedBeforeSignalAsync(CancellationToken ct) {
+	// A quiet session's open pull request can still be merged or closed elsewhere, so it keeps a slow poll.
+	private TimeSpan? PollInterval(bool active) =>
+		active ? _intervals.Active
+		: Latest?.PullRequest is { State: PullRequestStatusInfo.Open } ? _intervals.QuietOpen
+		: null;
+
+	private async Task<bool> PollElapsedBeforeSignalAsync(TimeSpan interval, CancellationToken ct) {
 		using var race = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		Task signal = _signals.Reader.WaitToReadAsync(race.Token).AsTask();
-		var poll = _delay(_pollInterval, race.Token);
+		var poll = _delay(interval, race.Token);
 		var winner = await Task.WhenAny(signal, poll).ConfigureAwait(false);
 		await winner.ConfigureAwait(false);
 		race.Cancel();
@@ -145,4 +152,10 @@ internal sealed record PullRequestStatusSnapshot(
 internal sealed record PullRequestStatusInfo(
 	int Number,
 	string Url,
-	string State);
+	string State) {
+	/// <summary>The <see cref="State"/> of a pull request that can still change.</summary>
+	public const string Open = "open";
+}
+
+/// <summary>How often a session's pull request is re-probed: during a turn, and while quiet with an open pull request.</summary>
+internal sealed record PullRequestPollIntervals(TimeSpan Active, TimeSpan QuietOpen);

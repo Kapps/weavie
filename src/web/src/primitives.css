@@ -48,6 +48,19 @@
     font: var(--font-chrome-body);
   }
 
+  /* The name line of a row that carries a note. */
+  .ui-row-name {
+    font-weight: var(--font-weight-medium);
+    letter-spacing: var(--font-chrome-name-tracking);
+  }
+
+  /* A row's small secondary text: the line under its name, or a value at its end. */
+  .ui-row-note {
+    color: var(--dim);
+    font: var(--font-chrome-badge);
+    font-weight: var(--font-weight-regular);
+  }
+
   .ui-row-end {
     flex: none;
     margin-left: auto;

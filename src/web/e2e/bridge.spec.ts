@@ -1226,9 +1226,9 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(scrolledGeometry.composerTop).toBeLessThan(geometry.composerTop);
     expect(scrolledGeometry.lastRowBottom).toBeLessThanOrEqual(scrolledGeometry.inboxBottom);
 
-    const unloaded = inbox.locator(".session-inbox-row", { hasText: "not loaded" });
-    await expect(unloaded).toHaveCount(dormant.length);
-    await expect(unloaded.locator(".session-status.status-unloaded")).toHaveCount(dormant.length);
+    await expect(inbox.locator(".session-inbox-row .session-status.status-unloaded")).toHaveCount(
+      dormant.length,
+    );
 
     const draft = inbox.getByRole("textbox", { name: "Prompt for a new session" });
     await draft.fill("Keep this mobile draft");
@@ -1246,7 +1246,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.disconnectBridge();
     await host.waitUntilConnected(checkpoint);
     const primaryRow = inbox.locator(".session-inbox-row").first();
-    await expect(primaryRow.locator(".session-inbox-status")).toHaveText("connection lost");
+    await expect(primaryRow.locator(".session-panel-activity")).toHaveText("connection lost");
     const statusColors = await primaryRow.locator(".session-status").evaluate((status) => {
       const probe = document.createElement("span");
       probe.style.background = "var(--dim)";
@@ -1286,7 +1286,7 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(overlay.toastClose.height).toBeGreaterThanOrEqual(44);
 
     host.resumeHello();
-    await expect(primaryRow.locator(".session-inbox-status")).toHaveText(/^idle/);
+    await expect(primaryRow).not.toContainText("connection lost");
     await expect(toast).toHaveCount(0);
     await expect(
       inbox.locator('#session-existing-branches option[value="release/available-after-reconnect"]'),

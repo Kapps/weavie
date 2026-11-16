@@ -7,6 +7,7 @@
 }
 .session-rail {
   --chip-face: 43px;
+  --chip-inset: 6px;
   position: absolute;
   top: 0;
   bottom: 0;
@@ -16,7 +17,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
-  padding: 8px 4px;
+  padding: 8px 0;
   box-sizing: border-box;
   background: var(--bar);
   border-right: 1px solid var(--border);
@@ -31,9 +32,8 @@
   position: relative;
   flex: 0 0 auto;
   display: flex;
-  padding: 4px 2px;
+  padding: 4px var(--chip-inset);
   border: 0;
-  border-radius: 5px;
   background: transparent;
   color: var(--fg);
   font: var(--font-chrome-badge);
@@ -55,7 +55,7 @@
   top: 0;
   right: 8px;
   bottom: 0;
-  left: calc(2px + var(--chip-face) + 8px);
+  left: calc(var(--chip-inset) + var(--chip-face) + 8px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -67,9 +67,11 @@
 .session-chip:hover {
   background: var(--list-hover-bg);
 }
-.session-chip.active {
-  background: var(--list-active-bg);
-  box-shadow: inset 2px 0 var(--accent);
+/* The current session, as a chip or a pinned panel row: a faint accent wash with a bar on the list's own edge. */
+.session-chip.active,
+.session-panel-row.active {
+  background: color-mix(in srgb, var(--accent) 9%, var(--list-active-bg));
+  box-shadow: inset 3px 0 var(--accent);
 }
 .session-chip.unloaded {
   color: var(--dim);
@@ -136,14 +138,14 @@
 }
 .session-rail.expanded .session-rail-parked {
   justify-content: flex-start;
-  padding-left: 12px;
+  padding-left: 16px;
 }
 /* The cloud and "+" stay centered under the chips' faces; expanded, the panel's shortcut and pin sit at the far end. */
 .session-rail-foot {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 0 10px 0 2px;
+  padding: 0 14px 0 var(--chip-inset);
   color: var(--dim);
 }
 .session-rail-tools {
@@ -159,7 +161,6 @@
 .session-rail-cloud {
   flex: 0 0 auto;
   align-self: center;
-  border-radius: 4px;
   color: var(--dim);
 }
 .session-rail-add:hover,

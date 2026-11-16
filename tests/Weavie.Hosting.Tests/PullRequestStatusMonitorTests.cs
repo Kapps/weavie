@@ -17,7 +17,7 @@ public sealed class PullRequestStatusMonitorTests {
 			(_, _) => Task.CompletedTask,
 			_ => Task.CompletedTask,
 			delay.WaitAsync,
-			TimeSpan.FromSeconds(30));
+			Intervals);
 
 		monitor.UpdateStatus(SessionStatus.Working);
 		await Wait.UntilAsync(() => calls == 1);
@@ -30,6 +30,36 @@ public sealed class PullRequestStatusMonitorTests {
 		monitor.UpdateStatus(SessionStatus.NeedsInput);
 
 		await Wait.UntilAsync(() => calls == 3);
+	}
+
+	[Fact]
+	public async Task QuietSession_KeepsASlowPollOnlyWhileItsPullRequestIsOpen() {
+		await using var background = new SessionTaskScope(_ => { });
+		var delay = new ManualDelay();
+		var states = new Queue<string>([PullRequestStatusInfo.Open, "merged"]);
+		int calls = 0;
+		var monitor = new PullRequestStatusMonitor(
+			background,
+			_ => {
+				Interlocked.Increment(ref calls);
+				return Task.FromResult(new PullRequestStatusSnapshot(
+					"feature", new PullRequestStatusInfo(7, "https://example.test/pull/7", states.Dequeue()), null, null));
+			},
+			(_, _) => Task.CompletedTask,
+			_ => Task.CompletedTask,
+			delay.WaitAsync,
+			Intervals);
+
+		monitor.RequestRefresh();
+		var quietPoll = await delay.NextAsync();
+		Assert.Equal(Intervals.QuietOpen, quietPoll.Duration);
+
+		quietPoll.Elapsed.TrySetResult();
+		await Wait.UntilAsync(() => calls == 2);
+		// Merged is final, so the monitor waits on a signal instead of another delay.
+		monitor.RequestReload();
+		await Wait.UntilAsync(() => monitor.Latest?.PullRequest?.State == "merged");
+		Assert.False(delay.HasPending);
 	}
 
 	[Fact]
@@ -51,7 +81,7 @@ public sealed class PullRequestStatusMonitorTests {
 			(_, _) => Task.CompletedTask,
 			_ => Task.CompletedTask,
 			Task.Delay,
-			TimeSpan.FromSeconds(30));
+			Intervals);
 
 		monitor.RequestRefresh();
 		await firstStarted.Task;
@@ -82,7 +112,7 @@ public sealed class PullRequestStatusMonitorTests {
 				}
 			},
 			Task.Delay,
-			TimeSpan.FromSeconds(30));
+			Intervals);
 
 		monitor.RequestReload();
 		await firstStarted.Task;
@@ -121,7 +151,7 @@ public sealed class PullRequestStatusMonitorTests {
 			},
 			_ => Task.CompletedTask,
 			Task.Delay,
-			TimeSpan.FromSeconds(30));
+			Intervals);
 
 		monitor.RequestRefresh();
 		await Wait.UntilAsync(() => published.Count == 1);
@@ -132,6 +162,8 @@ public sealed class PullRequestStatusMonitorTests {
 		Assert.Equal("network unavailable", published[1].Error);
 		Assert.Equal(Target, published[1].Target);
 	}
+
+	private static readonly PullRequestPollIntervals Intervals = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5));
 
 	private static readonly PullRequestTarget Target = new(
 		new RepoRef("github.com", "Kapps", "weavie"), "origin", 123, new string('a', 40), "main", new string('b', 40), "https://example.test/pull/123");
@@ -154,6 +186,8 @@ public sealed class PullRequestStatusMonitorTests {
 		}
 
 		public ValueTask<DelayCall> NextAsync() => _calls.Reader.ReadAsync();
+
+		public bool HasPending => _calls.Reader.TryPeek(out _);
 	}
 
 	private sealed record DelayCall(TimeSpan Duration, TaskCompletionSource Elapsed);

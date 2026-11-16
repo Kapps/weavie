@@ -4,8 +4,10 @@ import type { RailSession } from "./session-store";
 import {
   panelOrder,
   runStatus,
+  sessionAge,
   sessionDetail,
   sessionGroup,
+  sessionLine,
   sessionStatusLabel,
   sessionSubtitle,
   sessionTooltip,
@@ -179,6 +181,45 @@ describe("sessionSubtitle", () => {
     expect(sessionSubtitle(unreadable, NOW)).toBe("workflow run unreadable");
     expect(sessionDetail(unreadable)).toBe("The saved workflow run couldn't be read");
     expect(sessionDetail(session({ loaded: false, run }))).toBe("");
+  });
+});
+
+describe("sessionLine", () => {
+  const pullRequest = { number: 12, url: "https://example.test/pull/12", state: "open" } as const;
+
+  it("says what a busy session is doing, whatever its work looks like", () => {
+    const busy = session({ status: "working", activity: "running pnpm test" });
+    expect(sessionLine(busy, { dirty: true, pullRequest })).toBe("running pnpm test");
+    expect(sessionLine(session({ offline: true }), null)).toBe("connection lost");
+  });
+
+  it("says where a quiet session's work stands", () => {
+    const quiet = session({ lastActiveAt: NOW - 2 * 3_600_000 });
+    expect(sessionLine(quiet, { dirty: false, pullRequest: null })).toBe("no uncommitted changes");
+    expect(sessionLine(quiet, { dirty: true, pullRequest: null })).toBe("uncommitted changes");
+    expect(sessionLine(quiet, { dirty: false, pullRequest })).toBe("PR #12 open");
+    expect(
+      sessionLine(quiet, { dirty: true, pullRequest: { ...pullRequest, state: "merged" } }),
+    ).toBe("PR #12 merged · uncommitted changes");
+    expect(sessionLine(session({ unseen: true }), { dirty: false, pullRequest })).toBe(
+      "PR #12 open",
+    );
+  });
+
+  it("is empty when a quiet session's work is unknown", () => {
+    expect(sessionLine(session({ loaded: false }), null)).toBe("");
+    expect(sessionLine(session({ loaded: false, external: true }), null)).toBe("outside Weavie");
+  });
+});
+
+describe("sessionAge", () => {
+  it("gives a quiet session's bare age and nothing for a busy or never-active one", () => {
+    expect(sessionAge(session({ lastActiveAt: NOW - 2 * 3_600_000 }), NOW)).toBe("2h");
+    expect(sessionAge(session({ loaded: false, lastActiveAt: NOW - 3 * 86_400_000 }), NOW)).toBe(
+      "3d",
+    );
+    expect(sessionAge(session({ status: "working", lastActiveAt: NOW - 60_000 }), NOW)).toBe("");
+    expect(sessionAge(session({}), NOW)).toBe("");
   });
 });
 

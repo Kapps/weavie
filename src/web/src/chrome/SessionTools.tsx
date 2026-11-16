@@ -4,14 +4,16 @@ import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { sessionWork } from "./pull-request-store";
 import { panelPinned, parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
 import {
   CLOUD_PATH,
   newSessionTitle,
+  sessionAge,
   sessionDetail,
-  sessionSubtitle,
+  sessionLine,
   statusDot,
 } from "./session-summary";
 
@@ -106,17 +108,26 @@ export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
   );
 }
 
-/** A session's full name and what its agent is doing: a pinned panel row or an expanded chip. */
+/**
+ * A session's name with its age at the end, over what it is doing or where its work stands: a pinned panel row
+ * or an expanded chip. A session with nothing to say is one line.
+ */
 export function SessionText(props: { session: RailSession; now: number }): JSX.Element {
+  const line = (): string => sessionLine(props.session, sessionWork(props.session));
   return (
     <span class="session-panel-text ui-row-text">
-      <span class="session-panel-title">{props.session.title}</span>
-      <span
-        class="session-panel-activity ui-row-desc"
-        title={sessionDetail(props.session) || undefined}
-      >
-        {sessionSubtitle(props.session, props.now)}
+      <span class="session-panel-name">
+        <span class="session-panel-title ui-row-name">{props.session.title}</span>
+        <span class="session-panel-age ui-row-note">{sessionAge(props.session, props.now)}</span>
       </span>
+      <Show when={line() !== ""}>
+        <span
+          class="session-panel-activity ui-row-note"
+          title={sessionDetail(props.session) || undefined}
+        >
+          {line()}
+        </span>
+      </Show>
     </span>
   );
 }

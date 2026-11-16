@@ -3,7 +3,8 @@ import { formatKey } from "../commands/keybindings";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { compactAge } from "../compact-age";
+import { briefAge, compactAge } from "../compact-age";
+import type { PullRequest } from "./pull-request-store";
 import type { RailSession } from "./session-store";
 
 /** The session panel's sections, in display order. */
@@ -141,8 +142,8 @@ export function sessionDetail(session: RailSession): string {
   return session.reloadRequired ?? (session.run?.reason || session.workflowProblem);
 }
 
-/** The line under a session's name: its run's stage, else what its agent is doing, else its state and age. */
-export function sessionSubtitle(session: RailSession, now: number): string {
+/** What a session is doing or waiting on, or null once it is quiet: idle, finished or parked with nothing to report. */
+function liveLine(session: RailSession): string | null {
   if (session.offline) {
     return "connection lost";
   }
@@ -161,12 +162,50 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;
   }
-  const loaded = sessionStateText(session);
-  const state = session.external ? `outside Weavie · ${loaded}` : loaded;
   const quiet = !session.loaded || session.status === "idle";
-  return quiet && session.lastActiveAt !== null
+  return quiet ? null : outside(session, sessionStateText(session));
+}
+
+const outside = (session: RailSession, text: string): string =>
+  [session.external ? "outside Weavie" : "", text].filter((part) => part !== "").join(" · ");
+
+/** A session in one sentence, for a tooltip: its run's stage, else what its agent is doing, else its state and age. */
+export function sessionSubtitle(session: RailSession, now: number): string {
+  const live = liveLine(session);
+  if (live !== null) {
+    return live;
+  }
+  const state = outside(session, sessionStateText(session));
+  return session.lastActiveAt !== null
     ? `${state} · ${compactAge(session.lastActiveAt, now)}`
     : state;
+}
+
+/** Where a session's work stands: its worktree and the pull request for its branch. */
+export interface SessionWork {
+  dirty: boolean;
+  pullRequest: PullRequest | null;
+}
+
+function workLine(work: SessionWork): string {
+  const uncommitted = work.dirty ? "uncommitted changes" : "";
+  if (work.pullRequest === null) {
+    return uncommitted || "no uncommitted changes";
+  }
+  const pullRequest = `PR #${work.pullRequest.number} ${work.pullRequest.state}`;
+  return uncommitted === "" ? pullRequest : `${pullRequest} · ${uncommitted}`;
+}
+
+/** The line under a session's name: what it is doing, else where its work stands; empty when that is unknown. */
+export function sessionLine(session: RailSession, work: SessionWork | null): string {
+  return liveLine(session) ?? outside(session, work === null ? "" : workLine(work));
+}
+
+/** A quiet session's bare age for the end of its row, else empty. */
+export function sessionAge(session: RailSession, now: number): string {
+  return liveLine(session) === null && session.lastActiveAt !== null
+    ? briefAge(session.lastActiveAt, now)
+    : "";
 }
 
 /** The status-dot modifier: `offline` while its backend is unreachable, `unloaded` when dormant, else its status. */

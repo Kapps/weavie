@@ -150,6 +150,11 @@ test("the pinned panel lists idle sessions by how recently they were active", as
   // Rail order is older, then newer.
   const titles = page.locator(".session-panel-row .session-panel-title", { hasText: "idle " });
   await expect(titles).toHaveText(["idle newer", "idle older"]);
+
+  // An idle row says where its work stands and how long ago it was active, in place of the word "idle".
+  const newer = page.locator(".session-panel-row", { hasText: "idle newer" });
+  await expect(newer.locator(".session-panel-activity")).toHaveText("uncommitted changes");
+  await expect(newer.locator(".session-panel-age")).toHaveText("now");
 });
 
 test("a session waiting on approval shows amber on the rail and its request when expanded", async ({
@@ -202,6 +207,8 @@ test("parked sessions fold behind one toggle shared by the rail and the pinned p
   const parkedHeader = page.locator(".session-panel-parked");
   await expect(parkedHeader).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(1);
+  // A parked session has nothing to report, so its row is one line.
+  await expect(page.locator(".session-panel-row.parked .session-panel-activity")).toHaveCount(0);
   await parkedHeader.click();
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(0);
   await runCommand(page, "Pin Session Panel");

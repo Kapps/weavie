@@ -8,7 +8,7 @@ CssGenericProperty(name=$p, value=$v) as $d where {
     },
     and {
       $p <: r"(?i)^font-weight$",
-      not $v <: r"^(?:inherit|var\(--font-(?:weight-regular|weight-emphasis|weight-mono-bold|content-weight|prose-weight)\))$"
+      not $v <: r"^(?:inherit|var\(--font-(?:weight-regular|weight-medium|weight-emphasis|weight-mono-bold|content-weight|prose-weight)\))$"
     },
     and {
       $p <: r"(?i)^line-height$",

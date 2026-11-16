@@ -805,7 +805,7 @@ test.describe("compact session status groups", () => {
     const inbox = page.locator(".session-inbox");
     const headings = inbox.locator(".session-inbox-group-title");
     const group = (name: string) => inbox.getByRole("region", { name, exact: true });
-    const titles = (name: string) => group(name).locator(".session-inbox-details strong");
+    const titles = (name: string) => group(name).locator(".session-panel-title");
     const sessions = () => page.getByRole("button", { name: "Sessions", exact: true }).click();
     const create = async (branch: string): Promise<string> => {
       const before = new Set(sessionWorktrees(weavie.workspace));
@@ -947,7 +947,7 @@ test("a compact session row manages its session from a hold and its actions butt
   expect(Math.min(...rowHeights)).toBeGreaterThanOrEqual(44);
 
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).toHaveClass(/\bstatus-unloaded\b/);
   await dismissSessionNotice("was unloaded");
 
   // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
@@ -963,13 +963,13 @@ test("a compact session row manages its session from a hold and its actions butt
     "Recreate with…",
   ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
-  await expect(row.locator(".session-inbox-status")).not.toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).not.toHaveClass(/\bstatus-unloaded\b/);
   await dismissSessionNotice("Loaded session");
 
   // The actions button opens the same command rows and runs them.
   await manage.click();
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
+  await expect(row.locator(".session-status")).toHaveClass(/\bstatus-unloaded\b/);
 });
 
 // The review scrolls by transform, so the browser can't pan it: a finger drags it through its own scroller.

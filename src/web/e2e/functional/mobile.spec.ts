@@ -1571,8 +1571,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(inbox).toContainText("mobile navigation");
   // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
   const tapped = await inbox
-    .locator(".session-inbox-open")
-    .first()
+    .locator(".session-inbox-row:not(.active) .session-inbox-open")
     .evaluate((button) => {
       (button as HTMLButtonElement).click();
       return { length: history.length, state: history.state.__weavieMobileNavigation };

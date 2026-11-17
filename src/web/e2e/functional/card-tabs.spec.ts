@@ -71,6 +71,17 @@ test("a dashboard gathers its blocks into one card that opens in a tab and leave
   await expect(card.locator(".agent-entry-block")).toHaveCount(0);
   await expect(card.locator(".agent-aside-head small")).toHaveText("3 charts");
   await expectHeaderOnlyCard(card);
+  // Narrower than its head's text, the card keeps one row: the title and the meta both give way.
+  await card.evaluate((element) => {
+    (element as HTMLElement).style.width = "120px";
+  });
+  await expectHeaderOnlyCard(card);
+  for (const part of [".agent-aside-toggle-label", ".agent-aside-head small"]) {
+    expect(await card.locator(part).evaluate((element) => element.clientWidth)).toBeGreaterThan(0);
+  }
+  await card.evaluate((element) => {
+    (element as HTMLElement).style.width = "";
+  });
   await expect(view.locator(".agent-entry-block")).toHaveCount(3);
 
   await page.reload();

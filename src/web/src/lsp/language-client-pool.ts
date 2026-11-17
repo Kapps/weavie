@@ -134,11 +134,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
         "error",
         `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
       );
-      notify(
-        "error",
-        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
-        key,
-      );
+      notify("error", `${server.id} language intelligence is unavailable (${reason})`, key);
       return;
     }
     // First failure of a streak: a self-dismissing warn so the user sees the hiccup immediately.
@@ -181,11 +177,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     } else {
       forget();
       log("error", `lsp: ${server.id} unavailable (${reason})`);
-      notify(
-        "warn",
-        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
-        key,
-      );
+      notify("warn", `${server.id} language intelligence is unavailable (${reason})`, key);
     }
   };
 

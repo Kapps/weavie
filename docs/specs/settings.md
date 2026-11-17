@@ -82,8 +82,9 @@ Linux. Chosen over OS-standard config dirs (`%APPDATA%`, `~/Library/Application 
 mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is created on first write
 and is the natural home for future per-user state; this spec only defines `settings.toml`.
 
-**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`) don't
-live in the repo — they persist to a per-workspace file, `~/.weavie/workspaces/<id>/settings.toml`
+**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`,
+`lsp.<id>.command`) don't live in the repo — they persist to a per-workspace file,
+`~/.weavie/workspaces/<id>/settings.toml`
 (`<id>` = `WorkspaceId.ForPath(root)`, the same keying as terminal logs and pasted images). Keeping
 them out of source control means configuring a workspace never touches the repo, and an untrusted
 clone can't inject a committed, auto-executed setup command. `SettingsStore` takes the root→file

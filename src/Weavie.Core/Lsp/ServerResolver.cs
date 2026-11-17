@@ -33,8 +33,9 @@ public static class ServerResolver {
 	}
 
 	/// <summary>
-	/// Locates <paramref name="command"/> on <c>PATH</c>, returning its full path or <see langword="null"/>. On
-	/// Windows probes <c>.exe</c>/<c>.cmd</c>/<c>.bat</c> but not <c>.ps1</c>, which <c>CreateProcess</c> can't launch.
+	/// Locates <paramref name="command"/> — a name on <c>PATH</c>, or a path as given — returning its full path or
+	/// <see langword="null"/>. On Windows probes <c>.exe</c>/<c>.cmd</c>/<c>.bat</c> but not <c>.ps1</c>, which
+	/// <c>CreateProcess</c> can't launch.
 	/// </summary>
 	/// <param name="command">A command name (no extension needed) or an explicit path.</param>
 	public static string? FindOnPath(string command) {
@@ -45,7 +46,7 @@ public static class ServerResolver {
 		if (Path.IsPathRooted(command)
 			|| command.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal)
 			|| command.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal)) {
-			return File.Exists(command) ? command : null;
+			return ExtensionVariants(command).FirstOrDefault(File.Exists);
 		}
 
 		string? pathVar = Environment.GetEnvironmentVariable("PATH");

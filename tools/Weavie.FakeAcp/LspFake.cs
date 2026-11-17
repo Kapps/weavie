@@ -6,9 +6,8 @@ namespace Weavie.FakeAcp;
 
 internal static class LspFake {
 	private const string RegistrationId = "dynamic-registration";
-	private const string ReadyFile = ".fake-lsp-ready";
 
-	public static async Task RunAsync() {
+	public static async Task RunAsync(string readyFile) {
 		var input = Console.OpenStandardInput();
 		var output = Console.OpenStandardOutput();
 		var opened = new HashSet<string>(StringComparer.Ordinal);
@@ -19,7 +18,7 @@ internal static class LspFake {
 				if (message.TryGetProperty("id", out var responseId)
 					&& responseId.ValueKind == JsonValueKind.String
 					&& responseId.GetString() == RegistrationId) {
-					await File.WriteAllTextAsync(ReadyFile, string.Empty).ConfigureAwait(false);
+					await File.WriteAllTextAsync(readyFile, string.Empty).ConfigureAwait(false);
 				}
 				continue;
 			}

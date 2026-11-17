@@ -102,11 +102,8 @@ function dragBar(window: string, bar: NonNullable<Report["bar"]>): void {
 }
 
 test("the shipped app draws one title bar from its window's chrome", async ({ desktop }, info) => {
-  const reports = new Map<string, Promise<Report>>();
-  const resolvers = new Map<string, (report: Report) => void>();
-  for (const key of ["welcome", "workspace"]) {
-    reports.set(key, new Promise((resolve) => resolvers.set(key, resolve)));
-  }
+  const welcomeReport = Promise.withResolvers<Report>();
+  const workspaceReport = Promise.withResolvers<Report>();
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => {
@@ -116,7 +113,8 @@ test("the shipped app draws one title bar from its window's chrome", async ({ de
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.end();
       const report = JSON.parse(body) as Report;
-      resolvers.get(report.stage)?.(report);
+      if (report.stage === "welcome") welcomeReport.resolve(report);
+      else if (report.stage === "workspace") workspaceReport.resolve(report);
     });
   });
   server.listen(0, "127.0.0.1");
@@ -124,8 +122,8 @@ test("the shipped app draws one title bar from its window's chrome", async ({ de
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
     const app = await desktop((workspace) => driver(workspace, origin));
-    const welcome = await Promise.race([reports.get("welcome")!, app.exited]);
-    const workspace = await Promise.race([reports.get("workspace")!, app.exited]);
+    const welcome = await Promise.race([welcomeReport.promise, app.exited]);
+    const workspace = await Promise.race([workspaceReport.promise, app.exited]);
     await info.attach("reports.json", {
       body: JSON.stringify({ welcome, workspace }, null, 2),
       contentType: "application/json",

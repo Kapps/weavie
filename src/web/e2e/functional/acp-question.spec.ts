@@ -127,6 +127,11 @@ test("a long question renders as markdown between its title and options at card 
   expect(titleBox.y + titleBox.height).toBeLessThanOrEqual(promptBox.y);
   expect(promptBox.y + promptBox.height).toBeLessThanOrEqual(optionBox.y);
   expect(promptBox.width).toBeCloseTo(optionBox.width, 0);
+  // The 400-character code line scrolls inside the prompt; the card and its buttons keep their width.
+  const cardBox = (await card.boundingBox())!;
+  const actionsBox = (await card.locator(".agent-question-actions").boundingBox())!;
+  expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+  expect(optionBox.x + optionBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
 
   await card.locator(".agent-choice-row", { hasText: "Edit first" }).click();
   await surface.getByRole("button", { name: /Earlier updates/ }).click();

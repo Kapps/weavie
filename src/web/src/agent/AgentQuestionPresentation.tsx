@@ -50,14 +50,20 @@ function RequestPrompt(props: {
   );
 }
 
-export function QuestionHeading(props: {
+export function QuestionTitle(props: { question: AgentInputQuestion }): JSX.Element {
+  return <span class="agent-question-title">{questionTitle(props.question)}</span>;
+}
+
+interface QuestionProps {
   question: AgentInputQuestion;
   message: AgentPaneUpdate;
   session: ClientSession;
-}): JSX.Element {
+}
+
+/** What follows a question's title: its description, and the prompt of a single pick-one request. */
+export function QuestionDetail(props: QuestionProps): JSX.Element {
   return (
     <>
-      <span class="agent-question-title">{questionTitle(props.question)}</span>
       <QuestionProse
         class="agent-question-description"
         cacheKey={props.question}
@@ -65,6 +71,15 @@ export function QuestionHeading(props: {
         session={props.session}
       />
       <RequestPrompt message={props.message} session={props.session} underHeading />
+    </>
+  );
+}
+
+export function QuestionHeading(props: QuestionProps): JSX.Element {
+  return (
+    <>
+      <QuestionTitle question={props.question} />
+      <QuestionDetail {...props} />
     </>
   );
 }

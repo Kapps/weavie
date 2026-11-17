@@ -8,6 +8,15 @@
   gap: 6px;
 }
 
+/* One shrinkable column, so a wide code line or table scrolls in place and never widens the card. */
+.agent-choice-request,
+.agent-input-request,
+.agent-input-question,
+.agent-input-review,
+.agent-input-reviewed-question {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .agent-input-request {
   gap: 14px;
 }
@@ -25,7 +34,8 @@
   overflow-wrap: anywhere;
 }
 
-.agent-question-title ~ :is(.agent-question-description, .agent-question-prompt) {
+.agent-question-description,
+.agent-question-title ~ .agent-question-prompt {
   margin-top: 6px;
 }
 
@@ -159,7 +169,6 @@ label.agent-input-choice:hover {
 .agent-input-reviewed-question {
   display: grid;
   gap: 2px;
-  min-width: 0;
 }
 
 .agent-input-review .agent-input-choice {

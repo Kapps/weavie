@@ -5,7 +5,12 @@ import { CommandIds } from "../commands/types";
 import { ChoiceRequestActions } from "./AgentChoiceRequest";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
 import { AgentQuestionControl } from "./AgentQuestionControl";
-import { InputRequestPrompt, QuestionActions, QuestionHeading } from "./AgentQuestionPresentation";
+import {
+  InputRequestPrompt,
+  QuestionActions,
+  QuestionDetail,
+  QuestionTitle,
+} from "./AgentQuestionPresentation";
 import { inputQuestions, singleChoiceQuestion } from "./input-questions";
 import {
   DismissButtons,
@@ -88,12 +93,9 @@ function InputForm(props: InputRequestProps): JSX.Element {
         {(question) => (
           <fieldset class="agent-input-question">
             <legend>
-              <QuestionHeading
-                question={question}
-                message={props.message}
-                session={props.session}
-              />
+              <QuestionTitle question={question} />
             </legend>
+            <QuestionDetail question={question} message={props.message} session={props.session} />
             <AgentQuestionControl
               question={question}
               values={draft.answers()[question.id] ?? []}

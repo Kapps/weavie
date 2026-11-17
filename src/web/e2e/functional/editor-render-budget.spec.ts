@@ -28,9 +28,9 @@ const ENTERS = 5;
 // reads from debounced and observer callbacks, which only settle-paced steps make deterministic.
 // Scrolling measured 1.01 reads per notch, all from mounting sections and their rows.
 const READS_PER_NOTCH = 1.5;
-// Per keystroke, measured 11 reads (+89 deferred) in the multi-file review and 14 (+84) in the PR review, where
-// the tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+206).
-const REVIEW_KEY = { reads: 14, deferred: 110 };
+// Per keystroke, measured 14 reads (+195 deferred) in the multi-file review with the file filling the pane, and
+// 14 (+84) in the PR review, where the tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+206).
+const REVIEW_KEY = { reads: 17, deferred: 240 };
 const PR_KEY = { reads: 18, deferred: 105 };
 const ENTER = { reads: 28, deferred: 260 };
 

@@ -8,6 +8,15 @@
   gap: 6px;
 }
 
+/* One shrinkable column, so a wide code line or table scrolls in place and never widens the card. */
+.agent-choice-request,
+.agent-input-request,
+.agent-input-question,
+.agent-input-review,
+.agent-input-reviewed-question {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .agent-input-request {
   gap: 14px;
 }
@@ -25,12 +34,15 @@
   overflow-wrap: anywhere;
 }
 
-.agent-question-description {
-  display: block;
+/* Reopened in the transcript, the question is content like the rows around it. */
+.agent-input-review .agent-question-title {
+  font: var(--font-prose);
+  font-weight: var(--font-weight-emphasis);
+}
+
+.agent-question-description,
+.agent-question-title ~ .agent-question-prompt {
   margin-top: 4px;
-  color: var(--dim);
-  font: var(--font-chrome-body);
-  overflow-wrap: anywhere;
 }
 
 .agent-choice-row {
@@ -97,28 +109,9 @@
   flex: 1;
 }
 
-.agent-question-footer {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 8px;
-}
-
-.agent-question-context {
-  flex: 1 1 280px;
-  min-width: 0;
-  color: var(--dim);
-  font: var(--font-chrome-body);
-  overflow-wrap: anywhere;
-}
-
-.agent-question-context p {
-  margin: 0;
-}
-
 .agent-question-actions {
-  margin-left: auto;
+  justify-self: end;
+  margin-top: 8px;
 }
 
 .agent-input-question {
@@ -177,7 +170,6 @@ label.agent-input-choice:hover {
 .agent-input-reviewed-question {
   display: grid;
   gap: 2px;
-  min-width: 0;
 }
 
 .agent-input-review .agent-input-choice {

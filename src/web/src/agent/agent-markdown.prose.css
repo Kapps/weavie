@@ -201,6 +201,44 @@
   font-weight: 700;
 }
 
+/* A pending request card is chrome: markdown in it keeps its structure at the card's one size, on px geometry. */
+:where(.agent-entry-waiting) .agent-markdown {
+  max-width: none;
+  font: var(--font-chrome-body-wrap);
+}
+
+:where(.agent-entry-waiting) .agent-markdown :is(p, ul, ol, blockquote, table),
+:where(.agent-entry-waiting) .agent-markdown :where(.agent-code-block, .agent-mermaid-block) {
+  margin: 8px 0;
+}
+
+:where(.agent-entry-waiting) .agent-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 14px 0 4px;
+  padding: 0;
+  border: 0;
+  font: inherit;
+}
+
+:where(.agent-entry-waiting) .agent-markdown :is(h1, h2, h3, h4, h5, h6) + * {
+  margin-top: 0;
+}
+
+:where(.agent-entry-waiting) .agent-markdown :is(h1, h2, h3, h4, h5, h6, strong, b, th) {
+  font-weight: var(--font-weight-emphasis);
+}
+
+:where(.agent-entry-waiting) .agent-markdown :is(ul, ol) {
+  padding-left: 18px;
+}
+
+:where(.agent-entry-waiting) .agent-markdown li + li {
+  margin-top: 2px;
+}
+
+:where(.agent-entry-waiting) .agent-markdown code {
+  font-size: inherit;
+}
+
 .agent-entry-thought .agent-markdown {
   color: color-mix(in srgb, var(--fg) 75%, var(--dim));
   font-size: var(--font-content-secondary-size);

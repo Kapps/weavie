@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   inputQuestions,
-  inputRequestContext,
+  inputRequestPrompt,
   questionDescription,
   questionTitle,
 } from "./input-questions";
@@ -60,19 +60,22 @@ describe("question presentation", () => {
     questions: [question],
   };
 
-  it("keeps the field title visible and request context separate with no description", () => {
+  it("keeps the field title visible and the request prompt separate with no description", () => {
     expect(questionTitle(question)).toBe("Which view?");
     expect(questionDescription(question, message)).toBe("");
-    expect(inputRequestContext(message)).toEqual([message.summary]);
+    expect(inputRequestPrompt(message)).toBe(message.summary);
   });
 
-  it("shows distinct field guidance but not an exact repetition of title or request context", () => {
+  it("shows distinct field guidance but not an exact repetition of title or request prompt", () => {
     expect(questionDescription({ ...question, question: "Choose the scope" }, message)).toBe(
       "Choose the scope",
     );
     expect(questionDescription({ ...question, question: question.header }, message)).toBe("");
     expect(questionDescription({ ...question, question: message.summary }, message)).toBe("");
-    expect(inputRequestContext({ ...message, text: message.summary })).toEqual([message.summary]);
-    expect(inputRequestContext({ ...message, summary: question.header })).toEqual([]);
+    expect(inputRequestPrompt({ ...message, text: message.summary })).toBe(message.summary);
+    expect(inputRequestPrompt({ ...message, text: "## Details" })).toBe(
+      `${message.summary}\n\n## Details`,
+    );
+    expect(inputRequestPrompt({ ...message, summary: question.header })).toBe("");
   });
 });

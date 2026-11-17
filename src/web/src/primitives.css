@@ -275,9 +275,9 @@
       linear-gradient(45deg, transparent 38%, currentColor 38% 62%, transparent 62%),
       linear-gradient(135deg, transparent 38%, currentColor 38% 62%, transparent 62%);
     background-position:
-      right 15.5px center,
-      right 11.5px center;
-    background-size: 4px 4px;
+      right calc(8px + var(--icon-size) / 2) center,
+      right calc(8px + var(--icon-size) / 4) center;
+    background-size: calc(var(--icon-size) / 4) calc(var(--icon-size) / 4);
     background-repeat: no-repeat;
   }
 

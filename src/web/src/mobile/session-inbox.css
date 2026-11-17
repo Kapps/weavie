@@ -50,9 +50,14 @@
   overflow-y: auto;
 }
 
+/* Centred on the header's title and subtitle lines, inside the dialog's 20px padding. */
 .session-inbox-close {
   position: absolute;
-  top: 16px;
+  top: calc(
+    20px +
+    (var(--font-chrome-display-line) + var(--font-chrome-line) - var(--icon-button-size)) /
+    2
+  );
   right: 16px;
   z-index: 11;
   color: var(--dim);
@@ -162,7 +167,7 @@
 .session-inbox-open {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: auto minmax(0, 1fr) fit-content(35%);
+  grid-template-columns: auto minmax(0, 1fr) fit-content(40%);
   align-content: center;
   align-items: baseline;
   column-gap: 10px;

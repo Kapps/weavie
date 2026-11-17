@@ -20,7 +20,7 @@
 .editor-empty-inner {
   display: flex;
   flex-direction: column;
-  width: min(336px, 100%);
+  width: min(calc(28 * var(--font-chrome-size)), 100%);
 }
 
 .editor-empty-head {

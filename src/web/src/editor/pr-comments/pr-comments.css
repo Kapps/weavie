@@ -268,8 +268,8 @@
 }
 
 .weavie-pr-avatars .weavie-pr-avatar {
-  width: 18px;
-  height: 18px;
+  width: var(--font-chrome-line);
+  height: var(--font-chrome-line);
   margin-right: -5px;
   border: 2px solid var(--bar);
 }

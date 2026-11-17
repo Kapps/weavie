@@ -100,7 +100,8 @@
 .weavie-inline-accepted-tag,
 .weavie-inline-pending-tag {
   display: inline-flex;
-  align-items: baseline;
+  align-self: stretch;
+  align-items: center;
   gap: 8px;
   margin-left: 12px;
   font: var(--font-chrome-body);
@@ -113,9 +114,14 @@
   opacity: 0.85;
 }
 
+/* No taller than the editor line the row is clipped to, so a small editor font keeps their borders. */
 .weavie-inline-accepted-undo,
 .weavie-inline-pending-keep,
 .weavie-inline-pending-revert {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  max-height: 100%;
   padding: 1px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;

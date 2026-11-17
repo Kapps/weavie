@@ -85,8 +85,8 @@
 
 .session-overview-byline .weavie-pr-avatar {
   align-self: center;
-  width: 16px;
-  height: 16px;
+  width: var(--font-chrome-line);
+  height: var(--font-chrome-line);
 }
 
 .session-overview-author {
@@ -240,8 +240,8 @@ button.session-overview-row:not(:disabled) {
 
 .session-overview-row .weavie-pr-avatar {
   align-self: center;
-  width: 18px;
-  height: 18px;
+  width: var(--font-chrome-line);
+  height: var(--font-chrome-line);
 }
 
 .session-overview-row-text {

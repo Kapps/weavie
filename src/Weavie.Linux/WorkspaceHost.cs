@@ -20,7 +20,7 @@ namespace Weavie.Linux;
 /// last workspace (else the <c>workspace</c> setting); with neither, it shows the welcome screen
 /// (<c>WorkspaceHost.Welcome.cs</c>) until the user opens a folder.
 /// </summary>
-internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
+internal sealed partial class WorkspaceHost : IWebSurface, ILinuxWindow {
 	// The default welcome-window size before a workspace (with its saved geometry) is opened.
 	private const int WelcomeWidth = 1000;
 	private const int WelcomeHeight = 680;
@@ -105,6 +105,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 			_window, "notify::is-active", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 		_ = GLib.g_signal_connect_data(
 			_window, "notify::maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
+		AttachChrome();
 	}
 
 	/// <summary>
@@ -115,7 +116,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_recents!.Add(root);
 		_notificationChannel = _notifications!.CreateChannel();
 		_core = new HostCore(
-			new LinuxPlatform(_bridge, _recents, this, _notificationChannel, ToggleWindow, ActivateWindow),
+			new LinuxPlatform(_bridge, _recents, this, _notificationChannel),
 			_services!,
 			root,
 			WorkspaceHttpServerOptions.Native(_wwwroot!),
@@ -183,6 +184,10 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		}
 	}
 
+	void ILinuxWindow.ToggleVisibility() => ToggleWindow();
+
+	void ILinuxWindow.Activate(string? activationToken) => ActivateWindow(activationToken);
+
 	private void ActivateWindow(string? activationToken) {
 		if (!string.IsNullOrEmpty(activationToken)) {
 			ApplyActivationToken(activationToken);
@@ -193,8 +198,12 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private void OnWindowStateChanged(IntPtr instance, IntPtr property, IntPtr userData) =>
 		PushWindowState();
 
-	private void PushWindowState() =>
-		_core?.PushWindowState(Gtk.gtk_window_is_maximized(_window), IsWindowActive());
+	private void PushWindowState() {
+		bool maximized = Gtk.gtk_window_is_maximized(_window);
+		bool active = IsWindowActive();
+		_core?.PushWindowState(maximized, active);
+		_welcome?.PushWindowState(maximized, active);
+	}
 
 	private void DisposeHotkeys() {
 		_hotkeys?.Dispose();

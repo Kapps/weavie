@@ -1,14 +1,18 @@
+import { Show } from "solid-js";
 import { render } from "solid-js/web";
 import { log } from "../bridge";
 import "../fonts";
+import { windowChrome } from "../chrome/window-state";
 import { dismissSplash } from "../splash";
 import { applyChromeTheme } from "../theme/controller";
 import { ThemePicker } from "../theme/ThemePicker";
 import { Welcome } from "./Welcome";
+import { WelcomeBar } from "./WelcomeBar";
 import "../fonts.css";
 import "../styles.css";
 import "../primitives.css";
 import "../chrome/session-prompt.css";
+import "../chrome/titlebar.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. The host injects recents as
@@ -28,7 +32,12 @@ applyChromeTheme();
 render(
   () => (
     <>
-      <Welcome />
+      <div class="welcome-window">
+        <Show when={windowChrome()?.caption === "press" && windowChrome()}>
+          {(chrome) => <WelcomeBar chrome={chrome()} />}
+        </Show>
+        <Welcome />
+      </div>
       <ThemePicker />
     </>
   ),

@@ -66,7 +66,6 @@ import {
 } from "./chrome/host-asks";
 import { createInitialFileSearch } from "./chrome/initial-file-search";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
-import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import {
@@ -113,7 +112,7 @@ import {
   surfacePostUpdateNotice,
   updateRestarting,
 } from "./chrome/update-store";
-import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
+import { hostWindowFocused, windowChrome, windowMaximized } from "./chrome/window-state";
 import { installClipboardTrimming } from "./clipboard";
 import { evaluateWhen, hasTextSelection, paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
@@ -231,15 +230,10 @@ const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
 
-// Host-injected shell config. "custom" is the Windows frameless title bar; macOS/Linux render an app bar
-// below their native frame. Absent in plain-browser dev, where the floating Files button is the toggle.
+// Host-injected shell config; absent in plain-browser dev, where there is no title bar and the floating Files
+// button is the toggle.
 const SHELL = window.__WEAVIE_SHELL__;
-const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
-const MAC_TITLEBAR = SHELL?.titleBar === "mac";
-const LINUX_TITLEBAR = SHELL?.titleBar === "linux";
 const NATIVE_SHELL = ["win", "mac", "linux"].includes(SHELL?.platform ?? "");
-// Every app-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
-const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR || LINUX_TITLEBAR;
 setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
@@ -2023,37 +2017,26 @@ export default function App(): JSX.Element {
       <Show when={compact()}>
         <div class="mobile-top-edge" aria-hidden="true" />
       </Show>
-      <Show when={CUSTOM_TITLEBAR}>
-        <TitleBar
-          maximized={windowMaximized()}
-          focused={hostWindowFocused()}
-          files={fileIndex()}
-          filesPending={indexPending()}
-          root={indexRoot()}
-          currentFile={currentFile()}
-          onWindowControl={(action) =>
-            localHost()?.feature("window").publish("control", { action })
-          }
-          onOpenFile={(path, line) => revealSelectedFile(path, line)}
-          onRequestIndex={refreshSelectedFileIndex}
-          symbols={editor.symbols}
-        />
-      </Show>
-      <Show when={CUSTOM_TITLEBAR}>
-        <ResizeFrame maximized={windowMaximized()} />
-      </Show>
-      <Show when={MAC_TITLEBAR || LINUX_TITLEBAR}>
-        <NativeTitleBar
-          showApplicationMenu={LINUX_TITLEBAR}
-          files={fileIndex()}
-          filesPending={indexPending()}
-          root={indexRoot()}
-          currentFile={currentFile()}
-          workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
-          onOpenFile={(path, line) => revealSelectedFile(path, line)}
-          onRequestIndex={refreshSelectedFileIndex}
-          symbols={editor.symbols}
-        />
+      <Show when={windowChrome()}>
+        {(chrome) => (
+          <>
+            <TitleBar
+              chrome={chrome()}
+              maximized={windowMaximized()}
+              focused={hostWindowFocused()}
+              files={fileIndex()}
+              filesPending={indexPending()}
+              root={indexRoot()}
+              currentFile={currentFile()}
+              onOpenFile={(path, line) => revealSelectedFile(path, line)}
+              onRequestIndex={refreshSelectedFileIndex}
+              symbols={editor.symbols}
+            />
+            <Show when={chrome().resizeHandles}>
+              <ResizeFrame maximized={windowMaximized()} />
+            </Show>
+          </>
+        )}
       </Show>
       <div class="app-body" ref={mobileCommandPull.scope}>
         <Show when={mobileCommandPull.hint()}>
@@ -2249,7 +2232,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
+      <Show when={indexRoot() !== null && windowChrome() === null}>
         <button
           type="button"
           class="browser-toggle"

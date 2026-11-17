@@ -23,8 +23,6 @@ internal sealed partial class WorkspaceWindow {
 
 	HostTransport IHostPlatform.Transport => HostTransport.Local;
 
-	string? IHostPlatform.TitleBar => "custom";
-
 	IReadOnlyList<string> IHostPlatform.Recents => _app.Recents.Items;
 
 	event Action? IHostPlatform.RecentsChanged {
@@ -32,7 +30,7 @@ internal sealed partial class WorkspaceWindow {
 		remove => _app.Recents.Changed -= value;
 	}
 
-	IShellWindow? IHostPlatform.Window => this;
+	IShellWindow IHostPlatform.Window => this;
 
 	IShellMenuActions IHostPlatform.MenuActions => this;
 

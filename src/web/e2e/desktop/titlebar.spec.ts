@@ -1,0 +1,175 @@
+import { execFileSync } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { expect, type TestInfo } from "@playwright/test";
+import { test } from "./fixture";
+
+// What the page reports about its bar from inside the shipped app, on each stage the window shows.
+type Report = {
+  stage: "welcome" | "workspace";
+  chrome: WeavieWindowChrome | null;
+  bar: { left: number; top: number; width: number; height: number } | null;
+  start: string[];
+  end: string[];
+  frame: number;
+};
+
+const LABELS: Record<string, string> = {
+  minimize: "Minimize",
+  "maximize-toggle": "Maximize",
+  close: "Close",
+};
+
+// Runs in each page: waits for the bar to render, reports it, then moves on from the welcome screen.
+const driver = (workspace: string, origin: string) => `
+  if (self === top) addEventListener('load', () => {
+    const welcome = location.pathname === '/welcome.html';
+    const report = () => {
+      const chrome = (welcome ? window.__WEAVIE_WELCOME__ : window.__WEAVIE_SHELL__)?.chrome ?? null;
+      const bar = document.querySelector(welcome ? '.welcome-bar' : '.titlebar');
+      const labels = selector => [...document.querySelectorAll(selector)].map(b => b.getAttribute('aria-label'));
+      const rect = bar?.getBoundingClientRect();
+      return {
+        stage: welcome ? 'welcome' : 'workspace', chrome,
+        bar: rect ? {left: rect.left, top: rect.top, width: rect.width, height: rect.height} : null,
+        start: labels(welcome ? '.welcome-bar > .tb-ctl:not(.welcome-bar-fill ~ .tb-ctl)' : '.titlebar > .tb-ctl'),
+        end: labels(welcome ? '.welcome-bar-fill ~ .tb-ctl' : '.titlebar .tb-controls > .tb-ctl'),
+        frame: outerHeight - innerHeight,
+      };
+    };
+    const ready = () => welcome ? document.querySelector('.welcome') : document.querySelector('.titlebar .tb-omnibar');
+    const post = () => fetch(${JSON.stringify(origin)}, {method: 'POST', body: JSON.stringify(report())});
+    const poll = setInterval(() => {
+      if (!ready()) return;
+      clearInterval(poll);
+      post().then(() => {
+        if (!welcome) return;
+        window.__weaviePostMessage(JSON.stringify({
+          scope: 'host', session: null, kind: 'event', requestId: null, feature: 'window', name: 'menu', error: null,
+          payload: {action: 'open-recent', path: ${JSON.stringify(workspace)}}
+        }));
+      });
+    }, 50);
+  });
+`;
+
+async function screenshot(info: TestInfo, name: string): Promise<void> {
+  const path = info.outputPath(`${name}.png`);
+  if (process.platform === "darwin") {
+    execFileSync("screencapture", ["-x", path]);
+  } else if (process.platform === "linux") {
+    execFileSync("scrot", ["--overwrite", path]);
+  } else {
+    execFileSync("powershell", [
+      "-NoProfile",
+      "-Command",
+      "Add-Type -AssemblyName System.Windows.Forms,System.Drawing;" +
+        "$b=[System.Windows.Forms.SystemInformation]::VirtualScreen;" +
+        "$i=New-Object System.Drawing.Bitmap $b.Width,$b.Height;" +
+        "[System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Left,$b.Top,0,0,$i.Size);" +
+        `$i.Save('${path}')`,
+    ]);
+  }
+  await info.attach(name, { path, contentType: "image/png" });
+}
+
+// Linux runs under a scriptable X server, so the drag there is real input on the real window.
+const xdotool = (...args: string[]): string => execFileSync("xdotool", args, { encoding: "utf8" });
+
+function windowOrigin(window: string): { x: number; y: number } {
+  const geometry = Object.fromEntries(
+    xdotool("getwindowgeometry", "--shell", window)
+      .trim()
+      .split("\n")
+      .map((line) => line.split("=")),
+  );
+  return { x: Number(geometry.X), y: Number(geometry.Y) };
+}
+
+// Presses on empty bar space (right of the omnibar) and drags past the threshold, step by step.
+function dragBar(window: string, bar: NonNullable<Report["bar"]>): void {
+  const origin = windowOrigin(window);
+  const x = Math.round(origin.x + bar.left + bar.width * 0.8);
+  const y = Math.round(origin.y + bar.top + bar.height / 2);
+  xdotool("mousemove", String(x), String(y));
+  xdotool("mousedown", "1");
+  execFileSync("sleep", ["0.2"]);
+  for (let step = 1; step <= 10; step++) {
+    xdotool("mousemove", String(x + step * 12), String(y + step * 9));
+    execFileSync("sleep", ["0.05"]);
+  }
+  xdotool("mouseup", "1");
+}
+
+test("the shipped app draws one title bar from its window's chrome", async ({ desktop }, info) => {
+  const reports = new Map<string, Promise<Report>>();
+  const resolvers = new Map<string, (report: Report) => void>();
+  for (const key of ["welcome", "workspace"]) {
+    reports.set(key, new Promise((resolve) => resolvers.set(key, resolve)));
+  }
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.end();
+      const report = JSON.parse(body) as Report;
+      resolvers.get(report.stage)?.(report);
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const app = await desktop((workspace) => driver(workspace, origin));
+    const welcome = await Promise.race([reports.get("welcome")!, app.exited]);
+    const workspace = await Promise.race([reports.get("workspace")!, app.exited]);
+    await info.attach("reports.json", {
+      body: JSON.stringify({ welcome, workspace }, null, 2),
+      contentType: "application/json",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await screenshot(info, "titlebar");
+
+    const chrome = workspace.chrome!;
+    expect(workspace.bar).not.toBeNull();
+    expect(workspace.start).toEqual(chrome.controls.start.map((action) => LABELS[action]));
+    expect(workspace.end).toEqual(chrome.controls.end.map((action) => LABELS[action]));
+    // The page's bar is the window's only one: it sits at the very top of the page.
+    expect(workspace.bar!.top).toBe(0);
+    // No OS title bar above it: macOS has no frame at all; GTK keeps only a thin resize border where no
+    // compositor draws its shadow (CI's X server), far short of a title bar.
+    if (process.platform === "darwin") {
+      expect(workspace.frame).toBe(0);
+    } else if (process.platform === "linux") {
+      expect(workspace.frame).toBeLessThan(20);
+    }
+    if (process.platform === "win32") {
+      expect(chrome.caption).toBe("region");
+      expect(welcome.chrome?.caption).toBe("none");
+      expect(welcome.bar).toBeNull();
+    } else if (process.platform === "darwin") {
+      expect(chrome).toMatchObject({ menus: false, caption: "press" });
+      expect(chrome.barHeight).toBeGreaterThan(28);
+      expect(chrome.inset.start).toBeGreaterThan(60);
+      expect(workspace.bar!.height).toBe(chrome.barHeight);
+      expect(welcome.bar).toBeNull();
+    } else {
+      expect(chrome).toMatchObject({ menus: true, caption: "press", barHeight: null });
+      expect(welcome.chrome?.controls).toEqual(chrome.controls);
+      expect(welcome.bar).not.toBeNull();
+      expect([...welcome.start, ...welcome.end]).toEqual([...workspace.start, ...workspace.end]);
+
+      const window = xdotool("search", "--onlyvisible", "--class", "weavie").trim().split("\n")[0];
+      const before = windowOrigin(window);
+      dragBar(window, workspace.bar!);
+      await expect.poll(() => windowOrigin(window)).not.toEqual(before);
+      await screenshot(info, "after-drag");
+    }
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});

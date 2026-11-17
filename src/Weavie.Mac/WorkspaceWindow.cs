@@ -23,7 +23,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	private readonly HostBridge _bridge = new();
 	private readonly MacAppMenuChannel _applicationMenu;
 	private readonly HostCore _core;
-	private readonly WKWebView _webView;
+	private readonly WeavieWebView _webView;
 	private readonly SystemNotificationChannel _notifications;
 	private NSObject? _resizeObserver;
 	private NSObject? _closeObserver;
@@ -67,7 +67,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 			.ToList();
 		var placement = WindowPlacement.Resolve(_core.SavedWindow, screens, 1280, 840);
 		var frame = new CGRect(placement.X, placement.Y, placement.Width, placement.Height);
-		_webView = new WKWebView(frame, config) {
+		_webView = new WeavieWebView(frame, config) {
 			Inspectable = app.Services.Settings.RequireBool(DeveloperSettings.WebInspector),
 		};
 		_bridge.Attach(_webView);
@@ -86,6 +86,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 			Title = $"{WorkspaceNaming.Label(workspace)} — weavie",
 			ContentView = _webView,
 		};
+		ApplyChrome();
 		if (!placement.UseSaved) {
 			Window.Center();
 		} else if (placement.Maximized) {
@@ -153,6 +154,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		RemoveObserver(ref _resignKeyObserver);
 		RemoveObserver(ref _miniaturizeObserver);
 		RemoveObserver(ref _deminiaturizeObserver);
+		DetachChrome();
 		_core.Ready -= PushWindowState;
 		_bridge.Security.Revoke();
 

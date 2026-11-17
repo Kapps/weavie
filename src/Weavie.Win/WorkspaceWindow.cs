@@ -177,8 +177,20 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 	private void PushWindowState() =>
 		_core.PushWindowState(WindowState == FormWindowState.Maximized, _focused);
 
+	// The frameless window: the page draws menus, buttons and edge handles, and WebView2 owns the caption gesture.
+	private static readonly WindowChrome FramelessChrome = new(
+		true, CaptionMode.Region, true, null,
+		new WindowControls([], [WindowControl.Minimize, WindowControl.MaximizeToggle, WindowControl.Close]), default);
+
 	// IShellWindow — the platform primitives the web title bar drives (Weavie.Core.Shell). Close() (the ✕) is
 	// satisfied by Form.Close(); CloseWindow() (File ▸ Close Window) routes through CloseToWelcome().
+	WindowChrome IShellWindow.Chrome => FramelessChrome;
+
+	event Action? IShellWindow.ChromeChanged {
+		add { }
+		remove { }
+	}
+
 	void IShellWindow.Minimize() => WindowState = FormWindowState.Minimized;
 
 	void IShellWindow.ToggleMaximize() =>

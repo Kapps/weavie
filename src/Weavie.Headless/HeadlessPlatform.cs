@@ -26,10 +26,7 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public HostTransport Transport { get; }
 
-	// A browser has no native chrome, so render Weavie's custom title bar.
 	public string ChromePlatform => "web";
-
-	public string? TitleBar => "custom";
 
 	public IReadOnlyList<string> Recents => [];
 
@@ -38,7 +35,8 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 		remove { }
 	}
 
-	public IShellWindow? Window => null;
+	// A browser page has the bar and menus but no window to move or buttons to draw.
+	public IShellWindow Window { get; } = new FixedShellWindow(WindowChrome.Browser);
 
 	public IShellMenuActions MenuActions => NoopShellMenuActions.Instance;
 

@@ -189,14 +189,6 @@ public sealed partial class HostCore {
 			});
 
 		var window = _messages.Host.Feature("window");
-		window.Handle("control", MessageActivity.ActionFailed("Controlling the window"), WireJson.Default.JsonElement, (message, _) => {
-			_shell?.HandleWindowControl(message);
-			return Task.CompletedTask;
-		});
-		window.Handle("resize", MessageActivity.ActionFailed("Resizing the window"), WireJson.Default.JsonElement, (message, _) => {
-			_shell?.HandleWindowResize(message);
-			return Task.CompletedTask;
-		});
 		window.Handle("menu", MessageActivity.ActionFailed("Running a menu action"), WireJson.Default.JsonElement, (message, _) => {
 			_menuActions.Enqueue(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
 				.HandleMenuAction(message));
@@ -351,6 +343,7 @@ public sealed partial class HostCore {
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
 
+		_windowFeature.PushChrome();
 		Ready?.Invoke();
 		MarkAutoConfigPageReady();
 		MarkOpenPathPageReady();

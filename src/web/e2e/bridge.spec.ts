@@ -69,7 +69,14 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.addInitScript(() => {
       window.__WEAVIE_SHELL__ = {
         platform: "linux",
-        titleBar: "linux",
+        chrome: {
+          menus: true,
+          caption: "press",
+          resizeHandles: false,
+          barHeight: null,
+          controls: { start: [], end: ["minimize", "maximize-toggle", "close"] },
+          inset: { start: 0, end: 0 },
+        },
         workspaceLabel: "test",
         recents: [],
         buildNumber: "test",

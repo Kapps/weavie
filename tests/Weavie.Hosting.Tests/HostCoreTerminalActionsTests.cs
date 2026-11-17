@@ -83,9 +83,8 @@ public sealed class HostCoreTerminalActionsTests {
 		var uiThread = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 		dispatcher.Post(() => uiThread.SetResult(Environment.CurrentManagedThreadId));
 		int expectedThread = await uiThread.Task;
-		await using var host = TestHost.CreateUnstarted(dispatcher);
 		var window = new ThreadRecordingWindow();
-		host.Platform.Window = window;
+		await using var host = TestHost.CreateUnstarted(dispatcher, window);
 		host.Platform.MenuActions = window;
 		int? readyThread = null;
 		host.Core.Ready += () => readyThread = Environment.CurrentManagedThreadId;
@@ -140,21 +139,88 @@ public sealed class HostCoreTerminalActionsTests {
 		host.HostEvent("window", "menu", new { action = "open-folder" });
 		await Wait.UntilAsync(() => menu.Threads.Count == 1);
 
-		Assert.Null(host.Platform.Window);
+		Assert.IsType<FixedShellWindow>(host.Platform.Window);
+	}
+
+	[Theory]
+	[InlineData("left", ResizeEdge.Left)]
+	[InlineData("right", ResizeEdge.Right)]
+	[InlineData("top", ResizeEdge.Top)]
+	[InlineData("bottom", ResizeEdge.Bottom)]
+	[InlineData("top-left", ResizeEdge.TopLeft)]
+	[InlineData("top-right", ResizeEdge.TopRight)]
+	[InlineData("bottom-left", ResizeEdge.BottomLeft)]
+	[InlineData("bottom-right", ResizeEdge.BottomRight)]
+	public async Task ResizeEventNamesTheEdge(string edge, ResizeEdge expected) {
+		var window = new ThreadRecordingWindow();
+		await using var host = TestHost.CreateUnstarted(window);
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+
+		host.HostEvent("window", "resize", new { edge });
+
+		await Wait.UntilAsync(() => window.Calls.Count == 1);
+		Assert.Equal([$"resize:{expected}"], window.Calls);
+	}
+
+	[Fact]
+	public async Task WindowEventsReachTheWindowAndUnknownActionsAreRejected() {
+		var window = new ThreadRecordingWindow();
+		await using var host = TestHost.CreateUnstarted(window);
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+
+		host.HostEvent("window", "control", new { action = "spin" });
+		host.HostEvent("window", "control", new { action = "maximize-toggle" });
+		host.HostEvent("window", "control", new { action = "close" });
+		host.HostEvent("window", "captionPress", new { button = 2, count = 1 });
+
+		await Wait.UntilAsync(() => window.Calls.Count == 3);
+		Assert.Equal(["maximize", "close", "press:2:1"], window.Calls);
+	}
+
+	[Fact]
+	public async Task ChromeIsPushedAtHelloAndOnEveryChange() {
+		var window = new ThreadRecordingWindow();
+		await using var host = TestHost.CreateUnstarted(window);
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+		await Wait.UntilAsync(() => host.Bridge.PostedEvents("window", "chrome").Any(chrome =>
+			chrome.GetProperty("caption").GetString() == "press"
+			&& chrome.GetProperty("inset").GetProperty("start").GetInt32() == 78));
+
+		window.Change(window.Chrome with { Inset = new ChromeInset(0, 0), BarHeight = 40 });
+
+		await Wait.UntilAsync(() => host.Bridge.PostedEvents("window", "chrome").Any(chrome =>
+			chrome.GetProperty("barHeight").ValueKind == JsonValueKind.Number
+			&& chrome.GetProperty("barHeight").GetInt32() == 40));
 	}
 
 	private sealed class ThreadRecordingWindow : IShellWindow, IShellMenuActions {
 		public ConcurrentQueue<int> Threads { get; } = [];
+		public ConcurrentQueue<string> Calls { get; } = [];
+		public WindowChrome Chrome { get; private set; } = new(
+			false, CaptionMode.Press, false, null, WindowControls.None, new ChromeInset(78, 0));
+		public event Action? ChromeChanged;
 
-		public void Minimize() => Record();
-		public void ToggleMaximize() => Record();
-		public void StartResize(ResizeEdge edge) => Record();
-		public void Close() => Record();
-		public void CloseWindow() => Record();
-		public void Quit() => Record();
-		public void ShowOpenFolderPicker() => Record();
-		public void OpenWorkspace(string path) => Record();
+		public void Change(WindowChrome chrome) {
+			Chrome = chrome;
+			ChromeChanged?.Invoke();
+		}
 
-		private void Record() => Threads.Enqueue(Environment.CurrentManagedThreadId);
+		public void Minimize() => Record("minimize");
+		public void ToggleMaximize() => Record("maximize");
+		public void StartResize(ResizeEdge edge) => Record($"resize:{edge}");
+		public void Close() => Record("close");
+		public void PressCaption(CaptionPress press) => Record($"press:{press.Button}:{press.Count}");
+		public void CloseWindow() => Record("close-window");
+		public void Quit() => Record("quit");
+		public void ShowOpenFolderPicker() => Record("open-folder");
+		public void OpenWorkspace(string path) => Record("open-workspace");
+
+		private void Record(string call) {
+			Threads.Enqueue(Environment.CurrentManagedThreadId);
+			Calls.Enqueue(call);
+		}
 	}
 }

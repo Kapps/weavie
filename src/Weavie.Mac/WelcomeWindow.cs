@@ -1,5 +1,6 @@
 using CoreGraphics;
 using Foundation;
+using Weavie.Core.Shell;
 using Weavie.Hosting.Web;
 using Weavie.Mac.Hosting;
 using WebKit;
@@ -43,7 +44,7 @@ internal sealed class WelcomeWindow : IWebSurface {
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
 		_controller = new WelcomeController(
-			_bridge, this, _app.Dispatcher, _app.Services, "app://app/welcome.html", () => _app.Recents.Items,
+			new WelcomeHost(_bridge, this, _app.Dispatcher, new FixedShellWindow(WindowChrome.NativeFrame)), _app.Services, "app://app/welcome.html", () => _app.Recents.Items,
 			_app.OpenFolderInteractive, _app.OpenOrFocus);
 
 		Window = new NSWindow(

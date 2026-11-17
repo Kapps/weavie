@@ -8,33 +8,35 @@ using Weavie.Linux.Native;
 
 namespace Weavie.Linux.Hosting;
 
+/// <summary>The one GTK window a Linux host runs in: its title bar, its File-menu actions, and its visibility.</summary>
+internal interface ILinuxWindow : IShellWindow, IShellMenuActions {
+	/// <summary>Hides the window when it is active, else shows it — the <c>weavie.window.toggle</c> action.</summary>
+	void ToggleVisibility();
+
+	/// <summary>Shows and raises the window, handing the compositor <paramref name="activationToken"/> when one came with the request.</summary>
+	void Activate(string? activationToken);
+}
+
 /// <summary>
-/// The GTK + WebKitGTK platform shell: bridge, GLib-main-loop UI marshal, POSIX PTYs, and the native actions
-/// behind the web-rendered Linux app bar. Unsupported optional capabilities remain <c>null</c>.
+/// The GTK + WebKitGTK platform shell: bridge, GLib-main-loop UI marshal, POSIX PTYs, and the window whose
+/// web-rendered title bar replaces the GTK header. Unsupported optional capabilities remain <c>null</c>.
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {
 	private readonly RecentWorkspaces _recents;
-	private readonly Action _toggleWindow;
-	private readonly Action<string?> _activateWindow;
+	private readonly ILinuxWindow _window;
 
 	public LinuxPlatform(
 		HostBridge bridge,
 		RecentWorkspaces recents,
-		IShellMenuActions menuActions,
-		Weavie.Core.Sessions.ISystemNotificationChannel notifications,
-		Action toggleWindow,
-		Action<string?> activateWindow) {
+		ILinuxWindow window,
+		Weavie.Core.Sessions.ISystemNotificationChannel notifications) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(recents);
-		ArgumentNullException.ThrowIfNull(menuActions);
+		ArgumentNullException.ThrowIfNull(window);
 		ArgumentNullException.ThrowIfNull(notifications);
-		ArgumentNullException.ThrowIfNull(toggleWindow);
-		ArgumentNullException.ThrowIfNull(activateWindow);
 		Bridge = bridge;
 		_recents = recents;
-		MenuActions = menuActions;
-		_toggleWindow = toggleWindow;
-		_activateWindow = activateWindow;
+		_window = window;
 		Notifications = notifications;
 		Dispatcher = new DelegateUiDispatcher(GtkMain.Invoke);
 		PtyLauncher = new PosixPtyLauncher();
@@ -50,9 +52,6 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public HostTransport Transport => HostTransport.Local;
 
-	// Native GTK decorations plus the web app bar (menus + omnibar, no web window controls).
-	public string? TitleBar => "linux";
-
 	public IReadOnlyList<string> Recents => _recents.Items;
 
 	public event Action? RecentsChanged {
@@ -60,9 +59,9 @@ internal sealed class LinuxPlatform : IHostPlatform {
 		remove => _recents.Changed -= value;
 	}
 
-	public IShellWindow? Window => null;
+	public IShellWindow Window => _window;
 
-	public IShellMenuActions MenuActions { get; }
+	public IShellMenuActions MenuActions => _window;
 
 	public IApplicationMenu ApplicationMenu => NoopApplicationMenu.Instance;
 
@@ -70,9 +69,9 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public Weavie.Core.Sessions.ISystemNotificationChannel Notifications { get; }
 
-	public void ToggleWindow() => _toggleWindow();
+	public void ToggleWindow() => _window.ToggleVisibility();
 
-	public void ActivateWindow(string? activationToken) => _activateWindow(activationToken);
+	public void ActivateWindow(string? activationToken) => _window.Activate(activationToken);
 
 	// Host-bus handlers enter the GTK main thread before reaching the clipboard, whose reads are async in
 	// GTK 4; the nested loop gives the bus back the synchronous answer it expects.

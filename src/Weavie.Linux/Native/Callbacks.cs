@@ -18,6 +18,10 @@ internal delegate void GDestroyNotify(IntPtr data);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void WidgetCallback(IntPtr widget, IntPtr userData);
 
+/// <summary>GTK legacy controller <c>event</c> handler: <c>(controller, GdkEvent*, userData)</c>, true to stop the event.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int LegacyEventCallback(IntPtr controller, IntPtr gdkEvent, IntPtr userData);
+
 /// <summary>GObject <c>notify</c> handler: <c>(instance, GParamSpec*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void PropertyNotifyCallback(IntPtr instance, IntPtr property, IntPtr userData);

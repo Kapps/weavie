@@ -6,7 +6,7 @@ namespace Weavie.Hosting;
 /// <summary>
 /// Everything native a <see cref="HostCore"/> needs from its platform shell, behind one seam so the core stays
 /// platform-agnostic. Required members (bridge, dispatcher, PTY launcher, chrome identity) every host supplies;
-/// optional ones (<see cref="Window"/>, <see cref="Dialogs"/>) are <c>null</c>
+/// optional ones (<see cref="Dialogs"/>) are <c>null</c>
 /// where unsupported (e.g. headless), and the core degrades the matching feature to a no-op.
 /// </summary>
 public interface IHostPlatform {
@@ -25,17 +25,14 @@ public interface IHostPlatform {
 	/// <summary>How this host is reached — <see cref="HostTransport.Remote"/> for a network-exposed worker, else local.</summary>
 	HostTransport Transport { get; }
 
-	/// <summary>Title-bar mode the web should render (<c>custom</c>, <c>mac</c>, <c>linux</c>, or <c>null</c>).</summary>
-	string? TitleBar { get; }
-
 	/// <summary>Current recent workspace paths for File ▸ Open Recent (empty when unsupported).</summary>
 	IReadOnlyList<string> Recents { get; }
 
 	/// <summary>Raised after <see cref="Recents"/> changes so existing windows refresh their application menu.</summary>
 	event Action? RecentsChanged;
 
-	/// <summary>The OS window primitives the web title bar drives, or <c>null</c> when the host uses native chrome.</summary>
-	IShellWindow? Window { get; }
+	/// <summary>The window the page draws chrome for: what its title bar shows and the operations that bar drives.</summary>
+	IShellWindow Window { get; }
 
 	/// <summary>The native application/workspace actions driven by a web File menu.</summary>
 	IShellMenuActions MenuActions { get; }

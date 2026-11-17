@@ -1,23 +1,22 @@
-import { Copy, Minus, Square, X } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import type { SymbolActions } from "../symbols/symbol-match";
+import { onCaptionContextMenu, onCaptionMouseDown } from "./caption-press";
 import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
 import { WeavieIcon } from "./WeavieIcon";
+import { WindowControls } from "./WindowControls";
 
-type WindowControlAction = "minimize" | "maximize-toggle" | "close";
-
-// The custom Windows title bar, drawn in-web over a frameless host window: logo + menus, omnibar, window
-// controls. The background is draggable via CSS `app-region: drag`; interactive regions opt out with
-// `no-drag`. Static config (label/build) comes from `window.__WEAVIE_SHELL__`; live state arrives as props.
+// The window's title bar on every host, drawn from the host's chrome description: menus, omnibar, build
+// badge, and whichever window buttons the page draws. Empty bar space is marked `data-caption`; on Windows
+// CSS `app-region` makes it the caption, elsewhere a press there goes to the host (caption-press.ts).
 export function TitleBar(props: {
+  chrome: WeavieWindowChrome;
   maximized: boolean;
   focused: boolean;
   files: string[];
   filesPending: boolean;
   root: string | null;
   currentFile: string | null;
-  onWindowControl: (action: WindowControlAction) => void;
   onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   symbols: () => SymbolActions;
@@ -27,15 +26,26 @@ export function TitleBar(props: {
   const build = (): string => shell?.buildNumber ?? "";
 
   return (
-    <div class="titlebar" classList={{ blurred: !props.focused }}>
-      <div class="tb-left">
-        <span class="tb-icon" aria-hidden="true">
-          <WeavieIcon size={18} />
-        </span>
-        <Menu />
+    // biome-ignore lint/a11y/noStaticElementInteractions: window dragging is pointer-only; the OS owns its keyboard path.
+    <div
+      class="titlebar"
+      classList={{ blurred: !props.focused }}
+      style={barStyle(props.chrome)}
+      data-caption
+      onMouseDown={onCaptionMouseDown}
+      onContextMenu={onCaptionContextMenu}
+    >
+      <WindowControls actions={props.chrome.controls.start} maximized={props.maximized} />
+      <div class="tb-left" data-caption>
+        <Show when={props.chrome.menus}>
+          <span class="tb-icon" aria-hidden="true" data-caption>
+            <WeavieIcon size={18} />
+          </span>
+          <Menu />
+        </Show>
       </div>
 
-      <div class="tb-center">
+      <div class="tb-center" data-caption>
         <Omnibar
           files={props.files}
           filesPending={props.filesPending}
@@ -48,39 +58,23 @@ export function TitleBar(props: {
         />
       </div>
 
-      <div class="tb-controls">
+      <div class="tb-controls" data-caption>
         <Show when={build()}>
-          <span class="tb-build" title={`Weavie ${build()}`}>
+          <span class="tb-build" title={`Weavie ${build()}`} data-caption>
             {build()}
           </span>
         </Show>
-        <button
-          type="button"
-          class="tb-ctl"
-          aria-label="Minimize"
-          onClick={() => props.onWindowControl("minimize")}
-        >
-          <Minus />
-        </button>
-        <button
-          type="button"
-          class="tb-ctl"
-          aria-label={props.maximized ? "Restore" : "Maximize"}
-          onClick={() => props.onWindowControl("maximize-toggle")}
-        >
-          <Show when={props.maximized} fallback={<Square />}>
-            <Copy />
-          </Show>
-        </button>
-        <button
-          type="button"
-          class="tb-ctl tb-close"
-          aria-label="Close"
-          onClick={() => props.onWindowControl("close")}
-        >
-          <X />
-        </button>
+        <WindowControls actions={props.chrome.controls.end} maximized={props.maximized} />
       </div>
     </div>
   );
+}
+
+/** The bar's measured height and the room it leaves for buttons the OS draws over it. */
+export function barStyle(chrome: WeavieWindowChrome): JSX.CSSProperties {
+  return {
+    "--titlebar-h": chrome.barHeight === null ? undefined : `${chrome.barHeight}px`,
+    "padding-inline-start": `${chrome.inset.start}px`,
+    "padding-inline-end": `${chrome.inset.end}px`,
+  };
 }

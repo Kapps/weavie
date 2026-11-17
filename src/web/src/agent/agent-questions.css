@@ -25,19 +25,13 @@
   margin-bottom: 8px;
 }
 
+/* A question's text is content, read at the transcript's size; the controls around it stay chrome. */
 .agent-question-title {
   display: block;
   color: var(--fg);
-  font: var(--font-chrome-body);
-  font-weight: var(--font-weight-emphasis);
-  line-height: var(--font-chrome-line-wrap);
-  overflow-wrap: anywhere;
-}
-
-/* Reopened in the transcript, the question is content like the rows around it. */
-.agent-input-review .agent-question-title {
   font: var(--font-prose);
   font-weight: var(--font-weight-emphasis);
+  overflow-wrap: anywhere;
 }
 
 .agent-question-description,
@@ -46,11 +40,17 @@
 }
 
 .agent-choice-row {
+  --row-line: calc(var(--font-prose-size) * var(--font-prose-line));
   --row-pad: 10px;
   --row-pad-x: 12px;
   gap: 16px;
   border: 1px solid var(--border);
+  font: var(--font-prose);
   overflow-wrap: anywhere;
+}
+
+.agent-choice-row .ui-row-desc {
+  font: inherit;
 }
 
 /* The recommended option: an accent bar, on a faint row in dark and on the solid action fill in light. */

@@ -121,13 +121,22 @@ test("a long question renders as markdown between its title and options at card 
   await expect(prompt.locator('a[data-agent-kind="file"]')).toHaveCount(1);
   await card.screenshot({ path: testInfo.outputPath("question-long.png") });
 
-  // The pending card is chrome: its title, markdown and options share one size.
-  const sizes = await card.evaluate((element) =>
-    [".agent-question-title", "p", "h2", "li", "code", "pre code", ".agent-choice-label"].map(
-      (selector) => getComputedStyle(element.querySelector(selector)!).fontSize,
-    ),
-  );
-  expect(new Set(sizes).size).toBe(1);
+  // The pending card reads at the transcript's size: its title, markdown and options all share it.
+  const { sizes, prose } = await card.evaluate((element) => {
+    const probe = element.appendChild(document.createElement("span"));
+    probe.style.font = "var(--font-prose)";
+    const prose = getComputedStyle(probe).fontSize;
+    probe.remove();
+    const selectors = [".agent-question-title", "p", "h2", "li", "code", "pre code"];
+    selectors.push(".agent-choice-label");
+    return {
+      prose,
+      sizes: selectors.map(
+        (selector) => getComputedStyle(element.querySelector(selector)!).fontSize,
+      ),
+    };
+  });
+  expect(new Set(sizes)).toEqual(new Set([prose]));
 
   const titleBox = (await card.locator(".agent-question-title").boundingBox())!;
   const promptBox = (await prompt.boundingBox())!;

@@ -36,15 +36,10 @@ export function SessionInboxRow(props: {
         </span>
         <SessionText session={session()} now={now()} />
         <span class="session-inbox-where ui-row-note">
-          {[
-            session().repoLabel,
-            session().locationName,
-            agentProviders(session().backendId).find(
-              (provider) => provider.id === session().providerId,
-            )?.name ?? session().providerId,
-          ]
-            .filter((part) => part !== "")
-            .join(" · ")}
+          {session().locationName} ·{" "}
+          {agentProviders(session().backendId).find(
+            (provider) => provider.id === session().providerId,
+          )?.name ?? session().providerId}
         </span>
       </button>
       <button

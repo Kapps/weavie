@@ -21,6 +21,9 @@ public sealed partial class HostCore {
 			: Task.FromResult(CommandResult.Failure(missing)), ct);
 	}
 
+	// An id is never a branch name, so the refusal says where ids come from.
+	private static string NoSuchSession(string? sessionId) => UnknownPeer(sessionId ?? string.Empty).Message;
+
 	/// <summary>Waits out lifecycle work already admitted on the source, then returns it if still that exact live session.</summary>
 	private async Task<SessionSlot?> CurrentSourceAsync(SessionAddress source, CancellationToken ct) {
 		if (_sessions?.Find(source.Slot) is not { } slot) {

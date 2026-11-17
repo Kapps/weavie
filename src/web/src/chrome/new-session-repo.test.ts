@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backendRepos, defaultRepo, sentRepo } from "./new-session-repo";
+import { backendRepos, defaultRepo, repoOptions, sentRepo } from "./new-session-repo";
 
 const SESSIONS = [
   { backendId: "local", repo: "/code/monorepo" },
@@ -20,6 +20,14 @@ describe("new-session repo", () => {
     expect(defaultRepo("/code/infra", repos)).toBe("/code/infra");
     expect(defaultRepo(undefined, repos)).toBe("/code/monorepo");
     expect(defaultRepo(undefined, [])).toBe("");
+  });
+
+  it("names each repo by its folder, and by its path when two share a folder name", () => {
+    expect(repoOptions(["/code/monorepo", "/code/infra", "/work/infra"])).toEqual([
+      { repo: "/code/monorepo", name: "monorepo" },
+      { repo: "/code/infra", name: "/code/infra" },
+      { repo: "/work/infra", name: "/work/infra" },
+    ]);
   });
 
   it("sends the trimmed path, the default included, and null only for a blank field", () => {

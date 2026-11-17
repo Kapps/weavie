@@ -6,7 +6,13 @@ import {
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import { backendRepos, defaultRepo, sentRepo } from "../chrome/new-session-repo";
+import {
+  backendRepos,
+  defaultRepo,
+  OTHER_REPO,
+  repoOptions,
+  sentRepo,
+} from "../chrome/new-session-repo";
 import type { RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
@@ -37,9 +43,10 @@ export function SessionInbox(props: {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
-  // What the repository field holds, and what it last committed; null is the default.
-  const [repoText, setRepoText] = createSignal<string | null>(null);
+  // The repo picked from the list or typed as a path; null is the default.
   const [repoEntry, setRepoEntry] = createSignal<string | null>(null);
+  // Whether a path is typed in place of the list, for a repo no session here is in yet.
+  const [typingRepo, setTypingRepo] = createSignal(false);
   const [base, setBase] = createSignal<"source" | "main">("main");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -49,6 +56,7 @@ export function SessionInbox(props: {
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let providerChosen = false;
+  let repoTyped: ReturnType<typeof setTimeout> | undefined;
 
   const sourceRepo = (): string | undefined => {
     const source = selectedSession();
@@ -63,13 +71,27 @@ export function SessionInbox(props: {
   );
   // "From current session" branches inside that session's own repo.
   const sourceAvailable = (): boolean => repo() === sourceRepo();
-  const commitRepo = (): void => {
-    setRepoEntry(repoText());
-  };
   const resetRepo = (): void => {
-    setRepoText(null);
+    clearTimeout(repoTyped);
+    setTypingRepo(false);
     setRepoEntry(null);
   };
+  const pickRepo = (select: HTMLSelectElement): void => {
+    if (select.value !== OTHER_REPO) {
+      setRepoEntry(select.value);
+      return;
+    }
+    const control = select.parentElement;
+    setRepoEntry("");
+    setTypingRepo(true);
+    control?.querySelector("input")?.focus();
+  };
+  // A typed path is asked about once typing pauses, so Start is ready by the time it is pressed.
+  const typeRepo = (path: string, pause: number): void => {
+    clearTimeout(repoTyped);
+    repoTyped = setTimeout(() => setRepoEntry(path), pause);
+  };
+  onCleanup(() => clearTimeout(repoTyped));
 
   const selectBackend = (id: string): void => {
     if (id === backendId()) {
@@ -200,7 +222,7 @@ export function SessionInbox(props: {
     repoLabel: string,
     providerLabel: string,
   ): JSX.Element => (
-    <>
+    <div class="session-composer-destination">
       <NewSessionControl icon={<Laptop />}>
         <select
           class="ui-field"
@@ -216,19 +238,40 @@ export function SessionInbox(props: {
         </select>
       </NewSessionControl>
       <NewSessionControl icon={<FolderGit2 />}>
-        <input
-          class="ui-field ui-field-mono"
-          type="text"
-          list="session-repos"
-          aria-label={repoLabel}
-          autocapitalize="none"
-          autocomplete="off"
-          spellcheck={false}
-          value={repoText() ?? repoDefault()}
-          onInput={(event) => setRepoText(event.currentTarget.value)}
-          onChange={commitRepo}
-          onBlur={commitRepo}
-        />
+        <Show
+          when={typingRepo()}
+          fallback={
+            <select
+              class="session-repo ui-field"
+              aria-label={repoLabel}
+              value={repoEntry() ?? repoDefault()}
+              onChange={(event) => pickRepo(event.currentTarget)}
+            >
+              <For each={repoOptions(repos())}>
+                {(option) => (
+                  <option value={option.repo} title={option.repo}>
+                    {option.name}
+                  </option>
+                )}
+              </For>
+              <option value={OTHER_REPO}>Other…</option>
+            </select>
+          }
+        >
+          <input
+            class="session-repo ui-field ui-field-mono"
+            type="text"
+            aria-label={`${repoLabel} path`}
+            placeholder="/path/to/repository"
+            autocapitalize="none"
+            autocomplete="off"
+            spellcheck={false}
+            value={repoEntry() ?? ""}
+            onInput={(event) => typeRepo(event.currentTarget.value, 400)}
+            onChange={(event) => typeRepo(event.currentTarget.value, 0)}
+            onKeyDown={(event) => event.key === "Escape" && resetRepo()}
+          />
+        </Show>
       </NewSessionControl>
       <NewSessionControl icon={<Bot />}>
         <select
@@ -264,7 +307,7 @@ export function SessionInbox(props: {
           </small>
         )}
       </Show>
-    </>
+    </div>
   );
 
   return (
@@ -289,9 +332,6 @@ export function SessionInbox(props: {
         </button>
       </header>
 
-      <datalist id="session-repos">
-        <For each={repos()}>{(root) => <option value={root} />}</For>
-      </datalist>
       <div class="session-inbox-actions">
         <section class="session-inbox-action ui-card" aria-labelledby="session-start-title">
           <h2 id="session-start-title" class="ui-section-label ui-card-tag">

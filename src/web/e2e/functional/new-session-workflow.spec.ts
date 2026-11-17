@@ -199,9 +199,11 @@ test("session controls align with inset icons that preserve native input on desk
           field: rect(button.parentElement!.querySelector(".ui-field")!),
         })),
         footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
-          [...footer.querySelectorAll("select, .session-composer-submit")].map(rect),
+          [...footer.querySelectorAll("select:not(.session-repo), .session-composer-submit")].map(
+            rect,
+          ),
         ),
-        repos: [...element.querySelectorAll(".session-composer-options input")].map(rect),
+        repos: [...element.querySelectorAll(".session-composer-options .session-repo")].map(rect),
         promptTextLeft: (() => {
           const prompt = element.querySelector(".session-composer textarea")!;
           return (

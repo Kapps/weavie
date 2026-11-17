@@ -98,10 +98,13 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
   await expect(page.locator(".view-lines")).toContainText("PR session implemented");
   expect(await readFile(monitoring, "utf8")).toBe(plan + update);
 
+  const planSlot = await page
+    .locator('.session-chip[title^="feature-plan —"]')
+    .getAttribute("data-session-slot");
   await page.locator('.session-chip[title^="feature-task —"]').click();
   await workflowTool(surface, "runCommand", {
     id: "weavie.session.delete",
-    args: { id: "feature-plan", force: true },
+    args: { id: planSlot, force: true },
   });
   await expect(page.locator('.session-chip[title^="feature-plan —"]')).toHaveCount(0);
   expect(await readFile(monitoring, "utf8")).toBe(plan + update);

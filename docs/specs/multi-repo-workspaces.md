@@ -41,16 +41,20 @@ default workflow all resolve from the session's repo. A plain home folder is a r
 so a worktree session there is refused by name.
 
 The repo of a worktree is git's answer (`git worktree list` from that worktree), never a stored copy. Restoring
-a workspace asks it for each saved session outside the home repo.
+a workspace asks it for each saved session outside the home repo. A saved session git can't answer for, whose
+worktree is still on disk, stays in the store for a later start and is named in a startup notice.
 
 ## Sessions
 
 - The home folder keeps one always-present session. When it is a repository, its existing worktrees are listed
   as dormant sessions.
 - Any other repo shows only the sessions created in this workspace.
-- `weavie.session.new` takes `repo`, a path to any repository on the host, defaulting to the invoking session's
-  repo. The new-session composer has the same field. An agent asked to "create a session for the infra changes"
-  passes the infra path.
+- `weavie.session.new` takes `repo`, a path to any repository on the host (relative to the invoking session's
+  worktree, `~` allowed), defaulting to the invoking session's repo. An agent asked to "create a session for the
+  infra changes" passes the infra path. The new-session composer lists the workspace's repos, preselecting the
+  selected session's, and takes a typed path for any other; it always sends the repo it shows.
+- A repo joins the workspace once a session's worktree exists in it and leaves with its last session, so a
+  refused start configures nothing.
 - Fork, Open PR, and `base: "source"` stay in the source session's repo.
 - A slot's id is the digest of its worktree path, so two repos with the same branch name are two sessions with
   two addresses. A session is found by `(repo, branch)`, never by treating the id as a branch.
@@ -92,5 +96,7 @@ own turn review and land in each repository's own checkout.
 - deleting a session in another repo removes that repo's worktree;
 - a plain home folder hosts a session in a repository beneath it;
 - the first session in a repo runs its auto-configured setup command;
+- a refused start leaves the repo out of the workspace, and a repo leaves with its last session;
+- a saved session whose repo is unreachable at startup is restored by a later start;
 - repo labels appear on every chip with two repos and on none with one;
 - an agent creates a session in another repo with `weavie.session.new` and reads it through `listSessions`.

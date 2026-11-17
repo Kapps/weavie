@@ -581,7 +581,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var result = await host.DeleteSessionAsync("no-such-branch", force: false, classify: false);
 
 		Assert.False(result.Ok);
-		Assert.Contains("No such session", result.Error!);
+		Assert.Contains("No session has id", result.Error!);
 	}
 
 	[Fact]

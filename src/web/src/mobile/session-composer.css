@@ -32,11 +32,19 @@
 }
 
 /* Equal-height controls align by their boxes: a select's baseline follows its font's own metrics. */
+/* The fields' own columns, so the action sits exactly under the buttons beside them. */
 .session-composer-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) var(--session-action-w);
+  grid-template-columns: minmax(0, 1fr) var(--session-action-w);
   gap: 8px;
   padding: 0 12px 8px;
+}
+
+.session-composer-destination {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
 }
 
 .session-composer-destination-error {
@@ -158,4 +166,5 @@
 .session-composer-options .session-composer-submit {
   grid-column: -2;
   grid-row: 1;
+  align-self: start;
 }

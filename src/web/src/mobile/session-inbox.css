@@ -221,13 +221,17 @@
     --icon-button-size: var(--touch-target);
   }
 
-  /* A phone fits two controls beside the action, so the repository takes the row under them. */
-  .app.compact .session-composer-options {
+  /* A narrow composer fits two controls beside the action, so the repository takes the whole row under them. */
+  .session-composer-options {
     grid-template-columns: repeat(2, minmax(0, 1fr)) var(--session-action-w);
     grid-auto-flow: dense;
   }
 
-  .app.compact .session-composer-options > .session-composer-control:has(> input) {
+  .session-composer-destination {
+    display: contents;
+  }
+
+  .session-composer-control:has(> .session-repo) {
     grid-column: 1 / -1;
   }
 

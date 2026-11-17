@@ -709,7 +709,7 @@ public sealed partial class HostCore {
 	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 		string.IsNullOrWhiteSpace(sessionId)
 			? Task.FromResult(CommandResult.Failure("Load needs a session id."))
-			: RunSlotLifecycleAsync(sessionId, "No such session.", target => LoadSessionCoreAsync(target, ct), ct);
+			: RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => LoadSessionCoreAsync(target, ct), ct);
 
 	private Task<CommandResult> LoadSessionCoreAsync(SessionSlot target, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
@@ -747,7 +747,7 @@ public sealed partial class HostCore {
 		CancellationToken ct) =>
 		await RunSlotLifecycleAsync(
 			sessionId,
-			"No such session.",
+			NoSuchSession(sessionId),
 			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
 				? Task.FromResult(refusal)
 				: UnloadSessionCoreAsync(source, target, context, ct),
@@ -805,7 +805,7 @@ public sealed partial class HostCore {
 		CancellationToken ct) =>
 		RunSlotLifecycleAsync(
 			sessionId,
-			"No such session.",
+			NoSuchSession(sessionId),
 			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
 				? Task.FromResult(refusal)
 				: DeleteSessionCoreAsync(source, target, force, context, ct),
@@ -992,7 +992,7 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
-		RunSlotLifecycleAsync(sessionId, "No such session.", target => ClassifyDeleteCoreAsync(target, ct), ct);
+		RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => ClassifyDeleteCoreAsync(target, ct), ct);
 
 	private async Task<CommandResult> ClassifyDeleteCoreAsync(SessionSlot target, CancellationToken ct) {
 		if (DeleteRefusal(target) is { } refusal) {

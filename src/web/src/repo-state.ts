@@ -3,7 +3,7 @@ import { type ClientSession, registerHostFeature, type Suggestion } from "./brid
 import type { RepoState } from "./messaging/protocol-types";
 
 const [states, setStates] = createSignal(new Map<string, RepoState>());
-const listeners = new Set<() => void>();
+const profileListeners = new Set<() => void>();
 const key = (backendId: string, repo: string): string => `${backendId}\n${repo}`;
 const empty = (repo: string): RepoState => ({
   repo,
@@ -16,11 +16,12 @@ const empty = (repo: string): RepoState => ({
 registerHostFeature((connection) => {
   const apply = (repo: string, change: Partial<RepoState>): void => {
     const id = key(connection.id, repo);
-    setStates((previous) =>
-      new Map(previous).set(id, { ...(previous.get(id) ?? empty(repo)), ...change }),
-    );
-    for (const listener of listeners) {
-      listener();
+    const before = states().get(id) ?? empty(repo);
+    setStates((previous) => new Map(previous).set(id, { ...before, ...change }));
+    if (change.testProfile !== undefined && change.testProfile !== before.testProfile) {
+      for (const listener of profileListeners) {
+        listener();
+      }
     }
   };
   const stops = [
@@ -60,10 +61,10 @@ export function repoStateOf(session: ClientSession | null): RepoState {
   );
 }
 
-/** Subscribes to any repo's state changing. Returns an unsubscribe. Use outside a Solid reactive root. */
-export function onRepoStateChanged(listener: () => void): () => void {
-  listeners.add(listener);
+/** Subscribes to any repo's test profile changing. Returns an unsubscribe. Use outside a Solid reactive root. */
+export function onTestProfileChanged(listener: () => void): () => void {
+  profileListeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    profileListeners.delete(listener);
   };
 }

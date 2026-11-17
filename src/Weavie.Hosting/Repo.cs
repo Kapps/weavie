@@ -38,7 +38,9 @@ public sealed class Repo {
 	/// <summary>The repo's nudges, whose probe auto-configures its setup command and test profile.</summary>
 	public required SuggestionService Suggestions { get; init; }
 
+	/// <summary>Why a plain folder can't hold a worktree session.</summary>
+	public string NotARepository => $"'{Label}' isn't a git repository, so worktree-backed sessions aren't available.";
+
 	/// <summary>The worktrees of a repo that must be a git repository to proceed.</summary>
-	public WorktreeManager RequireWorktrees() => Worktrees
-		?? throw new InvalidOperationException($"'{Label}' isn't a git repository, so worktree-backed sessions aren't available.");
+	public WorktreeManager RequireWorktrees() => Worktrees ?? throw new InvalidOperationException(NotARepository);
 }

@@ -2,7 +2,7 @@
 // run-lens provider.
 
 import { type ClientSession, log } from "../bridge";
-import { onRepoStateChanged, repoStateOf } from "../repo-state";
+import { repoStateOf } from "../repo-state";
 
 /** One profile rule (mirrors Core's TestRule): a file glob + a symbol regex, plus the run-command templates. */
 export interface TestRule {
@@ -26,9 +26,6 @@ export function testRulesFor(session: ClientSession | null): TestRule[] {
   }
   return rules;
 }
-
-/** Subscribes to profile changes (a host push). Returns an unsubscribe. Use outside a Solid reactive root. */
-export const onTestProfileChanged = onRepoStateChanged;
 
 /** Parses the raw test.profile JSON into rules; a bad or empty value yields no rules (no lenses). */
 export function parseProfile(json: string): TestRule[] {

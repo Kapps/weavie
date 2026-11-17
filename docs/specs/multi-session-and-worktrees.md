@@ -63,8 +63,8 @@ The command returns:
 
 ```json
 {
-  "id": "branch-name",
-  "address": {"slot": "branch-name", "incarnation": "..."}
+  "id": "5c9feadf2b46346b",
+  "address": {"slot": "5c9feadf2b46346b", "incarnation": "..."}
 }
 ```
 

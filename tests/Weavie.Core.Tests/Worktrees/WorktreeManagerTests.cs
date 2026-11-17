@@ -14,7 +14,11 @@ public sealed class WorktreeManagerTests : IDisposable {
 	private const string RegistryPath = "/weavie-wt-mgr-tests/worktrees.json";
 	private readonly TempDirectory _temp = new("weavie-wt-mgr-tests");
 
-	private string RepoRoot => _temp.CreateDirectory("repo");
+	public WorktreeManagerTests() {
+		RepoRoot = _temp.CreateDirectory("repo");
+	}
+
+	private string RepoRoot { get; }
 
 	private string WorktreesDir => _temp.Combine("worktrees");
 

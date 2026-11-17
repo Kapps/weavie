@@ -10,7 +10,7 @@ namespace Weavie.Hosting.Tests;
 
 /// <summary>One workspace holding sessions from two repositories. See docs/specs/multi-repo-workspaces.md.</summary>
 [Collection(TestCollections.HostIntegration)]
-public sealed class HostCoreMultiRepoTests {
+public sealed partial class HostCoreMultiRepoTests {
 	// The second repository sits beside the home repo, so their labels are "repo" and "infra".
 	private static string InfraOf(string home) => Path.Combine(Path.GetDirectoryName(home)!, "infra");
 
@@ -35,6 +35,10 @@ public sealed class HostCoreMultiRepoTests {
 	private static JsonElement InfraEntry(TestHost host, string label) => host.SessionCatalog.Single(entry =>
 		entry.GetProperty("label").GetString() == label && entry.GetProperty("repoLabel").GetString() == "infra");
 
+	private static async Task<string[]> HelloReposAsync(TestHost host) =>
+		[.. (await host.HostRequestAsync<JsonElement>("connection", "hello", new { })).GetProperty("repos").EnumerateArray()
+			.Select(repo => repo.GetProperty("repo").GetString()!)];
+
 	private static bool Toasted(TestHost host, string text) => host.Bridge.PostedEvents("notifications", "show")
 		.Any(toast => toast.GetProperty("message").GetString()!.Contains(text, StringComparison.Ordinal));
 
@@ -52,6 +56,8 @@ public sealed class HostCoreMultiRepoTests {
 			[InfraOf(host.RepoRoot), host.RepoRoot],
 			features.Select(entry => entry.GetProperty("repo").GetString()).Order());
 		Assert.All(features, entry => Assert.True(entry.GetProperty("loaded").GetBoolean()));
+		// A notification names the session by its branch, never by its id.
+		Assert.Equal("feature", host.Session(InfraEntry(host, "feature").GetProperty("id").GetString()!).DisplayLabel);
 		Assert.StartsWith(
 			WeaviePaths.WorkspaceWorktreesDir(WorkspaceId.ForPath(InfraOf(host.RepoRoot))),
 			InfraEntry(host, "feature").GetProperty("worktree").GetString());
@@ -61,7 +67,8 @@ public sealed class HostCoreMultiRepoTests {
 	public async Task ASessionUsesItsOwnReposSetupCommandAndTestProfile() {
 		const string profile = """[{"glob":"**/*.tf","symbol":"x","runOne":"terraform test"}]""";
 		await using var host = await StartWithInfraAsync(infra => WriteOverlay(
-			infra, $"worktree.setupCommand = 'echo infra-setup'\ntest.profile = '{profile}'\n"));
+			infra,
+			$"worktree.setupCommand = 'echo infra-setup'\nworktree.teardownCommand = 'echo infra-teardown'\ntest.profile = '{profile}'\n"));
 
 		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
 
@@ -77,6 +84,10 @@ public sealed class HostCoreMultiRepoTests {
 			new { file = Path.Combine(entry.GetProperty("worktree").GetString()!, "main.py") },
 			CancellationToken.None);
 		Assert.Contains("No test rule in the profile matches", run.Error);
+
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync(entry.GetProperty("id").GetString()!, force: false, classify: false)).Ok);
+		await Wait.UntilAsync(() => Toasted(host, "(echo infra-teardown)"));
 	}
 
 	[Fact]
@@ -189,6 +200,10 @@ public sealed class HostCoreMultiRepoTests {
 		var crossed = await host.CreateSessionAsync(
 			new NewSessionRequest { Branch = "deploy", Repo = InfraOf(host.RepoRoot), Base = "source" });
 		Assert.Contains("The source session is in 'repo', not 'infra'", crossed.Error);
+		// A start that made no session leaves the repo out of the workspace: nothing of it is configured or sent.
+		Assert.DoesNotContain(
+			host.Bridge.PostedEvents("tests", "profile"), push => push.GetProperty("repo").GetString() == InfraOf(host.RepoRoot));
+		Assert.Equal([host.RepoRoot], await HelloReposAsync(host));
 		var missing = await host.CreateSessionAsync(
 			new NewSessionRequest { Branch = "deploy", Repo = Path.Combine(host.RepoRoot, "nowhere"), Base = "main" });
 		Assert.Contains("Couldn't open the repository", missing.Error);

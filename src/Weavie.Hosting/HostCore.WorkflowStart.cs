@@ -29,7 +29,7 @@ public sealed partial class HostCore {
 			: _sessions?.Find(sourceId) ?? throw new InvalidOperationException(SourceGoneMessage);
 		string repoRoot = (source?.Repo ?? Home).Root;
 		if (!string.IsNullOrWhiteSpace(repo)) {
-			repoRoot = await RepoRootAsync(SettingsStore.ExpandHome(repo.Trim()), ct).ConfigureAwait(false);
+			repoRoot = await RepoRootAsync(RepoPath(repo, source), ct).ConfigureAwait(false);
 			// Its settings overlay is read before the repo has a session here.
 			_settings.RegisterWorkspace(repoRoot);
 		}

@@ -93,7 +93,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));
 		State = new SessionState(Bus);
-		DisplayLabel = endpoint.Address.Slot;
 		WorkspaceRoot = workspaceRoot;
 		Repo = paths.Repo;
 		_editorMessages = Bus.Feature("editor");

@@ -320,6 +320,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
 		// session on the workspace checkout.
 		Home = OpenRepo(HomeFolder, git, isRepo);
+		_repos[Home.Id] = Home;
 		_sessions = new SessionManager();
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		LogStartup("worktrees discovered");

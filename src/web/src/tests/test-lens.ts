@@ -11,9 +11,10 @@ import type { TextEditorConnection } from "../editor/editor-context";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "../editor/session-uri";
 import { onLanguageClientStarted } from "../lsp/lsp-client";
 import { notify } from "../notify/notify";
+import { onTestProfileChanged } from "../repo-state";
 import { globMatches } from "./glob";
 import { testRunTargetAt } from "./test-match";
-import { onTestProfileChanged, type TestRule, testRulesFor } from "./test-profile";
+import { type TestRule, testRulesFor } from "./test-profile";
 import { documentTestHits } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.

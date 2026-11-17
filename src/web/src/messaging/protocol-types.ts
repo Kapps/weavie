@@ -47,7 +47,7 @@ export interface SessionChip {
   external: boolean;
   /** The root of the repo the session's checkout belongs to. */
   repo: string;
-  /** The repo's name, shown when the workspace's sessions span more than one repo; else empty. */
+  /** The repo's name; on a rail session, empty unless the workspace's sessions span more than one repo. */
   repoLabel: string;
 }
 

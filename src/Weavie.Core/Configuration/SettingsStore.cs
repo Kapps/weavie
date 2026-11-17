@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Configuration;
 
@@ -618,20 +619,8 @@ public sealed class SettingsStore : IDisposable {
 	private static bool TryNumber(string raw, out double number) =>
 		double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out number) && double.IsFinite(number);
 
-	/// <summary>Replaces a leading <c>~</c> in <paramref name="path"/> with the user's home directory.</summary>
-	public static string ExpandHome(string path) {
-		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		if (path == "~") {
-			return home;
-		}
-
-		return path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal)
-			? Path.Combine(home, path[2..])
-			: path;
-	}
-
 	private string NormalizePath(string raw, string key) {
-		string expanded = ExpandHome(raw);
+		string expanded = WorkspacePaths.ExpandHome(raw);
 		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
 		// A Windows drive-rooted path isn't rooted on POSIX; resolving it against a Linux base dir would

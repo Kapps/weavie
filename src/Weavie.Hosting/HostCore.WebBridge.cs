@@ -607,8 +607,9 @@ public sealed partial class HostCore {
 	private async Task<string[]> ListBranchesAsync(BranchesRequest request, CancellationToken ct) {
 		var git = new GitService();
 		string[] branches = [];
+		// A repo that can't be opened fails the request, so the composer shows why.
+		string repoRoot = (await LaunchAsync(request.SourceId, request.Repo, ct).ConfigureAwait(false)).RepoRoot;
 		try {
-			string repoRoot = (await LaunchAsync(request.SourceId, request.Repo, ct).ConfigureAwait(false)).RepoRoot;
 			var all = await git.ListBranchesAsync(repoRoot, ct).ConfigureAwait(false);
 			var worktrees = await git.ListWorktreesAsync(repoRoot, ct).ConfigureAwait(false);
 			var sessionBranches = SessionLabels(repoRoot);

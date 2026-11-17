@@ -91,6 +91,10 @@ public sealed class WorktreeManager {
 	}
 
 	// Git owns which branch a worktree has checked out; a record follows it whenever git is asked.
+	// A repository whose folder is gone tracks nothing: its worktree directories are leftovers git can't finalize.
+	private async Task<IReadOnlyList<GitWorktree>> GitWorktreesAsync(CancellationToken ct) =>
+		Directory.Exists(_repositoryRoot) ? await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false) : [];
+
 	private void SyncBranches(IReadOnlyList<GitWorktree> gitWorktrees) =>
 		Registry.SyncBranches([.. gitWorktrees.Where(w => !w.IsBare).Select(w => (PathIdentity.Normalize(w.Path), w.Branch))]);
 
@@ -99,7 +103,7 @@ public sealed class WorktreeManager {
 	/// registry as metadata. Registry entries git no longer knows about are returned for pruning.
 	/// </summary>
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
-		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		var gitWorktrees = await GitWorktreesAsync(ct).ConfigureAwait(false);
 		SyncBranches(gitWorktrees);
 		string normalizedRoot = PathIdentity.Normalize(_repositoryRoot);
 
@@ -178,10 +182,7 @@ public sealed class WorktreeManager {
 	public async Task RemoveAsync(string path, bool deleteBranch, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		string normalized = PathIdentity.Normalize(path);
-		// A repository whose folder is gone tracks nothing: its worktree directories are leftovers git can't finalize.
-		var gitWorktrees = Directory.Exists(_repositoryRoot)
-			? await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false)
-			: [];
+		var gitWorktrees = await GitWorktreesAsync(ct).ConfigureAwait(false);
 		SyncBranches(gitWorktrees);
 		var record = Registry.FindByPath(normalized);
 		bool existsInGit = gitWorktrees.Any(w => PathIdentity.Comparer.Equals(PathIdentity.Normalize(w.Path), normalized));

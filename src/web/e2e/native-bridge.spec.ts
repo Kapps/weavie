@@ -126,6 +126,8 @@ test.describe("native in-process bridge contract", () => {
                 workspaceCheckout: false,
                 reloadRequired: null,
                 external: false,
+                repo: "/workspace",
+                repoLabel: "workspace",
               },
             ],
             layout: {

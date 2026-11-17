@@ -11,7 +11,7 @@ using Weavie.Core.Worktrees;
 
 namespace Weavie.Hosting;
 
-// The repos this workspace's sessions live in. A repo joins when its first session is created or restored; its
+// The repos this workspace's sessions live in. A repo joins with its first session and leaves with its last; its
 // on-disk state is keyed by its own root, never by the workspace. See docs/specs/multi-repo-workspaces.md.
 public sealed partial class HostCore {
 	private readonly ConcurrentDictionary<WorkspaceId, Repo> _repos = new();
@@ -65,7 +65,7 @@ public sealed partial class HostCore {
 			() => new SuggestionSignals(corrections.Count, _decisionHistory.Summary()));
 		// Its count gates the corrections.learn card.
 		corrections.Changed += suggestions.Evaluate;
-		return _repos[id] = new Repo {
+		return new Repo {
 			Root = root,
 			Worktrees = worktrees,
 			Provisioner = provisioner,
@@ -75,7 +75,7 @@ public sealed partial class HostCore {
 		};
 	}
 
-	/// <summary>The repo containing <paramref name="path"/>, joining the workspace when it is new to it.</summary>
+	/// <summary>The repo containing <paramref name="path"/>: one of the workspace's, or one opened to join it.</summary>
 	private async Task<Repo> RepoForAsync(string path, CancellationToken ct) {
 		string root = await RepoRootAsync(path, ct).ConfigureAwait(false);
 		if (_repos.TryGetValue(WorkspaceId.ForPath(root), out var known)) {
@@ -84,14 +84,32 @@ public sealed partial class HostCore {
 
 		var repo = OpenRepo(root, new GitService(), isRepository: true);
 		await repo.RequireWorktrees().ReconcileAsync(ct).ConfigureAwait(false);
-		PushTestProfile(repo);
-		PushRecentFiles(repo);
-		repo.Suggestions.Start();
 		return repo;
+	}
+
+	/// <summary>Makes <paramref name="repo"/> one of the workspace's: its state reaches the page and its auto-config runs.</summary>
+	private void Join(Repo repo) {
+		if (_repos.TryAdd(repo.Id, repo)) {
+			PushTestProfile(repo);
+			PushRecentFiles(repo);
+			repo.Suggestions.Start();
+		}
+	}
+
+	/// <summary>Removes <paramref name="slot"/> from the catalog; a repo other than the home folder's leaves with its last session.</summary>
+	private void RemoveSlot(SessionSlot slot) {
+		_sessions?.Remove(slot);
+		if (slot.Repo != Home && _sessions?.Slots.Any(other => other.Repo == slot.Repo) != true) {
+			_repos.TryRemove(slot.Repo.Id, out _);
+		}
 	}
 
 	/// <summary>The root of the repository containing <paramref name="path"/>: the home folder for the home repo.</summary>
 	private async Task<string> RepoRootAsync(string path, CancellationToken ct) {
+		if (_repos.TryGetValue(WorkspaceId.ForPath(path), out var known)) {
+			return known.Root;
+		}
+
 		var git = new GitService();
 		string root = await MainWorktreeAsync(git, path, ct).ConfigureAwait(false);
 		return Home.Worktrees is not null

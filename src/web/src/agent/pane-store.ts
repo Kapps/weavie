@@ -7,6 +7,7 @@ import {
   sessionResourceUrl,
 } from "../bridge";
 import { agentProgressDisplay, agentThoughtDisplay } from "../chrome/agent-default";
+import { sessionInfo } from "../chrome/session-store";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -81,7 +82,7 @@ function createHistory(session: ClientSession) {
         if (!abort.signal.aborted) {
           notify(
             "error",
-            `History for ${session.address.slot} is incomplete: ${String(error)}. Use Reload Agent History${keyHintInCatalog(session.connection.id, CommandIds.reloadAgentHistory)} to retry.`,
+            `History for ${sessionInfo(session)?.label ?? session.address.slot} is incomplete: ${String(error)}. Use Reload Agent History${keyHintInCatalog(session.connection.id, CommandIds.reloadAgentHistory)} to retry.`,
             errorKey,
           );
         }

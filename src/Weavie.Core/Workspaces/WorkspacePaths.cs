@@ -32,6 +32,28 @@ public static class WorkspacePaths {
 		return false;
 	}
 
+	/// <summary>Replaces a leading <c>~</c> in <paramref name="path"/> with the user's home directory.</summary>
+	public static string ExpandHome(string path) {
+		ArgumentNullException.ThrowIfNull(path);
+		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		if (path == "~") {
+			return home;
+		}
+
+		return path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal)
+			? Path.Combine(home, path[2..])
+			: path;
+	}
+
+	/// <summary>
+	/// The absolute form of a typed <paramref name="path"/>: <c>~</c> is the user's home, and a relative path is
+	/// taken from <paramref name="basePath"/>.
+	/// </summary>
+	public static string Resolve(string path, string basePath) {
+		ArgumentException.ThrowIfNullOrEmpty(basePath);
+		return Path.GetFullPath(ExpandHome(path.Trim()), basePath);
+	}
+
 	/// <summary>
 	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), else untouched. Must match the
 	/// web's <c>editor/fs-path.ts</c> <c>canonicalFsPath</c> and Monaco's <c>model.uri.fsPath</c>, or one

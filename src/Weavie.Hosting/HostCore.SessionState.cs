@@ -9,6 +9,8 @@ public sealed partial class HostCore {
 	private const int MaxConcurrentSessionRestores = 8;
 
 	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
+	// Saved sessions git couldn't place in a repo at startup: kept in the store so a later start can restore them.
+	private readonly List<SessionDescriptor> _unrestoredSessions = [];
 
 	private void PersistSessionState() {
 		if (_sessions is null) {
@@ -28,6 +30,7 @@ public sealed partial class HostCore {
 				EditorSession = slot.EditorSession,
 				ShellTerminals = slot.ShellTerminals,
 			})
+			.Concat(_unrestoredSessions)
 			.ToList();
 		_sessionStore.Save(sessions);
 	}
@@ -41,16 +44,7 @@ public sealed partial class HostCore {
 		foreach (var item in _sessionStore.Items) {
 			var slot = _sessions.Find(SessionSlot.IdFor(item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
-				slot = new SessionSlot {
-					Label = _workspaceSessionLabel,
-					Repo = Home,
-					WorktreePath = HomeFolder,
-					AgentProviderId = item.AgentProviderId,
-					Session = null,
-					EditorSession = item.EditorSession,
-					ShellTerminals = item.ShellTerminals,
-				};
-				_sessions.Add(slot);
+				_sessions.Add(slot = DormantSlot(item, Home, _workspaceSessionLabel, HomeFolder));
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
@@ -105,25 +99,34 @@ public sealed partial class HostCore {
 
 		try {
 			var repo = await RepoForAsync(item.WorktreePath, CancellationToken.None).ConfigureAwait(false);
-			return repo == Home ? null : new SessionSlot {
-				Label = item.Label,
-				Repo = repo,
-				WorktreePath = item.WorktreePath,
-				AgentProviderId = item.AgentProviderId,
-				Session = null,
-				EditorSession = item.EditorSession,
-				ShellTerminals = item.ShellTerminals,
-			};
+			if (repo == Home) {
+				return null;
+			}
+
+			Join(repo);
+			return DormantSlot(item, repo, item.Label, item.WorktreePath);
 		} catch (GitException ex) {
-			_sessionStartupNotices.Add(("warn", $"The session '{item.Label}' wasn't restored: {ex.Message}"));
+			_unrestoredSessions.Add(item);
+			_sessionStartupNotices.Add(
+				("warn", $"The session '{item.Label}' wasn't restored: {ex.Message} Its worktree is {item.WorktreePath}."));
 			return null;
 		}
 	}
 
+	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
+		Label = label,
+		Repo = repo,
+		WorktreePath = worktreePath,
+		AgentProviderId = item.AgentProviderId,
+		Session = null,
+		EditorSession = item.EditorSession,
+		ShellTerminals = item.ShellTerminals,
+	};
+
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.Repo, slot.WorktreePath, slot.AgentProviderId, slot.ShellTerminals);
+			session = CreateSession(slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);

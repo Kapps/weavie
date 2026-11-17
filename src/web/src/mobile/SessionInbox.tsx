@@ -6,14 +6,8 @@ import {
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import {
-  backendRepos,
-  defaultRepo,
-  OTHER_REPO,
-  repoOptions,
-  sentRepo,
-} from "../chrome/new-session-repo";
-import type { RailSession } from "../chrome/session-store";
+import { defaultRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
+import { backendRepos, type RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -62,8 +56,12 @@ export function SessionInbox(props: {
     const source = selectedSession();
     return source?.connection.id === backendId() ? source.repo : undefined;
   };
-  const repos = (): string[] => backendRepos(props.sessions, backendId());
-  const repoDefault = (): string => defaultRepo(sourceRepo(), repos());
+  const repos = createMemo(() => backendRepos(backendId()));
+  const repoDefault = (): string =>
+    defaultRepo(
+      sourceRepo(),
+      repos().map((option) => option.repo),
+    );
   // Held while Sessions is closed, so switching sessions behind it re-asks nothing about a lingering draft.
   const repo = createMemo<string | null>(
     (held) => (props.active ? sentRepo(repoEntry() ?? repoDefault()) : held),
@@ -247,10 +245,10 @@ export function SessionInbox(props: {
               value={repoEntry() ?? repoDefault()}
               onChange={(event) => pickRepo(event.currentTarget)}
             >
-              <For each={repoOptions(repos())}>
+              <For each={repos()}>
                 {(option) => (
                   <option value={option.repo} title={option.repo}>
-                    {option.name}
+                    {option.label}
                   </option>
                 )}
               </For>

@@ -235,6 +235,15 @@ describe("repo labels", () => {
     deliverCatalog("local", ["main", "infra/deploy"]);
     expect(labels()).toEqual(["repo", "infra"]);
   });
+
+  it("lists a backend's repos once each, under the host's name for them", () => {
+    deliverCatalog("local", ["main", "infra/deploy", "feature", "infra/rollout"]);
+    expect(store.backendRepos("local")).toEqual([
+      { repo: "/code/repo", label: "repo" },
+      { repo: "/code/infra", label: "infra" },
+    ]);
+    expect(store.backendRepos("gone")).toEqual([]);
+  });
 });
 
 describe("session activity", () => {

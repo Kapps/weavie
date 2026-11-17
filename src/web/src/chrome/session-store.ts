@@ -250,6 +250,17 @@ const merged = createMemo<RailSession[]>(() => {
   return out;
 });
 
+/** The repos a backend's sessions live in, each with the host's name for it, in catalog order. */
+export function backendRepos(backendId: string): { repo: string; label: string }[] {
+  const labels = new Map<string, string>();
+  for (const chip of byBackend().get(backendId) ?? []) {
+    if (!labels.has(chip.repo)) {
+      labels.set(chip.repo, chip.repoLabel);
+    }
+  }
+  return [...labels].map(([repo, label]) => ({ repo, label }));
+}
+
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;
 

@@ -25,21 +25,16 @@ internal sealed partial class WorkspaceWindow : IShellWindow {
 	}
 
 	void IShellWindow.PressCaption(CaptionPress press) {
-		if (press.Button != CaptionPress.Primary || _webView.TakePress() is not { } down) {
-			return;
-		}
-
-		if (press.Count >= 2) {
-			switch (MacWindowChrome.DoubleClickAction()) {
-				case MacDoubleClickAction.Zoom:
-					Window.Zoom(null);
-					break;
-				case MacDoubleClickAction.Minimize:
-					Window.Miniaturize(null);
-					break;
-			}
-		} else if (_webView.Held) {
-			Window.PerformWindowDrag(down);
+		switch (_webView.Caption.PagePress(press)) {
+			case CaptionAction.Drag:
+				Window.PerformWindowDrag(_webView.LastPress!);
+				break;
+			case CaptionAction.DoubleClick when MacWindowChrome.DoubleClickAction() == MacDoubleClickAction.Zoom:
+				Window.Zoom(null);
+				break;
+			case CaptionAction.DoubleClick when MacWindowChrome.DoubleClickAction() == MacDoubleClickAction.Minimize:
+				Window.Miniaturize(null);
+				break;
 		}
 	}
 

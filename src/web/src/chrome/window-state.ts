@@ -3,7 +3,7 @@
 // state defaults. One source for the title bar, the attention intake, and seen-marking.
 
 import { createSignal } from "solid-js";
-import { registerHostFeature } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 
 const [chrome, setChrome] = createSignal<WeavieWindowChrome | null>(
   window.__WEAVIE_SHELL__?.chrome ?? window.__WEAVIE_WELCOME__?.chrome ?? null,
@@ -37,6 +37,9 @@ registerHostFeature((connection) => {
     offChrome();
   };
 });
+
+/** The local host's `window` feature: the native window this page draws chrome for. */
+export const localWindowFeature = () => hostConnection(LOCAL_BACKEND_ID)?.host.feature("window");
 
 /** What the title bar draws for this window, or null when no host describes one (plain-browser dev). */
 export const windowChrome = chrome;

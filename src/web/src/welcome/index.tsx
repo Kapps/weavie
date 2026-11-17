@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 import { render } from "solid-js/web";
 import { log } from "../bridge";
 import "../fonts";
+import { installCaptionPress } from "../chrome/caption-press";
 import { windowChrome } from "../chrome/window-state";
 import { dismissSplash } from "../splash";
 import { applyChromeTheme } from "../theme/controller";
@@ -29,6 +30,7 @@ window.addEventListener("error", (e) => {
 });
 
 applyChromeTheme();
+installCaptionPress();
 render(
   () => (
     <>

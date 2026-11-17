@@ -1,19 +1,11 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { test } from "./harness/network-fixtures";
+import { CHROME, installShell } from "./harness/window-chrome";
 import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
 
 // Both tests need the same workspace holding one scrollable transcript. The shell claims macOS — the one
 // platform whose engine has no autoscroll of its own — so a re-introduced platform gate fails here.
@@ -22,22 +14,7 @@ async function openAutoscrollPane(
   name: string,
 ): Promise<{ host: MockHost; body: Locator }> {
   const session = mockSession(name, name, "codex");
-  await page.addInitScript(() => {
-    window.__WEAVIE_SHELL__ = {
-      platform: "mac",
-      chrome: {
-        menus: false,
-        caption: "press",
-        resizeHandles: false,
-        barHeight: null,
-        controls: { start: [], end: [] },
-        inset: { start: 78, end: 0 },
-      },
-      workspaceLabel: "autoscroll-test",
-      recents: [],
-      buildNumber: "test",
-    };
-  });
+  await installShell(page, "mac", CHROME.mac);
   const host = await MockHost.start({ distDir, sessions: [session] });
   host.setAgentHistory(session.address, {
     generation: 1,

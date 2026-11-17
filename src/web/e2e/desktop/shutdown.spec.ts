@@ -1,19 +1,14 @@
-import { once } from "node:events";
-import { createServer } from "node:http";
 import { expect } from "@playwright/test";
-import { test } from "./fixture";
+import { localServer, test } from "./fixture";
 
 for (const stage of ["welcome", "workspace"]) {
   test(`desktop shuts down cleanly from ${stage}`, async ({ desktop }) => {
     const ready = Promise.withResolvers<string>();
-    const server = createServer((req, res) => {
+    const { origin, close } = await localServer((req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.end();
       ready.resolve(req.url!);
     });
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
-    const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     try {
       const app = await desktop(
         (workspace) => `
@@ -32,8 +27,7 @@ for (const stage of ["welcome", "workspace"]) {
         stage === "welcome" ? "/welcome.html" : "/index.html",
       );
     } finally {
-      server.closeAllConnections();
-      server.close();
+      close();
     }
   });
 }

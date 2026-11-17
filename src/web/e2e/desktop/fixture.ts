@@ -2,12 +2,31 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import { cp, readFile, writeFile } from "node:fs/promises";
+import { createServer, type RequestListener, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { finished } from "node:stream/promises";
 import { test as base, expect } from "@playwright/test";
 import { killProcessTree, prepareFake } from "../harness/weavie-host";
 
 type Desktop = { workspace: string; exited: Promise<never> };
+
+/** A local HTTP server on a free port for pages in the app to report to; `close` also drops open connections. */
+export async function localServer(
+  handler: RequestListener,
+): Promise<{ server: Server; origin: string; close: () => void }> {
+  const server = createServer(handler);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  return {
+    server,
+    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
 export const test = base.extend<{
   desktopDocument: "app" | "bridge";
   desktop: (driver: (workspace: string) => string) => Promise<Desktop>;

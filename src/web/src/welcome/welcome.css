@@ -8,7 +8,8 @@
   flex-direction: column;
 }
 
-.welcome-bar {
+/* The strip is a plain row, not the workspace bar's three-column grid. */
+.titlebar.welcome-bar {
   display: flex;
 }
 

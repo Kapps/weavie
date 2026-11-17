@@ -18,13 +18,14 @@
 }
 
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
-  .app.compact .titlebar,
-  .app.compact .tb-center {
+  /* A window without an OS title bar keeps its bar: its buttons and caption have nowhere else to go. */
+  .app.compact .titlebar:not(.windowed),
+  .app.compact .titlebar:not(.windowed) .tb-center {
     display: contents;
   }
 
-  .app.compact .tb-left,
-  .app.compact .tb-controls {
+  .app.compact .titlebar:not(.windowed) .tb-left,
+  .app.compact .titlebar:not(.windowed) .tb-controls {
     display: none;
   }
 

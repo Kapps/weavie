@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
@@ -68,14 +67,6 @@ function expectation(fixture: SessionFixture): SessionSwitchExpectation {
         : { kind: "text", pathSuffix: fixture.active, marker: fixture.marker },
   };
 }
-
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
 
 test("warm session switches retain editor models without host file reads", async ({ page }) => {
   const host = await MockHost.start({

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
@@ -7,17 +6,10 @@ import type { HostHello } from "../src/messaging/host-connection";
 import { test } from "./harness/network-fixtures";
 import { frames } from "./harness/render-budget";
 import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "./harness/websocket-codec";
+import { CHROME, installShell } from "./harness/window-chrome";
 import { type MessageEnvelope, MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
-
 const NOTION_PROMPT = {
   id: "notion",
   displayName: "Notion",
@@ -66,22 +58,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([localSession]);
     const remote = await MockHost.start({ distDir, sessions: [remoteSession] });
     remote.pauseHello();
-    await page.addInitScript(() => {
-      window.__WEAVIE_SHELL__ = {
-        platform: "linux",
-        chrome: {
-          menus: true,
-          caption: "press",
-          resizeHandles: false,
-          barHeight: null,
-          controls: { start: [], end: ["minimize", "maximize-toggle", "close"] },
-          inset: { start: 0, end: 0 },
-        },
-        workspaceLabel: "test",
-        recents: [],
-        buildNumber: "test",
-      };
-    });
+    await installShell(page, "linux", CHROME.linux);
     for (const [backend, session] of [
       [host, localSession],
       [remote, remoteSession],

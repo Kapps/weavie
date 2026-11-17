@@ -3,7 +3,7 @@
 /* Omnibar */
 .tb-omnibar {
   position: relative;
-  width: min(560px, 100%);
+  width: min(var(--omnibar-width), 100%);
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }

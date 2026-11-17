@@ -1,6 +1,7 @@
 import { Copy, Minus, Square, X } from "lucide-solid";
 import { For, type JSX, Match, Switch } from "solid-js";
-import { publishWindowControl } from "./caption-press";
+import { windowControlLabel } from "./window-control-label";
+import { localWindowFeature } from "./window-state";
 
 // One end's page-drawn window buttons, in the order the host's chrome lists them.
 export function WindowControls(props: {
@@ -14,8 +15,9 @@ export function WindowControls(props: {
           type="button"
           class="tb-ctl"
           classList={{ "tb-close": action === "close" }}
-          aria-label={label(action, props.maximized)}
-          onClick={() => publishWindowControl(action)}
+          aria-label={windowControlLabel(action, props.maximized)}
+          title={windowControlLabel(action, props.maximized)}
+          onClick={() => localWindowFeature()?.publish("control", { action })}
         >
           <Switch>
             <Match when={action === "minimize"}>
@@ -35,10 +37,4 @@ export function WindowControls(props: {
       )}
     </For>
   );
-}
-
-function label(action: WindowControlAction, maximized: boolean): string {
-  if (action === "minimize") return "Minimize";
-  if (action === "close") return "Close";
-  return maximized ? "Restore" : "Maximize";
 }

@@ -6,10 +6,6 @@ namespace Weavie.Core.Tests;
 
 /// <summary>Title-bar wire contract: host→web JSON and web→host menu parsing.</summary>
 public sealed class ShellProtocolTests {
-	private static readonly WindowChrome Frameless = new(
-		true, CaptionMode.Region, true, null,
-		new WindowControls([], [WindowControl.Minimize, WindowControl.MaximizeToggle, WindowControl.Close]), default);
-
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
 	private static JsonElement Config(string script) {
@@ -21,7 +17,7 @@ public sealed class ShellProtocolTests {
 
 	[Fact]
 	public void BuildConfigScript_AssignsGlobalWithFields() {
-		var config = Config(ShellProtocol.BuildConfigScript("win", Frameless, "weavie", [@"C:\a", @"C:\b"], "0.1.247"));
+		var config = Config(ShellProtocol.BuildConfigScript("win", WindowChrome.Frameless, "weavie", [@"C:\a", @"C:\b"], "0.1.247"));
 
 		Assert.Equal("win", config.GetProperty("platform").GetString());
 		Assert.Equal("weavie", config.GetProperty("workspaceLabel").GetString());
@@ -31,7 +27,7 @@ public sealed class ShellProtocolTests {
 
 	[Fact]
 	public void BuildConfigScript_CarriesTheChromeInPageWireNames() {
-		var chrome = Config(ShellProtocol.BuildConfigScript("win", Frameless, "weavie", [], "0.1.247")).GetProperty("chrome");
+		var chrome = Config(ShellProtocol.BuildConfigScript("win", WindowChrome.Frameless, "weavie", [], "0.1.247")).GetProperty("chrome");
 
 		Assert.Equal(
 			"""{"menus":true,"caption":"region","resizeHandles":true,"barHeight":null,"controls":{"start":[],"end":["minimize","maximize-toggle","close"]},"inset":{"start":0,"end":0}}""",

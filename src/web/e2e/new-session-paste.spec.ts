@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
@@ -8,14 +7,6 @@ import { oversizedPng, PNG_B64 } from "./harness/pasted-image";
 import { MockHost, mockCommand, mockSession, NEW_SESSION_COMMAND } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
-
 test("desktop image paste participates in preview and submit while text remains a fallback", async ({
   page,
 }) => {

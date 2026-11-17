@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
@@ -232,6 +233,11 @@ export class MockHost {
   }
 
   static async start(options: MockHostOptions): Promise<MockHost> {
+    if (!existsSync(join(options.distDir, "index.html"))) {
+      throw new Error(
+        `built app not found at ${options.distDir}; run \`pnpm run build\` before the e2e tests`,
+      );
+    }
     await initWebSocketCodec();
     const host = new MockHost(
       options.distDir,

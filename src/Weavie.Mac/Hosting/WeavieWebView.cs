@@ -1,38 +1,33 @@
 using CoreGraphics;
+using Weavie.Core.Shell;
 using WebKit;
 
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// The workspace page's web view. Records the primary press the page may report as a caption press, so the window can
-/// start AppKit's drag from the real event, and takes the first click on an inactive window inside the title-bar strip.
+/// The workspace page's web view. Records primary presses for the window's <see cref="CaptionGesture"/>, keeping the
+/// event so AppKit's drag can start from it, and takes the first click on an inactive window inside the title bar.
 /// </summary>
 internal sealed class WeavieWebView : WKWebView {
-	private NSEvent? _press;
-
 	public WeavieWebView(CGRect frame, WKWebViewConfiguration configuration) : base(frame, configuration) { }
+
+	/// <summary>The presses the page's caption reports are paired with.</summary>
+	public CaptionGesture Caption { get; } = new();
+
+	/// <summary>The latest primary mouse-down, which a drag starts from.</summary>
+	public NSEvent? LastPress { get; private set; }
 
 	/// <summary>The height, in points, of the title-bar strip at the top of the view.</summary>
 	public double CaptionHeight { get; set; }
 
-	/// <summary>Whether the primary button is still down since the recorded press.</summary>
-	public bool Held { get; private set; }
-
-	/// <summary>Claims the latest primary press for a caption report; null when there is none or it was claimed.</summary>
-	public NSEvent? TakePress() {
-		var press = _press;
-		_press = null;
-		return press;
-	}
-
 	public override void MouseDown(NSEvent theEvent) {
-		_press = theEvent;
-		Held = true;
+		LastPress = theEvent;
+		Caption.NativePress(CaptionPress.Primary);
 		base.MouseDown(theEvent);
 	}
 
 	public override void MouseUp(NSEvent theEvent) {
-		Held = false;
+		Caption.NativeRelease();
 		base.MouseUp(theEvent);
 	}
 

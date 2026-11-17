@@ -180,6 +180,12 @@ test("an update that lands while a column filter is open leaves it open", async 
   const block = surface.locator(".agent-entry-block");
   const messages = block.locator(".agent-table-row .agent-table-cell:nth-of-type(4)");
   await expect(messages).toHaveCount(3);
+  // The first turn is over once its last message shows and its update has folded away.
+  const starting = surface.locator(".agent-entry-message", { hasText: "block call starting" });
+  await expect(
+    surface.locator(".agent-entry-message", { hasText: "block call done" }),
+  ).toBeVisible();
+  await expect(starting).toHaveCount(0);
 
   const append = { rows: [["2026-11-12T14:32:00Z", "error", "circuit open"]], keep: 10 };
   await signal("hold-block");
@@ -187,6 +193,8 @@ test("an update that lands while a column filter is open leaves it open", async 
     surface,
     `block:claude:updateBlock:${JSON.stringify({ id: "errors", append })}`,
   );
+  // The turn's rows land before the filter opens; landing after, they scroll its table out of view and close it.
+  await expect(starting).toBeVisible();
   await block.getByRole("button", { name: "Filter level" }).click();
   const byLevel = page.getByRole("dialog", { name: "Filter level" });
   await byLevel.getByRole("button", { name: "error" }).click();

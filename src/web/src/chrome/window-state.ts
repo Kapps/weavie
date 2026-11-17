@@ -1,10 +1,13 @@
-// The native window's chrome state, host-pushed as `window.state` (a local-machine push: only a shell
-// with a real window sends it; browser-served pages never see one and the defaults hold). One source for
-// the title bar, the attention intake, and seen-marking.
+// The native window's chrome: its description (boot config, re-pushed as `window.chrome`) and its state
+// (`window.state`). Local-machine pushes only: a browser-served page keeps its boot description and the
+// state defaults. One source for the title bar, the attention intake, and seen-marking.
 
 import { createSignal } from "solid-js";
 import { registerHostFeature } from "../bridge";
 
+const [chrome, setChrome] = createSignal<WeavieWindowChrome | null>(
+  window.__WEAVIE_SHELL__?.chrome ?? window.__WEAVIE_WELCOME__?.chrome ?? null,
+);
 const [maximized, setMaximized] = createSignal(false);
 const [hostFocused, setHostFocused] = createSignal(true);
 // Re-runs reactive readers of windowFocused() when the page's own focus or visibility may have changed.
@@ -20,13 +23,23 @@ registerHostFeature((connection) => {
   if (!connection.isLocal) {
     return;
   }
-  return connection.host
-    .feature("window")
-    .on<{ maximized: boolean; focused: boolean }>("state", ({ maximized, focused }) => {
+  const feature = connection.host.feature("window");
+  const offState = feature.on<{ maximized: boolean; focused: boolean }>(
+    "state",
+    ({ maximized, focused }) => {
       setMaximized(maximized);
       setHostFocused(focused);
-    });
+    },
+  );
+  const offChrome = feature.on<WeavieWindowChrome>("chrome", setChrome);
+  return () => {
+    offState();
+    offChrome();
+  };
 });
+
+/** What the title bar draws for this window, or null when no host describes one (plain-browser dev). */
+export const windowChrome = chrome;
 
 /** Whether the native window is maximized (the title bar's restore glyph + the resize frame). */
 export const windowMaximized = maximized;

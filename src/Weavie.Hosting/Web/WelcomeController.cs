@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Shell;
@@ -16,6 +15,7 @@ public sealed class WelcomeController {
 	private readonly IWebTransportHub _bridge;
 	private readonly IWebSurface _surface;
 	private readonly IUiDispatcher _ui;
+	private readonly IShellWindow _window;
 	private readonly HostServices _services;
 	private readonly string _welcomeUrl;
 	private readonly Func<IReadOnlyList<string>> _recents;
@@ -24,34 +24,29 @@ public sealed class WelcomeController {
 	private Attachment? _attachment;
 	private bool _detached;
 
-	/// <param name="bridge">The host's web-message bridge the welcome page talks over.</param>
-	/// <param name="surface">The host's native WebView ops (inject + navigate).</param>
-	/// <param name="ui">The host's UI-thread dispatcher; the open handlers run on it.</param>
+	/// <param name="host">The native window, web view, bridge and UI thread the welcome page runs in.</param>
 	/// <param name="services">The app-global stores the welcome page reads and changes.</param>
 	/// <param name="welcomeUrl">The welcome page URL for this host (e.g. <c>app://app/welcome.html</c>).</param>
 	/// <param name="recents">The current recent-workspace paths, read fresh on each show/refresh.</param>
 	/// <param name="onOpenFolder">Invoked for Open Folder: the host shows its native picker and opens the choice.</param>
 	/// <param name="onOpenRecent">Invoked for Open Recent with the chosen path: the host opens it (or prunes + <see cref="RefreshAsync"/>).</param>
 	public WelcomeController(
-		IWebTransportHub bridge,
-		IWebSurface surface,
-		IUiDispatcher ui,
+		WelcomeHost host,
 		HostServices services,
 		string welcomeUrl,
 		Func<IReadOnlyList<string>> recents,
 		Action onOpenFolder,
 		Action<string> onOpenRecent) {
-		ArgumentNullException.ThrowIfNull(bridge);
-		ArgumentNullException.ThrowIfNull(surface);
-		ArgumentNullException.ThrowIfNull(ui);
+		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentException.ThrowIfNullOrEmpty(welcomeUrl);
 		ArgumentNullException.ThrowIfNull(recents);
 		ArgumentNullException.ThrowIfNull(onOpenFolder);
 		ArgumentNullException.ThrowIfNull(onOpenRecent);
-		_bridge = bridge;
-		_surface = surface;
-		_ui = new GuardedUiDispatcher(ui, failure => Log($"[welcome] a UI action failed: {failure}"));
+		_bridge = host.Bridge;
+		_surface = host.Surface;
+		_ui = new GuardedUiDispatcher(host.Ui, failure => Log($"[welcome] a UI action failed: {failure}"));
+		_window = host.Window;
 		_services = services;
 		_welcomeUrl = welcomeUrl;
 		_recents = recents;
@@ -90,9 +85,12 @@ public sealed class WelcomeController {
 
 		return _surface.LoadAsync(
 			_welcomeUrl,
-			$"window.__WEAVIE_WELCOME__ = {BuildConfigJson(_recents(), _services.Settings.RequireBool(CoreSettings.GettingStartedCompleted))};"
+			$"window.__WEAVIE_WELCOME__ = {JsonSerializer.Serialize(new WelcomeConfigWire([.. _recents()], _services.Settings.RequireBool(CoreSettings.GettingStartedCompleted), _window.Chrome), WireJson.Default.WelcomeConfigWire)};"
 			+ attachment.Global.BootstrapScript());
 	}
+
+	/// <summary>Pushes the native window's state to the welcome page's title bar; a no-op once detached. UI thread.</summary>
+	public void PushWindowState(bool maximized, bool focused) => _attachment?.Window.PushState(maximized, focused);
 
 	/// <summary>Stops serving the welcome page — call when leaving the welcome surface for a workspace.</summary>
 	public void Detach() {
@@ -105,21 +103,6 @@ public sealed class WelcomeController {
 	private static void Log(string line) {
 		Console.WriteLine(line);
 		Console.Out.Flush();
-	}
-
-	// The window.__WEAVIE_WELCOME__ payload, hand-built so it stays trim-safe on every host (JsonSerializer of an
-	// anonymous type is IL2026 on the macOS SDK).
-	private static string BuildConfigJson(IReadOnlyList<string> recents, bool setupCompleted) {
-		var sb = new StringBuilder("{\"recents\":[");
-		for (int i = 0; i < recents.Count; i++) {
-			if (i > 0) {
-				sb.Append(',');
-			}
-
-			sb.Append('"').Append(JsonEncodedText.Encode(recents[i]).ToString()).Append('"');
-		}
-
-		return sb.Append("],\"setupCompleted\":").Append(setupCompleted ? "true" : "false").Append('}').ToString();
 	}
 
 	// One welcome page's message plumbing: the router + ingress over the shared bridge, the app-wide features, and
@@ -136,6 +119,7 @@ public sealed class WelcomeController {
 			_ingress = new MessageIngress(owner._ui, _router.RouteAsync, _router.Disconnect, _router.Diagnostics);
 			Global = new GlobalHostFeatures(_router.Host, owner._services, Log);
 			_menuActions = new DeferredUiQueue(owner._ui);
+			Window = new WindowFeature(_router.Host, owner._window);
 			_router.Host.Feature("window").Handle("menu", MessageActivity.ActionFailed("Running a menu action"), WireJson.Default.JsonElement, (message, _) => {
 				_menuActions.Enqueue(() => OnMenu(message));
 				return Task.CompletedTask;
@@ -146,12 +130,15 @@ public sealed class WelcomeController {
 
 		public GlobalHostFeatures Global { get; }
 
+		public WindowFeature Window { get; }
+
 		// Unhooks synchronously so a workspace can take over the bridge at once; the queues drain in the background
 		// because Close usually runs inside this router's own menu handler.
 		public void Close() {
 			_owner._bridge.MessageReceived -= _ingress.Enqueue;
 			_owner._bridge.PeerDisconnected -= _ingress.EnqueueDisconnect;
 			_menuActions.Close();
+			Window.Dispose();
 			Global.Dispose();
 			_ = DisposeAsync();
 		}
@@ -181,3 +168,13 @@ public sealed class WelcomeController {
 		}
 	}
 }
+
+/// <summary>The native pieces a welcome screen runs in: its web view, the bridge to it, the UI thread, and its window.</summary>
+/// <param name="Bridge">The host's web-message bridge the welcome page talks over.</param>
+/// <param name="Surface">The host's native WebView ops (inject + navigate).</param>
+/// <param name="Ui">The host's UI-thread dispatcher; the open handlers run on it.</param>
+/// <param name="Window">The window the welcome page draws chrome for.</param>
+public sealed record WelcomeHost(IWebTransportHub Bridge, IWebSurface Surface, IUiDispatcher Ui, IShellWindow Window);
+
+/// <summary>The <c>window.__WEAVIE_WELCOME__</c> payload.</summary>
+internal sealed record WelcomeConfigWire(IReadOnlyList<string> Recents, bool SetupCompleted, WindowChrome Chrome);

@@ -13,9 +13,7 @@ internal sealed partial class WorkspaceHost {
 
 	private void ShowWelcome() {
 		_welcome = new WelcomeController(
-			_bridge,
-			this,
-			new DelegateUiDispatcher(GtkMain.Invoke),
+			new WelcomeHost(_bridge, this, new DelegateUiDispatcher(GtkMain.Invoke), this),
 			_services!,
 			"app://app/welcome.html",
 			() => _recents!.Items,

@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Weavie.Linux.Native;
 
-/// <summary>GDK 4 — display/backend identity, keyval helpers, and the clipboard the host bus reads and writes.</summary>
+/// <summary>GDK 4 — display/backend identity, keyval helpers, pointer events and window moves, and the clipboard.</summary>
 internal static partial class Gdk {
 	private const string Lib = Gtk.Lib;
 
@@ -29,6 +29,52 @@ internal static partial class Gdk {
 			_ => DisplayBackend.Unknown,
 		};
 	}
+
+	/// <summary><c>GDK_MOTION_NOTIFY</c>, a <c>GdkEventType</c>.</summary>
+	internal const int MotionNotify = 1;
+
+	/// <summary><c>GDK_BUTTON_PRESS</c>, a <c>GdkEventType</c>.</summary>
+	internal const int ButtonPress = 2;
+
+	/// <summary><c>GDK_BUTTON_RELEASE</c>, a <c>GdkEventType</c>.</summary>
+	internal const int ButtonRelease = 3;
+
+	[LibraryImport(Lib)]
+	internal static partial int gdk_event_get_event_type(IntPtr gdkEvent);
+
+	[LibraryImport(Lib)]
+	internal static partial uint gdk_button_event_get_button(IntPtr gdkEvent);
+
+	/// <summary>The event's position in surface coordinates.</summary>
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool gdk_event_get_position(IntPtr gdkEvent, out double x, out double y);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_event_get_device(IntPtr gdkEvent);
+
+	[LibraryImport(Lib)]
+	internal static partial uint gdk_event_get_time(IntPtr gdkEvent);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_event_ref(IntPtr gdkEvent);
+
+	[LibraryImport(Lib)]
+	internal static partial void gdk_event_unref(IntPtr gdkEvent);
+
+	/// <summary>Hands an interactive move to the window system; the pointer drives it until the button is released.</summary>
+	[LibraryImport(Lib)]
+	internal static partial void gdk_toplevel_begin_move(
+		IntPtr toplevel, IntPtr device, int button, double x, double y, uint timestamp);
+
+	/// <summary>Asks the window system for its window menu at the press; false where it has none.</summary>
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool gdk_toplevel_show_window_menu(IntPtr toplevel, IntPtr gdkEvent);
+
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool gdk_toplevel_lower(IntPtr toplevel);
 
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gdk_display_get_default();

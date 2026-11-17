@@ -917,7 +917,7 @@ export class MockHost {
       return;
     }
     try {
-      if (relative === "index.html") {
+      if (relative === "index.html" || relative === "welcome.html") {
         const html = await readFile(resolved, "utf8");
         res
           .writeHead(200, { "content-type": "text/html; charset=utf-8" })

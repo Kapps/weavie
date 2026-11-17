@@ -4,71 +4,62 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Title-bar wire contract: host→web JSON and web→host action parsing.</summary>
+/// <summary>Title-bar wire contract: host→web JSON and web→host menu parsing.</summary>
 public sealed class ShellProtocolTests {
+	private static readonly WindowChrome Frameless = new(
+		true, CaptionMode.Region, true, null,
+		new WindowControls([], [WindowControl.Minimize, WindowControl.MaximizeToggle, WindowControl.Close]), default);
+
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+
+	private static JsonElement Config(string script) {
+		const string prefix = "window.__WEAVIE_SHELL__ = ";
+		Assert.StartsWith(prefix, script, StringComparison.Ordinal);
+		Assert.EndsWith(";", script, StringComparison.Ordinal);
+		return Parse(script[prefix.Length..^1]);
+	}
 
 	[Fact]
 	public void BuildConfigScript_AssignsGlobalWithFields() {
-		string script = ShellProtocol.BuildConfigScript("win", "custom", "weavie", [@"C:\a", @"C:\b"], "0.1.247");
+		var config = Config(ShellProtocol.BuildConfigScript("win", Frameless, "weavie", [@"C:\a", @"C:\b"], "0.1.247"));
 
-		Assert.StartsWith("window.__WEAVIE_SHELL__ = ", script);
-		Assert.EndsWith(";", script);
-		Assert.Contains("\"platform\":\"win\"", script);
-		Assert.Contains("\"titleBar\":\"custom\"", script);
-		Assert.Contains("\"workspaceLabel\":\"weavie\"", script);
-		Assert.Contains("\"buildNumber\":\"0.1.247\"", script);
+		Assert.Equal("win", config.GetProperty("platform").GetString());
+		Assert.Equal("weavie", config.GetProperty("workspaceLabel").GetString());
+		Assert.Equal("0.1.247", config.GetProperty("buildNumber").GetString());
+		Assert.False(config.TryGetProperty("titleBar", out _));
 	}
 
 	[Fact]
-	public void BuildConfigScript_NullTitleBar_SerializesNull() {
-		string script = ShellProtocol.BuildConfigScript("mac", null, "proj", [], "0.1.247");
+	public void BuildConfigScript_CarriesTheChromeInPageWireNames() {
+		var chrome = Config(ShellProtocol.BuildConfigScript("win", Frameless, "weavie", [], "0.1.247")).GetProperty("chrome");
 
-		Assert.Contains("\"titleBar\":null", script);
+		Assert.Equal(
+			"""{"menus":true,"caption":"region","resizeHandles":true,"barHeight":null,"controls":{"start":[],"end":["minimize","maximize-toggle","close"]},"inset":{"start":0,"end":0}}""",
+			chrome.GetRawText());
 	}
 
 	[Fact]
-	public void BuildConfigScript_LinuxAppBar_SerializesLinuxMode() {
-		string script = ShellProtocol.BuildConfigScript("linux", "linux", "proj", [], "0.1.247");
+	public void BuildConfigScript_MeasuredChrome_CarriesHeightAndInset() {
+		var measured = new WindowChrome(false, CaptionMode.Press, false, 52, WindowControls.None, new ChromeInset(78, 0));
 
-		Assert.Contains("\"platform\":\"linux\"", script);
-		Assert.Contains("\"titleBar\":\"linux\"", script);
-	}
+		var chrome = Config(ShellProtocol.BuildConfigScript("mac", measured, "proj", [], "0.1.247")).GetProperty("chrome");
 
-	[Theory]
-	[InlineData("minimize", WindowControl.Minimize)]
-	[InlineData("maximize-toggle", WindowControl.MaximizeToggle)]
-	[InlineData("close", WindowControl.Close)]
-	public void TryParseWindowControl_KnownActions(string action, WindowControl expected) {
-		var el = Parse($$"""{"action":"{{action}}"}""");
-
-		Assert.True(ShellProtocol.TryParseWindowControl(el, out var control));
-		Assert.Equal(expected, control);
+		Assert.Equal("press", chrome.GetProperty("caption").GetString());
+		Assert.Equal(52, chrome.GetProperty("barHeight").GetInt32());
+		Assert.Equal(78, chrome.GetProperty("inset").GetProperty("start").GetInt32());
 	}
 
 	[Fact]
-	public void TryParseWindowControl_UnknownAction_ReturnsFalse() =>
-		Assert.False(ShellProtocol.TryParseWindowControl(Parse("""{"action":"spin"}"""), out _));
+	public void FixedWindow_OffersNoOperations() {
+		IShellWindow window = new FixedShellWindow(WindowChrome.Browser);
 
-	[Theory]
-	[InlineData("left", ResizeEdge.Left)]
-	[InlineData("right", ResizeEdge.Right)]
-	[InlineData("top", ResizeEdge.Top)]
-	[InlineData("bottom", ResizeEdge.Bottom)]
-	[InlineData("top-left", ResizeEdge.TopLeft)]
-	[InlineData("top-right", ResizeEdge.TopRight)]
-	[InlineData("bottom-left", ResizeEdge.BottomLeft)]
-	[InlineData("bottom-right", ResizeEdge.BottomRight)]
-	public void TryParseWindowResize_KnownEdges(string edge, ResizeEdge expected) {
-		var el = Parse($$"""{"edge":"{{edge}}"}""");
-
-		Assert.True(ShellProtocol.TryParseWindowResize(el, out var parsed));
-		Assert.Equal(expected, parsed);
+		Assert.Same(WindowChrome.Browser, window.Chrome);
+		Assert.Throws<NotSupportedException>(window.Minimize);
+		Assert.Throws<NotSupportedException>(window.ToggleMaximize);
+		Assert.Throws<NotSupportedException>(window.Close);
+		Assert.Throws<NotSupportedException>(() => window.StartResize(ResizeEdge.Left));
+		Assert.Throws<NotSupportedException>(() => window.PressCaption(new CaptionPress(CaptionPress.Primary, 1)));
 	}
-
-	[Fact]
-	public void TryParseWindowResize_UnknownEdge_ReturnsFalse() =>
-		Assert.False(ShellProtocol.TryParseWindowResize(Parse("""{"edge":"sideways"}"""), out _));
 
 	[Fact]
 	public void TryParseMenuAction_OpenRecent_CarriesPath() {
@@ -84,16 +75,12 @@ public sealed class ShellProtocolTests {
 		Assert.False(ShellProtocol.TryParseMenuAction(Parse("""{"action":"nope"}"""), out _, out _));
 }
 
-/// <summary>Controller routing title-bar messages to the platform window.</summary>
-public sealed class ShellControllerTests {
-	private sealed class FakeWindow : IShellWindow, IShellMenuActions {
+/// <summary>Controller routing File-menu messages to the platform's menu actions.</summary>
+public sealed class ShellMenuControllerTests {
+	private sealed class FakeMenu : IShellMenuActions {
 		public List<string> Calls { get; } = [];
 		public string? OpenedPath { get; private set; }
 
-		public void Minimize() => Calls.Add("minimize");
-		public void ToggleMaximize() => Calls.Add("toggle-maximize");
-		public void StartResize(ResizeEdge edge) => Calls.Add($"start-resize:{edge}");
-		public void Close() => Calls.Add("close");
 		public void CloseWindow() => Calls.Add("close-window");
 		public void Quit() => Calls.Add("quit");
 		public void ShowOpenFolderPicker() => Calls.Add("open-folder");
@@ -106,87 +93,46 @@ public sealed class ShellControllerTests {
 
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-	private static ShellController Make(FakeWindow window) => new(window);
-	private static ShellMenuController MakeMenu(FakeWindow window) => new(window);
-
-	[Fact]
-	public void HandleWindowControl_Minimize_CallsWindow() {
-		var window = new FakeWindow();
-		Make(window).HandleWindowControl(Parse("""{"action":"minimize"}"""));
-
-		Assert.Equal(["minimize"], window.Calls);
-	}
-
-	[Fact]
-	public void HandleWindowControl_MaximizeToggle_TogglesWindow() {
-		var window = new FakeWindow();
-		Make(window).HandleWindowControl(Parse("""{"action":"maximize-toggle"}"""));
-
-		Assert.Equal(["toggle-maximize"], window.Calls);
-	}
+	private static ShellMenuController MakeMenu(FakeMenu menu) => new(menu);
 
 	[Fact]
 	public void HandleMenuAction_OpenFolder_ShowsPicker() {
-		var window = new FakeWindow();
-		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
+		var menu = new FakeMenu();
+		MakeMenu(menu).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
 
-		Assert.Equal(["open-folder"], window.Calls);
-	}
-
-	[Fact]
-	public void HandleWindowResize_KnownEdge_StartsResize() {
-		var window = new FakeWindow();
-		Make(window).HandleWindowResize(Parse("""{"edge":"bottom-right"}"""));
-
-		Assert.Equal(["start-resize:BottomRight"], window.Calls);
-	}
-
-	[Fact]
-	public void HandleWindowResize_UnknownEdge_DoesNothing() {
-		var window = new FakeWindow();
-		Make(window).HandleWindowResize(Parse("""{"edge":"nope"}"""));
-
-		Assert.Empty(window.Calls);
+		Assert.Equal(["open-folder"], menu.Calls);
 	}
 
 	[Fact]
 	public void HandleMenuAction_OpenRecent_OpensThatWorkspace() {
-		var window = new FakeWindow();
-		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
+		var menu = new FakeMenu();
+		MakeMenu(menu).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
 
-		Assert.Equal("C:\\proj", window.OpenedPath);
+		Assert.Equal("C:\\proj", menu.OpenedPath);
 	}
 
 	[Fact]
 	public void HandleMenuAction_OpenRecent_EmptyPath_DoesNotOpen() {
-		var window = new FakeWindow();
-		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
+		var menu = new FakeMenu();
+		MakeMenu(menu).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
 
-		Assert.Empty(window.Calls);
-		Assert.Null(window.OpenedPath);
+		Assert.Empty(menu.Calls);
+		Assert.Null(menu.OpenedPath);
 	}
 
 	[Fact]
 	public void HandleMenuAction_CloseWindow_UsesMenuClose() {
-		var window = new FakeWindow();
-		MakeMenu(window).HandleMenuAction(Parse("""{"action":"close-window"}"""));
+		var menu = new FakeMenu();
+		MakeMenu(menu).HandleMenuAction(Parse("""{"action":"close-window"}"""));
 
-		Assert.Equal(["close-window"], window.Calls);
-	}
-
-	[Fact]
-	public void HandleWindowControl_Close_UsesPlainClose() {
-		var window = new FakeWindow();
-		Make(window).HandleWindowControl(Parse("""{"action":"close"}"""));
-
-		Assert.Equal(["close"], window.Calls);
+		Assert.Equal(["close-window"], menu.Calls);
 	}
 
 	[Fact]
 	public void HandleMenuAction_Exit_Quits() {
-		var window = new FakeWindow();
-		MakeMenu(window).HandleMenuAction(Parse("""{"action":"exit"}"""));
+		var menu = new FakeMenu();
+		MakeMenu(menu).HandleMenuAction(Parse("""{"action":"exit"}"""));
 
-		Assert.Equal(["quit"], window.Calls);
+		Assert.Equal(["quit"], menu.Calls);
 	}
 }

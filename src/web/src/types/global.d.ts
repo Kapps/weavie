@@ -1,11 +1,30 @@
 // Ambient declarations for the native host bridge surface.
 
+/** A window button the title bar draws; also the `window.control` action it sends. */
+type WindowControlAction = "minimize" | "maximize-toggle" | "close";
+
+/** What the host's window needs from the page's title bar (host-owned; re-pushed as `window.chrome`). */
+interface WeavieWindowChrome {
+  /** Whether the bar shows the application menus. */
+  menus: boolean;
+  /** How a press on empty bar space moves the window: not at all, CSS app-region, or a host-handled press. */
+  caption: "none" | "region" | "press";
+  /** Whether the page draws edge grab handles for a frameless window. */
+  resizeHandles: boolean;
+  /** The bar's height in CSS pixels, or null for the stylesheet default. */
+  barHeight: number | null;
+  /** The window buttons the page draws, in order, at each end of the bar. */
+  controls: { start: WindowControlAction[]; end: WindowControlAction[] };
+  /** Room left at each end for buttons the OS draws over the bar. */
+  inset: { start: number; end: number };
+}
+
 /** Host-injected shell config (window.__WEAVIE_SHELL__), set before navigation; absent in plain-browser dev. */
 interface WeavieShellConfig {
   /** Short platform id, e.g. "win" or "mac". */
   platform: string;
-  /** App-bar mode ("custom", "mac", or "linux"), or undefined/null for native chrome alone. */
-  titleBar?: string | null;
+  /** What the title bar draws for this window. */
+  chrome: WeavieWindowChrome;
   /** The window's workspace label (folder leaf name). */
   workspaceLabel: string;
   /** Recent workspace paths (absolute); the web derives leaf names for the File ▸ Open Recent submenu. */
@@ -20,6 +39,8 @@ interface WeavieWelcomeConfig {
   recents: string[];
   /** Whether Getting Started was finished or dismissed; the welcome screen shows it until then. */
   setupCompleted: boolean;
+  /** What the welcome screen draws for its window; a strip only when the host hands it the caption. */
+  chrome: WeavieWindowChrome;
 }
 
 interface Window {
@@ -36,7 +57,7 @@ interface Window {
   __WEAVIE_BRIDGE_WS__?: string;
   /** Authenticated HTTP endpoint used directly by image/video elements for streamed workspace media. */
   __WEAVIE_RESOURCE_BASE__?: string;
-  /** Custom-chrome config injected by the Windows host; drives the web title bar. */
+  /** Shell config injected by every host before navigation; drives the title bar. */
   __WEAVIE_SHELL__?: WeavieShellConfig;
   /** Recents injected by the host for the standalone welcome window (welcome.html). */
   __WEAVIE_WELCOME__?: WeavieWelcomeConfig;

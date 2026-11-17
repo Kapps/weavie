@@ -25,7 +25,14 @@ async function openAutoscrollPane(
   await page.addInitScript(() => {
     window.__WEAVIE_SHELL__ = {
       platform: "mac",
-      titleBar: "mac",
+      chrome: {
+        menus: false,
+        caption: "press",
+        resizeHandles: false,
+        barHeight: null,
+        controls: { start: [], end: [] },
+        inset: { start: 78, end: 0 },
+      },
       workspaceLabel: "autoscroll-test",
       recents: [],
       buildNumber: "test",

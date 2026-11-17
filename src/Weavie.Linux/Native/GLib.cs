@@ -18,6 +18,41 @@ internal static partial class GLib {
 	[LibraryImport(GObject)]
 	internal static partial void g_object_unref(IntPtr obj);
 
+	/// <summary><c>G_TYPE_STRING</c> (fundamental type 16, shifted by <c>G_TYPE_FUNDAMENTAL_SHIFT</c>).</summary>
+	internal const nuint TypeString = 16 << 2;
+
+	/// <summary>A <c>GValue</c>: its type, then two 8-byte data words.</summary>
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct GValue {
+		public nuint Type;
+		public long Data0;
+		public long Data1;
+	}
+
+	[LibraryImport(GObject)]
+	internal static partial IntPtr g_value_init(ref GValue value, nuint type);
+
+	[LibraryImport(GObject)]
+	internal static partial IntPtr g_value_get_string(ref GValue value);
+
+	[LibraryImport(GObject)]
+	internal static partial void g_value_unset(ref GValue value);
+
+	[LibraryImport(GObject, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void g_object_get_property(IntPtr obj, string propertyName, ref GValue value);
+
+	/// <summary>Reads a string property; null when unset.</summary>
+	internal static string? GetStringProperty(IntPtr obj, string propertyName) {
+		var value = default(GValue);
+		_ = g_value_init(ref value, TypeString);
+		try {
+			g_object_get_property(obj, propertyName, ref value);
+			return Marshal.PtrToStringUTF8(g_value_get_string(ref value));
+		} finally {
+			g_value_unset(ref value);
+		}
+	}
+
 	[LibraryImport(GObject)]
 	internal static partial IntPtr g_type_name_from_instance(IntPtr instance);
 

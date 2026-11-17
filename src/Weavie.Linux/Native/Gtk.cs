@@ -49,6 +49,42 @@ internal static partial class Gtk {
 	[LibraryImport(Lib)]
 	internal static partial void gtk_window_present(IntPtr window);
 
+	/// <summary>Replaces the window's title bar; a hidden widget leaves client-side decorations with no visible header.</summary>
+	[LibraryImport(Lib)]
+	internal static partial void gtk_window_set_titlebar(IntPtr window, IntPtr titlebar);
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_window_minimize(IntPtr window);
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_window_unmaximize(IntPtr window);
+
+	/// <summary>Requests a close exactly as the window manager's close button does (<c>close-request</c>, then destroy).</summary>
+	[LibraryImport(Lib)]
+	internal static partial void gtk_window_close(IntPtr window);
+
+	/// <summary><c>GTK_ORIENTATION_HORIZONTAL</c>.</summary>
+	internal const int OrientationHorizontal = 0;
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_box_new(int orientation, int spacing);
+
+	/// <summary>The default display's <c>GtkSettings</c>, which the desktop keeps current (button layout, title-bar clicks).</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_settings_get_default();
+
+	/// <summary>A controller that sees every raw <c>GdkEvent</c>; it never claims a gesture, so WebKit keeps the sequence.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_event_controller_legacy_new();
+
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool gtk_drag_check_threshold(IntPtr widget, int startX, int startY, int currentX, int currentY);
+
+	/// <summary>The <c>GdkSurface</c> (a <c>GdkToplevel</c> for a window) a native widget renders to.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_native_get_surface(IntPtr native);
+
 	[LibraryImport(Lib)]
 	internal static partial void gtk_window_destroy(IntPtr window);
 

@@ -220,6 +220,19 @@ internal sealed class TestHost : IAsyncDisposable {
 	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
 		Create(_ => { }, NoPullRequests(), dispatcher);
 
+	/// <summary>Builds an unstarted host whose page draws chrome for <paramref name="window"/>.</summary>
+	public static TestHost CreateUnstarted(IShellWindow window) => CreateUnstarted(new InlineUiDispatcher(), window);
+
+	/// <summary>Builds an unstarted host over a test-controlled UI dispatcher and window.</summary>
+	public static TestHost CreateUnstarted(IUiDispatcher dispatcher, IShellWindow window) =>
+		Create(
+			_ => { },
+			NoPullRequests(),
+			dispatcher,
+			NoopSystemNotificationChannel.Instance,
+			static settings => InferenceComposition.CreateDisabled(settings),
+			platform => platform.Window = window);
+
 	/// <summary>Builds an unstarted host over a test-controlled native application menu.</summary>
 	public static TestHost CreateUnstarted(IApplicationMenu applicationMenu) =>
 		Create(
@@ -713,10 +726,9 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IPtyLauncher PtyLauncher => NoopLauncher;
 	public string ChromePlatform => "web";
 	public HostTransport Transport => HostTransport.Local;
-	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents { get; private set; } = [];
 	public event Action? RecentsChanged;
-	public IShellWindow? Window { get; set; }
+	public IShellWindow Window { get; set; } = new FixedShellWindow(WindowChrome.Browser);
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
 	public IApplicationMenu ApplicationMenu { get; set; } = NoopApplicationMenu.Instance;
 	public IHostDialogs? Dialogs { get; set; }

@@ -110,9 +110,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Task? _startTask;
 	private Task? _disposeTask;
 
-	// Drives frameless title-bar controls when the platform exposes an IShellWindow. File-menu actions have a
-	// separate required adapter because native-frame hosts can still render the web app bar.
-	private ShellController? _shell;
+	// The page side of the native window (title-bar buttons, presses, chrome pushes) and the File-menu actions.
+	private readonly WindowFeature _windowFeature;
 	private ShellMenuController? _shellMenu;
 	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
@@ -241,6 +240,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_decisionHistory.Changed += () => _suggestions?.Evaluate();
 		_sessionServices = CreateSessionServices();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
+		_windowFeature = new WindowFeature(_messages.Host, _platform.Window);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
 		_messages.Host.PeerDisconnected += OnApplicationMenuPeerDisconnected;
@@ -336,12 +336,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(git, isRepo).ConfigureAwait(false);
 		LogStartup("branch resolved");
 
-		// Frameless title-bar controls exist only when the platform exposes native window primitives. File-menu
-		// actions use their separate required adapter, so a native-frame host can still render the web app bar.
-		if (_platform.Window is { } window) {
-			_shell = new ShellController(window);
-		}
-
 		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
 		// session on the workspace checkout.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
@@ -374,7 +368,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ _global.BootstrapScript()
 			+ BuildTestProfileScript()
-			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
+			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.Window.Chrome, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
 
 	internal string BuildCrossOriginBootstrap() =>
@@ -395,8 +389,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");
 
 	/// <summary>Pushes the native window's current state for title-bar chrome and attention delivery.</summary>
-	public void PushWindowState(bool maximized, bool focused) =>
-		_messages.Host.Feature("window").Publish("state", WireJson.Default.WindowStateChanged, new(maximized, focused));
+	public void PushWindowState(bool maximized, bool focused) => _windowFeature.PushState(maximized, focused);
 
 	/// <summary>
 	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/layout
@@ -599,6 +592,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		_shellSettingSubscription?.Dispose();
 		_shellSettingSubscription = null;
+		_windowFeature.Dispose();
 		if (_onSettingChanged is not null) {
 			_settings.SettingChanged -= _onSettingChanged;
 			_onSettingChanged = null;

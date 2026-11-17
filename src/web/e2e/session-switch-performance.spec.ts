@@ -507,13 +507,16 @@ test("remounting a structured pane preserves the session-owned edited draft", as
     const textarea = page.locator("[data-agent-composer] textarea");
     await expect(textarea).toHaveValue("provider prefill");
     await textarea.fill("user-edited draft");
-    await page.locator(".agent-activity-details > summary").click();
+    await page.locator(".agent-entry-activity > .agent-row-disclosure > summary").click();
     await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
     await page.getByTitle(new RegExp(`^${second.label} —`)).click();
     await expect(textarea).toHaveValue("");
     await page.getByTitle(new RegExp(`^${first.label} —`)).click();
     await expect(textarea).toHaveValue("user-edited draft");
-    await expect(page.locator(".agent-activity-details")).toHaveAttribute("open", "");
+    await expect(page.locator(".agent-entry-activity > .agent-row-disclosure")).toHaveAttribute(
+      "open",
+      "",
+    );
     await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
     const reconnectCheckpoint = host.checkpoint();
     host.disconnectBridge();
@@ -531,7 +534,10 @@ test("remounting a structured pane preserves the session-owned edited draft", as
       batchSize: 100,
     });
     host.publishSession(first.address, "agent", "paneReset", {});
-    await expect(page.locator(".agent-activity-details")).not.toHaveAttribute("open", "");
+    await expect(page.locator(".agent-entry-activity > .agent-row-disclosure")).not.toHaveAttribute(
+      "open",
+      "",
+    );
     await expect(page.locator(".agent-activity-list")).toHaveCount(0);
     await expect(page.locator(".agent-surface")).toHaveCount(1);
   } finally {

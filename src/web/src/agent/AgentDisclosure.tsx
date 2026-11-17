@@ -35,14 +35,13 @@ export const DISCLOSURE_ROW = "agent-disclosure-row ui-row ui-row-compact";
 /** A transcript row that opens a body inset under its label: Thinking and Working. */
 export function RowDisclosure(props: {
   children: JSX.Element;
-  class: string;
   label: JSX.Element;
   open: boolean;
   onToggle: (open: boolean) => void;
 }): JSX.Element {
   return (
     <Disclosure
-      class={`agent-row-disclosure ${props.class}`}
+      class="agent-row-disclosure"
       summaryClass={DISCLOSURE_ROW}
       label={props.label}
       open={props.open}

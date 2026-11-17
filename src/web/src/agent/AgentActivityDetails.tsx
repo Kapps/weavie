@@ -34,7 +34,6 @@ export function ActivityDetails(props: {
   });
   return (
     <RowDisclosure
-      class="agent-activity-details"
       label={
         <span class="agent-activity-summary" title={props.entry.summary ?? undefined}>
           {props.entry.summary ?? props.entry.label}

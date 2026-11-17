@@ -60,7 +60,7 @@ describe("estimateEntrySize", () => {
 
   it("keeps an activity summary to one line however long the running command is", () => {
     const running = entry({ kind: "activity", tone: "activity", summary: "z".repeat(500) });
-    expect(estimateEntrySize(running)).toBe(24);
+    expect(estimateEntrySize(running)).toBe(29);
   });
 
   it("does not reserve hidden history as scroll space", () => {

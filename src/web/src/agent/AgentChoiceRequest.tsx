@@ -4,7 +4,7 @@ import { setContext } from "../commands/context";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
-import { QuestionFooter, QuestionHeading } from "./AgentQuestionPresentation";
+import { QuestionActions, QuestionHeading } from "./AgentQuestionPresentation";
 import {
   type InputRequestProps,
   ownedKeyLabel,
@@ -63,7 +63,11 @@ export function ChoiceRequestActions(
   return (
     <div class="agent-choice-request">
       <div class="agent-choice-head">
-        <QuestionHeading question={props.question} message={props.message} />
+        <QuestionHeading
+          question={props.question}
+          message={props.message}
+          session={props.session}
+        />
       </div>
       <For each={props.question.options}>
         {(option, index) => (
@@ -116,7 +120,7 @@ export function ChoiceRequestActions(
           </button>
         </form>
       </Show>
-      <QuestionFooter {...props}>{null}</QuestionFooter>
+      <QuestionActions {...props}>{null}</QuestionActions>
     </div>
   );
 }

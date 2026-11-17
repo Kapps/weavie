@@ -1,18 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
 import { toAgentTranscript } from "./AgentPaneTestModel";
-import { backgroundStatus, rovingTarget } from "./background-format";
+import { backgroundStatus } from "./background-format";
 
-describe("background tray", () => {
-  it("moves roving focus with wrapping arrows, Home and End, ignoring other keys", () => {
-    expect(rovingTarget("ArrowRight", 2, 3)).toBe(0);
-    expect(rovingTarget("ArrowLeft", 0, 3)).toBe(2);
-    expect(rovingTarget("Home", 2, 3)).toBe(0);
-    expect(rovingTarget("End", 0, 3)).toBe(2);
-    expect(rovingTarget("Enter", 0, 3)).toBeNull();
-    expect(rovingTarget("ArrowRight", -1, 3)).toBeNull();
-  });
-
+describe("background work", () => {
   it("states a running item's elapsed time and reported usage, and a finished item's final duration", () => {
     const usage = { totalTokens: 182_400, toolUses: 9, durationMs: 1 };
     expect(backgroundStatus("running", 0, null, 252_000, usage)).toBe(

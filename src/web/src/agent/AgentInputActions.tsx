@@ -5,7 +5,12 @@ import { CommandIds } from "../commands/types";
 import { ChoiceRequestActions } from "./AgentChoiceRequest";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
 import { AgentQuestionControl } from "./AgentQuestionControl";
-import { QuestionFooter, QuestionHeading } from "./AgentQuestionPresentation";
+import {
+  InputRequestPrompt,
+  QuestionActions,
+  QuestionDetail,
+  QuestionTitle,
+} from "./AgentQuestionPresentation";
 import { inputQuestions, singleChoiceQuestion } from "./input-questions";
 import {
   DismissButtons,
@@ -83,12 +88,14 @@ function InputForm(props: InputRequestProps): JSX.Element {
         resolveInput(props, "accept", draft.answers());
       }}
     >
+      <InputRequestPrompt message={props.message} session={props.session} />
       <For each={questions()}>
         {(question) => (
           <fieldset class="agent-input-question">
             <legend>
-              <QuestionHeading question={question} message={props.message} />
+              <QuestionTitle question={question} />
             </legend>
+            <QuestionDetail question={question} message={props.message} session={props.session} />
             <AgentQuestionControl
               question={question}
               values={draft.answers()[question.id] ?? []}
@@ -99,7 +106,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
           </fieldset>
         )}
       </For>
-      <QuestionFooter {...props}>
+      <QuestionActions {...props}>
         <button
           type="submit"
           class="ui-button ui-button-primary"
@@ -107,7 +114,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
         >
           Submit answers
         </button>
-      </QuestionFooter>
+      </QuestionActions>
     </form>
   );
 }

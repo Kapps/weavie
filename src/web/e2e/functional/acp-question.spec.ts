@@ -105,3 +105,45 @@ test("ACP custom answers submit by Send and Enter and choices use their rebound 
   await expect(surface.locator(".agent-markdown").last()).toContainText(second);
   await expect(pending).toHaveCount(0);
 });
+
+test("a long question renders as markdown between its title and options at card width", async ({
+  page,
+}, testInfo) => {
+  const surface = await createAcpSession(page, "question-long");
+  await runCommand(page, "Toggle Fullscreen Pane");
+  await submitAcpDraft(surface, "input-question-long");
+  const card = surface.locator(".agent-entry-question");
+  const prompt = card.locator(".agent-question-prompt");
+  await expect(card.locator(".agent-question-title")).toHaveText("Publish?");
+  await expect(prompt.locator("h2")).toHaveText(["What happened", "Steps to reproduce"]);
+  await expect(prompt.locator("ol > li")).toHaveCount(2);
+  await expect(prompt.locator("code", { hasText: "## Expected" })).toBeVisible();
+  await expect(prompt.locator('a[data-agent-kind="file"]')).toHaveCount(1);
+  await card.screenshot({ path: testInfo.outputPath("question-long.png") });
+
+  // The pending card is chrome: its title, markdown and options share one size.
+  const sizes = await card.evaluate((element) =>
+    [".agent-question-title", "p", "h2", "li", "code", "pre code", ".agent-choice-label"].map(
+      (selector) => getComputedStyle(element.querySelector(selector)!).fontSize,
+    ),
+  );
+  expect(new Set(sizes).size).toBe(1);
+
+  const titleBox = (await card.locator(".agent-question-title").boundingBox())!;
+  const promptBox = (await prompt.boundingBox())!;
+  const optionBox = (await card.locator(".agent-choice-row").first().boundingBox())!;
+  // The prompt hangs 4px under its title and 14px over the options, whatever block it starts or ends with.
+  expect(promptBox.y - (titleBox.y + titleBox.height)).toBeCloseTo(4, 0);
+  expect(optionBox.y - (promptBox.y + promptBox.height)).toBeCloseTo(14, 0);
+  expect(promptBox.width).toBeCloseTo(optionBox.width, 0);
+  // The 400-character code line scrolls inside the prompt; the card and its buttons keep their width.
+  const cardBox = (await card.boundingBox())!;
+  const actionsBox = (await card.locator(".agent-question-actions").boundingBox())!;
+  expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+  expect(optionBox.x + optionBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+
+  await card.locator(".agent-choice-row", { hasText: "Edit first" }).click();
+  await surface.getByRole("button", { name: /Earlier updates/ }).click();
+  await card.getByText("show prompt and options", { exact: true }).click();
+  await expect(prompt.locator("h2")).toHaveCount(2);
+});

@@ -32,6 +32,9 @@ manager and setup/teardown commands, its auto-config, suggestions, corrections c
 state lives under `~/.weavie/workspaces/<id of the repo root>/`, the key the repo's settings overlay already
 uses, so a repo has the same state whichever workspace reaches it.
 
+A repo's test profile, suggestions, and recent files reach the page under the repo's root: all of them in the
+hello, then each as it changes. A `ClientSession` knows its repo, so the page reads a session's state by it.
+
 Every `SessionSlot` names its `Repo`. The host has no root to ask git about: pull request lookup and Open PR,
 branch listing and naming, the default-branch fetch, the worktree setup command, the test profile, and the
 default workflow all resolve from the session's repo. A plain home folder is a repo without a worktree manager,
@@ -55,8 +58,7 @@ a workspace asks it for each saved session outside the home repo.
 
 ## Across sessions
 
-`listSessions` and `currentSession` report each session's `repo` and `worktree`, so an agent can read a sibling
-session's files. `readSession` and `messageSession` are unchanged: one workspace is one host and one catalog.
+`listSessions` reports each session's `repo` and `worktree`, so an agent can read a sibling session's files. `readSession` and `messageSession` are unchanged: one workspace is one host and one catalog.
 
 Reading needs no permission machinery. Measured against Claude Agent 0.107 and Codex 2.6: Codex reads outside
 its folder in every mode; Claude asks outside bypass mode, and `agent.allowAllPermissions` answers it, after

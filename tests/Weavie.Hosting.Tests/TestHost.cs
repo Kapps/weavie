@@ -322,10 +322,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		Action<TestPlatform> configurePlatform) {
 		var temp = new TempDirectory("weavie-host-it");
 		string repo = temp.CreateDirectory("repo");
-		TempGitRepo.Init(repo);
-		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
-		TempGitRepo.Run(repo, "add", "-A");
-		TempGitRepo.Run(repo, "commit", "--quiet", "-m", "initial");
+		TempGitRepo.InitCommitted(repo);
 		prepareRepo(repo);
 
 		EnsureRelayBinary();

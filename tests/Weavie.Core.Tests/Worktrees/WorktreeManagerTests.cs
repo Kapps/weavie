@@ -14,7 +14,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 	private const string RegistryPath = "/weavie-wt-mgr-tests/worktrees.json";
 	private readonly TempDirectory _temp = new("weavie-wt-mgr-tests");
 
-	private string RepoRoot => _temp.Combine("repo");
+	private string RepoRoot => _temp.CreateDirectory("repo");
 
 	private string WorktreesDir => _temp.Combine("worktrees");
 
@@ -321,6 +321,21 @@ public sealed class WorktreeManagerTests : IDisposable {
 		Assert.Null(registry.FindByBranch("broken"));
 		Assert.DoesNotContain(logs, l => l.Contains("retrying", StringComparison.Ordinal)); // not retried as a transient lock
 		Assert.Contains(logs, l => l.Contains("deleting the remaining directory directly", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public async Task Remove_RepositoryGone_DeletesTheOwnedDirectoryWithoutGit() {
+		var (manager, registry, git) = NewManager();
+		string wtPath = _temp.CreateDirectory("worktrees", "owned-" + Guid.NewGuid().ToString("n"));
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "owned", Head = "o1" });
+		registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
+		git.OnRemoveWorktree = _ => Assert.Fail("git was asked about a repository that is gone");
+		Directory.Delete(RepoRoot, recursive: true);
+
+		await manager.RemoveAsync(wtPath, deleteBranch: false, force: true);
+
+		Assert.False(Directory.Exists(wtPath));
+		Assert.Null(registry.FindByBranch("owned"));
 	}
 
 	[Fact]

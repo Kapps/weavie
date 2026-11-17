@@ -224,10 +224,10 @@ targeting a genuine gap rather than every fresh repo.
 - **New** `src/Weavie.Core/Workspaces/WorkspacePresetCatalog.cs` (the preset records, mirroring
   `LanguageServerCatalog`) + `WorkspaceDetector.cs` (walk + classify + manifest-read, reusing the bounded
   BFS from `SuggestionService`). Emits `TestRule`s straight into the existing `TestProfile` JSON shape.
-- **New** per-workspace `WorkspaceAutoConfig` collaborator, initialized from `HostCore` construction
-  alongside `InitSuggestions()` (`HostCore` is already per-workspace, rooted at `WorkspaceRoot` with
-  `RegisterWorkspace(WorkspaceRoot)` called). On open it runs the detector and writes each unset setting
-  via the workspace-scoped write overload `SettingsStore.Set(key, value, WorkspaceRoot)` — which routes
+- **New** per-repo `WorkspaceAutoConfig` collaborator, built with its `Repo` (`HostCore.Repos.cs`) and run
+  as that repo's suggestion probe: at startup for the home folder, and for any other repo when its first
+  session joins the workspace. It runs the detector and writes each unset setting
+  via the workspace-scoped write overload `SettingsStore.Set(key, value, repoRoot)` — which routes
   to `~/.weavie/workspaces/<id>/settings.toml`. Wired in `HostCore`, not per-OS, so all four hosts get it.
 - **Optional command** `weavie.workspace.autodetect` (Core, MCP-reachable, palette-visible) to force a
   re-detect on demand — keyboard-first parity. Deferred unless wanted.

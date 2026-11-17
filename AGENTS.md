@@ -44,13 +44,17 @@ load it only when you need it.
   and watcher invalidations through one drainable stream. Facts describe boundaries, never who caused a change;
   review, corrections, spellcheck, and persistence remain separate domain concerns. See
   [docs/concepts/session-file-activity.md](docs/concepts/session-file-activity.md).
+- **Multi-repo workspaces** — a workspace is the window: it has a home folder and holds sessions from any
+  number of repos. Every session is one worktree of one `Repo`, which owns what a git or repo-settings question
+  is asked of (worktrees, setup command, test profile, auto-config, suggestions, corrections); the host has no
+  root to ask git about. See [docs/specs/multi-repo-workspaces.md](docs/specs/multi-repo-workspaces.md).
 - **Contextual suggestions** — a Core-owned surface for dismissible nudge cards that teach users what
-  Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per-workspace by
+  Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per repo by
   `SuggestionService` (with a bounded, fail-open manifest probe off the hot path), and rendered as cards;
   acting on one runs a command (never spends model tokens until the user clicks). First instance: the
   `workspace.setup` nudge — have Claude configure the repo's worktree setup command + test profile. See
   [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
-- **Built-in workspace auto-config** — when a workspace opens with its setup settings unset, Weavie
+- **Built-in workspace auto-config** — when a repo joins a workspace with its setup settings unset, Weavie
   detects the language from a curated, hardcoded catalog (TS/C#/Go/Python/Rust) and writes
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
@@ -100,7 +104,7 @@ load it only when you need it.
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
-  (never by scanning the tree). It rings those per-workspace and the palette command `Learn From My
+  (never by scanning the tree). It rings those per repo and the palette command `Learn From My
   Corrections` (`weavie.learn.fromCorrections`) prefills the corpus into the invoking session's agent to
   propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
   contextual-suggestion card nudges once enough accumulate. See

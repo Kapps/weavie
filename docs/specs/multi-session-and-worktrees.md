@@ -11,8 +11,9 @@ present. Selection is not host state and never determines message routing.
 `SessionSlot` is the rail identity:
 
 ```text
-id             stable slot id
+id             digest of worktreePath
 label          branch/folder label
+repo           the repo the checkout belongs to
 worktreePath   workspace root for this slot
 managedCheckout whether the checkout lives in Weavie's managed worktrees directory
 agentProvider  provider chosen for the session
@@ -24,8 +25,12 @@ A loaded `HostSession` receives a fresh `SessionAddress(slot, incarnation)`. The
 the incarnation does not. Every session envelope carries both, so work delayed from an earlier backend cannot
 enter a newly loaded instance of the same slot.
 
+The id never depends on the branch, so two repos with the same branch name are two slots. A session is found
+by `(repo, branch)` through its label.
+
 The catalog describes both loaded and dormant slots. Only loaded entries carry an address and create a
-`ClientSession`.
+`ClientSession`. Sessions of one workspace may belong to different repos; see
+[multi-repo-workspaces.md](multi-repo-workspaces.md).
 
 ## Workspace and managed sessions
 

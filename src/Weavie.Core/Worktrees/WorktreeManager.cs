@@ -178,7 +178,10 @@ public sealed class WorktreeManager {
 	public async Task RemoveAsync(string path, bool deleteBranch, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		string normalized = PathIdentity.Normalize(path);
-		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		// A repository whose folder is gone tracks nothing: its worktree directories are leftovers git can't finalize.
+		var gitWorktrees = Directory.Exists(_repositoryRoot)
+			? await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false)
+			: [];
 		SyncBranches(gitWorktrees);
 		var record = Registry.FindByPath(normalized);
 		bool existsInGit = gitWorktrees.Any(w => PathIdentity.Comparer.Equals(PathIdentity.Normalize(w.Path), normalized));

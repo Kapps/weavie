@@ -15,7 +15,8 @@ Four tools on each session's registry MCP server, so every provider that connect
 Claude and every native ACP agent — can use them:
 
 - `currentSession` returns the caller's own id, and for a side session its `parent` session's id.
-- `listSessions({includeBtw})` returns every session on the host: id, title, provider, loaded, status, and
+- `listSessions({includeBtw})` returns every session on the host: id, title, `repo`, the `worktree` its files
+  are in, provider, loaded, status, and
   `receive` — `ready`, `needsLoad` (load it with `weavie.session.load` first), or `unsupported`. `self` is the
   caller's id. With `includeBtw` it also lists side sessions.
 - `readSession({id, count})` returns the last `count` entries of a session's conversation and the `total`.

@@ -63,6 +63,7 @@
 }
 
 .session-overview-byline {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -70,6 +71,16 @@
   margin-top: 7px;
   color: var(--dim);
   font: var(--font-chrome-body);
+}
+
+/* The panel opens under the byline from its left edge, wherever the wrapping row leaves the button. */
+.session-overview-byline .finish-review {
+  position: static;
+}
+
+.session-overview-byline .finish-review-panel {
+  right: auto;
+  left: 0;
 }
 
 .session-overview-byline .weavie-pr-avatar {

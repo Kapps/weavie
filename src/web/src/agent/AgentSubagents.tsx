@@ -4,9 +4,11 @@ import {
   createSignal,
   For,
   type JSX,
+  Match,
   on,
   onCleanup,
   Show,
+  Switch,
 } from "solid-js";
 import { setContext } from "../commands/context";
 import { liveKeyHint } from "../commands/keys-live";
@@ -14,26 +16,56 @@ import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { DisclosureIcon } from "./AgentDisclosure";
 import { NestedTranscript } from "./AgentNestedCard";
-import { cardOf, openCard, openCardTitle, ownCardOnFocus } from "./agent-cards";
+import { SubagentRow, subagentRunning, TaskRow } from "./AgentRosterRows";
+import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { liveNow } from "./live-clock";
 import type { AgentPaneModel } from "./pane-store";
-import { SubagentStatus } from "./SubagentStatus";
 import "./agent-subagents.css";
 
-/** The session's subagent roster; pending requests remain visible when it is collapsed. */
+/**
+ * The session's subagents and background tasks, collapsed by default; pending requests remain visible when it
+ * is collapsed.
+ */
 export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [details, setDetails] = createSignal<ReadonlySet<string>>(new Set());
-  const running = () =>
-    props.model.subagents().filter((entry) => entry.subagent?.state === "running").length;
-  const now = liveNow(() => running() > 0);
-  const entries = createMemo(() =>
-    [...props.model.subagents()].sort(
-      (a, b) => Number(b.subagent?.state === "running") - Number(a.subagent?.state === "running"),
-    ),
+  let toggle: HTMLButtonElement | undefined;
+  const subagents = createMemo(
+    () =>
+      new Map(props.model.subagents().map((entry) => [`subagent:${entry.conversationId}`, entry])),
   );
-  const visible = () =>
-    entries().filter((entry) => expanded() || (entry.pendingEntries?.length ?? 0) > 0);
+  const tasks = createMemo(
+    () =>
+      new Map(
+        agentBackground(props.model.session)
+          .filter((item) => item.kind !== "subagent")
+          .map((item) => [`task:${item.id}`, item]),
+      ),
+  );
+  // One list, running rows first; a stable sort keeps subagents ahead of tasks within each half.
+  const rows = createMemo(() =>
+    [
+      ...[...subagents()].map(([key, entry]) => ({
+        key,
+        running: subagentRunning(entry),
+        pending: (entry.pendingEntries?.length ?? 0) > 0,
+      })),
+      ...[...tasks()].map(([key, item]) => ({
+        key,
+        running: backgroundRunning(item),
+        pending: false,
+      })),
+    ].sort((a, b) => Number(b.running) - Number(a.running)),
+  );
+  // Keys, not items: every update replaces the items, and a row must keep its focus across one.
+  const visible = createMemo(() =>
+    rows()
+      .filter((row) => expanded() || row.pending)
+      .map((row) => row.key),
+  );
+  const count = () => rows().length;
+  const running = () => rows().filter((row) => row.running).length;
+  const now = liveNow(() => running() > 0);
   const title = () => `Expand or Collapse Subagents${liveKeyHint(CommandIds.toggleSubagents)}`;
   createEffect(
     on(props.model.generation, () => {
@@ -41,20 +73,22 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
       setDetails(new Set<string>());
     }),
   );
-  createEffect(() => setContext("agentSubagentsAvailable", entries().length > 0));
+  createEffect(() => setContext("agentSubagentsAvailable", count() > 0));
   onCleanup(() => setContext("agentSubagentsAvailable", false));
   onCleanup(
     registerCommand(CommandIds.toggleSubagents, (_args, context) => {
-      if (context.session !== props.model.session || entries().length === 0) return false;
+      if (context.session !== props.model.session || count() === 0) return false;
       setExpanded((value) => !value);
+      if (expanded()) toggle?.focus({ preventScroll: true });
       return true;
     }),
   );
 
   return (
-    <Show when={entries().length > 0}>
+    <Show when={count() > 0}>
       <section class="agent-subagents" data-agent-subagents="" aria-label="Subagents">
         <button
+          ref={toggle}
           type="button"
           class="ui-row agent-subagents-toggle"
           aria-expanded={expanded()}
@@ -64,7 +98,7 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
         >
           <DisclosureIcon />
           <span>Subagents</span>
-          <span>{entries().length}</span>
+          <span>{count()}</span>
           <Show when={running() > 0}>
             <span class="ui-icon">
               <span class="agent-working-spinner" aria-hidden="true" />
@@ -75,49 +109,41 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
         <Show when={visible().length > 0}>
           <div class="agent-subagents-list">
             <For each={visible()}>
-              {(entry) => {
-                const own = ownCardOnFocus(() => ({
-                  session: props.model.session,
-                  card: cardOf(entry)!,
-                  toggle: null,
-                }));
-                return (
-                  <article
-                    data-agent-subagent={entry.conversationId}
-                    data-state={entry.subagent!.state}
-                    onFocusIn={own}
-                    onPointerDown={own}
-                  >
-                    <button
-                      type="button"
-                      class="ui-row agent-subagent-select"
-                      aria-label={entry.subagent!.name}
-                      title={openCardTitle()}
-                      onClick={() => void openCard(cardOf(entry)!)}
-                    >
-                      <span class="agent-subagent-name">{entry.subagent!.name}</span>
-                      <SubagentStatus info={entry.subagent!} now={now()} />
-                    </button>
-                    <Show when={(entry.pendingEntries?.length ?? 0) > 0}>
-                      <NestedTranscript
-                        currentThought={null}
-                        entries={entry.pendingEntries!}
-                        pendingOnly={true}
-                        expandedDetails={details()}
-                        keyboardRequestKey={props.model.keyboardRequestKey()}
-                        onDetailsToggle={(id, open) => {
-                          const next = new Set(details());
-                          if (open) next.add(id);
-                          else next.delete(id);
-                          setDetails(next);
-                        }}
-                        onUpdatesToggle={(id, open) => props.model.setActivityExpanded(id, open)}
+              {(key) => (
+                <Switch>
+                  <Match when={subagents().get(key)}>
+                    {(entry) => (
+                      <SubagentRow
+                        entry={entry()}
+                        now={now()}
                         session={props.model.session}
+                        pending={
+                          <NestedTranscript
+                            currentThought={null}
+                            entries={entry().pendingEntries!}
+                            pendingOnly={true}
+                            expandedDetails={details()}
+                            keyboardRequestKey={props.model.keyboardRequestKey()}
+                            onDetailsToggle={(id, open) => {
+                              const next = new Set(details());
+                              if (open) next.add(id);
+                              else next.delete(id);
+                              setDetails(next);
+                            }}
+                            onUpdatesToggle={(id, open) =>
+                              props.model.setActivityExpanded(id, open)
+                            }
+                            session={props.model.session}
+                          />
+                        }
                       />
-                    </Show>
-                  </article>
-                );
-              }}
+                    )}
+                  </Match>
+                  <Match when={tasks().get(key)}>
+                    {(item) => <TaskRow item={item()} now={now()} />}
+                  </Match>
+                </Switch>
+              )}
             </For>
           </div>
         </Show>

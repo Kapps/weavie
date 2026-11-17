@@ -202,7 +202,8 @@
     min-width: var(--touch-target);
   }
 
-  .app.compact .toast-close {
+  .app.compact .toast-close,
+  .app.compact .agent-roster-row > .ui-icon-button {
     --icon-button-size: var(--touch-target);
   }
 

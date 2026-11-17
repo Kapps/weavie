@@ -86,7 +86,7 @@ load it only when you need it.
   [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
 - **Background work** — native ACP subagents run as owned read-only `AcpConversation`s adopted from their
   parent's announcement, and AIR async tasks join the root conversation's background work; the pane renders
-  subagent and workflow cards plus a tray with Stop, and actions that would end running work confirm first. See
+  a collapsed roster of subagents and tasks with Stop, plus workflow cards, and actions that would end running work confirm first. See
   [docs/specs/background-work.md](docs/specs/background-work.md).
 - **Agent blocks** — an ACP agent shows charts and tables in its pane through `showBlock`/`updateBlock`; Weavie
   draws them (ECharts, theme-driven) and keeps only each block's latest state. The tool returns a random token,
@@ -95,7 +95,7 @@ load it only when you need it.
   [docs/specs/acp-rich-content/design.md](docs/specs/acp-rich-content/design.md).
 - **Card tabs** — blocks an agent names a `dashboard` on share one journaled card; that card, a `/btw`, or a lone
   block opens in an editor tab showing the same live content at editor width. The strip above the composer lists
-  running work, then expanded cards; ✕ collapses a card. See
+  expanded cards; ✕ collapses a card. See
   [docs/specs/card-tabs/design.md](docs/specs/card-tabs/design.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —

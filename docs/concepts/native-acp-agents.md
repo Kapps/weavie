@@ -77,7 +77,7 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 - streaming messages and thoughts, structured tools, locations, diffs, plans, usage, and session metadata;
 - cancellation, plus `_session/steering` when the agent advertises that extension;
 - notices, native subagent sessions, and the AIR `asyncTasks` extension, rendered as subagent and workflow cards
-  and a background tray (see [background work](../specs/background-work.md)).
+  and a roster of background work (see [background work](../specs/background-work.md)).
 
 Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
 standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn

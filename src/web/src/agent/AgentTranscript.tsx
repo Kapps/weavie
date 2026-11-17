@@ -6,6 +6,7 @@ import { CommandIds } from "../commands/types";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import { AgentRowContext } from "./agent-row-context";
+import { transcriptRowClasses } from "./transcript-row";
 
 export function AgentTranscript(props: {
   compact: boolean;
@@ -79,16 +80,8 @@ export function AgentTranscript(props: {
               });
               return (
                 <div
-                  class="agent-virtual-row"
-                  classList={{
-                    "agent-virtual-row-assistant-pair":
-                      entry().kind === "message" &&
-                      entry().tone === "assistant" &&
-                      previous()?.kind === "message" &&
-                      previous()?.tone === "assistant",
-                    "agent-virtual-row-first": previous() === undefined,
-                    "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
-                  }}
+                  class="agent-virtual-row agent-row"
+                  classList={transcriptRowClasses(entry(), previous())}
                   data-index={row().index}
                   data-agent-turn-output-start={
                     entry().id === props.transcript.agentTurnStartId ? "" : undefined

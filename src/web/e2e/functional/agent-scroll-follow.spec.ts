@@ -116,7 +116,7 @@ test("a long response arriving at once is shown from its start", async ({ page }
   await expect(answer).toContainText("Paragraph 40");
   await expect(surface.getByRole("button", { name: "Run", exact: true })).toBeVisible();
   const answerRow = surface
-    .locator(".agent-virtual-row:not(.agent-virtual-row-user)")
+    .locator(".agent-virtual-row:not(.agent-row-user)")
     .filter({ hasText: "Paragraph 40" });
   const answerOffset = async () => Math.abs(await fromReplyStart(answerRow));
   await expect.poll(answerOffset).toBeLessThanOrEqual(1);

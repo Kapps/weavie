@@ -154,26 +154,27 @@
   overflow-x: clip;
 }
 
-.agent-virtual-row {
+/* One transcript entry and the space around it, in the pane and inside a card alike. */
+.agent-row {
   display: flow-root;
   box-sizing: border-box;
   padding-top: 5px;
 }
 
-.agent-virtual-row-first {
+.agent-row-first {
   padding-top: 0;
 }
 
-.agent-virtual-row-user {
+.agent-row-user {
   padding-top: 9px;
   padding-bottom: 7px;
 }
 
-.agent-virtual-row-user.agent-virtual-row-first {
+.agent-row-user.agent-row-first {
   padding-top: 0;
 }
 
-.agent-virtual-row-assistant-pair {
+.agent-row-assistant-pair {
   padding-top: 10px;
 }
 
@@ -313,11 +314,11 @@
 }
 
 .agent-aside-reply-button {
-  margin: 0 10px 10px;
+  margin: 6px 10px 10px;
 }
 
 .agent-aside-reply {
-  padding: 0 10px 10px;
+  padding: 6px 10px 10px;
 }
 
 .agent-aside-reply textarea {
@@ -329,6 +330,11 @@
   background: var(--bg);
   border: 1px solid var(--border);
   padding: 7px 8px;
+}
+
+.agent-aside-reply textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
 }
 
 .agent-aside-reply-actions {

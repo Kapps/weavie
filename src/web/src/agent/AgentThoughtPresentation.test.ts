@@ -75,7 +75,7 @@ function fixture() {
 it.each<ThoughtDisplay>([
   "collapsed",
   "all",
-])("keeps every thought where it happened with %s thinking", (display) => {
+])("keeps every thought in the transcript with %s thinking", (display) => {
   const { send, entries, setDisplay } = fixture();
   setDisplay(display);
   send(

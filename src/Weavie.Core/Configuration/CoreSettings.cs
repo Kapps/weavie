@@ -197,7 +197,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
-			Description = "Show each piece of agent thinking where it happened in the transcript, as a collapsed Thinking row that expands, or in full.",
+			Description = "Show each piece of agent thinking in the transcript as a collapsed Thinking row that expands, or in full.",
 			Aliases = ["show thinking", "collapse thinking", "thought display"],
 			Apply = ApplyMode.Live,
 			Default = "collapsed",

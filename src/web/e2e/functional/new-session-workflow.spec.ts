@@ -199,8 +199,9 @@ test("session controls align with inset icons that preserve native input on desk
           field: rect(button.parentElement!.querySelector(".ui-field")!),
         })),
         footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
-          [...footer.querySelectorAll(".ui-field, .session-composer-submit")].map(rect),
+          [...footer.querySelectorAll("select, .session-composer-submit")].map(rect),
         ),
+        repos: [...element.querySelectorAll(".session-composer-options input")].map(rect),
         promptTextLeft: (() => {
           const prompt = element.querySelector(".session-composer textarea")!;
           return (
@@ -246,7 +247,14 @@ test("session controls align with inset icons that preserve native input on desk
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
-    expect(geometry.icons).toHaveLength(8);
+    // The repository sits between the selects on desktop and on the row under them on a phone.
+    expect(geometry.repos).toHaveLength(2);
+    geometry.repos.forEach((repo, index) => {
+      const [location] = geometry.footers[index];
+      expect(repo.height).toBe(location.height);
+      expect(repo.y > location.y).toBe(viewport.width <= 760);
+    });
+    expect(geometry.icons).toHaveLength(10);
     for (const { icon, control, textLeft, hit } of geometry.icons) {
       expect(icon.x).toBeGreaterThanOrEqual(control.x);
       expect(icon.y).toBeGreaterThanOrEqual(control.y);

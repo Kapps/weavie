@@ -930,6 +930,7 @@ export default function App(): JSX.Element {
   const createSessionAt = (
     backendId: string,
     args: {
+      repo: string | null;
       branch?: string;
       base: "source" | "main";
       existing: boolean;
@@ -2060,7 +2061,7 @@ export default function App(): JSX.Element {
           sessions={sessions()}
           initialBackendId={defaultLocation()}
           onOpen={(session) => openFromInbox(() => openSession(session))}
-          onCreate={(resolveSeed, backendId, providerId) =>
+          onCreate={(resolveSeed, backendId, providerId, repo) =>
             openFromInbox(async () => {
               const seed = await resolveSeed();
               if (seed === null) {
@@ -2068,6 +2069,7 @@ export default function App(): JSX.Element {
               }
               setLastLocation(backendId);
               return createSessionAt(backendId, {
+                repo,
                 branch: seed.branch,
                 base: seed.base,
                 existing: seed.existing,

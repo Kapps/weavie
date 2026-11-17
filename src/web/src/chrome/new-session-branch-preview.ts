@@ -1,8 +1,9 @@
-import type { BranchPreviewResult, EncodedImageAttachment } from "../bridge";
+import type { BranchPreviewResult, EncodedImageAttachment, LaunchOrigin } from "../bridge";
 import { DraftSettleTimer } from "./new-session-draft-settle";
 
 export interface BranchPreviewContext {
   backendId: string;
+  origin: LaunchOrigin;
   prompt: string;
   attachments: readonly EncodedImageAttachment[];
 }
@@ -43,6 +44,10 @@ const sameAttachments = (
     );
   });
 
+const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
+  previous !== null &&
+  (previous.backendId !== next.backendId || previous.origin.repo !== next.origin.repo);
+
 const sameSuggestion = (
   left: BranchPreviewContext | null,
   right: BranchPreviewContext | null,
@@ -50,12 +55,10 @@ const sameSuggestion = (
   left === right ||
   (left !== null &&
     right !== null &&
-    left.backendId === right.backendId &&
+    !retargeted(left, right) &&
+    left.origin.sourceId === right.origin.sourceId &&
     left.prompt === right.prompt &&
     sameAttachments(left.attachments, right.attachments));
-
-const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
-  previous !== null && previous.backendId !== next.backendId;
 
 /**
  * Owns one branch suggestion per composed prompt: it queries once the prompt is worth naming and settles
@@ -94,7 +97,7 @@ export class NewSessionBranchPreview {
       this.publish({ branch: "", error: null, manual: false, status: "idle" });
       return;
     }
-    // A different host has different repository conventions and collisions, so it invalidates the name.
+    // A different host or repo has different conventions and collisions, so it invalidates the name.
     if (retargeted(previous, context)) {
       this.settled = false;
     } else if (this.claimed || this.settled || this.controller !== null) {

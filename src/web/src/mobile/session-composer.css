@@ -34,7 +34,7 @@
 /* Equal-height controls align by their boxes: a select's baseline follows its font's own metrics. */
 .session-composer-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) var(--session-action-w);
+  grid-template-columns: repeat(3, minmax(0, 1fr)) var(--session-action-w);
   gap: 8px;
   padding: 0 12px 8px;
 }
@@ -156,6 +156,6 @@
 }
 
 .session-composer-options .session-composer-submit {
-  grid-column: 3;
+  grid-column: -2;
   grid-row: 1;
 }

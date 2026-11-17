@@ -340,7 +340,8 @@ test.describe("session-addressed WebSocket transport", () => {
     await draft.fill(BRANCH_INFERENCE_DRAFT);
     const request = await preview;
     expect(request.payload).toMatchObject({
-      sourceId: "main",
+      sourceId: null,
+      repo: "/workspace",
       attachments: [],
     });
     host.respond(request, {

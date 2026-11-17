@@ -1,11 +1,12 @@
-import { ArrowUp, Bot, GitBranch, Laptop } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { ArrowUp, Bot, FolderGit2, GitBranch, Laptop } from "lucide-solid";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import {
   agentProviders,
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
+import { backendRepos, defaultRepo, sentRepo } from "../chrome/new-session-repo";
 import type { RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
@@ -29,12 +30,16 @@ export function SessionInbox(props: {
     seed: () => Promise<NewSessionSeed | null>,
     backendId: string,
     providerId: string,
+    repo: string | null,
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
 }): JSX.Element {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
+  // What the repository field holds, and what it last committed; null is the default.
+  const [repoText, setRepoText] = createSignal<string | null>(null);
+  const [repoEntry, setRepoEntry] = createSignal<string | null>(null);
   const [base, setBase] = createSignal<"source" | "main">("main");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -45,6 +50,27 @@ export function SessionInbox(props: {
   let previousBackendId = props.initialBackendId;
   let providerChosen = false;
 
+  const sourceRepo = (): string | undefined => {
+    const source = selectedSession();
+    return source?.connection.id === backendId() ? source.repo : undefined;
+  };
+  const repos = (): string[] => backendRepos(props.sessions, backendId());
+  const repoDefault = (): string => defaultRepo(sourceRepo(), repos());
+  // Held while Sessions is closed, so switching sessions behind it re-asks nothing about a lingering draft.
+  const repo = createMemo<string | null>(
+    (held) => (props.active ? sentRepo(repoEntry() ?? repoDefault()) : held),
+    null,
+  );
+  // "From current session" branches inside that session's own repo.
+  const sourceAvailable = (): boolean => repo() === sourceRepo();
+  const commitRepo = (): void => {
+    setRepoEntry(repoText());
+  };
+  const resetRepo = (): void => {
+    setRepoText(null);
+    setRepoEntry(null);
+  };
+
   const selectBackend = (id: string): void => {
     if (id === backendId()) {
       return;
@@ -52,6 +78,7 @@ export function SessionInbox(props: {
     providerChosen = false;
     setBackendId(id);
     setProviderId(defaultAgentProvider(id));
+    resetRepo();
   };
 
   const selectProvider = (id: string): void => {
@@ -85,7 +112,9 @@ export function SessionInbox(props: {
     const initialBackendId = props.initialBackendId;
     if (active && (!wasActive || initialBackendId !== previousBackendId)) {
       selectBackend(initialBackendId);
-      setBase("main"); // A base pick is never carried into the next open.
+      // A base or repo pick is never carried into the next open.
+      setBase("main");
+      resetRepo();
     }
     wasActive = active;
     previousBackendId = initialBackendId;
@@ -99,12 +128,16 @@ export function SessionInbox(props: {
   });
 
   createEffect(() => {
-    const id = backendId();
-    const phase = backendPhase(id);
-    if (!props.active) return;
-    if (selectedSession()?.connection.id !== id) {
+    if (!sourceAvailable()) {
       setBase("main");
     }
+  });
+
+  createEffect(() => {
+    const id = backendId();
+    const phase = backendPhase(id);
+    const target = repo();
+    if (!props.active) return;
     setBranches([]);
     setBranchListError("");
     if (phase !== "online") {
@@ -116,7 +149,7 @@ export function SessionInbox(props: {
       current = false;
     });
     setLoadingBranches(true);
-    void requestBranches(id).then(
+    void requestBranches(id, target).then(
       (result) => {
         if (!current) return;
         setBranches(result);
@@ -132,7 +165,7 @@ export function SessionInbox(props: {
 
   const startNew = async (seed: () => Promise<NewSessionSeed | null>): Promise<boolean> => {
     setSubmitting("new");
-    const created = await props.onCreate(seed, backendId(), providerId());
+    const created = await props.onCreate(seed, backendId(), providerId(), repo());
     setSubmitting(null);
     return created;
   };
@@ -154,6 +187,7 @@ export function SessionInbox(props: {
         }),
         backendId(),
         providerId(),
+        repo(),
       )
     ) {
       setExistingBranch("");
@@ -161,7 +195,11 @@ export function SessionInbox(props: {
     setSubmitting(null);
   };
 
-  const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
+  const destinationFields = (
+    locationLabel: string,
+    repoLabel: string,
+    providerLabel: string,
+  ): JSX.Element => (
     <>
       <NewSessionControl icon={<Laptop />}>
         <select
@@ -176,6 +214,21 @@ export function SessionInbox(props: {
             )}
           </For>
         </select>
+      </NewSessionControl>
+      <NewSessionControl icon={<FolderGit2 />}>
+        <input
+          class="ui-field ui-field-mono"
+          type="text"
+          list="session-repos"
+          aria-label={repoLabel}
+          autocapitalize="none"
+          autocomplete="off"
+          spellcheck={false}
+          value={repoText() ?? repoDefault()}
+          onInput={(event) => setRepoText(event.currentTarget.value)}
+          onChange={commitRepo}
+          onBlur={commitRepo}
+        />
       </NewSessionControl>
       <NewSessionControl icon={<Bot />}>
         <select
@@ -236,6 +289,9 @@ export function SessionInbox(props: {
         </button>
       </header>
 
+      <datalist id="session-repos">
+        <For each={repos()}>{(root) => <option value={root} />}</For>
+      </datalist>
       <div class="session-inbox-actions">
         <section class="session-inbox-action ui-card" aria-labelledby="session-start-title">
           <h2 id="session-start-title" class="ui-section-label ui-card-tag">
@@ -244,14 +300,16 @@ export function SessionInbox(props: {
           <NewSessionComposer
             active={props.active}
             backendId={backendId()}
+            repo={repo()}
             base={base()}
+            sourceAvailable={sourceAvailable()}
             providerId={providerId()}
             providerAvailable={agentProviders(backendId()).some(
               (provider) => provider.id === providerId() && provider.available,
             )}
             busy={submitting() !== null}
             starting={submitting() === "new"}
-            destination={destinationFields("Session location", "Agent provider")}
+            destination={destinationFields("Session location", "Repository", "Agent provider")}
             onBase={setBase}
             onStart={startNew}
           />
@@ -298,7 +356,7 @@ export function SessionInbox(props: {
               </Show>
             </div>
             <div class="session-composer-options">
-              {destinationFields("Open on", "Open with")}
+              {destinationFields("Open on", "Open in", "Open with")}
               <button
                 type="submit"
                 class="session-composer-submit ui-button ui-button-lg ui-button-primary"

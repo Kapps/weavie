@@ -221,6 +221,16 @@
     --icon-button-size: var(--touch-target);
   }
 
+  /* A phone fits two controls beside the action, so the repository takes the row under them. */
+  .app.compact .session-composer-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) var(--session-action-w);
+    grid-auto-flow: dense;
+  }
+
+  .app.compact .session-composer-options > .session-composer-control:has(> input) {
+    grid-column: 1 / -1;
+  }
+
   .app.compact.mobile-inbox .session-inbox {
     display: flex;
   }

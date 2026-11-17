@@ -533,11 +533,12 @@ export async function invokeClientCommandOnHost(id: string, args: unknown): Prom
   }
 }
 
-export function requestBranches(backendId: string): Promise<string[]> {
+/** The branches a session can open in `repo` (null for the workspace's home folder). */
+export function requestBranches(backendId: string, repo: string | null): Promise<string[]> {
   const connection = hostConnection(backendId);
   return connection === undefined
     ? Promise.reject(new Error("The host is not connected."))
-    : connection.host.feature("git").request("branches", {});
+    : connection.host.feature("git").request("branches", { sourceId: null, repo });
 }
 
 export interface BranchPreviewResult {
@@ -553,8 +554,15 @@ export interface EncodedImageAttachment {
   dataB64: string;
 }
 
+/** What a new session starts from: its source session (null for none) and its repo (null for the host's choice). */
+export interface LaunchOrigin {
+  sourceId: string | null;
+  repo: string | null;
+}
+
 export function requestBranchPreview(
   backendId: string,
+  origin: LaunchOrigin,
   prompt: string,
   attachments: readonly EncodedImageAttachment[],
   userInitiated: boolean,
@@ -563,12 +571,7 @@ export function requestBranchPreview(
   return requestSessionCreation(
     backendId,
     "previewBranch",
-    {
-      sourceId: selectedForBackend(backendId)?.address.slot ?? null,
-      prompt,
-      attachments,
-      userInitiated,
-    },
+    { ...origin, prompt, attachments, userInitiated },
     signal,
   );
 }
@@ -644,20 +647,20 @@ function requestSessionCreation<T>(
 }
 
 /**
- * The workflows a `providerId` session started from `sourceId` (null for the workspace) can run from a prompt
- * alone, with the roles each still needs a model for.
+ * The workflows a `providerId` session started from `origin` can run from a prompt alone, with the roles each
+ * still needs a model for.
  */
 export const requestWorkflowCatalog = (
   backendId: string,
-  sourceId: string | null,
+  origin: LaunchOrigin,
   providerId: string,
   signal: AbortSignal,
 ): Promise<WorkflowStartCatalog> =>
-  requestSessionCreation(backendId, "workflows", { sourceId, providerId }, signal);
+  requestSessionCreation(backendId, "workflows", { ...origin, providerId }, signal);
 
 export const requestWorkflowSuggestion = (
   backendId: string,
-  sourceId: string | null,
+  origin: LaunchOrigin,
   providerId: string,
   prompt: string,
   userInitiated: boolean,
@@ -666,7 +669,7 @@ export const requestWorkflowSuggestion = (
   requestSessionCreation(
     backendId,
     "suggestWorkflow",
-    { sourceId, providerId, prompt, userInitiated },
+    { ...origin, providerId, prompt, userInitiated },
     signal,
   );
 
@@ -681,7 +684,7 @@ export const requestRoleControls = (
 
 export const requestRoleSuggestion = (
   backendId: string,
-  sourceId: string | null,
+  origin: LaunchOrigin,
   providerId: string,
   workflow: string,
   role: string,
@@ -690,7 +693,7 @@ export const requestRoleSuggestion = (
   requestSessionCreation(
     backendId,
     "suggestRole",
-    { sourceId, providerId, workflow, role },
+    { ...origin, providerId, workflow, role },
     signal,
   );
 

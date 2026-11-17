@@ -32,6 +32,7 @@ const VAGUE_GROWN = `${VAGUE} in the review pane`;
 
 const context = (prompt: string): BranchPreviewContext => ({
   backendId: "local",
+  origin: { sourceId: null, repo: null },
   prompt,
   attachments: [],
 });
@@ -246,14 +247,14 @@ describe("NewSessionBranchPreview", () => {
     expect(state?.status).toBe("ready");
   });
 
-  it("names the draft again when the host it would be created on changes", async () => {
+  it("names the draft again when the host or repo it would be created in changes", async () => {
     vi.useFakeTimers();
     const requests: BranchPreviewContext[] = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
       async (request) => {
         requests.push(request);
-        return named(`${request.backendId}/webm-fails-to-load`);
+        return named(`${request.backendId}${request.origin.repo ?? ""}/webm-fails-to-load`);
       },
       (next) => {
         state = next;
@@ -266,9 +267,17 @@ describe("NewSessionBranchPreview", () => {
 
     preview.update({ ...context(DRAFT), backendId: "remote-1" });
     await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
-
-    expect(requests).toHaveLength(2);
     expect(state?.branch).toBe("remote-1/webm-fails-to-load");
+
+    const infra = { ...context(DRAFT), backendId: "remote-1" };
+    preview.update({ ...infra, origin: { sourceId: null, repo: "/code/infra" } });
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
+    expect(state?.branch).toBe("remote-1/code/infra/webm-fails-to-load");
+
+    // Branching from another session keeps the name: the repo is the same.
+    preview.update({ ...infra, origin: { sourceId: "main", repo: "/code/infra" } });
+    await vi.advanceTimersByTimeAsync(DRAFT_SETTLE_IDLE_MS);
+    expect(requests).toHaveLength(3);
   });
 
   it("explains a submission it still cannot name", async () => {
@@ -435,6 +444,7 @@ describe("NewSessionBranchPreview", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       backendId: "local",
+      origin: { sourceId: null, repo: null },
       prompt: GROWN,
       attachments: [],
     });

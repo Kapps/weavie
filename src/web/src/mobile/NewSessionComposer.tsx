@@ -1,7 +1,15 @@
 import { ArrowUp, GitFork } from "lucide-solid";
-import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
-import { type RolePick, selectedSession } from "../bridge";
+import { type LaunchOrigin, launchSource, type RolePick } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -34,7 +42,11 @@ export interface NewSessionSeed {
 export function NewSessionComposer(props: {
   active: boolean;
   backendId: string;
+  /** The repo the session is created in; null for the host's choice. */
+  repo: string | null;
   base: "source" | "main";
+  /** Whether the session can branch from the selected one. */
+  sourceAvailable: boolean;
   providerId: string;
   /** Whether the chosen agent provider can start a session. */
   providerAvailable: boolean;
@@ -59,6 +71,11 @@ export function NewSessionComposer(props: {
   let branchActions: NewSessionBranchActions | undefined;
   let workflowActions: NewSessionWorkflowActions | undefined;
   let promptInput!: HTMLTextAreaElement;
+  // The branch name and the workflows resolve where creation does.
+  const origin = createMemo<LaunchOrigin>(() => ({
+    sourceId: launchSource(props.backendId, props.base)?.address.slot ?? null,
+    repo: props.repo,
+  }));
 
   const submitNew = async (): Promise<void> => {
     const text = prompt().trim();
@@ -223,7 +240,7 @@ export function NewSessionComposer(props: {
             onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
           >
             <option value="main">From main branch</option>
-            <option value="source" disabled={selectedSession()?.connection.id !== props.backendId}>
+            <option value="source" disabled={!props.sourceAvailable}>
               From current session
             </option>
           </select>
@@ -232,6 +249,7 @@ export function NewSessionComposer(props: {
       <NewSessionBranchField
         active={props.active}
         backendId={props.backendId}
+        origin={origin()}
         attachments={attachments().map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 }))}
         inputReady={
           (prompt().trim().length > 0 || attachments().length > 0) &&
@@ -246,7 +264,7 @@ export function NewSessionComposer(props: {
       <NewSessionWorkflowField
         active={props.active}
         backendId={props.backendId}
-        base={props.base}
+        origin={origin()}
         providerId={props.providerId}
         prompt={prompt()}
         onReady={setWorkflowReady}

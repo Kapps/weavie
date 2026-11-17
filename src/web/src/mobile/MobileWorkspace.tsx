@@ -21,6 +21,7 @@ export function MobileWorkspace(props: {
     seed: () => Promise<NewSessionSeed | null>,
     backendId: string,
     providerId: string,
+    repo: string | null,
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
   onSurface: (surface: MobileSurface) => void;

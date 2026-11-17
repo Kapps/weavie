@@ -9,8 +9,12 @@ import {
 
 const DRAFT = "the WebM video in the review pane fails to load whenever the diff is reopened twice";
 const SHORT = "WebM fails to load";
-const LOCAL: WorkflowTarget = { backendId: "local", sourceId: null, providerId: "codex" };
-const REMOTE: WorkflowTarget = { backendId: "remote", sourceId: null, providerId: "codex" };
+const LOCAL: WorkflowTarget = {
+  backendId: "local",
+  origin: { sourceId: null, repo: null },
+  providerId: "codex",
+};
+const REMOTE: WorkflowTarget = { ...LOCAL, backendId: "remote" };
 
 const catalog = (overrides: Partial<WorkflowStartCatalog>): WorkflowStartCatalog => ({
   workflows: [
@@ -103,9 +107,19 @@ describe("NewSessionWorkflowChoice", () => {
       problem: 'The default workflow "x" is invalid.',
     });
 
-    choice.retarget({ backendId: "gone", sourceId: null, providerId: "codex" });
+    choice.retarget({ ...LOCAL, backendId: "gone" });
     await vi.advanceTimersByTimeAsync(0);
     expect(state()).toMatchObject({ options: [], problem: "Couldn't list workflows: offline" });
+  });
+
+  it("reads the catalog again when the repo the session is created in changes", async () => {
+    const { choice, state } = harness();
+    choice.retarget(LOCAL);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().status).toBe("ready");
+
+    choice.retarget({ ...LOCAL, origin: { sourceId: null, repo: "/code/infra" } });
+    expect(state()).toMatchObject({ options: [], status: "loading" });
   });
 
   it("asks once for a settled draft worth judging, and never again as it changes", async () => {

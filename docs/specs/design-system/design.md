@@ -18,7 +18,7 @@ title, padding and button style. Text in a row sits on one baseline. Visible dif
   stacked label-over-shortcut (45px) to one line (28px).
 - Folder and file rows in the file tree become the same height (24.5 / 26 → 26).
 - The agent pane's transcript, labels, composer and its buttons are unchanged in size: they stay tied to the
-  editor font. Its approval and question cards stay 12px chrome around the command or question text they show.
+  editor font. Its approval and question cards stay 12px chrome.
 - The welcome window keeps its larger landing scale.
 
 **Main pieces.**
@@ -386,7 +386,7 @@ CssGenericProperty(name = $p, value = $v) as $d where {
 |---|---|
 | Rows are 26px (24px compact, 42px two-line) | 26 is already the palette, app-menu and file-row height, so the most-seen lists do not move. |
 | Pane header labels stay 12px semibold, not the 13px title role | They are the densest always-visible chrome; title is for dialogs, popovers and cards. |
-| Agent composer buttons stay editor-font sized; approval and question cards stay 12px chrome | The composer sits in the transcript's mono, zoomable context, and the cards are chrome. The command under review is content and the question's markdown is prose. |
+| Agent composer buttons stay editor-font sized; approval and question cards stay 12px chrome | Both match today: the composer sits in the transcript's mono, zoomable context, and the cards are chrome. |
 | Welcome window keeps a landing scale (hero 36, lead 16, 40px CTA) | It is a near-empty first-impression window; 12px chrome there reads as broken. Costs two roles and one control height. |
 | Session inbox `h1`, Getting Started `h2`, empty-state wordmark share one 20px display role | Replaces 18/700, 20.4/650 and 20.4/650. |
 | Shared button/field radius is 4px | Most common value today; no radius scale is introduced. |

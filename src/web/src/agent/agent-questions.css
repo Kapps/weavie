@@ -34,14 +34,15 @@
   overflow-wrap: anywhere;
 }
 
-.agent-question-description,
-.agent-question-title ~ .agent-question-prompt {
-  margin-top: 6px;
+/* Reopened in the transcript, the question is content like the rows around it. */
+.agent-input-review .agent-question-title {
+  font: var(--font-prose);
+  font-weight: var(--font-weight-emphasis);
 }
 
-/* The pending card is already a bounded measure, so its prose fills it like the options do. */
-:is(.agent-choice-request, .agent-input-request) .agent-markdown {
-  max-width: none;
+.agent-question-description,
+.agent-question-title ~ .agent-question-prompt {
+  margin-top: 4px;
 }
 
 .agent-choice-row {

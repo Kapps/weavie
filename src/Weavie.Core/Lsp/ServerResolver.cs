@@ -33,11 +33,15 @@ public static class ServerResolver {
 	}
 
 	/// <summary>
-	/// Locates <paramref name="command"/> on <c>PATH</c>, returning its full path or <see langword="null"/>. On
-	/// Windows probes <c>.exe</c>/<c>.cmd</c>/<c>.bat</c> but not <c>.ps1</c>, which <c>CreateProcess</c> can't launch.
+	/// Locates <paramref name="command"/> — a name on <c>PATH</c>, or a path as given — returning its full path or
+	/// <see langword="null"/>. On Windows probes <c>.exe</c>/<c>.cmd</c>/<c>.bat</c> but not <c>.ps1</c>, which
+	/// <c>CreateProcess</c> can't launch.
 	/// </summary>
 	/// <param name="command">A command name (no extension needed) or an explicit path.</param>
-	public static string? FindOnPath(string command) {
+	public static string? FindOnPath(string command) => FindOnPath(command, OperatingSystem.IsWindows());
+
+	/// <summary>As <see cref="FindOnPath(string)"/>, probing extensions when <paramref name="windows"/>.</summary>
+	internal static string? FindOnPath(string command, bool windows) {
 		if (string.IsNullOrWhiteSpace(command)) {
 			return null;
 		}
@@ -45,7 +49,7 @@ public static class ServerResolver {
 		if (Path.IsPathRooted(command)
 			|| command.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal)
 			|| command.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal)) {
-			return File.Exists(command) ? command : null;
+			return ExtensionVariants(command, windows).FirstOrDefault(File.Exists);
 		}
 
 		string? pathVar = Environment.GetEnvironmentVariable("PATH");
@@ -55,7 +59,7 @@ public static class ServerResolver {
 
 		string[] dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 		foreach (string dir in dirs) {
-			foreach (string name in ExtensionVariants(command)) {
+			foreach (string name in ExtensionVariants(command, windows)) {
 				string full;
 				try {
 					full = Path.Combine(dir, name);
@@ -89,8 +93,8 @@ public static class ServerResolver {
 		return new ResolvedCommand(serverPath, arguments, serverPath);
 	}
 
-	private static IEnumerable<string> ExtensionVariants(string command) {
-		if (!OperatingSystem.IsWindows() || Path.HasExtension(command)) {
+	private static IEnumerable<string> ExtensionVariants(string command, bool windows) {
+		if (!windows || Path.HasExtension(command)) {
 			yield return command;
 			yield break;
 		}

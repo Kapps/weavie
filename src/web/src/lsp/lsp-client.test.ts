@@ -65,6 +65,10 @@ const runtime = vi.hoisted(() => ({
   clients: [] as ClientRecord[],
   channels: [] as ChannelRecord[],
   resets: [] as Array<{ session: FakeSession; name: string; payload: unknown }>,
+  notices: [] as Array<{ key: string; text: string }>,
+  cleared: [] as string[],
+  StartError: class extends Error {},
+  startFailure: undefined as Error | undefined,
 }));
 
 function fakeUri(owner: FakeSession, path: string): FakeUri {
@@ -180,7 +184,7 @@ vi.mock("vscode-languageclient/browser.js", () => ({
 }));
 
 vi.mock("./lsp-bridge-transport", () => ({
-  LspStartError: class extends Error {},
+  LspStartError: runtime.StartError,
   openLspChannel: (
     owner: FakeSession,
     server: string,
@@ -192,7 +196,7 @@ vi.mock("./lsp-bridge-transport", () => ({
     return {
       reader: {},
       writer: {},
-      ready: Promise.resolve(),
+      ready: runtime.startFailure ? Promise.reject(runtime.startFailure) : Promise.resolve(),
       dispose: () => {
         record.disposed = true;
       },
@@ -205,13 +209,17 @@ vi.mock("vscode-languageclient");
 vi.mock("../editor/vscode-services", () => ({
   initEditorServices: () => Promise.resolve(),
 }));
-vi.mock("../notify/notify", () => ({ notify: () => undefined }));
+vi.mock("../notify/notify", () => ({
+  notify: (_level: string, text: string, key: string) => runtime.notices.push({ key, text }),
+  clearNotification: (key: string) => runtime.cleared.push(key),
+}));
 
 function session(id: string, workspace: string): FakeSession {
   const listeners = new Set<(value: WeavieLspConfig | null) => void>();
   const lsp: FakeValue<WeavieLspConfig | null> = {
     current: {
       workspace,
+      revision: 0,
       servers: [{ id: "csharp", languageIds: ["csharp"], settings: null }],
     },
     subscribe(listener) {
@@ -277,6 +285,9 @@ beforeEach(() => {
   runtime.clients = [];
   runtime.channels = [];
   runtime.resets = [];
+  runtime.notices = [];
+  runtime.cleared = [];
+  runtime.startFailure = undefined;
 });
 
 afterEach(() => {
@@ -380,5 +391,53 @@ describe("session-owned language clients", () => {
     await settle();
 
     expect(runtime.channels[0]?.owner).toBe(later);
+  });
+
+  it("restarts a session's clients when its config changes, and only then", async () => {
+    const first = session("a", "/repo");
+    const second = session("b", "/repo");
+    runtime.models = [model(first, "/repo/Same.cs"), model(second, "/repo/Same.cs")];
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+    await settle();
+    const config = first.state.lsp.current as WeavieLspConfig;
+
+    first.state.lsp.set({ ...config });
+    await settle();
+    expect(runtime.channels).toHaveLength(2);
+
+    first.state.lsp.set({ ...config, revision: 1 });
+    await settle();
+
+    expect(runtime.channels.map((channel) => [channel.owner.id, channel.disposed])).toEqual([
+      ["a", true],
+      ["b", false],
+      ["a", false],
+    ]);
+    expect(runtime.clients.map((client) => client.disposed)).toEqual([true, false, false]);
+    expect(runtime.notices).toEqual([]);
+  });
+
+  it("starts a server whose start failed once the config changes", async () => {
+    const owner = session("a", "/repo");
+    runtime.models = [model(owner, "/repo/File.cs")];
+    runtime.startFailure = new runtime.StartError("C# language server not found (tried /repo/ls)");
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+    await settle();
+
+    expect(runtime.clients).toHaveLength(0);
+    expect(runtime.notices.map((notice) => notice.text)).toEqual([
+      "C# language server not found (tried /repo/ls)",
+    ]);
+    expect(runtime.cleared).toEqual([]);
+
+    runtime.startFailure = undefined;
+    owner.state.lsp.set({ ...(owner.state.lsp.current as WeavieLspConfig), revision: 1 });
+    await settle();
+
+    expect(runtime.clients).toHaveLength(1);
+    expect(runtime.notices).toHaveLength(1);
+    expect(runtime.cleared).toEqual([runtime.notices[0]?.key]);
   });
 });

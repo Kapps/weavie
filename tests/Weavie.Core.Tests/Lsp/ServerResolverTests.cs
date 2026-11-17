@@ -22,6 +22,16 @@ public sealed class ServerResolverTests {
 	}
 
 	[Fact]
+	public void FindOnPath_ProbesWindowsExtensionsForAPath() {
+		using var temp = new TempDirectory("weavie-resolver");
+		string shim = temp.WriteFile("stub.cmd", "stub");
+		string extensionless = temp.Combine("stub");
+
+		Assert.Equal(shim, ServerResolver.FindOnPath(extensionless, windows: true));
+		Assert.Null(ServerResolver.FindOnPath(extensionless, windows: false));
+	}
+
+	[Fact]
 	public void FindOnPath_ReturnsNull_ForUnknownCommand() =>
 		Assert.Null(ServerResolver.FindOnPath("weavie-definitely-not-a-real-command-xyz"));
 

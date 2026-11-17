@@ -295,6 +295,7 @@ public static class CoreSettings {
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
+		LspSettings.Register(registry);
 		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
 		WorkflowSettings.Register(registry);

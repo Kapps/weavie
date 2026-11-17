@@ -58,12 +58,31 @@ Host to client events:
 
 | name | payload | meaning |
 | --- | --- | --- |
-| `config` | `{workspace, servers}` | Configure the owning session's clients. |
+| `config` | `{workspace, revision, servers}` | Configure the owning session's clients. |
 | `data` | `{channel, payload}` | Deliver one server JSON-RPC message. |
 | `exit` | `{channel, code, reason?}` | Report exit or failure to start. |
 
 `lifecycle.sync` publishes `lsp.config` along with the rest of the session snapshot. Reconnect therefore
 restores configuration explicitly; it does not replay commands or infer a selected workspace.
+
+## Server command
+
+Each recipe in `LanguageServerCatalog` has a workspace-scoped setting, `lsp.<id>.command`: a JSON array of the
+executable and its arguments. Empty runs the recipe's built-in candidates, the first found on `PATH`. A set
+value replaces them, so a configured executable that is missing fails the start with the path it tried.
+
+A bare executable name is found on `PATH`. A path is relative to the session's worktree, so each worktree
+runs the server in its own `node_modules`; `~` is the home directory.
+
+The workspace overlay lives outside the repository, so a clone cannot set the command. A relative path in the
+user-wide `settings.toml` runs whatever each repository has at that path, including an untrusted clone; keep a
+user-wide value to a bare name or an absolute path.
+
+`HostSession` resolves the recipe through `LspSettings.Effective` on every `start`, so the setting has no
+cached copy. Running servers keep the command they started with. Restart Language Servers
+(`weavie.lsp.restart`) increments the invoking session's `revision` and republishes `config`; each page then
+replaces that session's clients, and their `start` reads the current setting. `setSetting` reports this
+through `ApplyMode.NextLanguageServerStart`. Every start logs the command it launches under `[lsp]`.
 
 ## Ordering and concurrency
 
@@ -115,6 +134,10 @@ network service and inherits the bridge's TLS policy.
 - start/data/stop ordering is preserved;
 - an old incarnation's frames cannot reach a reused slot;
 - reload epoch cleanup cannot remove the new page's channels;
-- host disposal kills and reaps all language-server processes.
+- host disposal kills and reaps all language-server processes;
+- a configured command is read at each start, anchors a path at the starting session's worktree, and never
+  falls back to a built-in candidate;
+- a changed `config` replaces only that session's clients, without a reconnect notice, and starts a server
+  whose last start failed.
 
 See [session-message-bus.md](session-message-bus.md) for the common envelope and lifecycle contract.

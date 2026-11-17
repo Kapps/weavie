@@ -618,14 +618,21 @@ public sealed class SettingsStore : IDisposable {
 	private static bool TryNumber(string raw, out double number) =>
 		double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out number) && double.IsFinite(number);
 
-	private string NormalizePath(string raw, string key) {
-		string expanded = raw;
+	/// <summary>Replaces a leading <c>~</c> in <paramref name="path"/> with the user's home directory.</summary>
+	internal static string ExpandHome(string path) {
 		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		if (expanded == "~") {
-			expanded = home;
-		} else if (expanded.StartsWith("~/", StringComparison.Ordinal) || expanded.StartsWith("~\\", StringComparison.Ordinal)) {
-			expanded = Path.Combine(home, expanded[2..]);
+		if (path == "~") {
+			return home;
 		}
+
+		return path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal)
+			? Path.Combine(home, path[2..])
+			: path;
+	}
+
+	private string NormalizePath(string raw, string key) {
+		string expanded = ExpandHome(raw);
+		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
 		// A Windows drive-rooted path isn't rooted on POSIX; resolving it against a Linux base dir would
 		// mangle it. The settings file crosses machines (a remote runner reads a laptop's), so pass it through.
@@ -804,6 +811,7 @@ public sealed class SettingsStore : IDisposable {
 		ApplyMode.Live => "live",
 		ApplyMode.ReopensTerminal => "reopensTerminal",
 		ApplyMode.NextSession => "nextSession",
+		ApplyMode.NextLanguageServerStart => "nextLanguageServerStart",
 		ApplyMode.RestartRequired => "restartRequired",
 		_ => apply.ToString().ToLowerInvariant(),
 	};

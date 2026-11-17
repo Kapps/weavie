@@ -266,7 +266,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Lsp = new LspController(
 			workspaceRoot,
 			new LspServerLauncher(),
-			LanguageServerCatalog.Resolve,
+			selector => LanguageServerCatalog.Resolve(selector) is { } descriptor
+				? LspSettings.Effective(descriptor, settings, paths.SettingsWorkspaceRoot, workspaceRoot)
+				: null,
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		WireMessages(owner.InputFrozen, owner.AcceptTerminalInput);
@@ -543,11 +545,14 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal string DisplayLabel { get; set; } = string.Empty;
 
 	/// <summary>
-	/// The session's LSP discovery payload: its worktree root and server catalog. Addressing belongs to the
-	/// session message envelope, not the feature payload.
+	/// The session's LSP discovery payload: its worktree root, restart revision and server catalog. Addressing
+	/// belongs to the session message envelope, not the feature payload.
 	/// </summary>
 	public string LspConfigJson =>
-		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
+		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"revision\":{LspRevision},\"servers\":{LspServersCatalogJson}}}";
+
+	/// <summary>Counts Restart Language Servers runs; a changed value has every page restart this session's clients.</summary>
+	internal int LspRevision { get; set; }
 
 	/// <summary>
 	/// Lists <paramref name="requestedPath"/> — absolute as itself, relative against the session root — for the

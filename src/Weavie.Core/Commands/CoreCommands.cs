@@ -253,6 +253,9 @@ public static partial class CoreCommands {
 	/// <summary>Renames the symbol at the editor cursor across the workspace (the editor right-click "Rename Symbol"); bound to <c>F2</c>.</summary>
 	public const string EditorRename = "weavie.editor.rename";
 
+	/// <summary>Restarts the invoking session's language servers, picking up their configured commands.</summary>
+	public const string RestartLanguageServers = "weavie.lsp.restart";
+
 	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
 	public const string ToggleWindow = "weavie.window.toggle";
 
@@ -917,6 +920,16 @@ public static partial class CoreCommands {
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
 			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RestartLanguageServers,
+			Title = "Restart Language Servers",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Editor",
+			Description = "Restart this session's language servers, applying a changed lsp.<language>.command setting.",
+			Aliases = ["restart lsp", "restart language server", "reload language server", "restart typescript server"],
 		});
 
 		registry.Register(new CommandDefinition {

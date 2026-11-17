@@ -247,7 +247,7 @@ button.editor-review-action:not(:disabled):hover {
   background: transparent;
 }
 
-/* Icon-only halves inside the switch's 1px frame, so the whole switch is one 24px control. */
+/* Icon-only halves inside the switch's 1px frame, so the whole switch is one control tall. */
 .editor-review-segment {
   --control-h: calc(var(--control-height) - 2px);
   align-items: center;

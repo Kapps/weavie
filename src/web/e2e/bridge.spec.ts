@@ -910,6 +910,9 @@ test.describe("session-addressed WebSocket transport", () => {
         host.publishHost("settings", "fonts", {
           editor: { family: "monospace", size: 19, weight: "normal" },
           terminal: { family: "monospace", size: 19, weight: "normal" },
+          interface: "sans-serif",
+          interfaceSize: 13,
+          prose: "sans-serif",
         });
       });
       const remoteCheckpoint = remote.checkpoint();

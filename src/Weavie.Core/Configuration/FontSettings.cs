@@ -80,7 +80,7 @@ public static class FontSettings {
 	private const long MinSize = 6;
 	private const long MaxSize = 72;
 	private const long MinInterfaceSize = 10;
-	private const long MaxInterfaceSize = 24;
+	private const long MaxInterfaceSize = 18;
 
 	/// <summary>Clamps a font size to the allowed range, so the zoom commands stop at the bounds (never an error).</summary>
 	public static long ClampSize(long size) => Math.Clamp(size, MinSize, MaxSize);
@@ -242,15 +242,15 @@ public static class FontSettings {
 	}
 
 	private static ValidationResult ValidateSize(object? value) =>
-		value is long size && size is >= MinSize and <= MaxSize
+		ValidateRange(value, MinSize, MaxSize, "font size");
+
+	private static ValidationResult ValidateRange(object? value, long min, long max, string name) =>
+		value is long size && size >= min && size <= max
 			? ValidationResult.Success
-			: ValidationResult.Failure($"font size must be between {MinSize} and {MaxSize} pixels.");
+			: ValidationResult.Failure($"{name} must be between {min} and {max} pixels.");
 
 	private static ValidationResult ValidateInterfaceSize(object? value) =>
-		value is long size && size is >= MinInterfaceSize and <= MaxInterfaceSize
-			? ValidationResult.Success
-			: ValidationResult.Failure(
-				$"interface font size must be between {MinInterfaceSize} and {MaxInterfaceSize} pixels.");
+		ValidateRange(value, MinInterfaceSize, MaxInterfaceSize, "interface font size");
 
 	private static ValidationResult ValidateOverrideSize(object? value) =>
 		value is long size && (size == 0 || size is >= MinSize and <= MaxSize)

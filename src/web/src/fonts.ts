@@ -40,10 +40,13 @@ const DEFAULT_CONFIG: FontConfig = {
   prose: DEFAULT_UI_FAMILY,
 };
 
-/** One line of interface text at `size`: a third taller, rounded up to an even pixel so an icon box centres in it. */
-export function interfaceLineHeight(size: number): number {
+/** One line of interface text at `size`: a third taller, rounded up to an even pixel so an icon two less centres in it. */
+function interfaceLineHeight(size: number): number {
   return 2 * Math.ceil((size * 1.33) / 2);
 }
+
+/** The current interface line in px, for geometry that script and stylesheet must agree on. */
+export const interfaceLine = (): number => interfaceLineHeight(current.interfaceSize);
 
 let current: FontConfig = hostInjected("__WEAVIE_FONTS__", window.__WEAVIE_FONTS__, DEFAULT_CONFIG);
 

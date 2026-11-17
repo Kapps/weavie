@@ -733,6 +733,11 @@ a:has(> .agent-path-dir) {
   color: var(--dim);
 }
 
+/* Narrower than its text, so the preview ellipsizes in a narrow pane. */
+.agent-thought-row {
+  min-width: 0;
+}
+
 .agent-thought-row:hover {
   background: color-mix(in srgb, var(--fg) 7%, transparent);
 }

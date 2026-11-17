@@ -414,7 +414,7 @@ applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no r
 | `terminal.font.size`   | Int    | `0` → inherit                   | terminal size override (0, or 6–72)      |
 | `terminal.font.weight` | String | `inherit`                       | terminal weight override                 |
 | `interface.font.family`| String | bundled Sora stack              | interface (chrome) family                |
-| `interface.font.size`  | Int    | `13`                            | interface text size in px (10–24)        |
+| `interface.font.size`  | Int    | `13`                            | interface text size in px (10–18)        |
 | `prose.font.family`    | String | `""` → interface font          | agent replies + rendered markdown family |
 
 An override left at its **inherit sentinel** — empty family, `0` size, `"inherit"` weight — falls
@@ -427,10 +427,11 @@ and xterm's `FontWeight`; the override `weight` adds `inherit` to that set.
 before navigation (no default-font flash on mount) and, subscribing to every font key, re-pushes it as
 a `{ type: "fonts", … }` bridge message on any change. The web `fonts.ts` reads the injected global at
 editor/terminal creation and applies live pushes via `onFontsChanged`; it also publishes the
-`--interface-font-family` / `--interface-font-size` / `--prose-font-family` CSS vars behind the
-`--font-chrome-family` / `--font-chrome-size` / `--font-prose-family` typography roles.
+`--interface-font-family` / `--interface-font-size` / `--interface-font-line` / `--prose-font-family` CSS vars
+behind the `--font-chrome-family` / `--font-chrome-size` / `--font-chrome-line` / `--font-prose-family`
+typography roles.
 
-Chrome text sizes are fixed px role tokens; only the content and prose roles follow `font.size` /
+Chrome text follows `interface.font.size`; the content and prose roles follow `font.size` /
 `editor.font.size`. See the [design system concept](../concepts/design-system.md).
 
 The three-segment keys (`editor.font.size`) required lifting the TOML key writer's previous

@@ -38,7 +38,7 @@ Hero and lead exist only for landing surfaces. The family is `--font-chrome-fami
 
 - **Line heights.** Every single-line role uses one line, 18px, so both sizes share one line box. Wrapping body
   text uses 20px, which is also what everything inherits. The line is the text size times 1.33, rounded up to an
-  even pixel so an icon box centres in it (`interfaceLineHeight` in `fonts.ts`, the one place it is computed).
+  even pixel so an icon two pixels less centres in it (`fonts.ts`, the one place it is computed).
 - **Everything follows the size.** Rows, controls and icons are the line or the text size plus fixed padding
   (`--control-height*`, `--icon-size*`, `--icon-button-size`, `--card-tag-rise`), so a surface built from the
   tokens scales with the setting and one that writes a literal height does not.
@@ -123,7 +123,7 @@ A card is a square panel on the panel tone.
   `footer.confirm-actions`, which bleeds through `--card-pad`. A surface that draws its own display heading
   passes `labelledBy` instead of `title`. Controls that belong beside the title (a host picker, a close
   button) are the body's first row.
-- **Actions.** Each `PromptButton` is a 36px cell (`--control-height-cell`) along the card's bottom edge,
+- **Actions.** Each `PromptButton` is a 38px cell (`--control-height-cell`) along the card's bottom edge,
   sharing the row equally: the default action is `primary` or `danger` and solid, the rest are plain with
   no outline, since the card frames them. A
   shortcut shows as a `.ui-kbd-cap` (`↵` for Enter, `esc` for Esc).
@@ -132,7 +132,7 @@ A card is a square panel on the panel tone.
   that asks one thing; a container's header is a control strip, and a tag on it competes with the tags of the
   cards inside.
 - **Pending requests.** A request waiting on the user in the agent transcript (permission, question, sign-in,
-  link) is a card whose tag carries an amber dot, with its decisions as joined 36px cells.
+  link) is a card whose tag carries an amber dot, with its decisions as joined 38px cells.
 - **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts
   it. A modal that cannot be a `ModalShell` uses both, never its own copy.
 
@@ -143,7 +143,7 @@ flowchart TB
       direction TB
       tag[".ui-section-label.ui-card-tag: half above the top edge"]
       body["body: 16px inset"]
-      subgraph actions["footer.confirm-actions: edge to edge, 36px"]
+      subgraph actions["footer.confirm-actions: edge to edge, 38px"]
         direction LR
         cancel["PromptButton: plain cell, esc"] --- go["PromptButton: primary or danger cell, ↵"]
       end
@@ -157,7 +157,7 @@ flowchart TB
 - **Text beside text aligns on the baseline**, never `align-items: center`: centring mixed sizes leaves the
   smaller text off-baseline.
 - **Rows and controls are fixed-height.** Baseline alignment of mixed sizes makes an auto-height row grow by
-  a sub-pixel (26 vs 26.5px), so `.ui-row` sets `height: --row-line + 2 × --row-pad` and absorbs it. The
+  a sub-pixel (28 vs 28.5px), so `.ui-row` sets `height: --row-line + 2 × --row-pad` and absorbs it. The
   same construction gives `-content` rows a height that grows with the editor font instead of clipping.
 - **Icons and controls beside text** sit in `.ui-icon`, a box one line tall, top-aligned so they stay on the
   first line of a wrapping row.

@@ -2,6 +2,7 @@ import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { interfaceLine } from "../../fonts";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
 import { hiddenAreas } from "../hidden-areas";
@@ -21,7 +22,8 @@ import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
-const GAP_HEIGHT = 24;
+// A line of interface text inside the band's borders and padding.
+const gapHeight = (): number => interfaceLine() + 8;
 // Lucide's chevrons-up-down.
 const EXPAND_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>';
@@ -161,7 +163,7 @@ export function createReviewEditor(options: {
     // The band sits just above the hidden stretch it stands for.
     return {
       afterLineNumber: span.start - 1,
-      heightInPx: GAP_HEIGHT,
+      heightInPx: gapHeight(),
       domNode: band,
       marginDomNode: margin,
       showInHiddenAreas: true,

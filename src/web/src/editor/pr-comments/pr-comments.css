@@ -111,8 +111,8 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: var(--control-height);
+  height: var(--control-height);
   border-radius: 50%;
   object-fit: cover;
   color: #fff;
@@ -124,13 +124,13 @@
   min-width: 0;
 }
 
-/* As tall as the 24px avatar: a 16px line plus 4px padding, so author, time and badge share one baseline. */
+/* As tall as the avatar: a line plus 4px padding, so author, time and badge share one baseline. */
 .weavie-pr-comment-meta {
   display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  height: 24px;
+  height: var(--control-height);
   padding-block: 4px;
 }
 

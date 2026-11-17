@@ -172,7 +172,7 @@ public sealed class FontSettingsTests : IDisposable {
 		}
 
 		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.InterfaceSize, Json("9")));
-		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.InterfaceSize, Json("25")));
+		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.InterfaceSize, Json("19")));
 	}
 
 	[Fact]

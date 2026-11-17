@@ -44,11 +44,13 @@
   --font-chrome-hero-size: 36px;
   --font-chrome-display-size: 20px;
   --font-chrome-lead-size: 16px;
-  --font-chrome-size: var(--interface-font-size, 13px); /* all interface text */
+  --font-chrome-size: var(
+    --interface-font-size
+  ); /* all interface text; the interface.font.size setting */
   /* key hints, counts, badges, session names */
   --font-chrome-badge-size: calc(var(--font-chrome-size) - 1px);
   /* every single-line chrome role; fonts.ts derives it from the size */
-  --font-chrome-line: var(--interface-font-line, 18px);
+  --font-chrome-line: var(--interface-font-line);
   /* wrapping body text; the inherited default */
   --font-chrome-line-wrap: calc(var(--font-chrome-line) + 2px);
   --font-chrome-display-line: 24px;
@@ -107,8 +109,9 @@
   --control-radius: 0px;
   --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
   --touch-target: 44px;
-  --icon-size-sm: var(--font-chrome-size);
-  --icon-size: calc(var(--font-chrome-size) + 2px);
+  /* Even like the line, so an icon centres in it on whole pixels. */
+  --icon-size-sm: calc(var(--font-chrome-line) - 4px);
+  --icon-size: calc(var(--font-chrome-line) - 2px);
   --icon-button-size: calc(var(--font-chrome-line) + 4px);
   /* the half of a card's title tag above the card */
   --card-tag-rise: calc(var(--font-chrome-line) / 2 + 2px);

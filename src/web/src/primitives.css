@@ -281,6 +281,10 @@
     background-repeat: no-repeat;
   }
 
+  select.ui-field:disabled {
+    opacity: 0.45;
+  }
+
   .ui-field::placeholder {
     color: var(--dim);
   }

@@ -2,8 +2,9 @@ import type { JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentCurrentThought } from "./AgentCurrentThought";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { isPendingRequest } from "./AgentPendingRequests";
+import { hasPendingRequest } from "./AgentPendingRequests";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
+import { CollapsibleCardContent } from "./CollapsibleCardContent";
 import { ForEachId } from "./ForEachId";
 
 /** A nested conversation's transcript inside a BTW or subagent card. */
@@ -21,13 +22,7 @@ export function NestedTranscript(props: {
     <div class="agent-aside-transcript">
       <ForEachId each={props.entries}>
         {(entry) => (
-          <CollapsibleCardContent
-            collapsed={
-              props.pendingOnly &&
-              !isPendingRequest(entry()) &&
-              (entry().pendingEntries?.length ?? 0) === 0
-            }
-          >
+          <CollapsibleCardContent collapsed={props.pendingOnly && !hasPendingRequest(entry())}>
             <TranscriptEntry
               expandedDetails={props.expandedDetails}
               entry={entry()}
@@ -44,22 +39,6 @@ export function NestedTranscript(props: {
       <CollapsibleCardContent collapsed={props.pendingOnly}>
         <AgentCurrentThought text={props.currentThought} />
       </CollapsibleCardContent>
-    </div>
-  );
-}
-
-export function CollapsibleCardContent(props: {
-  collapsed: boolean;
-  children: JSX.Element;
-}): JSX.Element {
-  return (
-    <div
-      class="agent-card-content"
-      classList={{ collapsed: props.collapsed }}
-      inert={props.collapsed}
-      aria-hidden={props.collapsed}
-    >
-      <div>{props.children}</div>
     </div>
   );
 }

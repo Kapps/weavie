@@ -236,16 +236,20 @@
   align-items: baseline;
   gap: 10px;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
   color: var(--dim);
 }
 
-/* A row primitive with no padding of its own; the head pads it. */
+/* The divider belongs to the body, so a card showing its head alone has none. */
+.agent-aside-body {
+  border-top: 1px solid var(--border);
+}
+
+/* A row primitive with no padding of its own; the head pads it. It takes the space the meta leaves, and at least a share of the head. */
 .agent-aside-toggle {
   --row-pad: 0px;
   --row-pad-x: 0px;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 30%;
 }
 
 /* The row is a flex container, so the label is the item that ellipsizes. */
@@ -295,9 +299,13 @@
   margin-top: 4px;
 }
 
+/* Once the label is at its share, the meta ellipsizes too, so a narrow head stays one row. */
 .agent-aside-head small {
-  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
   font: var(--font-chrome-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-aside-transcript {
@@ -671,6 +679,11 @@ a:has(> .agent-path-dir) {
 .agent-card-content > div {
   min-height: 0;
   overflow: hidden;
+}
+
+/* A dashboard's blocks leave as it collapses, so its body has no height to ease. */
+[data-agent-dashboard] > .agent-card-content {
+  transition: none;
 }
 
 .agent-disclosure {

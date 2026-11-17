@@ -2346,6 +2346,12 @@ test.describe("ACP composer", () => {
     await expect(latestButton).toHaveCount(1);
     await expect(navigation).toHaveCSS("opacity", "0");
     await revealScrollNavigation(page);
+    // The navigation paints its buttons and nothing else down the transcript's edge.
+    expect(
+      await navigation.evaluate((element) =>
+        ["::before", "::after"].map((pseudo) => getComputedStyle(element, pseudo).content),
+      ),
+    ).toEqual(["none", "none"]);
     await page.screenshot({ path: join(shotsDir, "10-scroll-navigation.png") });
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     await expect(navigation).toHaveCSS("opacity", "0");

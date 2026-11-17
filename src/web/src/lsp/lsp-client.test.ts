@@ -65,7 +65,8 @@ const runtime = vi.hoisted(() => ({
   clients: [] as ClientRecord[],
   channels: [] as ChannelRecord[],
   resets: [] as Array<{ session: FakeSession; name: string; payload: unknown }>,
-  notices: [] as string[],
+  notices: [] as Array<{ key: string; text: string }>,
+  cleared: [] as string[],
   StartError: class extends Error {},
   startFailure: undefined as Error | undefined,
 }));
@@ -209,10 +210,8 @@ vi.mock("../editor/vscode-services", () => ({
   initEditorServices: () => Promise.resolve(),
 }));
 vi.mock("../notify/notify", () => ({
-  notify: (_level: string, text: string) => runtime.notices.push(text),
-  clearNotification: () => {
-    runtime.notices = [];
-  },
+  notify: (_level: string, text: string, key: string) => runtime.notices.push({ key, text }),
+  clearNotification: (key: string) => runtime.cleared.push(key),
 }));
 
 function session(id: string, workspace: string): FakeSession {
@@ -287,6 +286,7 @@ beforeEach(() => {
   runtime.channels = [];
   runtime.resets = [];
   runtime.notices = [];
+  runtime.cleared = [];
   runtime.startFailure = undefined;
 });
 
@@ -427,13 +427,17 @@ describe("session-owned language clients", () => {
     await settle();
 
     expect(runtime.clients).toHaveLength(0);
-    expect(runtime.notices).toEqual(["C# language server not found (tried /repo/ls)"]);
+    expect(runtime.notices.map((notice) => notice.text)).toEqual([
+      "C# language server not found (tried /repo/ls)",
+    ]);
+    expect(runtime.cleared).toEqual([]);
 
     runtime.startFailure = undefined;
     owner.state.lsp.set({ ...(owner.state.lsp.current as WeavieLspConfig), revision: 1 });
     await settle();
 
     expect(runtime.clients).toHaveLength(1);
-    expect(runtime.notices).toEqual([]);
+    expect(runtime.notices).toHaveLength(1);
+    expect(runtime.cleared).toEqual([runtime.notices[0]?.key]);
   });
 });

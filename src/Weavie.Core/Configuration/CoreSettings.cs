@@ -197,11 +197,11 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
-			Description = "Show all agent thinking, the latest reasoning summary in a compact status row, or individual collapsed Thinking rows. Ordinary agent replies remain visible.",
+			Description = "Show each piece of agent thinking where it happened in the transcript, as a collapsed Thinking row that expands, or in full.",
 			Aliases = ["show thinking", "collapse thinking", "thought display"],
 			Apply = ApplyMode.Live,
-			Default = "current",
-			AllowedValues = ["all", "current", "collapsed"],
+			Default = "collapsed",
+			AllowedValues = ["collapsed", "all"],
 		});
 
 		registry.Register(new SettingDefinition {

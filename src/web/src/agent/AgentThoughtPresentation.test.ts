@@ -6,8 +6,8 @@ import { AgentPaneConversationRows } from "./AgentPaneConversationRows";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import * as projection from "./AgentPaneMessages";
 import { createAgentPaneModel } from "./AgentPaneModel";
+import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import type { ThoughtDisplay } from "./AgentThoughtPresentation";
-import { holdTranscript } from "./AgentTranscriptSnapshot";
 
 vi.mock("solid-js", async () => await vi.importActual("solid-js/dist/solid.js"));
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
@@ -51,7 +51,7 @@ const reply = (id: string): AgentPaneUpdate => ({
 function fixture() {
   return createRoot((dispose) => {
     disposers.push(dispose);
-    const [display, setDisplay] = createSignal<ThoughtDisplay>("current");
+    const [display, setDisplay] = createSignal<ThoughtDisplay>("collapsed");
     const model = createAgentPaneModel({} as ClientSession, display, () => "all");
     let flush = () => {};
     const accumulator = new AgentPaneAccumulator((callback) => {
@@ -72,148 +72,88 @@ function fixture() {
   });
 }
 
-it("updates the current summary without transcript rows and preserves it through tool-only updates", () => {
-  const { model, send, entries } = fixture();
-  send(start, user("task"), thought("one", "Inspecting"), tool("build"));
-  const held = model.transcript();
-  expect(held.currentThought).toBe("Inspecting");
-  expect(entries().map((entry) => entry.kind)).toEqual(["message", "activity"]);
-  send(thought("one", " the build"));
-  expect(model.transcript().currentThought).toBe("Inspecting the build");
-  expect(held.currentThought).toBe("Inspecting");
-  const project = vi.spyOn(projection, "projectAgentTranscript");
-  send({ ...tool("build"), type: "item-completed", status: "completed" });
-  expect(project).not.toHaveBeenCalled();
-  expect(model.transcript().currentThought).toBe("Inspecting the build");
-  send(thought("two", "Checking tests"), reply("The build passed"));
-  expect(model.transcript().currentThought).toBe("Checking tests");
-  expect(entries().find((entry) => entry.text === "The build passed")?.kind).toBe("message");
-});
-
-it("clears completed and restarted turns even while old tools remain active", () => {
-  const { model, send } = fixture();
-  send(start, thought("one", "Old summary"), tool("background"));
-  send({ ...base, type: "turn-completed", status: "completed" });
-  expect(model.turnActive()).toBe(true);
-  expect(model.transcript().currentThought).toBeNull();
-  send({ ...start, turnId: "2" });
-  expect(model.transcript().currentThought).toBeNull();
-  send({ ...thought("one", "New summary"), turnId: "2" });
-  expect(model.transcript().currentThought).toBe("New summary");
-  send({ ...base, turnId: "2", type: "turn-completed", status: "interrupted" });
-  expect(model.transcript().currentThought).toBeNull();
-});
-
-it.each<AgentPaneUpdate>([
-  user("steer"),
-  { ...user("restored-steer"), type: "user-message" },
-  { ...user("command"), type: "user-command" },
-  { ...base, type: "user-image", itemId: "image", status: "submitted" },
-])("clears the current summary on submitted $type without reviving an earlier item", (input) => {
-  const { model, send } = fixture();
-  send(start, thought("old", "Old summary"), input);
-  expect(model.transcript().currentThought).toBeNull();
-  send(thought("old", " completed late"));
-  expect(model.transcript().currentThought).toBeNull();
-  send(thought("new", "New summary"));
-  expect(model.transcript().currentThought).toBe("New summary");
-});
-
-it("does not clear the summary for unsent attachments or messages from another session", () => {
-  const { model, send } = fixture();
+it.each<ThoughtDisplay>([
+  "collapsed",
+  "all",
+])("keeps every thought where it happened with %s thinking", (display) => {
+  const { send, entries, setDisplay } = fixture();
+  setDisplay(display);
   send(
-    start,
-    thought("one", "Current summary"),
-    { ...base, type: "user-image", itemId: "draft", status: "attached" },
-    { ...user("peer"), sender: { id: "peer", title: "Other session" } },
+    { ...user("task"), type: "user-message" },
+    tool("build"),
+    user("Who is building?"),
+    thought("answer", "I am building it."),
+    tool("verify"),
+    thought("next", "I will verify the build."),
   );
-  expect(model.transcript().currentThought).toBe("Current summary");
+  expect(entries().map((entry) => entry.kind)).toEqual([
+    "message",
+    "activity",
+    "message",
+    "thought",
+    "activity",
+    "thought",
+  ]);
+  expect(entries().flatMap((entry) => (entry.kind === "thought" ? [entry.text] : []))).toEqual([
+    "I am building it.",
+    "I will verify the build.",
+  ]);
+  send(thought("next", " Then I will report."), reply("Done"));
+  expect(entries()[5]!.text).toBe("I will verify the build. Then I will report.");
+  expect(entries().filter((entry) => entry.kind === "thought")).toHaveLength(2);
 });
 
-it("restores every display choice from history without losing text or disclosure state", () => {
+it("keeps the tools around a thought in one group, live and from history", () => {
+  const { model, send, load, entries } = fixture();
+  const rows = [start, tool("first"), thought("between", "Checking"), tool("second")];
+  send(...rows);
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought"]);
+  expect(entries()[0]!.detailCount).toBe(2);
+  const project = vi.spyOn(projection, "projectAgentTranscript");
+  send({ ...tool("second"), type: "item-completed", status: "completed" }, tool("third"));
+  expect(project).not.toHaveBeenCalled();
+  expect(entries()[0]!.detailCount).toBe(3);
+  expect(model.activityStep("third")!.status).toBe("running");
+  load(rows);
+  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought"]);
+  send(reply("Update"), tool("fourth"));
+  expect(entries().map((entry) => entry.kind)).toEqual([
+    "activity",
+    "thought",
+    "message",
+    "activity",
+  ]);
+});
+
+it("restores both display choices from history without losing text or disclosure state", () => {
   const { model, load, entries, setDisplay } = fixture();
   load([start, user("task"), thought("one", "First"), thought("two", "Latest"), reply("Answer")]);
-  const held = holdTranscript(model.transcript());
-  expect(held.currentThought).toBe("Latest");
-  setDisplay("all");
-  expect(model.transcript().currentThought).toBeNull();
-  expect(
-    entries()
-      .filter((entry) => entry.kind === "thought")
-      .map((entry) => entry.text),
-  ).toEqual(["First", "Latest"]);
-  setDisplay("collapsed");
   const collapsed = entries().filter((entry) => entry.kind === "thought");
+  expect(collapsed.map((entry) => entry.text)).toEqual(["First", "Latest"]);
   expect(collapsed.every((entry) => entry.thoughtCollapsed)).toBe(true);
   expect(collapsed.map(estimateEntrySize)).toEqual([29, 29]);
   const firstId = collapsed[0]!.id;
   model.setActivityExpanded(firstId, true);
   expect(estimateEntrySize(entries().find((entry) => entry.id === firstId))).toBeGreaterThan(29);
-  setDisplay("current");
-  expect(model.transcript().currentThought).toBe("Latest");
-  expect(entries().some((entry) => entry.kind === "thought")).toBe(false);
-  expect(entries().find((entry) => entry.text === "Answer")?.kind).toBe("message");
+  setDisplay("all");
+  const shown = entries().filter((entry) => entry.kind === "thought");
+  expect(shown.map((entry) => entry.text)).toEqual(["First", "Latest"]);
+  expect(shown.some((entry) => entry.thoughtCollapsed)).toBe(false);
   setDisplay("collapsed");
   expect(entries().find((entry) => entry.id === firstId)?.thoughtOpen).toBe(true);
-  expect(held.currentThought).toBe("Latest");
-  expect(held.entries.some((entry) => entry.kind === "thought")).toBe(false);
 });
 
-it.each([
-  "side-conversation-closed",
-  "side-conversation-failed",
-])("isolates nested summaries, freezes held views, and clears %s", (type) => {
-  const { model, send, setDisplay } = fixture();
+it("keeps a side conversation's thoughts in its own transcript", () => {
+  const { model, send } = fixture();
   send(
     start,
-    thought("root", "Root summary"),
+    thought("root", "Root thought"),
     { ...base, type: "side-conversation-started", conversationId: "side", text: "Side question" },
     { ...start, conversationId: "side" },
-    { ...thought("child", "Side summary"), conversationId: "side" },
+    { ...thought("child", "Side thought"), conversationId: "side" },
   );
-  const held = holdTranscript(model.transcript());
-  const heldSide = held.entries.find((entry) => entry.conversationId === "side")!;
-  expect(heldSide.currentThought).toBe("Side summary");
-  send({ ...thought("child", " continued"), conversationId: "side" });
-  expect(model.conversation("side")?.currentThought).toBe("Side summary continued");
-  expect(heldSide.currentThought).toBe("Side summary");
-  expect(model.transcript().currentThought).toBe("Root summary");
-  setDisplay("all");
-  expect(model.conversation("side")?.currentThought).toBeNull();
-  expect(model.conversation("side")?.asideEntries?.some((entry) => entry.kind === "thought")).toBe(
-    true,
-  );
-  setDisplay("current");
-  expect(model.conversation("side")?.currentThought).toBe("Side summary continued");
-  send({ ...base, type, conversationId: "side" });
-  expect(model.conversation("side")?.currentThought).toBeNull();
-  expect(model.transcript().currentThought).toBe("Root summary");
-});
-
-it("groups work across current-only thoughts and restores visible thought boundaries on setting changes", () => {
-  const { model, send, entries, setDisplay, load } = fixture();
-  const rows = [start, tool("first"), thought("between", "Checking"), tool("second")];
-  send(...rows);
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity"]);
-  expect(entries()[0]!.detailCount).toBe(2);
-  expect(model.transcript().currentThought).toBe("Checking");
-  const group = entries()[0]!.id;
-  send(
-    { ...tool("first"), type: "item-completed", status: "failed" },
-    { ...tool("second"), type: "item-completed", status: "completed" },
-  );
-  expect(entries()).toHaveLength(1);
-  expect(entries()[0]!.id).toBe(group);
-  expect(model.activityStep("first")!.status).toBe("failed");
-  setDisplay("all");
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought", "activity"]);
-  setDisplay("collapsed");
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought", "activity"]);
-  setDisplay("current");
-  expect(entries()).toHaveLength(1);
-  load(rows);
-  expect(entries()).toHaveLength(1);
-  expect(entries()[0]!.detailCount).toBe(2);
-  send(reply("Update"), tool("third"));
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "message", "activity"]);
+  const thoughts = (entries: readonly AgentTranscriptEntry[] | undefined) =>
+    entries?.flatMap((entry) => (entry.kind === "thought" ? [entry.text] : []));
+  expect(thoughts(model.conversation("side")?.asideEntries)).toEqual(["Side thought"]);
+  expect(thoughts(model.transcript().entries)).toEqual(["Root thought"]);
 });

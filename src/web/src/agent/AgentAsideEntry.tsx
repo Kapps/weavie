@@ -42,7 +42,6 @@ export function AsideEntry(props: {
       data={{ "data-agent-aside": conversationId }}
     >
       <NestedTranscript
-        currentThought={props.entry.currentThought ?? null}
         entries={props.entry.asideEntries ?? []}
         pendingOnly={collapsed()}
         expandedDetails={props.expandedDetails}

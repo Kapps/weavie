@@ -12,7 +12,6 @@ export function entryMeasurementSource(entry: AgentTranscriptEntry): AgentTransc
 export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartId: null,
   agentTurnStartIndex: null,
-  currentThought: null,
   entries: [],
   entryIndexes: new Map(),
   cardIndexes: [],
@@ -60,7 +59,6 @@ export function shareTranscript(
     next.agentTurnStartIndex === previous.agentTurnStartIndex &&
     next.latestResultIndex === previous.latestResultIndex &&
     next.turnActive === previous.turnActive &&
-    next.currentThought === previous.currentThought &&
     sameItems(next.pendingRowIndexes, previous.pendingRowIndexes) &&
     sameItems(next.cardIndexes, previous.cardIndexes) &&
     next.sectionLabels.size === previous.sectionLabels.size &&
@@ -152,7 +150,6 @@ export function holdTranscript(snapshot: AgentTranscriptSnapshot): AgentTranscri
       const held = holdTranscript(view.transcript());
       return {
         ...entry,
-        currentThought: held.currentThought,
         get asideEntries() {
           return withLivePending(held, view.transcript()).entries as AgentTranscriptEntry[];
         },

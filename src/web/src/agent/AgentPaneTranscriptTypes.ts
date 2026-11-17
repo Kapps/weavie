@@ -59,7 +59,6 @@ export interface AgentTranscriptEntry {
   conversation?: AgentConversationProjection;
   asideActive?: boolean | undefined;
   asideCollapsed?: boolean | undefined;
-  currentThought?: string | null;
   asideEntries?: readonly AgentTranscriptEntry[];
   pendingEntries?: readonly AgentTranscriptEntry[];
   asideReplyable?: boolean | undefined;
@@ -91,7 +90,6 @@ export type AgentSectionLabel = "Updates" | "Results";
 export interface AgentTranscriptSnapshot {
   readonly agentTurnStartId: string | null;
   readonly agentTurnStartIndex: number | null;
-  readonly currentThought: string | null;
   readonly entries: readonly AgentTranscriptEntry[];
   readonly entryIndexes: ReadonlyMap<string, number>;
   /** The entries that are cards a user can open and collapse: side conversations and dashboards. */

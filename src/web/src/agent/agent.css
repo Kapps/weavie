@@ -718,21 +718,6 @@ a:has(> .agent-path-dir) {
   padding: 0 8px;
 }
 
-.agent-current-thought {
-  flex: 0 0 auto;
-  min-width: 0;
-  color: var(--dim);
-  padding-inline: 12px;
-  cursor: default;
-}
-
-.agent-current-thought-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .agent-thought {
   margin: 0;
   min-width: 0;

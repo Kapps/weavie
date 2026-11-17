@@ -119,7 +119,6 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
                         session={props.model.session}
                         pending={
                           <NestedTranscript
-                            currentThought={null}
                             entries={entry().pendingEntries!}
                             pendingOnly={true}
                             expandedDetails={details()}

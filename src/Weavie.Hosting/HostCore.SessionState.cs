@@ -38,11 +38,9 @@ public sealed partial class HostCore {
 
 		var toLoad = new List<SessionSlot>();
 		foreach (var item in _sessionStore.Items) {
-			var slot = _sessions.Find(item.Id.Value)
-				?? _sessions.Slots.FirstOrDefault(candidate => PathIdentity.Equals(candidate.WorktreePath, item.WorktreePath));
+			var slot = _sessions.Find(SessionSlot.IdFor(item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
 				slot = new SessionSlot {
-					Id = item.Id.Value,
 					Label = _workspaceSessionLabel,
 					WorktreePath = WorkspaceRoot,
 					AgentProviderId = item.AgentProviderId,
@@ -98,7 +96,7 @@ public sealed partial class HostCore {
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id, slot.ShellTerminals);
+			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.ShellTerminals);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);

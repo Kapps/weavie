@@ -170,9 +170,13 @@ public sealed partial class HostCore {
 	private SessionSlot? OwnedSlot(HostSession session) =>
 		_sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session) ? slot : null;
 
-	/// <summary>Test seam for one exact logical slot.</summary>
+	/// <summary>Test seam for the live session of the slot with this id or branch label.</summary>
 	internal HostSession? SessionForTest(string slot) =>
-		_sessions?.Find(slot)?.Session;
+		_sessions?.Find(SlotIdForTest(slot) ?? slot)?.Session;
+
+	/// <summary>Test seam for the id of the slot labelled <paramref name="label"/>.</summary>
+	internal string? SlotIdForTest(string label) =>
+		_sessions?.Slots.FirstOrDefault(slot => string.Equals(slot.Label, label, StringComparison.Ordinal))?.Id;
 
 	/// <summary>Test seam for the ordinary session attached to the user-owned workspace checkout.</summary>
 	internal HostSession? WorkspaceSessionForTest =>
@@ -182,6 +186,10 @@ public sealed partial class HostCore {
 	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
 
 	private bool IsWorkspaceCheckout(string worktreePath) => PathIdentity.Equals(worktreePath, WorkspaceRoot);
+
+	/// <summary>The worktree session on <paramref name="branch"/>, loaded or dormant.</summary>
+	private SessionSlot? WorktreeSlotFor(string branch) =>
+		_sessions?.Slots.FirstOrDefault(slot => !IsWorkspaceCheckout(slot) && string.Equals(slot.Label, branch, StringComparison.Ordinal));
 
 	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
@@ -288,13 +296,11 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		string id = SessionId.New().Value;
 		string providerId = AvailableWorkspaceSessionProvider();
 		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
-		var session = CreateSession(WorkspaceRoot, providerId, id, shellTerminals);
+		var session = CreateSession(WorkspaceRoot, providerId, shellTerminals);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
-			Id = id,
 			Label = _workspaceSessionLabel,
 			WorktreePath = WorkspaceRoot,
 			AgentProviderId = providerId,
@@ -327,16 +333,15 @@ public sealed partial class HostCore {
 
 				string label = status.Branch ?? Path.GetFileName(
 					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-				string agentProviderId = ProviderFor(status, label);
+				string agentProviderId = ProviderFor(status);
 				if (status is { IsManaged: true, Branch: not null }) {
 					_worktrees.RecoverOwnedRecord(status, agentProviderId);
 				}
-				if (_sessions.Find(label) is not null) {
+				if (_sessions.Find(SessionSlot.IdFor(status.Path)) is not null) {
 					continue; // already surfaced
 				}
 
 				_sessions.Add(new SessionSlot {
-					Id = label,
 					Label = label,
 					WorktreePath = status.Path,
 					AgentProviderId = agentProviderId,
@@ -354,21 +359,18 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private string ProviderFor(WorktreeStatus status, string slotId) {
+	private string ProviderFor(WorktreeStatus status) {
 		if (status.IsManaged) {
 			return ProviderOrNull(status.AgentProviderId)
-				?? PersistedProviderFor(slotId, status.Path)
+				?? PersistedProviderFor(status.Path)
 				?? ResolveNewSessionProvider(null);
 		}
-		return PersistedProviderFor(slotId, status.Path) ?? ResolveNewSessionProvider(null);
+		return PersistedProviderFor(status.Path) ?? ResolveNewSessionProvider(null);
 	}
 
-	private string? PersistedProviderFor(string slotId, string worktreePath) {
-		string? provider = _sessionStore.Items.FirstOrDefault(item =>
-			string.Equals(item.Id.Value, slotId, StringComparison.Ordinal)
-			|| PathIdentity.Equals(item.WorktreePath, worktreePath))?.AgentProviderId;
-		return ProviderOrNull(provider);
-	}
+	private string? PersistedProviderFor(string worktreePath) =>
+		ProviderOrNull(_sessionStore.Items
+			.FirstOrDefault(item => PathIdentity.Equals(item.WorktreePath, worktreePath))?.AgentProviderId);
 
 	private static string? ProviderOrNull(string? provider) =>
 		string.IsNullOrWhiteSpace(provider) ? null : provider.Trim();
@@ -547,8 +549,8 @@ public sealed partial class HostCore {
 	private HostSession CreateSession(
 		string cwd,
 		string agentProviderId,
-		string slotId,
 		IReadOnlyList<string> shellTerminals) {
+		string slotId = SessionSlot.IdFor(cwd);
 		LogStartup($"session {slotId}: constructing");
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
@@ -599,11 +601,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(
-				slot.WorktreePath,
-				slot.AgentProviderId,
-				slot.Id,
-				slot.ShellTerminals);
+			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.ShellTerminals);
 			slot.Session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(slot.Session, slot);
 		}
@@ -1216,8 +1214,8 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
 		}
 
-		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
-		if (_sessions?.Find(branch) is { } existingSlot) {
+		// Already a live/dormant Weavie session for this branch? Switch to it.
+		if (WorktreeSlotFor(branch) is { } existingSlot) {
 			if (ExistingSessionInputError(input) is { } error) {
 				return error;
 			}
@@ -1297,12 +1295,11 @@ public sealed partial class HostCore {
 			try {
 				IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 				slot = new SessionSlot {
-					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
 					WorkflowDocumentsDirectory = workflowDocumentsDirectory,
 					AgentProviderId = agentProviderId,
-					Session = CreateSession(record.Path, agentProviderId, branch, shellTerminals),
+					Session = CreateSession(record.Path, agentProviderId, shellTerminals),
 					EditorSession = EditorSession.Empty,
 					ShellTerminals = shellTerminals,
 				};

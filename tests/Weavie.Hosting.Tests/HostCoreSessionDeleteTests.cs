@@ -102,7 +102,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = host.SlotId("feature") },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -172,7 +172,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = host.SlotId("feature") },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -208,7 +208,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature", classify = true },
+						args = new { id = host.SlotId("feature"), classify = true },
 					})).ToJson());
 			MessageHealthSnapshot? health = null;
 			for (int attempt = 0; attempt < 80; attempt++) {
@@ -368,15 +368,15 @@ public sealed class HostCoreSessionDeleteTests {
 			envelope => envelope is { Kind: MessageKind.Response } && envelope.RequestId == requestId));
 
 		try {
-			Invoke("slow-delete", new { id = "slow" });
+			Invoke("slow-delete", new { id = host.SlotId("slow") });
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
 				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }
 					&& envelope.Session == slow));
 
-			Invoke("other-classify", new { id = "other", classify = true });
+			Invoke("other-classify", new { id = host.SlotId("other"), classify = true });
 			Assert.True((await Response("other-classify")).Payload.GetProperty("ok").GetBoolean());
-			Invoke("other-delete", new { id = "other" });
+			Invoke("other-delete", new { id = host.SlotId("other") });
 			Assert.True((await Response("other-delete")).Payload.GetProperty("ok").GetBoolean());
 			Assert.DoesNotContain("other", SessionIds(host));
 			Assert.Contains("slow", SessionIds(host));
@@ -522,7 +522,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var fromWorkspace = host.InvokeCommandAsync(
 			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
-			new { id = "feature" },
+			new { id = host.SlotId("feature") },
 			CancellationToken.None);
 		var fromOwner = host.InvokeCommandAsync(
 			"feature",
@@ -555,7 +555,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var result = await host.InvokeCommandAsync(
 			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
-			new { id = "feature" },
+			new { id = host.SlotId("feature") },
 			CancellationToken.None);
 
 		Assert.False(result.Ok);

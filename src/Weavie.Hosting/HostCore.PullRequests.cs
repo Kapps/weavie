@@ -99,7 +99,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,
-				Prompt = _sessions?.Find(headRef) is null && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
+				Prompt = WorktreeSlotFor(headRef) is null && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},
@@ -108,7 +108,7 @@ public sealed partial class HostCore {
 			return created;
 		}
 
-		if (_sessions?.Find(headRef)?.Session is not { } target) {
+		if (WorktreeSlotFor(headRef)?.Session is not { } target) {
 			return CommandResult.Failure(
 				$"Opened PR #{request.Number}, but its session failed to load.");
 		}

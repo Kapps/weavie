@@ -43,7 +43,7 @@ public sealed class HostCoreSessionPeersTests {
 		var sender = await CreateStructuredAsync(host, "peer-sender");
 		await CreateStructuredAsync(host, "peer-dormant");
 		var unloaded = await host.InvokeCommandAsync(
-			sender.SlotId, SessionCommands.UnloadSession, new { id = "peer-dormant" }, CancellationToken.None);
+			sender.SlotId, SessionCommands.UnloadSession, new { id = host.SlotId("peer-dormant") }, CancellationToken.None);
 		Assert.True(unloaded.Ok, unloaded.Error);
 		string claude = host.WorkspaceSession.SlotId;
 
@@ -65,7 +65,7 @@ public sealed class HostCoreSessionPeersTests {
 		var target = await CreateStructuredAsync(host, "peer-target");
 		var stale = (await CreateStructuredAsync(host, "peer-reloaded")).Peers.Side("b7");
 		foreach (string command in new[] { SessionCommands.UnloadSession, SessionCommands.LoadSession }) {
-			var result = await host.InvokeCommandAsync(target.SlotId, command, new { id = "peer-reloaded" }, CancellationToken.None);
+			var result = await host.InvokeCommandAsync(target.SlotId, command, new { id = host.SlotId("peer-reloaded") }, CancellationToken.None);
 			Assert.True(result.Ok, result.Error);
 		}
 		var reloaded = host.Session("peer-reloaded");
@@ -94,7 +94,7 @@ public sealed class HostCoreSessionPeersTests {
 			attachmentIds = Array.Empty<string>(),
 		});
 		var unloaded = await host.InvokeCommandAsync(
-			reader.SlotId, SessionCommands.UnloadSession, new { id = "peer-history" }, CancellationToken.None);
+			reader.SlotId, SessionCommands.UnloadSession, new { id = host.SlotId("peer-history") }, CancellationToken.None);
 		Assert.True(unloaded.Ok, unloaded.Error);
 
 		var transcript = await reader.Peers.ReadAsync("peer-history", 1, CancellationToken.None);

@@ -95,7 +95,7 @@ public sealed class HostCoreLogsTests {
 		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
 		host.LogBuffer.Append("while unloaded");
 
-		Assert.True((await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id = "branch-a" })).Ok);
+		Assert.True((await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id = host.SlotId("branch-a") })).Ok);
 
 		await AssertLogsDocumentAsync(host, host.Session("branch-a"), "while unloaded");
 	}

@@ -117,13 +117,13 @@ public sealed class HostCoreSessionRestoreTests {
 
 		var alreadyLoaded = await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" });
+			new { id = host.SlotId("branch-a") });
 		AssertAddress(alreadyLoaded, host.Session("branch-a"));
 
 		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
 		var loaded = await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" });
+			new { id = host.SlotId("branch-a") });
 		AssertAddress(loaded, host.Session("branch-a"));
 	}
 
@@ -480,7 +480,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await host.RestartAsync();
 		Assert.True((await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" })).Ok);
+			new { id = host.SlotId("branch-a") })).Ok);
 
 		Assert.Equal(branchFile, RestoredActive(host, host.Session("branch-a")));
 	}

@@ -41,7 +41,7 @@ public sealed class HostCoreWorkflowDocumentsTests {
 		Assert.Contains(documents, contexts[host.Session("grandchild").WorkspaceRoot].Compose());
 
 		Assert.True((await host.UnloadSessionAsync("plain")).Ok);
-		Assert.True((await host.InvokeCommandAsync("child", SessionCommands.LoadSession, new { id = "plain" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("child", SessionCommands.LoadSession, new { id = host.SlotId("plain") }, CancellationToken.None)).Ok);
 		Assert.Contains(documents, contexts[host.Session("plain").WorkspaceRoot].Compose());
 		Assert.True((await host.InvokeCommandAsync("plain", CoreCommands.WorkflowRun, new { workflow = "flow" }, CancellationToken.None)).Ok);
 		Assert.Equal(documents, host.Session("plain").Workflow.Current!.DocumentsDirectory);
@@ -50,7 +50,7 @@ public sealed class HostCoreWorkflowDocumentsTests {
 		await host.RestartAsync();
 		parent = host.Session("parent");
 		Assert.Equal(documents, host.Session("plain").Workflow.Current!.DocumentsDirectory);
-		Assert.True((await host.InvokeCommandAsync("child", SessionCommands.LoadSession, new { id = "grandchild" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("child", SessionCommands.LoadSession, new { id = host.SlotId("grandchild") }, CancellationToken.None)).Ok);
 		Assert.Equal(documents, host.Session("grandchild").InheritedWorkflowDocuments);
 
 		parent.Workflow.Cancel(run.Id);
@@ -101,7 +101,7 @@ public sealed class HostCoreWorkflowDocumentsTests {
 		Assert.False(Directory.Exists(first.DocumentsDirectory));
 		Assert.True((await host.UnloadSessionAsync("root")).Ok);
 		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "root" }, CancellationToken.None)).Ok);
+			new { id = host.SlotId("root") }, CancellationToken.None)).Ok);
 		Assert.Equal(second.DocumentsDirectory, host.Session("root").Workflow.Current!.DocumentsDirectory);
 	}
 }

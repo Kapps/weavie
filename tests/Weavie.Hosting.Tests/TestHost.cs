@@ -359,14 +359,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The session selected by this test client; selection never enters <see cref="HostCore"/>.</summary>
 	public HostSession SelectedSession => Session(_selectedSlot);
 
-	/// <summary>Returns one exact live session slot.</summary>
+	/// <summary>The id of the slot named by its branch label, or <paramref name="slot"/> when it already is an id.</summary>
+	public string SlotId(string slot) => Core.SlotIdForTest(slot) ?? slot;
+
+	/// <summary>Returns one exact live session slot, named by its id or its branch label.</summary>
 	public HostSession Session(string slot) =>
 		Core.SessionForTest(slot) ?? throw new InvalidOperationException($"Session '{slot}' is not live.");
 
 	/// <summary>Selects one exact live session in the test client and updates its host view binding.</summary>
 	public void SelectSession(string slot) {
 		var session = Session(slot);
-		_selectedSlot = slot;
+		_selectedSlot = session.SlotId;
 		SessionEvent(session, "view", "attach", new { pageEpoch = "test-page" });
 	}
 
@@ -433,9 +436,9 @@ internal sealed class TestHost : IAsyncDisposable {
 		var result = await InvokeCommandAsync(
 			_selectedSlot,
 			SessionCommands.UnloadSession,
-			new { id = slot },
+			new { id = SlotId(slot) },
 			CancellationToken.None).ConfigureAwait(false);
-		if (result.Ok && _selectedSlot == slot) {
+		if (result.Ok && _selectedSlot == SlotId(slot)) {
 			SelectWorkspaceSession();
 		}
 
@@ -447,7 +450,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		InvokeCommandAsync(
 			_selectedSlot,
 			SessionCommands.DeleteSession,
-			new { id = slot, force, classify },
+			new { id = SlotId(slot), force, classify },
 			CancellationToken.None);
 
 	/// <summary>Performs the host hello and session sync sequence used by a real client connection.</summary>

@@ -37,18 +37,7 @@
   --agent-scroll-nav-inline-size: 40px;
 }
 
-.agent-scroll-nav:not(:empty)::before {
-  position: absolute;
-  top: calc(var(--agent-scroll-nav-inline-size) / 2);
-  bottom: calc(var(--agent-scroll-nav-inline-size) / 2);
-  left: calc(50% - 0.5px);
-  width: 1px;
-  background: color-mix(in srgb, var(--border) 75%, transparent);
-  content: "";
-}
-
 .agent-scroll-nav-button {
-  z-index: 1;
   display: grid;
   flex: 0 0 var(--agent-scroll-nav-inline-size);
   width: var(--agent-scroll-nav-inline-size);

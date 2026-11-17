@@ -39,8 +39,8 @@ internal sealed class WindowFeature : IDisposable {
 	public void PushState(bool maximized, bool focused) =>
 		_feature.Publish("state", WireJson.Default.WindowStateChanged, new(maximized, focused));
 
-	/// <summary>Publishes the window's current chrome description to every attached page.</summary>
-	public void PushChrome() => _feature.Publish("chrome", WireJson.Default.WindowChrome, _window.Chrome);
+	// The boot config carries the chrome a page starts with; only changes are pushed.
+	private void PushChrome() => _feature.Publish("chrome", WireJson.Default.WindowChrome, _window.Chrome);
 
 	public void Dispose() {
 		_window.ChromeChanged -= PushChrome;

@@ -56,6 +56,9 @@ const driver = (workspace: string, origin: string) => `
 async function screenshot(info: TestInfo, name: string): Promise<void> {
   const path = info.outputPath(`${name}.png`);
   if (process.platform === "darwin") {
+    // The app launches behind the runner's frontmost app; bring it forward so the shot shows it active.
+    execFileSync("osascript", ["-e", 'tell application id "io.github.kapps.weavie" to activate']);
+    execFileSync("sleep", ["1"]);
     execFileSync("screencapture", ["-x", path]);
   } else if (process.platform === "linux") {
     execFileSync("scrot", ["--overwrite", path]);
@@ -137,11 +140,10 @@ test("the shipped app draws one title bar from its window's chrome", async ({ de
     expect(workspace.end).toEqual(chrome.controls.end.map((action) => LABELS[action]));
     // The page's bar is the window's only one: it sits at the very top of the page.
     expect(workspace.bar!.top).toBe(0);
-    // No OS title bar above it: macOS has no frame at all; GTK keeps only a thin resize border where no
-    // compositor draws its shadow (CI's X server), far short of a title bar.
-    if (process.platform === "darwin") {
-      expect(workspace.frame).toBe(0);
-    } else if (process.platform === "linux") {
+    // No OS title bar above it. GTK keeps only a thin resize border where no compositor draws its shadow
+    // (CI's X server), far short of a title bar. WKWebView's outer size is not the window's, so the Mac
+    // test app measures the macOS bar against AppKit instead.
+    if (process.platform === "linux") {
       expect(workspace.frame).toBeLessThan(20);
     }
     if (process.platform === "win32") {

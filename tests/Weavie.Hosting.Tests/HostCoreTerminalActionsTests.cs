@@ -180,14 +180,12 @@ public sealed class HostCoreTerminalActionsTests {
 	}
 
 	[Fact]
-	public async Task ChromeIsPushedAtHelloAndOnEveryChange() {
+	public async Task ChromeIsPushedOnEveryChange() {
 		var window = new ThreadRecordingWindow();
 		await using var host = TestHost.CreateUnstarted(window);
 		await host.Core.StartAsync();
 		await host.ConnectAsync();
-		await Wait.UntilAsync(() => host.Bridge.PostedEvents("window", "chrome").Any(chrome =>
-			chrome.GetProperty("caption").GetString() == "press"
-			&& chrome.GetProperty("inset").GetProperty("start").GetInt32() == 78));
+		Assert.Empty(host.Bridge.PostedEvents("window", "chrome"));
 
 		window.Change(window.Chrome with { Inset = new ChromeInset(0, 0), BarHeight = 40 });
 

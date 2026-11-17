@@ -251,8 +251,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private string? _lastRecentPath;
 
 	/// <summary>
-	/// Raised when the connection hello is built, after the window chrome is pushed. A shell with a web-rendered title
-	/// bar subscribes to push the initial native window state, which only it knows. UI thread.
+	/// Raised when the connection hello is built. A shell with a web-rendered title bar subscribes to push the
+	/// initial native window state, which only it knows. UI thread.
 	/// </summary>
 	public event Action? Ready;
 

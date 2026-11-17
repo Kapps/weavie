@@ -343,7 +343,6 @@ public sealed partial class HostCore {
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
 
-		_windowFeature.PushChrome();
 		Ready?.Invoke();
 		MarkAutoConfigPageReady();
 		MarkOpenPathPageReady();

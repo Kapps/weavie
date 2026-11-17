@@ -87,7 +87,7 @@ sequenceDiagram
     participant Page as Page (TitleBar)
 
     Host->>Core: IShellWindow.Chrome
-    Core->>Page: __WEAVIE_SHELL__.chrome at boot, window.chrome at hello
+    Core->>Page: __WEAVIE_SHELL__.chrome at boot
     OS->>Host: native button press (recorded, not consumed)
     OS->>Page: same press, as DOM mousedown
     Page->>Core: window.captionPress {button, count}
@@ -150,7 +150,7 @@ Messages on the host `window` feature:
 
 | Name | Direction | Payload | Notes |
 | --- | --- | --- | --- |
-| `chrome` | host → page | the `chrome` object | at hello and on every `ChromeChanged` |
+| `chrome` | host → page | the `chrome` object | on every `ChromeChanged`; the boot config carries the initial one |
 | `captionPress` | page → host | `{ "button": 0, "count": 1 }` | DOM `MouseEvent.button` and `detail` |
 | `control` | page → host | `{ "action": "minimize" }` | unchanged shape, typed on the host |
 | `resize` | page → host | `{ "edge": "top-left" }` | unchanged, Windows only |
@@ -242,15 +242,15 @@ internal sealed class WindowFeature : IDisposable {
 		// captionPress -> window.PressCaption(press)                  (droppable)
 		window.ChromeChanged += PushChrome;
 	}
-	public void PushChrome();                            // publishes "chrome" with window.Chrome
+	private void PushChrome();                           // on ChromeChanged: publishes "chrome"
 	public void PushState(bool maximized, bool focused); // publishes "state"; HostCore.PushWindowState delegates
 	public void Dispose();                               // disposes the handlers, detaches ChromeChanged
 }
 ```
 
-- `HostCore` builds it where it registers the `window` handlers today
-  (`src/Weavie.Hosting/HostCore.Messages.cs:191-198`), calls `PushChrome()` when it raises `Ready`, and
-  passes `_platform.Window.Chrome` to `BuildConfigScript`. The `_shell` field and its null checks go.
+- `HostCore` builds it in its constructor and passes `_platform.Window.Chrome` to `BuildConfigScript`. No
+  push at hello: the boot config is the initial chrome, and the page-connect message budget (21) holds.
+  The `_shell` field and its null checks go.
 - `window.menu` and `PushWindowState` are untouched.
 
 ### `WelcomeController`
@@ -543,6 +543,7 @@ PressCaption(press):
 | Saved window size drifts under client-side decorations | Hand test relaunches twice and compares; the real-app spec reports the size on each launch |
 | Square top corners on Linux | Decision 3 |
 | Desktop has no window menu | Nothing shown; stated in error handling |
+| Chrome changes while the page is still loading (fullscreen entered mid-load) | The page keeps its boot chrome until the next change: on macOS a traffic-light gap in fullscreen until exit. Cosmetic and rare; a push at hello would put every page connect over its message budget |
 | Page zoom makes CSS pixels differ from points for `barHeight` and `inset` | Check whether Weavie applies page zoom on macOS; if it does, the host divides by the zoom factor before sending |
 | Simulated input refused on CI runners | The drag test is not added; the geometry checks and screenshots stand, and the hand test covers the gesture |
 | A second title-bar implementation lingers | `NativeTitleBar` and the native-strip CSS are deleted in the same change, after the hand test |

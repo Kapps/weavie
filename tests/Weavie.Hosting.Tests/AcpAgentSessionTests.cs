@@ -419,6 +419,8 @@ public sealed class AcpAgentSessionTests {
 		fixture.SubmitCommand("review", "/review focus on tests");
 		await fixture.WaitForMessageAsync(message => message.Text == "review command: focus on tests");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		Assert.Equal("/review focus on tests", Assert.Single(AcpPromptAssertions.Blocks(
+			Assert.Single(AcpPromptAssertions.Read(fixture)))).GetProperty("text").GetString());
 	}
 
 	[Fact]

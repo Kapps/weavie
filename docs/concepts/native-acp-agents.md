@@ -80,9 +80,12 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
   and a background tray (see [background work](../specs/background-work.md)).
 
 Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
-standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn
-instead of using steering. This prevents embedded guidance, editor resources, or images from turning a command
-such as `/compact` into model-directed prose. A command waiting for its own turn never holds back the queue behind
+standard `session/prompt`, and the request waits for the active turn instead of using steering. A lone command
+is exactly one canonical text block; embedded guidance and editor resources are never attached, so a command
+such as `/compact` cannot turn into model-directed prose. A command that carries images, a side conversation's
+scope reminder, or a workflow stage block is sent as both the first block and the last text block, with those
+blocks between: codex-acp reads a command from the first block and claude-agent-acp from the last text block,
+and each runs it once. A command waiting for its own turn never holds back the queue behind
 it: prompts submitted afterwards still steer the running turn. A steer the agent does not inject stays queued
 for its own turn, ahead of everything else. When the agent refuses one (`failed`, as Codex answers during
 `/compact`), nothing more steers into that turn. Everything still waiting is published to the
@@ -164,7 +167,8 @@ Side conversations share the primary conversation's ACP process and run concurre
 the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's
 submission queue. Collapsible cards retain independent drafts and history expansion. Interrupt stops the
 primary while it has work, otherwise all active side conversations.
-Every side prompt carries a scope reminder in plain text, independent of embedded-context support.
+Every side turn, a slash command included, carries a scope reminder in plain text, independent of
+embedded-context support.
 Inherited history supplies background; only requests made in the side conversation assign it work.
 The side agent is instructed to complete that work, report its result, and stop without resuming the
 primary agent's unfinished tasks or workflows.

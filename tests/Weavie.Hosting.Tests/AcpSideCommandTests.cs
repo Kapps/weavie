@@ -8,7 +8,7 @@ public sealed class AcpSideCommandTests {
 	[Theory]
 	[InlineData(AgentTurnSubmissionKind.ProviderCommand, "review", "focus on tests")]
 	[InlineData(AgentTurnSubmissionKind.McpPrompt, "report-weavie-bug", "invented details")]
-	public async Task ForkUsesTheSameInvocationPathAsThePrimary(AgentTurnSubmissionKind kind, string name, string details) {
+	public async Task ForkScopesEveryCommandTurnAfterItsInvocation(AgentTurnSubmissionKind kind, string name, string details) {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("main question");
@@ -18,21 +18,27 @@ public sealed class AcpSideCommandTests {
 
 		fixture.Session.AskAside(Submission(kind, name, text));
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is not null);
+		string conversation = Assert.IsType<string>(completed.ConversationId);
+		fixture.Session.ReplyAside(conversation, Submission(kind, name, text));
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
+			&& message.ConversationId == conversation && message.TurnId == "2");
 
 		Assert.NotEqual(primaryId, completed.ThreadId);
 		Assert.Equal(primaryId, fixture.Sessions.Resolve("fake", fixture.Workspace));
 		Assert.Equal(1, fixture.Sessions.ResolveTurnNumber("fake", fixture.Workspace));
-		var request = AcpPromptAssertions.Read(fixture).Last();
-		Assert.Equal(completed.ThreadId, request.GetProperty("parameters").GetProperty("sessionId").GetString());
-		var blocks = AcpPromptAssertions.Blocks(request).ToArray();
-		if (kind == AgentTurnSubmissionKind.ProviderCommand) {
-			Assert.Equal(text, Assert.Single(blocks).GetProperty("text").GetString());
-		} else {
-			Assert.Equal(McpPromptCatalog.Require(name).Text, blocks[0].GetProperty("text").GetString());
-			Assert.Equal(details, blocks[1].GetProperty("text").GetString());
+		// A command is the first block and the last text block, the two places real agents read one from.
+		string?[] expected = kind == AgentTurnSubmissionKind.ProviderCommand
+			? [text, EmbeddedAgentGuidance.SideConversationInstructions, text]
+			: [McpPromptCatalog.Require(name).Text, details, EmbeddedAgentGuidance.SideConversationInstructions];
+		var requests = AcpPromptAssertions.Read(fixture);
+		Assert.Equal(3, requests.Length);
+		foreach (var request in requests.Skip(1)) {
+			Assert.Equal(completed.ThreadId, request.GetProperty("parameters").GetProperty("sessionId").GetString());
+			Assert.Equal(expected, AcpPromptAssertions.Blocks(request).Select(block => block.GetProperty("text").GetString()));
 		}
 		string submittedType = kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message";
-		Assert.Contains(fixture.Messages, message => message.Type == submittedType && message.ConversationId == completed.ConversationId && message.Text == text);
+		Assert.Equal([text, text], fixture.Messages.Where(message => message.Type == submittedType
+			&& message.ConversationId == conversation).Select(message => message.Text));
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 	}
 

@@ -43,7 +43,9 @@ export function paneFocusContext(el: Element | null): ContextOverrides {
     focusedTool: el?.closest("[data-tool]")?.getAttribute("data-tool") ?? null,
     focusedPane: kind,
     editorFocused: !prComment && (surface === "editor" || (surface === null && kind === "editor")),
+    commentFocused: prComment || el?.closest("[data-comment-box]") != null,
     prCommentFocused: prComment,
+    agentSelectionCommentFocused: el?.closest("[data-agent-selection-comment]") != null,
     terminalFocused:
       surface === "terminal" || (surface === null && (kind?.startsWith("terminal:") ?? false)),
     agentFocused: surface === "structured-agent",

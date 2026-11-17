@@ -324,6 +324,23 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void SelectionCommentCommands_BindEnterAndModEnterInsideTheCommentBox() {
+		var registry = CoreCommands.CreateRegistry();
+		var send = registry.Require(CoreCommands.SendAgentSelectionComment);
+		var add = registry.Require(CoreCommands.AddAgentSelectionComment);
+
+		var enter = Assert.Single(send.DefaultKeybindings);
+		Assert.Equal("Enter", enter.Key);
+		Assert.Equal("agentSelectionCommentFocused && !compact", enter.When);
+		Assert.Equal("$mod+Enter", Assert.Single(add.DefaultKeybindings).Key);
+		Assert.All([send, add], command => {
+			Assert.Equal(CommandLocation.Web, command.RunsIn);
+			Assert.Equal("agentSelectionCommentFocused", command.When);
+			Assert.False(command.ShowInPalette);
+		});
+	}
+
+	[Fact]
 	public void ToggleAgentToolOutput_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentToolOutput);
 

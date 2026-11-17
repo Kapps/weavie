@@ -1,7 +1,10 @@
 import { type ClientSession, registerSessionFeature } from "../bridge";
 import { captureCommandUsage, slashUsageId } from "../commands/usage-store";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
-import { createSessionOwnedResource } from "../messaging/session-owned-state";
+import {
+  createSessionOwnedMap,
+  createSessionOwnedResource,
+} from "../messaging/session-owned-state";
 import { encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
@@ -161,15 +164,43 @@ export function removeComposerAttachment(owner: ComposerOwner, id: string): void
   }
 }
 
+const selectionAttachment = (selection: AgentSelection): AgentSelectionAttachment => ({
+  kind: "selection",
+  id: nextId("selection"),
+  ...selection,
+  status: "ready",
+  error: null,
+});
+
 export function attachSelection(owner: ComposerOwner, selection: AgentSelection): void {
+  if (isLive(owner)) addAttachment(owner, selectionAttachment(selection));
+}
+
+/** A selection carrying the user's note about it, as one attachment. */
+export const commentedSelection = (selection: AgentSelection, note: string): AgentSelection => ({
+  label: `${selection.label} — ${note}`,
+  text: `${selection.text}\n\nComment:\n${note}`,
+});
+
+// Selections sent as their own prompt, by submission id, with the composer a refusal returns them to.
+const sentSelections = createSessionOwnedMap<
+  string,
+  { owner: ComposerOwner; selection: AgentSelection }
+>();
+
+/** Sends `selection` under `comment` as its own prompt; a refusal attaches both to `owner` beside the reason. */
+export function sendSelection(
+  owner: ComposerOwner,
+  selection: AgentSelection,
+  comment: string,
+): void {
   if (!isLive(owner)) return;
-  addAttachment(owner, {
-    kind: "selection",
-    id: nextId("selection"),
-    ...selection,
-    status: "ready",
-    error: null,
+  const id = nextId("submission");
+  sentSelections.set(owner.session, id, {
+    owner,
+    selection: commentedSelection(selection, comment),
   });
+  publishAgent(owner, "submit", submission(id, comment, null, [selectionAttachment(selection)]));
 }
 
 export interface AgentInvocation {
@@ -177,6 +208,22 @@ export interface AgentInvocation {
   name: string;
   query?: string;
 }
+
+const submission = (
+  id: string,
+  prompt: string,
+  invocation: AgentInvocation | null,
+  attachments: readonly AgentComposerAttachment[],
+) => ({
+  id,
+  prompt,
+  kind: invocation?.kind ?? "prompt",
+  commandName: invocation?.name ?? "",
+  attachmentIds: images(attachments).map((attachment) => attachment.id),
+  selections: attachments
+    .filter((attachment) => attachment.kind === "selection")
+    .map(({ id, label, text }) => ({ id, label, text })),
+});
 
 export function prepareSubmission(
   owner: ComposerOwner,
@@ -216,18 +263,7 @@ export function prepareSubmission(
     },
     error: null,
   }));
-  return {
-    id,
-    prompt,
-    kind: invocation?.kind ?? "prompt",
-    commandName: invocation?.name ?? "",
-    attachmentIds: command ? [] : images(state.attachments).map((attachment) => attachment.id),
-    selections: command
-      ? []
-      : state.attachments
-          .filter((attachment) => attachment.kind === "selection")
-          .map(({ id, label, text }) => ({ id, label, text })),
-  };
+  return submission(id, prompt, invocation, command ? [] : state.attachments);
 }
 
 export function uploadAgentImage(owner: ComposerOwner, blob: Blob): void {
@@ -305,6 +341,15 @@ registerSessionFeature((session) => {
     });
   });
   const offSubmission = feature.on<SubmissionState>("submissionState", (message) => {
+    const sent = sentSelections.get(session, message.id);
+    if (sent !== undefined) {
+      sentSelections.delete(session, message.id);
+      if (message.status === "rejected") {
+        attachSelection(sent.owner, sent.selection);
+        setComposerError(sent.owner, message.error);
+      }
+      return;
+    }
     const owner = [...(states.get(session)?.values() ?? [])].find(
       ({ state }) => state.pendingSubmission?.id === message.id,
     )?.owner;

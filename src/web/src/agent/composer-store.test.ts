@@ -196,6 +196,47 @@ describe("agent composer attachments", () => {
     expect(store.composerState(session).attachments).toEqual([]);
   });
 
+  it("sends a commented selection as its own prompt without touching the composer", () => {
+    const session = owner("selection-send", "slot");
+    store.setComposerDraft(session, "unrelated draft");
+    store.attachAgentSelection(session, { label: "collected", text: "kept" });
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    const submission = bridge.posted.find(({ name }) => name === "submit")!;
+    expect(submission.payload).toMatchObject({
+      prompt: "why?",
+      kind: "prompt",
+      attachmentIds: [],
+      selections: [{ label: "notes.txt:1:1-1:6", text: "plain" }],
+    });
+    deliver("selection-send", "slot", "submissionState", {
+      id: submission.payload.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session)).toMatchObject({
+      draft: "unrelated draft",
+      attachments: [{ label: "collected" }],
+      pendingSubmission: null,
+      error: null,
+    });
+  });
+
+  it("returns a refused selection send to the composer with its comment and the reason", () => {
+    const session = owner("selection-refused", "slot");
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    deliver("selection-refused", "slot", "submissionState", {
+      id: bridge.posted.find(({ name }) => name === "submit")!.payload.id,
+      attachmentIds: [],
+      status: "rejected",
+      error: "Agent input is paused while Weavie restarts.",
+    });
+    expect(store.composerState(session)).toMatchObject({
+      attachments: [{ label: "notes.txt:1:1-1:6 — why?", text: "plain\n\nComment:\nwhy?" }],
+      error: "Agent input is paused while Weavie restarts.",
+    });
+  });
+
   it("removes a selection chip without telling the host", () => {
     const session = owner("selection-remove", "slot");
     store.attachAgentSelection(session, { label: "rows 2-4", text: "a" });

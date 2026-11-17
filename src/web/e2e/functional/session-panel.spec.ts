@@ -155,6 +155,17 @@ test("the pinned panel lists idle sessions by how recently they were active", as
   const newer = page.locator(".session-panel-row", { hasText: "idle newer" });
   await expect(newer.locator(".session-panel-activity")).toHaveText("uncommitted changes");
   await expect(newer.locator(".session-panel-age")).toHaveText(/^(now|\d+m)$/);
+
+  // A window too short for the list scrolls it: every row keeps both of its lines.
+  await page.setViewportSize({ width: 1280, height: 200 });
+  const squeezed = await page.locator(".session-panel-row").evaluateAll(
+    (rows) =>
+      rows.filter((row) => {
+        const text = row.querySelector(".session-panel-text");
+        return (text?.getBoundingClientRect().bottom ?? 0) > row.getBoundingClientRect().bottom;
+      }).length,
+  );
+  expect(squeezed).toBe(0);
 });
 
 test("a session waiting on approval shows amber on the rail and its request when expanded", async ({

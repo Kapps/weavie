@@ -30,7 +30,9 @@
     line-height: var(--font-content-row-line);
   }
 
+  /* Its height is its content's: a list too short for its rows scrolls and never squeezes them. */
   .ui-row-stack {
+    flex-shrink: 0;
     height: auto;
     min-height: calc(var(--row-line) + 2 * var(--row-pad));
     white-space: normal;

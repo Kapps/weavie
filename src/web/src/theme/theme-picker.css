@@ -29,9 +29,6 @@
   flex-direction: column;
   gap: 3px;
 }
-.theme-picker-list .ui-row {
-  flex-shrink: 0;
-}
 .theme-picker-list .ui-row:disabled {
   opacity: 0.6;
   cursor: default;

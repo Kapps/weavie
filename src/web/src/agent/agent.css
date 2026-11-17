@@ -247,8 +247,12 @@
   align-items: baseline;
   gap: 10px;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
   color: var(--dim);
+}
+
+/* The divider belongs to the body, so a card showing its head alone has none. */
+.agent-aside-body {
+  border-top: 1px solid var(--border);
 }
 
 /* A row primitive with no padding of its own; the head pads it. */

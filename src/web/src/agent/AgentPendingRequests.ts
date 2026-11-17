@@ -4,6 +4,11 @@ export function isPendingRequest(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "request" && entry.status === "pending";
 }
 
+/** Whether an entry is a pending request or holds one, so it stays in view while its card is collapsed. */
+export function hasPendingRequest(entry: AgentTranscriptEntry): boolean {
+  return isPendingRequest(entry) || (entry.pendingEntries?.length ?? 0) > 0;
+}
+
 export function orderPendingRequests(source: readonly AgentTranscriptEntry[]): {
   entries: AgentTranscriptEntry[];
   pendingRowIndexes: number[];

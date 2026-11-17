@@ -2,7 +2,7 @@ import type { JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentCurrentThought } from "./AgentCurrentThought";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { isPendingRequest } from "./AgentPendingRequests";
+import { hasPendingRequest } from "./AgentPendingRequests";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import { ForEachId } from "./ForEachId";
 
@@ -21,13 +21,7 @@ export function NestedTranscript(props: {
     <div class="agent-aside-transcript">
       <ForEachId each={props.entries}>
         {(entry) => (
-          <CollapsibleCardContent
-            collapsed={
-              props.pendingOnly &&
-              !isPendingRequest(entry()) &&
-              (entry().pendingEntries?.length ?? 0) === 0
-            }
-          >
+          <CollapsibleCardContent collapsed={props.pendingOnly && !hasPendingRequest(entry())}>
             <TranscriptEntry
               expandedDetails={props.expandedDetails}
               entry={entry()}

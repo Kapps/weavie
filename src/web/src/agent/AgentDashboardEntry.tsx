@@ -23,6 +23,7 @@ export function AgentDashboardEntry(props: {
     <AgentCardShell
       label={`Dashboard · ${props.entry.summary ?? dashboardId}`}
       collapsed={collapsed()}
+      headOnly={collapsed()}
       meta={
         <Show when={collapsed()}>
           <small>{dashboardMeta(props.session, blocks())}</small>

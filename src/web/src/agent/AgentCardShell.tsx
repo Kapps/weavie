@@ -4,12 +4,15 @@ import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { DisclosureIcon } from "./AgentDisclosure";
+import { CollapsibleCardContent } from "./AgentNestedCard";
 import { AgentCardToggleContext } from "./agent-row-context";
 
-/** The box a BTW or dashboard card sits in: a head that collapses it and opens it in a tab, then its content. */
+/** The box a BTW or dashboard card sits in: a head that collapses it and opens it in a tab, then its body. */
 export function AgentCardShell(props: {
   label: string;
   collapsed: boolean;
+  /** Whether the card shows its head alone, with no divider or body under it. */
+  headOnly: boolean;
   meta: JSX.Element;
   onToggle: () => void;
   card: AgentCardRef;
@@ -40,9 +43,13 @@ export function AgentCardShell(props: {
         {props.meta}
         <AgentCardOpenButton card={props.card} />
       </div>
-      <AgentCardToggleContext.Provider value={props.onToggle}>
-        {props.children}
-      </AgentCardToggleContext.Provider>
+      <CollapsibleCardContent collapsed={props.headOnly}>
+        <div class="agent-aside-body">
+          <AgentCardToggleContext.Provider value={props.onToggle}>
+            {props.children}
+          </AgentCardToggleContext.Provider>
+        </div>
+      </CollapsibleCardContent>
     </article>
   );
 }

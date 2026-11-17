@@ -478,7 +478,7 @@ PressCaption(press):
 | Linux unit | `tests/Weavie.Linux.Tests` | `DecorationLayout.Parse`; `CaptionGesture` transitions, including late report, button mismatch, arm-then-motion, double-click |
 | macOS | `tests/Weavie.Mac.Tests/Main.cs` | `MacWindowChrome.Apply` then `Measure` on a real `NSWindow`: inset is positive, bar is taller than a plain title bar, the zoom button lies inside the bar |
 | Browser e2e | `src/web/e2e/functional`, mock host | one test per row of the description table: menus present or absent, control order and side, inset padding, no bar when `chrome` is absent; a pushed `chrome` re-renders; a marked element sends `captionPress`, a button inside the bar does not |
-| Real app | `src/web/e2e/desktop/titlebar.spec.ts` | per system, the driver script reports the page's `chrome`, the bar's rectangle, the drawn controls, and `outerHeight - innerHeight`; the spec asserts the row for that system and attaches a screenshot |
+| Real app | `src/web/e2e/desktop/window-chrome.spec.ts` | per system, the driver script reports the page's `chrome`, the bar's rectangle, the drawn controls, and `outerHeight - innerHeight`; the spec asserts the row for that system and attaches a screenshot |
 | Real app, attempt | same spec | simulated press-move-release on empty bar space, asserting `screenX` / `screenY` changed. Added only if the runner accepts synthetic input; no skipped test is committed |
 | Hand | you | macOS windowed and fullscreen, Linux desktop: drag, snap, drag from maximized, double-, middle-, right-click, unfocused drag, button layout change, welcome strip, size restored after relaunch |
 
@@ -523,7 +523,7 @@ PressCaption(press):
 | `src/web/src/mobile/mobile-commands.css` | native-strip selectors deleted |
 | `src/web/src/App.tsx` | one mount driven by `windowChrome()` |
 | `src/web/src/welcome/WelcomeBar.tsx`, `Welcome.tsx`, `index.tsx`, `welcome.css` | Linux strip |
-| `src/web/e2e/…` | two `titleBar` fixtures updated; layout tests; `desktop/titlebar.spec.ts` |
+| `src/web/e2e/…` | two `titleBar` fixtures updated; layout tests; `desktop/window-chrome.spec.ts` |
 | `tests/…` | as in the testing table; `TestHost`, `ShellTests` updated |
 | `.github/workflows/ci.yml` | capture and input tools for the Linux desktop job |
 | `docs/concepts/architecture-overview.md` and any doc naming the title-bar modes | describe the chrome description |

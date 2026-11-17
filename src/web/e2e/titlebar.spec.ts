@@ -188,3 +188,34 @@ test("a narrow browser page folds its bar into the compact layout", async ({ pag
     await host.close();
   }
 });
+
+// Wide windows centre the omnibar; narrower ones keep it usable, then fit it between the sides, and never push
+// the bar's ends out of the window.
+for (const name of ["linux", "linuxLeft", "windows", "mac"] as const) {
+  test(`the ${name} bar fits every window width`, async ({ page }) => {
+    const host = await openApp(page, CHROME[name]);
+    try {
+      for (const width of [500, 720, 800, 1000, 1280]) {
+        await page.setViewportSize({ width, height: 800 });
+        await expect
+          .poll(() =>
+            page.locator(".titlebar .tb-ctl, .tb-build").evaluateAll(
+              (items, width) =>
+                items.every((item) => {
+                  const box = item.getBoundingClientRect();
+                  return box.left >= 0 && box.right <= width;
+                }),
+              width,
+            ),
+          )
+          .toBe(true);
+        if (width > 760) {
+          const omnibar = await page.locator(".tb-omnibar").boundingBox();
+          expect(omnibar?.width, `omnibar at ${width}px`).toBeGreaterThanOrEqual(300);
+        }
+      }
+    } finally {
+      await host.close();
+    }
+  });
+}

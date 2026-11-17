@@ -1,14 +1,29 @@
 /* The window's title bar, menu dropdowns, and window buttons (TitleBar / WindowControls / Menu). */
 
-/* Title bar: both side columns are at least the wider side's width (`--titlebar-side`), so the omnibar stays
-   centred in the window and narrows first. `app-region` is the caption on Windows; elsewhere, `data-caption`. */
+/* Title bar: the omnibar is centred while that leaves it `--omnibar-min-width`, then slides off the wider side,
+   then narrows between the sides (measured by TitleBar). On Windows `app-region` is the caption. */
 .titlebar {
   --omnibar-width: 560px;
+  --omnibar-min-width: 320px;
+  --titlebar-center: max(
+    0px,
+    min(
+      calc(var(--omnibar-width) + 16px),
+      max(
+        calc(100% - 2 * max(var(--titlebar-left), var(--titlebar-right))),
+        var(--omnibar-min-width)
+      ),
+      calc(100% - var(--titlebar-left) - var(--titlebar-right))
+    )
+  );
   flex: 0 0 auto;
   display: grid;
   grid-template-columns:
-    minmax(var(--titlebar-side), 1fr) minmax(0, calc(var(--omnibar-width) + 16px))
-    minmax(var(--titlebar-side), 1fr);
+    min(
+      max(var(--titlebar-left), calc((100% - var(--titlebar-center)) / 2)),
+      calc(100% - var(--titlebar-center) - var(--titlebar-right))
+    )
+    var(--titlebar-center) minmax(0, 1fr);
   align-items: center;
   box-sizing: border-box;
   height: var(--titlebar-h, 38px);

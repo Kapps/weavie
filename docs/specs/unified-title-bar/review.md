@@ -3,11 +3,14 @@
 Reviews [PR #1253](https://github.com/Kapps/weavie/pull/1253) against [design.md](design.md).
 
 - **Baseline:** `git diff 31359366 62f7e0e9` (branch point on `main` to the PR head; merged as `9faf4783`).
+- **Recheck baseline:** `git diff b10f734e 4c9168de`, the single fix commit of
+  [PR #1258](https://github.com/Kapps/weavie/pull/1258) on `main` at `b10f734e`.
 - **Method:** one `weavie-reviewer` pass over the design, the code diff and the verification record,
   covering correctness, design conformance, repo standards, duplication and tests. Each finding was then
-  checked against the code; R1, R2 and R9 were also measured.
-- **Result:** 2 bugs, 7 warnings, 11 nits. The fix stage fixed every bug and warning and the nits in code it
-  touched; R10, R15, R19 and R20 stay open.
+  checked against the code; R1, R2 and R9 were also measured. The recheck read the fix commit against each
+  finding, rebuilt the page, reran the specs and unit tests, and measured the bar across layouts and widths.
+- **Result:** 2 bugs, 7 warnings, 11 nits in the review. The recheck confirms 16 fixed and none reopened;
+  R10, R15, R19 and R20 stay open. The fixes introduced two new warnings, R21 and R22, fixed in the second fix stage.
 - **Dropped:** "the window tests sit in a class named for terminal actions" — they were there before this
   PR.
 
@@ -33,6 +36,8 @@ Reviews [PR #1253](https://github.com/Kapps/weavie/pull/1253) against [design.md
 | R18 | nit | fixed | `publishWindowControl` lives in `caption-press.ts` |
 | R19 | nit | open, unverified | Two macOS behaviours to check by hand: a long drag, and the toolbar in fullscreen |
 | R20 | nit | open | In a right-to-left desktop GTK's "start" side is the right; the page draws it on the left |
+| R21 | warn | fixed | Found in recheck: with left-side buttons the search box shrinks to nothing between 760px and about 950px |
+| R22 | warn | fixed | Found in recheck: in a narrow window the right end of the bar, window buttons included, is pushed off the window |
 
 ## Bugs
 
@@ -210,3 +215,83 @@ leaves. Below that the wider side keeps its content and pushes the box across.
 - **R18** fixed. `WindowControls` publishes through `localWindowFeature()`; `caption-press.ts` holds only caption handling.
 - **R19** open, unverified. Hand test on macOS.
 - **R20** open. Not touched by these fixes.
+
+## Recheck
+
+Fix commit `4c9168de` (PR #1258), read against each finding and run locally. Nothing was fixed in this stage.
+
+| Check | Result |
+| --- | --- |
+| `npx vite build` on `4c9168de` | succeeds |
+| `playwright test e2e/titlebar.spec.ts e2e/middle-click-autoscroll.spec.ts e2e/bridge.spec.ts --project chromium` | 41/41 |
+| `dotnet test tests/Weavie.Core.Tests --filter "Shell\|CaptionGesture"` | 37/37 |
+| `dotnet test tests/Weavie.Linux.Tests` | 45/45 |
+| GTK probes under Xvfb + openbox (`temp/review/probe/size.c`, `max.c`) | default size stays 800x600 across relaunch, while maximized, and while hidden |
+| Bar measured in the built page, five chromes, 400px to 1280px | see R1, R9, R13, R21, R22 |
+| CI on #1258 | CodeQL, platforms and web checks pass; .NET tests, the three native builds and e2e still running at the time of writing |
+
+Fixes confirmed:
+
+- **R1** holds. At 720px the Linux, Windows and macOS bars keep their height and every window button is
+  visible; the browser page still folds its bar away. A Windows window under 760px now keeps its bar too.
+- **R2** holds. `CaptureWindowState` saves GTK's default size, which `ApplyGeometry` always sets first.
+  The old fallbacks for a maximized or hidden window are not needed: the default size is unchanged in both.
+- **R3** holds for the three values GNOME offers.
+- **R4** holds. One `CaptionGesture` in Core serves both hosts; eight Core tests cover it. The macOS use
+  compiles here and runs only on CI.
+- **R5** holds. No suppressions remain; one capture listener per page replaces the per-bar handlers.
+- **R6** holds. No sleeps remain in the desktop spec; the drag steps until the window moves.
+- **R7** holds. One copy each of the chrome rows, shell config, button names, report server, built-app
+  guard and window-feature lookup.
+- **R8** holds. The design matches the code on each listed point.
+- **R9** holds. Left-side buttons at 1280px: the search box is centred and 514px wide. See R21 for the
+  cost.
+- **R11, R12, R14, R16, R18** hold as described in the fix notes.
+- **R13** holds. A press on the logo now lands on `.tb-icon`.
+- **R17** holds by construction: the build number is out of the drag region again, as before PR #1253.
+  Not run on Windows.
+
+New findings from the fixes:
+
+### R21 — the search box shrinks to nothing with left-side buttons
+
+`src/web/src/chrome/titlebar.css:9`, `src/web/src/chrome/TitleBar.tsx:28`
+
+Both side columns now take the wider side's width, so the search box gets only what is left. With menus
+and three left-side buttons the wider side is 375px, and the box is centred but:
+
+| Window | Search box |
+| --- | --- |
+| 1280px | 514px |
+| 1000px | 234px |
+| 800px | 34px, with a 0px text field |
+
+Below 760px the compact layout takes over and the box opens as an overlay. Layouts with the buttons on
+the right are barely affected: the Windows row's wider side is 231px, which leaves 322px at 800px.
+
+### R22 — the right end of the bar leaves a narrow window
+
+`src/web/src/chrome/titlebar.css:9`
+
+The grid cannot be narrower than twice the wider side. In a window narrower than that the right column
+starts past its room and its content runs off the window. Before the fix the limit was the two sides
+added together. Measured at the widths R1 made reachable:
+
+- Two buttons left, one right (wider side 327px, limit 654px): at 500px the maximize button sits at
+  608–654px, outside the window.
+- Three buttons left (limit 750px): at 720px the build number is cut off; at 683px it is gone.
+- Buttons on the right with menus (limit 462px): fine at 720px, clipped below 462px.
+
+In the compact layout the search box is not in the bar at all, so the equal columns centre nothing there.
+
+
+## Second fix stage
+
+- **R21** fixed. The omnibar is centred only while that leaves it `--omnibar-min-width` (320px); below that it
+  keeps 320px and slides off the wider side, then narrows between the sides. With three left-side buttons it
+  is 320px at 1000px and 800px (was 234px and 34px).
+- **R22** fixed. The bar needs at most both sides together, as before #1258, so every window button and the
+  build number stay inside the window at 500px and 720px for every layout.
+- Test: `the <layout> bar fits every window width` sweeps 500–1280px for the linux, linuxLeft, windows and
+  mac rows. On #1258's layout it fails for both Linux rows (buttons outside the window; omnibar 234px and
+  130px); with the fix all pass, and R9's centring at 1280px still holds.

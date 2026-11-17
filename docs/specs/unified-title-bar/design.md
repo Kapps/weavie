@@ -302,7 +302,7 @@ the local host's `window` feature. Button names come from `window-control-label.
 
 ```tsx
 <div class="titlebar" data-caption classList={{ blurred: !props.focused, windowed: chrome.caption !== "none" }}
-     style={{ ...barStyle(chrome), "--titlebar-side": side }}>
+     style={{ ...barStyle(chrome), "--titlebar-left": left, "--titlebar-right": right }}>
   <div class="tb-left" data-caption ref={measure}>
     <WindowControls actions={chrome.controls.start} maximized={props.maximized} />
     <Show when={chrome.menus}><span class="tb-icon" data-caption>…</span><Menu /></Show>
@@ -315,11 +315,12 @@ the local host's `window` feature. Button names come from `window-control-label.
 </div>
 ```
 
-- `.titlebar` is a three-column grid,
-  `minmax(var(--titlebar-side), 1fr) minmax(0, calc(var(--omnibar-width) + 16px)) minmax(var(--titlebar-side), 1fr)`.
-  The sides hug their content (`justify-self`), and a `ResizeObserver` sets `--titlebar-side` to the wider
-  side's width, so both columns are at least that wide: the omnibar stays centred in the window and
-  narrows first. `--omnibar-width` (560px) is the omnibar's own width.
+- `.titlebar` is a three-column grid whose omnibar column is
+  `min(omnibar + 16px, max(100% − 2 × wider side, --omnibar-min-width), 100% − both sides)`, and whose left
+  column places it as centred as the sides allow. A `ResizeObserver` measures each side's content
+  (`--titlebar-left`, `--titlebar-right`; the sides hug it with `justify-self`). So the omnibar is centred
+  while that leaves it 320px, then keeps 320px and slides off the wider side, then narrows between the sides;
+  the bar never needs more than both sides together. `--omnibar-width` (560px) is the omnibar's own width.
 - `barStyle` sets `--titlebar-h` when `barHeight` is non-null and `--titlebar-inset-start` / `-end` from
   `inset`, which pad `.tb-left` and `.tb-controls`, so the omnibar is centred in the window, not in the
   space beside the traffic lights. `.titlebar` reads `height: var(--titlebar-h, 38px)`.

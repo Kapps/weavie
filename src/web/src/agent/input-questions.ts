@@ -34,11 +34,13 @@ export function questionDescription(
     : question.question;
 }
 
-/** Request context belongs to the card once, independently of its fields. */
-export function inputRequestContext(message: AgentPaneUpdate): string[] {
+/** The request's own message, shown once on the card independently of its fields. */
+export function inputRequestPrompt(message: AgentPaneUpdate): string {
   const titles = inputQuestions(message).map(questionTitle);
-  return [...new Set([message.summary, message.text])].filter(
-    (text): text is string =>
-      typeof text === "string" && text.trim().length > 0 && !titles.includes(text),
-  );
+  return [...new Set([message.summary, message.text])]
+    .filter(
+      (text): text is string =>
+        typeof text === "string" && text.trim().length > 0 && !titles.includes(text),
+    )
+    .join("\n\n");
 }

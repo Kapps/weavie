@@ -25,12 +25,13 @@
   overflow-wrap: anywhere;
 }
 
-.agent-question-description {
-  display: block;
-  margin-top: 4px;
-  color: var(--dim);
-  font: var(--font-chrome-body);
-  overflow-wrap: anywhere;
+.agent-question-title ~ :is(.agent-question-description, .agent-question-prompt) {
+  margin-top: 6px;
+}
+
+/* The pending card is already a bounded measure, so its prose fills it like the options do. */
+:is(.agent-choice-request, .agent-input-request) .agent-markdown {
+  max-width: none;
 }
 
 .agent-choice-row {
@@ -97,28 +98,9 @@
   flex: 1;
 }
 
-.agent-question-footer {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 8px;
-}
-
-.agent-question-context {
-  flex: 1 1 280px;
-  min-width: 0;
-  color: var(--dim);
-  font: var(--font-chrome-body);
-  overflow-wrap: anywhere;
-}
-
-.agent-question-context p {
-  margin: 0;
-}
-
 .agent-question-actions {
-  margin-left: auto;
+  justify-self: end;
+  margin-top: 8px;
 }
 
 .agent-input-question {

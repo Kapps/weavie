@@ -105,3 +105,31 @@ test("ACP custom answers submit by Send and Enter and choices use their rebound 
   await expect(surface.locator(".agent-markdown").last()).toContainText(second);
   await expect(pending).toHaveCount(0);
 });
+
+test("a long question renders as markdown between its title and options at card width", async ({
+  page,
+}, testInfo) => {
+  const surface = await createAcpSession(page, "question-long");
+  await runCommand(page, "Toggle Fullscreen Pane");
+  await submitAcpDraft(surface, "input-question-long");
+  const card = surface.locator(".agent-entry-question");
+  const prompt = card.locator(".agent-question-prompt");
+  await expect(card.locator(".agent-question-title")).toHaveText("Publish?");
+  await expect(prompt.locator("h2")).toHaveText(["What happened", "Steps to reproduce"]);
+  await expect(prompt.locator("ol > li")).toHaveCount(2);
+  await expect(prompt.locator("code", { hasText: "## Expected" })).toBeVisible();
+  await expect(prompt.locator('a[data-agent-kind="file"]')).toHaveCount(1);
+  await card.screenshot({ path: testInfo.outputPath("question-long.png") });
+
+  const titleBox = (await card.locator(".agent-question-title").boundingBox())!;
+  const promptBox = (await prompt.boundingBox())!;
+  const optionBox = (await card.locator(".agent-choice-row").first().boundingBox())!;
+  expect(titleBox.y + titleBox.height).toBeLessThanOrEqual(promptBox.y);
+  expect(promptBox.y + promptBox.height).toBeLessThanOrEqual(optionBox.y);
+  expect(promptBox.width).toBeCloseTo(optionBox.width, 0);
+
+  await card.locator(".agent-choice-row", { hasText: "Edit first" }).click();
+  await surface.getByRole("button", { name: /Earlier updates/ }).click();
+  await card.getByText("show prompt and options", { exact: true }).click();
+  await expect(prompt.locator("h2")).toHaveCount(2);
+});

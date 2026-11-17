@@ -1261,7 +1261,7 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Send the focused selection comment and its excerpt to the agent as its own prompt.",
-			Aliases = ["send comment", "ask about selection"],
+			Aliases = ["ask about selection"],
 			// Like the composer, a touch keyboard's Enter types a newline.
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter", When = "agentSelectionCommentFocused && !compact" }],
 			When = "agentSelectionCommentFocused",
@@ -1917,7 +1917,7 @@ public static partial class CoreCommands {
 			Description = "Open a comment box on the cursor's line of a file this session's pull request changes; "
 				+ "submitting posts it to the pull request.",
 			Aliases = ["comment", "add comment", "pr comment", "review comment", "comment on line", "comment on pull request"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+c", When = "prCommentable && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+c", When = "prCommentable && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {

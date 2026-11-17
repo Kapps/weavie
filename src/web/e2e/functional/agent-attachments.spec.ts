@@ -4,6 +4,7 @@ import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 test("reply selections require an action and retain independent comments and excerpts", async ({
   page,
@@ -211,6 +212,45 @@ test("a selection comment sends on Enter and joins the next prompt on Mod+Enter"
   await expect(chips).toContainText("collect this");
   await expect(draft).toHaveValue("unsent draft");
   await expect(surface.locator(".agent-markdown", { hasText: "collect this" })).toHaveCount(0);
+});
+
+test("review chords pressed in a selection comment leave the pending change alone", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "selection-comment-review");
+  const worktree = sessionWorktrees(weavie.workspace).find((path) =>
+    path.endsWith("selection-comment-review"),
+  )!;
+  const file = join(worktree, "notes.txt");
+  await submitAcpDraft(surface, `fs:${file}`);
+  await expect(surface).toContainText("fs: written through ACP");
+  await openFile(page, "notes.txt");
+  const pending = page.locator(".weavie-inline-added");
+  await expect(pending).toHaveCount(1);
+
+  await clickIntoEditor(page);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
+  const comment = dialog.getByRole("textbox", { name: "Comment", exact: true });
+  await expect(comment).toBeFocused();
+  await page.keyboard.type("keep typing");
+  await page.keyboard.press("ControlOrMeta+Backspace");
+  await expect(comment).not.toHaveValue("keep typing");
+  await page.keyboard.type("note");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(dialog).toBeVisible();
+  await comment.focus();
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(surface.locator("[data-agent-composer] .agent-attachment-selection")).toContainText(
+    "note",
+  );
+  await expect(pending).toHaveCount(1);
+  await expect(page.locator(".weavie-inline-accepted")).toHaveCount(0);
+  expect(await readFile(file, "utf8")).toBe("written through ACP");
 });
 
 async function highlight(page: Page, reply: Locator): Promise<void> {

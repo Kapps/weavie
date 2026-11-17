@@ -118,9 +118,22 @@ describe("paneFocusContext", () => {
     expect(context.editorFocused).toBe(false);
   });
 
+  it("keeps review chords out of a comment box even with focus on one of its buttons", () => {
+    const button = {
+      closest: (selector: string) => (selector === "[data-comment-box]" ? button : null),
+    } as unknown as Element;
+    expect(paneFocusContext(button)).toMatchObject({
+      commentFocused: true,
+      agentSelectionCommentFocused: false,
+    });
+  });
+
   it("marks a selection comment box as a comment outside every pane", () => {
     const box = {
-      closest: (selector: string) => (selector === "[data-agent-selection-comment]" ? box : null),
+      closest: (selector: string) =>
+        selector === "[data-agent-selection-comment]" || selector === "[data-comment-box]"
+          ? box
+          : null,
     } as unknown as Element;
     expect(paneFocusContext(box)).toMatchObject({
       focusedPane: null,
@@ -156,7 +169,9 @@ function elementInPane(kind: string, surface: string, inComposer: boolean): Elem
   } as Element;
   return {
     closest: (selector: string) =>
-      selector === "[data-tool]" || selector === "[data-agent-selection-comment]"
+      selector === "[data-tool]" ||
+      selector === "[data-agent-selection-comment]" ||
+      selector === "[data-comment-box]"
         ? null
         : selector === "[data-agent-composer]" ||
             selector === "[data-agent-paste-target]" ||

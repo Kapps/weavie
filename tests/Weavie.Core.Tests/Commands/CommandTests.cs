@@ -341,14 +341,6 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public void KeepAndRevertChords_StayOutOfCommentBoxes() {
-		var registry = CoreCommands.CreateRegistry();
-
-		Assert.All([CoreCommands.AcceptChange, CoreCommands.RejectChange], id =>
-			Assert.Equal("!terminalFocused && !commentFocused", Assert.Single(registry.Require(id).DefaultKeybindings).When));
-	}
-
-	[Fact]
 	public void ToggleAgentToolOutput_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentToolOutput);
 

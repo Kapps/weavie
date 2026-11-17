@@ -4,7 +4,7 @@ import { render } from "solid-js/web";
 import { type ClientSession, onSelectedSession } from "../bridge";
 import { modalActive, onModalOpened } from "../chrome/modal-state";
 import { insideOmnibar } from "../chrome/omnibar-controller";
-import { setContext } from "../commands/context";
+import { evaluateWhen, setContext } from "../commands/context";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { type CommandHandler, dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -46,7 +46,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
       clear();
       return true;
     };
-    // The comment box's keys are consumed even with nothing typed, so Enter never sends an empty note.
+    // An empty note still consumes the key, so Enter neither types a newline nor reaches another binding.
     const commented = (act: () => boolean) => (): boolean =>
       commenting() && (note() === "" || act());
     const owned =
@@ -100,6 +100,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
         >
           <section
             class="selection-comment"
+            data-comment-box
             role="dialog"
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
@@ -131,7 +132,11 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
                 type="button"
                 class="ui-button ui-button-primary"
                 disabled={note() === ""}
-                title={title(CommandIds.sendAgentSelectionComment, "Send")}
+                title={
+                  evaluateWhen("compact")
+                    ? "Send"
+                    : title(CommandIds.sendAgentSelectionComment, "Send")
+                }
                 onClick={send}
               >
                 Send

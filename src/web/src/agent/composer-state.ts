@@ -164,15 +164,16 @@ export function removeComposerAttachment(owner: ComposerOwner, id: string): void
   }
 }
 
+const selectionAttachment = (selection: AgentSelection): AgentSelectionAttachment => ({
+  kind: "selection",
+  id: nextId("selection"),
+  ...selection,
+  status: "ready",
+  error: null,
+});
+
 export function attachSelection(owner: ComposerOwner, selection: AgentSelection): void {
-  if (!isLive(owner)) return;
-  addAttachment(owner, {
-    kind: "selection",
-    id: nextId("selection"),
-    ...selection,
-    status: "ready",
-    error: null,
-  });
+  if (isLive(owner)) addAttachment(owner, selectionAttachment(selection));
 }
 
 /** A selection carrying the user's note about it, as one attachment. */
@@ -199,14 +200,7 @@ export function sendSelection(
     owner,
     selection: commentedSelection(selection, comment),
   });
-  publishAgent(owner, "submit", {
-    id,
-    prompt: comment,
-    kind: "prompt",
-    commandName: "",
-    attachmentIds: [],
-    selections: [{ id: nextId("selection"), ...selection }],
-  });
+  publishAgent(owner, "submit", submission(id, comment, null, [selectionAttachment(selection)]));
 }
 
 export interface AgentInvocation {
@@ -214,6 +208,22 @@ export interface AgentInvocation {
   name: string;
   query?: string;
 }
+
+const submission = (
+  id: string,
+  prompt: string,
+  invocation: AgentInvocation | null,
+  attachments: readonly AgentComposerAttachment[],
+) => ({
+  id,
+  prompt,
+  kind: invocation?.kind ?? "prompt",
+  commandName: invocation?.name ?? "",
+  attachmentIds: images(attachments).map((attachment) => attachment.id),
+  selections: attachments
+    .filter((attachment) => attachment.kind === "selection")
+    .map(({ id, label, text }) => ({ id, label, text })),
+});
 
 export function prepareSubmission(
   owner: ComposerOwner,
@@ -253,18 +263,7 @@ export function prepareSubmission(
     },
     error: null,
   }));
-  return {
-    id,
-    prompt,
-    kind: invocation?.kind ?? "prompt",
-    commandName: invocation?.name ?? "",
-    attachmentIds: command ? [] : images(state.attachments).map((attachment) => attachment.id),
-    selections: command
-      ? []
-      : state.attachments
-          .filter((attachment) => attachment.kind === "selection")
-          .map(({ id, label, text }) => ({ id, label, text })),
-  };
+  return submission(id, prompt, invocation, command ? [] : state.attachments);
 }
 
 export function uploadAgentImage(owner: ComposerOwner, blob: Blob): void {

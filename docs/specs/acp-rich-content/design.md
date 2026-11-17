@@ -35,7 +35,7 @@ exactly what was selected.
 3. **An update costs a little saved history:** two or three small journal events with no data in them and
    one invisible retracted row, about 1 MB a day at one update a minute. Compaction is later work.
 4. **Highlight offers actions**: *Attach Selection to Prompt* pins an excerpt; *Comment on Selection*
-   attaches it with a comment. Each selection is independent. Editor selections offer the same actions
+   sends it with a comment or attaches both. Each selection is independent. Editor selections offer the same actions
    with file and range provenance, while retaining automatic active-selection context.
 
 ## Where the brief meets the code awkwardly

@@ -969,6 +969,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     editor: FONT_SPEC,
     terminal: FONT_SPEC,
     interface: '"Sora", system-ui, sans-serif',
+    interfaceSize: 13,
     prose: '"Sora", system-ui, sans-serif',
   },
   __WEAVIE_NOTIFICATIONS__: {

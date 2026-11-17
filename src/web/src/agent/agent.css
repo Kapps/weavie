@@ -564,7 +564,7 @@ a:has(> .agent-path-dir) {
   --card-pad: 18px;
   width: auto;
   max-width: 920px;
-  margin: 22px 12px 12px;
+  margin: calc(12px + var(--card-tag-rise)) 12px 12px;
   padding: var(--card-pad);
   border: 1px solid var(--border);
   background: var(--bar);

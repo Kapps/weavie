@@ -15,10 +15,11 @@ them, and per-file `em` multipliers. The roles and primitives remove those sourc
 
 ## Chrome roles
 
-Chrome is fixed px and does not follow the editor font. Each role is one `font` shorthand built from atomic
-size, line and weight tokens; consumers write the shorthand.
+Chrome does not follow the editor font: its size is the `interface.font.size` setting, 13px by default. Each
+role is one `font` shorthand built from atomic size, line and weight tokens; consumers write the shorthand.
+The sizes below are the defaults.
 
-Interface text has two sizes: 12px for everything, and 11px for the short list the badge role names.
+Interface text has two sizes: 13px for everything, and 12px (one less) for the short list the badge role names.
 Hierarchy comes from weight, dimness and the uppercase label, never from another pixel of size; the display
 role is the one heading size, for a surface's own title.
 
@@ -27,16 +28,20 @@ role is the one heading size, for a surface's own title.
 | hero | 36 / 40 / 600 | `--font-chrome-hero` | welcome window wordmark |
 | display | 20 / 24 / 600 | `--font-chrome-display` | page headings: Getting Started, editor empty state, session inbox |
 | lead | 16 / 24 / 400 | `--font-chrome-lead` | welcome tagline, recent rows, `.ui-button-xl` |
-| body | 12 / 16 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers, descriptions; titles at 600 |
-| body-wrap | 12 / 18 / 400 | `--font-chrome-body-wrap` | wrapping text; `body`'s inherited default |
-| badge | 11 / 16 / 600 | `--font-chrome-badge` | key hints and badges; counts and session names at 400. A count centred beside 12px text takes body, since centring two sizes splits their baselines |
-| mono | 12 / 16 / editor weight | `--font-chrome-mono` | branch names, paths and other mono text in chrome |
+| body | 13 / 18 / 400 | `--font-chrome-body` | single-line chrome: rows, buttons, fields, pane headers, descriptions; titles at 600 |
+| body-wrap | 13 / 20 / 400 | `--font-chrome-body-wrap` | wrapping text; `body`'s inherited default |
+| badge | 12 / 18 / 600 | `--font-chrome-badge` | key hints and badges; counts and session names at 400. A count centred beside 13px text takes body, since centring two sizes splits their baselines |
+| mono | 13 / 18 / editor weight | `--font-chrome-mono` | branch names, paths and other mono text in chrome |
 
 Hero and lead exist only for landing surfaces. The family is `--font-chrome-family` (the
 `interface.font.family` setting); mono uses `--font-content-family`.
 
-- **Line heights.** Every single-line role uses 16px, so both sizes share one line box. Wrapping body
-  text uses 18px, which is also what everything inherits.
+- **Line heights.** Every single-line role uses one line, 18px, so both sizes share one line box. Wrapping body
+  text uses 20px, which is also what everything inherits. The line is the text size times 1.33, rounded up to an
+  even pixel so an icon box centres in it (`interfaceLineHeight` in `fonts.ts`, the one place it is computed).
+- **Everything follows the size.** Rows, controls and icons are the line or the text size plus fixed padding
+  (`--control-height*`, `--icon-size*`, `--icon-button-size`, `--card-tag-rise`), so a surface built from the
+  tokens scales with the setting and one that writes a literal height does not.
 - **Emphasis** is the same role followed by `font-weight: var(--font-weight-emphasis)` (600), or
   `--font-weight-mono-bold` (700) in the mono face, which ships only 400/700. The one other weight is
   `--font-weight-medium` (500), the weight of `.ui-row-name`.
@@ -71,18 +76,19 @@ rules still use it (connection banner, update card, shell tabs, parts of the rev
 All live in `primitives.css` inside `@layer ui` and own geometry and type plus button and field states;
 row hover and selection colours stay in feature CSS. Add the primitive class beside the feature class.
 
-- **`.ui-row`** — 26px list/menu row, baseline-aligned, body role. Variants: `-compact` (24px), `-content`
+- **`.ui-row`** — 28px list/menu row, baseline-aligned, body role. Variants: `-compact` (26px), `-content`
   (editor-font line box), `-stack` (multi-line; `min-height` instead of a fixed height). Slots:
   `.ui-row-text` (label column), `.ui-row-desc` (secondary, dim), `.ui-row-end` (trailing shortcut or meta).
   A row that names a thing and reports on it (a session and where its work stands) uses `.ui-row-name`
-  (500) for the name and `.ui-row-note` (11px, dim, regular)
+  (500) for the name and `.ui-row-note` (12px, dim, regular)
   for the line under it and for a value at the name's end.
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
   top-aligned, its `svg` at `--icon-size`.
-- **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
+- **`.ui-button`** — 26px text button. Variants: `-lg` (32px), `-xl` (40px, lead role; landing surfaces),
   `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
-  one frame. **`.ui-icon-button`** — 20px square, no border. See [Buttons](#buttons).
-- **`.ui-field`** — 28px text input. Variants: `-mono`, and `-content` for a multi-line field of content text.
+  one frame. **`.ui-icon-button`** — 22px square, no border. See [Buttons](#buttons).
+- **`.ui-field`** — 32px text input; a `<select>` is a flat well with a drawn chevron. Variants: `-mono`, and
+  `-content` for a multi-line field of content text.
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
   `<small>`); `-plain` drops the chip border, `-cap` is a filled keycap tinted from the text colour of the
@@ -161,13 +167,13 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-  subgraph row[".ui-row: height = --row-line + 2 × --row-pad = 16 + 2 × 5 = 26px"]
+  subgraph row[".ui-row: height = --row-line + 2 × --row-pad = 18 + 2 × 5 = 28px"]
     direction TB
     padTop["--row-pad (5px)"]
-    subgraph line["line box: --row-line (16px), children on one baseline"]
+    subgraph line["line box: --row-line (18px), children on one baseline"]
       direction LR
-      icon[".ui-icon: one line tall, svg centred"] --- text[".ui-row-text: label (body 12px)"]
-      text --- trail[".ui-row-end: .ui-kbd (badge 11px)"]
+      icon[".ui-icon: one line tall, svg centred"] --- text[".ui-row-text: label (body 13px)"]
+      text --- trail[".ui-row-end: .ui-kbd (badge 12px)"]
     end
     padBottom["--row-pad (5px)"]
     padTop --- line --- padBottom

@@ -44,7 +44,9 @@
 .session-inbox-surface.open .session-inbox {
   display: flex;
   flex: 1 1 auto;
+  gap: 14px;
   width: 100%;
+  padding: 20px;
   overflow-y: auto;
 }
 
@@ -104,24 +106,26 @@
 }
 
 .session-inbox-actions {
-  gap: 8px;
+  gap: 12px;
 }
 
 /* Room above each card for the half of its title tag outside it. */
 .session-inbox-action {
   /* The column shared by the refresh buttons and the send button. */
   --session-action-w: 64px;
-  margin-top: 10px;
+  margin-top: var(--card-tag-rise);
 }
 
 .session-inbox-action:focus-within {
   border-color: var(--accent);
 }
 
+/* Midway between the two cards' borders: the rise of the tag below it is matched above it. */
 .session-inbox-divider {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: var(--card-tag-rise);
 }
 
 .session-inbox-divider::before,

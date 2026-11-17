@@ -160,6 +160,22 @@ public sealed class FontSettingsTests : IDisposable {
 	}
 
 	[Fact]
+	public void InterfaceSize_DefaultsTo13_AndIsBounded() {
+		using var store = NewStore();
+		using (var json = JsonDocument.Parse(FontSettings.BuildJson(store))) {
+			Assert.Equal(13, json.RootElement.GetProperty("interfaceSize").GetInt64());
+		}
+
+		store.Set(FontSettings.InterfaceSize, Json("15"));
+		using (var json = JsonDocument.Parse(FontSettings.BuildJson(store))) {
+			Assert.Equal(15, json.RootElement.GetProperty("interfaceSize").GetInt64());
+		}
+
+		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.InterfaceSize, Json("9")));
+		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.InterfaceSize, Json("25")));
+	}
+
+	[Fact]
 	public void RegisteredInCoreCatalog_WithFontKeys() {
 		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
@@ -171,6 +187,7 @@ public sealed class FontSettingsTests : IDisposable {
 		Assert.Contains(FontSettings.EditorSize, keys);
 		Assert.Contains(FontSettings.TerminalWeight, keys);
 		Assert.Contains(FontSettings.InterfaceFamily, keys);
+		Assert.Contains(FontSettings.InterfaceSize, keys);
 		Assert.Contains(FontSettings.ProseFamily, keys);
 	}
 }

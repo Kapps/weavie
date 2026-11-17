@@ -197,9 +197,9 @@
   flex-grow: 1;
 }
 
-/* Fixed height with its 16px line centred by padding (less the bottom border), so text sits on one baseline. */
+/* Fixed height with its line centred by padding (less the bottom border), so text sits on one baseline. */
 .pane-head {
-  --pane-head-h: 24px;
+  --pane-head-h: var(--control-height);
   --pane-head-pad: calc((var(--pane-head-h) - var(--font-chrome-line)) / 2);
   flex: 0 0 auto;
   display: flex;

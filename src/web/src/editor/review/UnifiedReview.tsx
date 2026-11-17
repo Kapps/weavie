@@ -12,6 +12,7 @@ import {
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
+import { currentFonts, interfaceLineHeight } from "../../fonts";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
@@ -37,8 +38,8 @@ import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface
 import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
-// The 32px file header plus the section's 2px border-block (unified-review.css).
-const SECTION_HEADER_HEIGHT = 34;
+// The file header (a line + 16px) plus the section's 2px border-block (unified-review.css).
+const sectionHeaderHeight = (): number => interfaceLineHeight(currentFonts().interfaceSize) + 18;
 const FILE_GAP = 20;
 
 export function UnifiedReview(props: {
@@ -106,9 +107,9 @@ export function UnifiedReview(props: {
     editorHeights.get(file) ?? estimatedEditorHeight(file.summary().added, file.summary().removed);
   const estimatedFileSize = (file: ReviewFileView): number => {
     if (file.collapsed()) {
-      return SECTION_HEADER_HEIGHT;
+      return sectionHeaderHeight();
     }
-    return SECTION_HEADER_HEIGHT + editorHeight(file);
+    return sectionHeaderHeight() + editorHeight(file);
   };
   // The session overview sits above the diffs; the list starts below it, so row indices stay file indices.
   let overviewElement: HTMLElement | undefined;

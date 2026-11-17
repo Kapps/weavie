@@ -522,6 +522,7 @@ test.describe("session-addressed WebSocket transport", () => {
       editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
       terminal: { family: "monospace", size: 13, weight: "normal" },
       interface: "Verdana, sans-serif",
+      interfaceSize: 15,
       prose: "Georgia, serif",
     });
 

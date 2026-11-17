@@ -158,14 +158,14 @@
   background: var(--bg);
 }
 
-/* A 24px control row centred above the 1px border: 3 + 24 + 4 + 1 = 32px, which SECTION_HEADER_HEIGHT
+/* A control row centred above the 1px border: 3 + (line + 8) + 4 + 1, which sectionHeaderHeight
    (UnifiedReview.tsx) counts with the section's 2px border-block. */
 .unified-review-file-header {
   font: var(--font-chrome-body);
   position: relative;
   top: 0;
   z-index: 2;
-  height: 32px;
+  height: calc(var(--font-chrome-line) + 16px);
   padding: 3px 8px 4px;
   padding-inline-end: calc(var(--review-scrollbar-size) + 8px);
   border-bottom: 1px solid var(--border);

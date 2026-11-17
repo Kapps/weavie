@@ -23,7 +23,7 @@
 
 /* A wholly-new file: the whole file is added, so per-line green (wash + char overlay) would slab the editor. It
    gets only the continuous gutter edge above plus this header band — the file's single green signal, named once.
-   The 20px tag (16px line + padding + border) is centred in the 24px zone (NEW_FILE_BADGE_HEIGHT). */
+   The tag (a line + padding + border, 22px at 13px text) is centred in the 24px zone (NEW_FILE_BADGE_HEIGHT). */
 .weavie-inline-newfile {
   display: flex;
   align-items: center;

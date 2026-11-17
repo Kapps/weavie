@@ -201,10 +201,9 @@
   font-weight: 700;
 }
 
-/* A pending request card is chrome: markdown in it keeps its structure at the card's one size, on px geometry. */
+/* A pending request card reads at the transcript's size: markdown keeps its structure at that one size, on px geometry. */
 :where(.agent-entry-waiting) .agent-markdown {
   max-width: none;
-  font: var(--font-chrome-body-wrap);
 }
 
 :where(.agent-entry-waiting) .agent-markdown :is(p, ul, ol, blockquote, table),

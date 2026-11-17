@@ -53,7 +53,7 @@ public sealed partial class HostCoreMultiRepoTests {
 		Directory.Delete(worktree, recursive: true);
 		host.SessionEvent(session, "files", "refreshIndex", new { });
 
-		await Wait.UntilAsync(() => Toasted(host, $"Session 'deploy' was closed: its worktree {worktree} no longer exists."));
+		await Wait.UntilAsync(() => Toasted(host, $"Session 'infra / deploy' was closed: its worktree {worktree} no longer exists."));
 		Assert.DoesNotContain("deploy", host.SessionLabels);
 		Assert.False(Toasted(host, "Couldn't close session"));
 	}

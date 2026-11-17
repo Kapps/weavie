@@ -119,10 +119,17 @@ public sealed partial class HostCore {
 	}
 
 	// git lists a repository's main worktree first, asked from any of its worktrees.
-	private static async Task<string> MainWorktreeAsync(GitService git, string path, CancellationToken ct) =>
-		Directory.Exists(path)
-			? (await git.ListWorktreesAsync(path, ct).ConfigureAwait(false))[0].Path
-			: throw new GitException($"'{path}' doesn't exist.");
+	private static async Task<string> MainWorktreeAsync(GitService git, string path, CancellationToken ct) {
+		if (!Directory.Exists(path)) {
+			throw new GitException($"'{path}' doesn't exist.");
+		}
+
+		if (await git.FindToplevelAsync(path, ct).ConfigureAwait(false) is null) {
+			throw new GitException($"'{path}' isn't in a git repository.");
+		}
+
+		return (await git.ListWorktreesAsync(path, ct).ConfigureAwait(false))[0].Path;
+	}
 
 	/// <summary>Runs the repo's setup command in the background, once its auto-config has written one.</summary>
 	private void StartWorktreeSetup(Repo repo, string worktreePath) => _ = Task.Run(async () => {

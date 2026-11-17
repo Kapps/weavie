@@ -35,7 +35,7 @@ public sealed partial class HostCore {
 						return await RecreateSlotAsync(target, provider, cancellation).ConfigureAwait(false);
 					}, cancellation).ConfigureAwait(false);
 					Notify(result.Ok ? "info" : "error", result.Ok
-						? $"Recreated '{target.Label}' with {provider.Info.Name}."
+						? $"Recreated '{NameOf(target)}' with {provider.Info.Name}."
 						: result.Error!);
 				});
 				return CommandResult.Success("The session will be recreated after this reply.");
@@ -53,9 +53,9 @@ public sealed partial class HostCore {
 				}
 				target.AgentProviderId = provider.Info.Id;
 			}).ConfigureAwait(false);
-			return CommandResult.Success($"Recreated '{target.Label}' with {provider.Info.Name}.", SessionActivationJson(target));
+			return CommandResult.Success($"Recreated '{NameOf(target)}' with {provider.Info.Name}.", SessionActivationJson(target));
 		} catch (Exception ex) {
-			return CommandResult.Failure($"Couldn't recreate '{target.Label}': {ex.Message}");
+			return CommandResult.Failure($"Couldn't recreate '{NameOf(target)}': {ex.Message}");
 		}
 	}
 

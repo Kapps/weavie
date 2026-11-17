@@ -13,7 +13,7 @@ public sealed partial class HostCore {
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) {
 			Log($"[sessions] closing the vanished session '{session.DisplayLabel}' failed: {ex}");
-			Notify("error", $"Couldn't close session '{session.DisplayLabel}', whose folder no longer exists: {ex.Message}");
+			Notify("error", $"Couldn't close session '{NameOf(session)}', whose folder no longer exists: {ex.Message}");
 		} finally {
 			// A close that didn't happen leaves a live session, so the next observer to find the directory
 			// missing has to be able to raise it again.
@@ -40,6 +40,7 @@ public sealed partial class HostCore {
 			return true;
 		}
 
+		string name = NameOf(slot);
 		await _ui.InvokeAsync(() => UnloadSlotAsync(slot), CancellationToken.None).ConfigureAwait(false);
 		await RetireSlotAsync(slot).ConfigureAwait(false);
 		// A repository that is gone too has nothing to reconcile against; its registry is left for its return.
@@ -49,7 +50,7 @@ public sealed partial class HostCore {
 
 		// Error level so it stands until dismissed: this notice is the only account of a destroyed session, and a
 		// user away from the screen would otherwise find it simply gone from the rail.
-		Notify("error", $"Session '{slot.Label}' was closed: its worktree {slot.WorktreePath} no longer exists.");
+		Notify("error", $"Session '{name}' was closed: its worktree {slot.WorktreePath} no longer exists.");
 		return true;
 	}
 }

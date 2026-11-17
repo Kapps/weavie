@@ -58,7 +58,7 @@ public sealed partial class HostCore {
 		session.Bus.Feature("attention").Publish(
 			"raised",
 			WireJson.Default.AttentionRaised,
-			new(session.DisplayLabel, AttentionRules.WireName(kind), AttentionRules.NotificationBody(kind)));
+			new(NameOf(session), AttentionRules.WireName(kind), AttentionRules.NotificationBody(kind)));
 	}
 
 	private async Task<NotificationShownMessage> ShowSystemNotificationAsync(

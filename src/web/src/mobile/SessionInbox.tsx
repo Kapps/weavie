@@ -56,7 +56,10 @@ export function SessionInbox(props: {
     const source = selectedSession();
     return source?.connection.id === backendId() ? source.repo : undefined;
   };
-  const repos = createMemo(() => backendRepos(backendId()));
+  // The same list is the same value, so its options aren't rebuilt each time the session list is pushed.
+  const repos = createMemo(() => backendRepos(backendId()), [], {
+    equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+  });
   const repoDefault = (): string =>
     defaultRepo(
       sourceRepo(),
@@ -75,6 +78,16 @@ export function SessionInbox(props: {
     clearTimeout(repoTyped);
     setRepoPick(null);
     setRepoPath("");
+  };
+  // Picking "Other…" moves to the path it asks for, in the form it was picked in.
+  const pickRepo = (select: HTMLSelectElement): void => {
+    setRepoPick(select.value);
+    if (select.value === OTHER_REPO) {
+      select
+        .closest(".session-composer-destination")
+        ?.querySelector<HTMLInputElement>(".session-repo-path")
+        ?.focus();
+    }
   };
   // A typed path is asked about once typing pauses, so Start is ready by the time it is pressed.
   const typeRepo = (path: string): void => {
@@ -258,17 +271,22 @@ export function SessionInbox(props: {
         <select
           class="session-repo ui-field"
           aria-label={repoLabel}
-          value={repoPick() ?? repoDefault()}
-          onChange={(event) => setRepoPick(event.currentTarget.value)}
+          onChange={(event) => pickRepo(event.currentTarget)}
         >
           <For each={repos()}>
             {(option) => (
-              <option value={option.repo} title={option.repo}>
+              <option
+                value={option.repo}
+                selected={option.repo === (repoPick() ?? repoDefault())}
+                title={option.repo}
+              >
                 {option.label}
               </option>
             )}
           </For>
-          <option value={OTHER_REPO}>Other…</option>
+          <option value={OTHER_REPO} selected={typingRepo()}>
+            Other…
+          </option>
         </select>
       </NewSessionControl>
       <Show when={typingRepo()}>

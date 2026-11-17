@@ -164,6 +164,8 @@ public sealed partial class HostCoreMultiRepoTests {
 		Assert.True((await host.DeleteSessionAsync(entry.GetProperty("id").GetString()!, force: false, classify: false)).Ok);
 
 		await Wait.UntilAsync(() => !host.SessionLabels.Contains("deploy"));
+		// With two repos on the rail, the notice says which repo's session it was.
+		Assert.True(Toasted(host, "Session 'infra / deploy' was deleted."));
 		Assert.False(Directory.Exists(worktree));
 		Assert.DoesNotContain(worktree, TempGitRepo.Run(InfraOf(host.RepoRoot), "worktree", "list"));
 		// Its branch is kept, and the home repo never had one by that name.
@@ -206,7 +208,10 @@ public sealed partial class HostCoreMultiRepoTests {
 		Assert.Equal([host.RepoRoot], await HelloReposAsync(host));
 		var missing = await host.CreateSessionAsync(
 			new NewSessionRequest { Branch = "deploy", Repo = Path.Combine(host.RepoRoot, "nowhere"), Base = "main" });
-		Assert.Contains("Couldn't open the repository", missing.Error);
+		Assert.Contains("doesn't exist", missing.Error);
+		var plain = await host.CreateSessionAsync(
+			new NewSessionRequest { Branch = "deploy", Repo = Path.GetTempPath(), Base = "main" });
+		Assert.Contains("isn't in a git repository", plain.Error);
 	}
 
 	[Fact]

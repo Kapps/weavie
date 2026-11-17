@@ -144,7 +144,7 @@ public sealed partial class HostCore {
 			lock (publicationGate) {
 				var failure = RollbackSessionLoad(slot, session, removeSlot: false, error);
 				_sessionStartupNotices.Add(
-					("error", $"Couldn't restore the session '{slot.Label}': {Innermost(failure).Message}"));
+					("error", $"Couldn't restore the session '{NameOf(slot)}': {Innermost(failure).Message}"));
 				Log($"[sessions] restoring '{slot.Label}' failed: {failure}");
 			}
 		}

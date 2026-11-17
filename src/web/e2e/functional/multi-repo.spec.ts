@@ -38,13 +38,15 @@ test("a session in a second repo joins the rail, labelled by repo until it is de
     await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("e2e/deploy");
     const repository = inbox.getByRole("combobox", { name: "Repository", exact: true });
     await expect(repository.locator("option")).toHaveText([basename(weavie.workspace), "Other…"]);
+    // The workspace's own repo is what the list shows before anything is picked.
+    await expect(repository).toHaveValue(weavie.workspace);
     const start = inbox.getByRole("button", { name: "Start", exact: true });
     const path = inbox.getByRole("textbox", { name: "Repository path" }).first();
     await expect(start).toBeEnabled();
 
     // "Other…" with no path names no repo; the list stays, to go back to one it offers.
     await repository.selectOption({ label: "Other…" });
-    await expect(path).toBeVisible();
+    await expect(path).toBeFocused();
     await expect(start).toBeDisabled();
     await repository.selectOption({ label: basename(weavie.workspace) });
     await expect(path).toBeHidden();

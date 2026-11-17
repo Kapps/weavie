@@ -415,6 +415,14 @@ public sealed partial class HostCore {
 			})];
 	}
 
+	/// <summary>A session as a message names it: its branch, led by its repo when the workspace's sessions span several.</summary>
+	private string NameOf(SessionSlot slot) {
+		var repos = (_sessions?.Slots ?? []).Select(other => other.Repo).Distinct().ToArray();
+		return repos.Length > 1 ? $"{RepoLabel(slot.Repo, repos)} / {slot.Label}" : slot.Label;
+	}
+
+	private string NameOf(HostSession session) => SlotFor(session) is { } slot ? NameOf(slot) : session.DisplayLabel;
+
 	// A repo's chip label: the shortest trailing part of its path no other repo of the workspace shares.
 	private static string RepoLabel(Repo repo, IReadOnlyList<Repo> all) {
 		static string Tail(Repo of, int segments) => string.Join('/', of.Root
@@ -661,7 +669,7 @@ public sealed partial class HostCore {
 					? source?.Repo ?? Home
 					: await RepoForAsync(RepoPath(request.Repo, source), ct).ConfigureAwait(false);
 			} catch (GitException ex) {
-				return CommandResult.Failure($"Couldn't open the repository at '{request.Repo}': {ex.Message}");
+				return CommandResult.Failure(ex.Message);
 			}
 
 			using var documents = _workflowDocuments.Acquire(source?.WorktreePath);
@@ -730,7 +738,7 @@ public sealed partial class HostCore {
 			try {
 				LoadSlotInBackground(target);
 				result.SetResult(CommandResult.Success(
-					$"Loaded session '{target.Label}' in the background.",
+					$"Loaded session '{NameOf(target)}' in the background.",
 					SessionAddressJson(target)));
 			} catch (Exception ex) {
 				result.SetException(ex);
@@ -785,14 +793,14 @@ public sealed partial class HostCore {
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {
-			Notify("error", $"Couldn't unload session '{target.Label}': {ex.Message}");
+			Notify("error", $"Couldn't unload session '{NameOf(target)}': {ex.Message}");
 			throw;
 		}
 	}
 
 	private async Task UnloadSlotAndNotifyAsync(SessionSlot target, CancellationToken ct) {
 		if (await _ui.InvokeAsync(() => UnloadSlotAsync(target), ct).ConfigureAwait(false)) {
-			Notify("info", $"Session '{target.Label}' was unloaded. Its worktree was kept.");
+			Notify("info", $"Session '{NameOf(target)}' was unloaded. Its worktree was kept.");
 		}
 	}
 
@@ -818,7 +826,7 @@ public sealed partial class HostCore {
 	private CommandResult? DeleteRefusal(SessionSlot target) =>
 		IsWorkspaceCheckout(target)
 			? CommandResult.Failure(
-				$"'{target.Label}' is the workspace's own checkout, so it can't be deleted. Unload it instead.")
+				$"'{NameOf(target)}' is the workspace's own checkout, so it can't be deleted. Unload it instead.")
 			: null;
 
 	private Task<CommandResult> DeleteSessionCoreAsync(
@@ -836,7 +844,7 @@ public sealed partial class HostCore {
 		}
 
 		string worktreePath = target.WorktreePath;
-		string label = target.Label;
+		string label = NameOf(target);
 
 		return DeleteSessionAfterValidationAsync(
 			source,
@@ -943,7 +951,7 @@ public sealed partial class HostCore {
 			throw;
 		} catch (Exception ex) {
 			return CommandResult.Failure(
-				$"Couldn't save the editor state for session '{session.DisplayLabel}': {ex.Message}");
+				$"Couldn't save the editor state for session '{NameOf(session)}': {ex.Message}");
 		}
 	}
 
@@ -1016,7 +1024,7 @@ public sealed partial class HostCore {
 				tracked = status.TrackedFiles;
 				untracked = status.UntrackedFiles;
 			} catch (GitException ex) {
-				return CommandResult.Failure($"Couldn't check '{target.Label}' for changes: {ex.Message}");
+				return CommandResult.Failure($"Couldn't check '{NameOf(target)}' for changes: {ex.Message}");
 			}
 		}
 
@@ -1024,7 +1032,7 @@ public sealed partial class HostCore {
 		const int previewLimit = 5;
 		string[] changed = [.. tracked.Concat(untracked).Order(StringComparer.Ordinal)];
 		return CommandResult.Success(null, JsonSerializer.Serialize(
-			new SessionDeletePreview(state, target.Label, branchless, [.. changed.Take(previewLimit)], changed.Length),
+			new SessionDeletePreview(state, NameOf(target), branchless, [.. changed.Take(previewLimit)], changed.Length),
 			WireJson.Default.SessionDeletePreview));
 	}
 

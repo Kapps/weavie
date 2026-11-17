@@ -110,8 +110,7 @@ public sealed partial class HostCore {
 
 	private static SessionPeerException SenderGone() => new("The sending session no longer exists.");
 
-	private static SessionPeerException UnknownPeer(string sessionId) =>
-		new($"No session has id '{sessionId}'. Call listSessions for the exact ids.");
+	private static SessionPeerException UnknownPeer(string sessionId) => new(NoSuchSession(sessionId));
 
 	/// <summary>The peer view owned by the session at <paramref name="self"/>, or by its /btw side session <paramref name="side"/>.</summary>
 	private sealed class BoundSessionPeers(HostCore core, SessionAddress self, string? side) : ISessionPeers {

@@ -224,7 +224,6 @@
   /* A narrow composer fits two controls beside the action, so the repository takes the whole row under them. */
   .session-composer-options {
     grid-template-columns: repeat(2, minmax(0, 1fr)) var(--session-action-w);
-    grid-auto-flow: dense;
   }
 
   .session-composer-destination {

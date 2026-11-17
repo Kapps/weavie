@@ -47,6 +47,8 @@ export function NewSessionComposer(props: {
   base: "source" | "main";
   /** Whether the session can branch from the selected one. */
   sourceAvailable: boolean;
+  /** Whether the destination names a repo: false while a path is still to be typed. */
+  repoNamed: boolean;
   providerId: string;
   /** Whether the chosen agent provider can start a session. */
   providerAvailable: boolean;
@@ -150,6 +152,7 @@ export function NewSessionComposer(props: {
     !props.busy &&
     named() &&
     workflowReady() &&
+    props.repoNamed &&
     props.providerAvailable &&
     attachments().every((attachment) => attachment.status === "ready");
 

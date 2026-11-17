@@ -47,6 +47,7 @@
   min-width: 0;
 }
 
+.session-composer-control:has(> .session-repo-path),
 .session-composer-destination-error {
   grid-column: 1 / -1;
   color: var(--bad);

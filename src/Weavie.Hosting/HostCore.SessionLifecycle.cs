@@ -22,7 +22,8 @@ public sealed partial class HostCore {
 	}
 
 	// An id is never a branch name, so the refusal says where ids come from.
-	private static string NoSuchSession(string? sessionId) => UnknownPeer(sessionId ?? string.Empty).Message;
+	private static string NoSuchSession(string? sessionId) =>
+		$"No session has id '{sessionId}'. Call listSessions for the exact ids.";
 
 	/// <summary>Waits out lifecycle work already admitted on the source, then returns it if still that exact live session.</summary>
 	private async Task<SessionSlot?> CurrentSourceAsync(SessionAddress source, CancellationToken ct) {

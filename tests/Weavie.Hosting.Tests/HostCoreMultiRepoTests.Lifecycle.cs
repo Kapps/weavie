@@ -35,6 +35,8 @@ public sealed partial class HostCoreMultiRepoTests {
 		await host.RestartAsync(() => Directory.Move(infra, away));
 		Assert.DoesNotContain("deploy", host.SessionLabels);
 		Assert.True(Toasted(host, "The session 'deploy' wasn't restored"));
+		// Its workflow documents would otherwise be cleaned up as unowned.
+		Assert.True(Toasted(host, "automatic cleanup is stopped"));
 
 		await host.RestartAsync(() => Directory.Move(away, infra));
 		Assert.True(InfraEntry(host, "deploy").GetProperty("loaded").GetBoolean());

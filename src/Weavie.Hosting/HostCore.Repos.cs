@@ -100,7 +100,7 @@ public sealed partial class HostCore {
 	private void RemoveSlot(SessionSlot slot) {
 		_sessions?.Remove(slot);
 		if (slot.Repo != Home && _sessions?.Slots.Any(other => other.Repo == slot.Repo) != true) {
-			_repos.TryRemove(slot.Repo.Id, out _);
+			_repos.TryRemove(new(slot.Repo.Id, slot.Repo));
 		}
 	}
 

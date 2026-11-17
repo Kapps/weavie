@@ -42,7 +42,8 @@ public sealed partial class HostCore {
 
 		await _ui.InvokeAsync(() => UnloadSlotAsync(slot), CancellationToken.None).ConfigureAwait(false);
 		await RetireSlotAsync(slot).ConfigureAwait(false);
-		if (slot.Repo.Worktrees is { } worktrees) {
+		// A repository that is gone too has nothing to reconcile against; its registry is left for its return.
+		if (slot.Repo.Worktrees is { } worktrees && Directory.Exists(slot.Repo.Root)) {
 			await worktrees.ReconcileAsync(CancellationToken.None).ConfigureAwait(false);
 		}
 

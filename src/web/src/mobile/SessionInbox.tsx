@@ -37,10 +37,10 @@ export function SessionInbox(props: {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
-  // The repo picked from the list or typed as a path; null is the default.
-  const [repoEntry, setRepoEntry] = createSignal<string | null>(null);
-  // Whether a path is typed in place of the list, for a repo no session here is in yet.
-  const [typingRepo, setTypingRepo] = createSignal(false);
+  // The repo picked from the list; null is the default.
+  const [repoPick, setRepoPick] = createSignal<string | null>(null);
+  // The path typed for "Other…": a repo no session here is in yet.
+  const [repoPath, setRepoPath] = createSignal("");
   const [base, setBase] = createSignal<"source" | "main">("main");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -62,32 +62,29 @@ export function SessionInbox(props: {
       sourceRepo(),
       repos().map((option) => option.repo),
     );
+  const typingRepo = (): boolean => repoPick() === OTHER_REPO;
+  const namedRepo = (): string | null =>
+    sentRepo(typingRepo() ? repoPath() : (repoPick() ?? repoDefault()));
   // Held while Sessions is closed, so switching sessions behind it re-asks nothing about a lingering draft.
-  const repo = createMemo<string | null>(
-    (held) => (props.active ? sentRepo(repoEntry() ?? repoDefault()) : held),
-    null,
-  );
+  const repo = createMemo<string | null>((held) => (props.active ? namedRepo() : held), null);
+  // A start names its repo: "Other…" with no path names none.
+  const repoNamed = (): boolean => !typingRepo() || namedRepo() !== null;
   // "From current session" branches inside that session's own repo.
   const sourceAvailable = (): boolean => repo() === sourceRepo();
   const resetRepo = (): void => {
     clearTimeout(repoTyped);
-    setTypingRepo(false);
-    setRepoEntry(null);
-  };
-  const pickRepo = (select: HTMLSelectElement): void => {
-    if (select.value !== OTHER_REPO) {
-      setRepoEntry(select.value);
-      return;
-    }
-    const control = select.parentElement;
-    setRepoEntry("");
-    setTypingRepo(true);
-    control?.querySelector("input")?.focus();
+    setRepoPick(null);
+    setRepoPath("");
   };
   // A typed path is asked about once typing pauses, so Start is ready by the time it is pressed.
-  const typeRepo = (path: string, pause: number): void => {
+  const typeRepo = (path: string): void => {
     clearTimeout(repoTyped);
-    repoTyped = setTimeout(() => setRepoEntry(path), pause);
+    repoTyped = setTimeout(() => setRepoPath(path), 400);
+  };
+  // Leaving the field or pressing Enter names the path at once, ahead of the submit Enter also causes.
+  const commitRepo = (path: string): void => {
+    clearTimeout(repoTyped);
+    setRepoPath(path);
   };
   onCleanup(() => clearTimeout(repoTyped));
 
@@ -235,42 +232,6 @@ export function SessionInbox(props: {
           </For>
         </select>
       </NewSessionControl>
-      <NewSessionControl icon={<FolderGit2 />}>
-        <Show
-          when={typingRepo()}
-          fallback={
-            <select
-              class="session-repo ui-field"
-              aria-label={repoLabel}
-              value={repoEntry() ?? repoDefault()}
-              onChange={(event) => pickRepo(event.currentTarget)}
-            >
-              <For each={repos()}>
-                {(option) => (
-                  <option value={option.repo} title={option.repo}>
-                    {option.label}
-                  </option>
-                )}
-              </For>
-              <option value={OTHER_REPO}>Other…</option>
-            </select>
-          }
-        >
-          <input
-            class="session-repo ui-field ui-field-mono"
-            type="text"
-            aria-label={`${repoLabel} path`}
-            placeholder="/path/to/repository"
-            autocapitalize="none"
-            autocomplete="off"
-            spellcheck={false}
-            value={repoEntry() ?? ""}
-            onInput={(event) => typeRepo(event.currentTarget.value, 400)}
-            onChange={(event) => typeRepo(event.currentTarget.value, 0)}
-            onKeyDown={(event) => event.key === "Escape" && resetRepo()}
-          />
-        </Show>
-      </NewSessionControl>
       <NewSessionControl icon={<Bot />}>
         <select
           class="ui-field"
@@ -293,6 +254,39 @@ export function SessionInbox(props: {
           </For>
         </select>
       </NewSessionControl>
+      <NewSessionControl icon={<FolderGit2 />}>
+        <select
+          class="session-repo ui-field"
+          aria-label={repoLabel}
+          value={repoPick() ?? repoDefault()}
+          onChange={(event) => setRepoPick(event.currentTarget.value)}
+        >
+          <For each={repos()}>
+            {(option) => (
+              <option value={option.repo} title={option.repo}>
+                {option.label}
+              </option>
+            )}
+          </For>
+          <option value={OTHER_REPO}>Other…</option>
+        </select>
+      </NewSessionControl>
+      <Show when={typingRepo()}>
+        <NewSessionControl icon={<FolderGit2 />}>
+          <input
+            class="session-repo-path ui-field ui-field-mono"
+            type="text"
+            aria-label="Repository path"
+            placeholder="Path to a repository"
+            autocapitalize="none"
+            autocomplete="off"
+            spellcheck={false}
+            value={repoPath()}
+            onInput={(event) => typeRepo(event.currentTarget.value)}
+            onChange={(event) => commitRepo(event.currentTarget.value)}
+          />
+        </NewSessionControl>
+      </Show>
       <Show
         when={
           agentProviders(backendId()).find((provider) => provider.id === providerId())
@@ -341,6 +335,7 @@ export function SessionInbox(props: {
             repo={repo()}
             base={base()}
             sourceAvailable={sourceAvailable()}
+            repoNamed={repoNamed()}
             providerId={providerId()}
             providerAvailable={agentProviders(backendId()).some(
               (provider) => provider.id === providerId() && provider.available,
@@ -399,7 +394,9 @@ export function SessionInbox(props: {
                 type="submit"
                 class="session-composer-submit ui-button ui-button-lg ui-button-primary"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
-                disabled={submitting() !== null || existingBranch().trim().length === 0}
+                disabled={
+                  submitting() !== null || existingBranch().trim().length === 0 || !repoNamed()
+                }
               >
                 <MobileActionLabel icon={<ArrowUp />}>
                   {submitting() === "existing" ? "Opening…" : "Open"}

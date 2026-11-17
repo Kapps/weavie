@@ -108,7 +108,8 @@ public sealed partial class HostCore {
 		} catch (GitException ex) {
 			_unrestoredSessions.Add(item);
 			_sessionStartupNotices.Add(
-				("warn", $"The session '{item.Label}' wasn't restored: {ex.Message} Its worktree is {item.WorktreePath}."));
+				("warn", $"The session '{item.Label}' wasn't restored: {ex.Message} It is tried again at each start; "
+					+ $"delete its worktree {item.WorktreePath} to drop it."));
 			return null;
 		}
 	}

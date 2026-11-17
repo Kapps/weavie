@@ -1138,11 +1138,7 @@ public sealed partial class HostCore {
 			}
 		}
 
-		// The repo has a session's worktree now, so it is one of the workspace's. Its setup command (e.g.
-		// `pnpm install`) runs in the background so the session opens now, toasting "setting up… → ready/failed".
-		Join(start.Repo);
-		StartWorktreeSetup(start.Repo, record.Path);
-		return await BuildSlotAsync(start, branch, record, $"Created session on branch '{branch}' at {record.Path}.")
+		return await BuildSlotAsync(start, branch, record, setUp: true, $"Created session on branch '{branch}' at {record.Path}.")
 			.ConfigureAwait(false);
 	}
 
@@ -1213,16 +1209,15 @@ public sealed partial class HostCore {
 			return await LoadExistingAsync(owner, branch, ct).ConfigureAwait(false);
 		}
 
-		Join(start.Repo);
-		if (freshWorktree) {
-			StartWorktreeSetup(start.Repo, record.Path);
-		}
-
 		// Seed the first input only on this fresh-checkout path; switching to an existing session (above) must
 		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
+		// Only a freshly-created worktree is set up; a branch Weavie already tracks reuses its existing one.
 		return await BuildSlotAsync(
-			start with { AgentProviderId = record.AgentProviderId }, branch, record, $"Checked out '{branch}' at {record.Path}.")
-			.ConfigureAwait(false);
+			start with { AgentProviderId = record.AgentProviderId },
+			branch,
+			record,
+			setUp: freshWorktree,
+			$"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	private static CommandResult? ExistingSessionInputError(InitialSessionInput? input) =>
@@ -1238,6 +1233,7 @@ public sealed partial class HostCore {
 		SessionStart start,
 		string branch,
 		WorktreeRecord record,
+		bool setUp,
 		string successMessage) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
@@ -1257,7 +1253,15 @@ public sealed partial class HostCore {
 					ShellTerminals = shellTerminals,
 				};
 				slot.Session.InheritedWorkflowDocuments = start.WorkflowDocumentsDirectory;
+				// The repo has a session now, so it is one of the workspace's; its setup command (e.g. `pnpm install`)
+				// runs in the background, toasting "setting up… → ready/failed".
+				Join(start.Repo);
+				_unrestoredSessions.RemoveAll(item => PathIdentity.Equals(item.WorktreePath, record.Path));
 				sessions.Add(slot);
+				if (setUp) {
+					StartWorktreeSetup(start.Repo, record.Path);
+				}
+
 				PushSessionList();
 				if (start.Input?.Workflow is { } workflow) {
 					slot.Session.Workflow.Start(workflow);

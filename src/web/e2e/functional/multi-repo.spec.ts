@@ -35,14 +35,26 @@ test("a session in a second repo joins the rail, labelled by repo until it is de
     await page.locator(".session-rail-add").click();
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+    await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("e2e/deploy");
     const repository = inbox.getByRole("combobox", { name: "Repository", exact: true });
     await expect(repository.locator("option")).toHaveText([basename(weavie.workspace), "Other…"]);
+    const start = inbox.getByRole("button", { name: "Start", exact: true });
+    const path = inbox.getByRole("textbox", { name: "Repository path" }).first();
+    await expect(start).toBeEnabled();
+
+    // "Other…" with no path names no repo; the list stays, to go back to one it offers.
     await repository.selectOption({ label: "Other…" });
-    const path = inbox.getByRole("textbox", { name: "Repository path", exact: true });
-    await expect(path).toBeFocused();
+    await expect(path).toBeVisible();
+    await expect(start).toBeDisabled();
+    await repository.selectOption({ label: basename(weavie.workspace) });
+    await expect(path).toBeHidden();
+    await expect(start).toBeEnabled();
+
+    // Enter in the path starts the session in the repo it names.
+    await repository.selectOption({ label: "Other…" });
     await path.fill(infra);
-    await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("e2e/deploy");
-    await inbox.getByRole("button", { name: "Start", exact: true }).click();
+    await expect(start).toBeEnabled();
+    await path.press("Enter");
     await expect(inbox).toBeHidden();
   });
 

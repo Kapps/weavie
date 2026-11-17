@@ -203,7 +203,9 @@ test("session controls align with inset icons that preserve native input on desk
             rect,
           ),
         ),
-        repos: [...element.querySelectorAll(".session-composer-options .session-repo")].map(rect),
+        repos: [...element.querySelectorAll(".session-composer-options select.session-repo")].map(
+          rect,
+        ),
         promptTextLeft: (() => {
           const prompt = element.querySelector(".session-composer textarea")!;
           return (
@@ -249,12 +251,21 @@ test("session controls align with inset icons that preserve native input on desk
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
-    // The repository sits between the selects on desktop and on the row under them on a phone.
+    // The repository follows the agent on the row on desktop, and fills the row under it when narrow.
     expect(geometry.repos).toHaveLength(2);
     geometry.repos.forEach((repo, index) => {
-      const [location] = geometry.footers[index];
+      const [location, agent, action] = geometry.footers[index];
       expect(repo.height).toBe(location.height);
-      expect(repo.y > location.y).toBe(viewport.width <= 760);
+      if (viewport.width > 760) {
+        expect(repo.y).toBe(location.y);
+        expect(repo.width).toBe(location.width);
+        expect(repo.x).toBeGreaterThan(agent.x + agent.width);
+        expect(repo.x + repo.width).toBeLessThan(action.x);
+      } else {
+        expect(repo.y).toBeGreaterThan(location.y);
+        expect(repo.x).toBe(location.x);
+        expect(repo.x + repo.width).toBe(action.x + action.width);
+      }
     });
     expect(geometry.icons).toHaveLength(10);
     for (const { icon, control, textLeft, hit } of geometry.icons) {

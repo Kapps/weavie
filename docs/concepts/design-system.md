@@ -82,7 +82,7 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
 - **`.ui-button`** — 24px text button. Variants: `-lg` (28px), `-xl` (40px, lead role; landing surfaces),
   `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
   one frame. **`.ui-icon-button`** — 20px square, no border. See [Buttons](#buttons).
-- **`.ui-field`** — 28px text input. Variant: `-mono`.
+- **`.ui-field`** — 28px text input. Variants: `-mono`, and `-content` for a multi-line field of content text.
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
   `<small>`); `-plain` drops the chip border, `-cap` is a filled keycap tinted from the text colour of the

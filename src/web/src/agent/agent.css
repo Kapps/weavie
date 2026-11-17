@@ -321,22 +321,6 @@
   padding: 6px 10px 10px;
 }
 
-.agent-aside-reply textarea {
-  font: var(--font-content);
-  box-sizing: border-box;
-  width: 100%;
-  resize: vertical;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 7px 8px;
-}
-
-.agent-aside-reply textarea:focus {
-  outline: 0;
-  border-color: var(--accent);
-}
-
 .agent-aside-reply-actions {
   display: flex;
   justify-content: flex-end;

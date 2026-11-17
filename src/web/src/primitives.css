@@ -280,6 +280,14 @@
     font: var(--font-chrome-mono);
   }
 
+  /* A multi-line field of content text, as tall as its rows. */
+  .ui-field-content {
+    height: auto;
+    padding: 7px 8px;
+    font: var(--font-content);
+    resize: vertical;
+  }
+
   /* A count between previous/next arrows ("‹ 1 / 4 ›"): the count carries the baseline, the arrows centre on it. */
   .ui-stepper {
     display: flex;

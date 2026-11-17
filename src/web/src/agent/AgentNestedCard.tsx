@@ -19,8 +19,14 @@ export function NestedTranscript(props: {
   onUpdatesToggle: (entryId: string, open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
+  // Among the entries shown, so a collapsed card's first pending request is its first row.
   const previous = createMemo(
-    () => new Map(props.entries.map((entry, index) => [entry.id, props.entries[index - 1]])),
+    () =>
+      new Map(
+        (props.pendingOnly ? props.entries.filter(hasPendingRequest) : props.entries).map(
+          (entry, index, shown) => [entry.id, shown[index - 1]],
+        ),
+      ),
   );
   return (
     <div class="agent-aside-transcript">

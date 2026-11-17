@@ -42,7 +42,7 @@ export function SaveAsPrompt(props: {
       onDismiss={props.onCancel}
       onKeyDown={onKeyDown}
     >
-      <div class="confirm-body">Name this file, relative to the workspace root.</div>
+      <div class="confirm-hint">Name this file, relative to the workspace root.</div>
       <input
         class="session-prompt-input ui-field ui-field-mono"
         type="text"

@@ -25,8 +25,12 @@
 }
 
 .confirm-body {
-  color: var(--dim);
   overflow-wrap: anywhere;
+}
+
+/* An input-format or scope note above a dialog's field. */
+.confirm-hint {
+  color: var(--dim);
 }
 
 .confirm-body > p {
@@ -77,13 +81,13 @@
 .confirm-check {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: 12px;
-  color: var(--fg);
   cursor: pointer;
 }
 
 .confirm-check input {
+  margin: 0;
   cursor: pointer;
 }
 
@@ -96,7 +100,6 @@
   list-style: none;
   background: var(--bg);
   border: 1px solid var(--border);
-  color: var(--fg);
   font: var(--font-chrome-mono);
 }
 

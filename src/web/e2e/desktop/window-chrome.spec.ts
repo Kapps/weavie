@@ -6,7 +6,7 @@ import { test } from "./fixture";
 
 // What the page reports about its bar from inside the shipped app, on each stage the window shows.
 type Report = {
-  stage: "welcome" | "workspace";
+  stage: "welcome" | "workspace" | "pressed";
   chrome: WeavieWindowChrome | null;
   bar: { left: number; top: number; width: number; height: number } | null;
   start: string[];
@@ -43,7 +43,12 @@ const driver = (workspace: string, origin: string) => `
       if (!ready()) return;
       clearInterval(poll);
       post().then(() => {
-        if (!welcome) return;
+        if (!welcome) {
+          // Tells the spec the page saw a bar press, so its drag waits out a busy start-up.
+          document.querySelector('.titlebar').addEventListener('mousedown', () =>
+            fetch(${JSON.stringify(origin)}, {method: 'POST', body: '{"stage":"pressed"}'}), true);
+          return;
+        }
         window.__weaviePostMessage(JSON.stringify({
           scope: 'host', session: null, kind: 'event', requestId: null, feature: 'window', name: 'menu', error: null,
           payload: {action: 'open-recent', path: ${JSON.stringify(workspace)}}
@@ -89,14 +94,20 @@ function windowOrigin(window: string): { x: number; y: number } {
   return { x: Number(geometry.X), y: Number(geometry.Y) };
 }
 
-// Presses on empty bar space (right of the omnibar) and drags past the threshold, step by step.
-function dragBar(window: string, bar: NonNullable<Report["bar"]>): void {
+// Presses on empty bar space (right of the omnibar), waits until the page has seen the press and its report
+// has had time to reach the host, then drags past the threshold step by step.
+async function dragBar(
+  window: string,
+  bar: NonNullable<Report["bar"]>,
+  pressed: Promise<unknown>,
+): Promise<void> {
   const origin = windowOrigin(window);
   const x = Math.round(origin.x + bar.left + bar.width * 0.8);
   const y = Math.round(origin.y + bar.top + bar.height / 2);
   xdotool("mousemove", String(x), String(y));
   xdotool("mousedown", "1");
-  execFileSync("sleep", ["0.2"]);
+  await pressed;
+  execFileSync("sleep", ["0.5"]);
   for (let step = 1; step <= 10; step++) {
     xdotool("mousemove", String(x + step * 12), String(y + step * 9));
     execFileSync("sleep", ["0.05"]);
@@ -107,6 +118,7 @@ function dragBar(window: string, bar: NonNullable<Report["bar"]>): void {
 test("the shipped app draws one title bar from its window's chrome", async ({ desktop }, info) => {
   const welcomeReport = Promise.withResolvers<Report>();
   const workspaceReport = Promise.withResolvers<Report>();
+  const pressed = Promise.withResolvers<void>();
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => {
@@ -118,6 +130,7 @@ test("the shipped app draws one title bar from its window's chrome", async ({ de
       const report = JSON.parse(body) as Report;
       if (report.stage === "welcome") welcomeReport.resolve(report);
       else if (report.stage === "workspace") workspaceReport.resolve(report);
+      else if (report.stage === "pressed") pressed.resolve();
     });
   });
   server.listen(0, "127.0.0.1");
@@ -164,7 +177,7 @@ test("the shipped app draws one title bar from its window's chrome", async ({ de
 
       const window = xdotool("search", "--onlyvisible", "--class", "weavie").trim().split("\n")[0];
       const before = windowOrigin(window);
-      dragBar(window, workspace.bar!);
+      await dragBar(window, workspace.bar!, pressed.promise);
       await expect.poll(() => windowOrigin(window)).not.toEqual(before);
       await screenshot(info, "after-drag");
     }

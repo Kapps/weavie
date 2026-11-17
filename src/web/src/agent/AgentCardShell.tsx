@@ -4,8 +4,8 @@ import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { DisclosureIcon } from "./AgentDisclosure";
-import { CollapsibleCardContent } from "./AgentNestedCard";
 import { AgentCardToggleContext } from "./agent-row-context";
+import { CollapsibleCardContent } from "./CollapsibleCardContent";
 
 /** The box a BTW or dashboard card sits in: a head that collapses it and opens it in a tab, then its body. */
 export function AgentCardShell(props: {

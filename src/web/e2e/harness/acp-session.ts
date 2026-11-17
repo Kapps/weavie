@@ -47,14 +47,23 @@ export async function submitAcpDraft(surface: Locator, draft: string): Promise<v
   await composer.locator("textarea").press("Enter");
 }
 
-/** A collapsed card is its header row alone: no divider or body between the row and the card's edge. */
+/** A collapsed card is its header alone, one row tall: no divider or body under it, and no wrapped meta. */
 export async function expectHeaderOnlyCard(card: Locator): Promise<void> {
   await expect
     .poll(() =>
-      card.evaluate(
-        (element) =>
-          element.clientHeight - element.querySelector(".agent-aside-head")!.clientHeight,
-      ),
+      card.evaluate((element) => {
+        const head = element.querySelector<HTMLElement>(".agent-aside-head")!;
+        const style = getComputedStyle(head);
+        const row = head.querySelector<HTMLElement>(".agent-aside-toggle")!.offsetHeight;
+        return {
+          underHead: element.clientHeight - head.clientHeight,
+          extraRows:
+            head.clientHeight -
+            parseFloat(style.paddingTop) -
+            parseFloat(style.paddingBottom) -
+            row,
+        };
+      }),
     )
-    .toBe(0);
+    .toEqual({ underHead: 0, extraRows: 0 });
 }

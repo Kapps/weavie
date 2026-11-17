@@ -310,9 +310,11 @@
   margin-top: 4px;
 }
 
+/* The label gives way before the meta wraps, so the head stays one row. */
 .agent-aside-head small {
-  margin-left: auto;
+  flex: none;
   font: var(--font-chrome-body);
+  white-space: nowrap;
 }
 
 .agent-aside-transcript {
@@ -686,6 +688,11 @@ a:has(> .agent-path-dir) {
 .agent-card-content > div {
   min-height: 0;
   overflow: hidden;
+}
+
+/* A dashboard's blocks leave as it collapses, so its body has no height to ease. */
+[data-agent-dashboard] > .agent-card-content {
+  transition: none;
 }
 
 .agent-disclosure {

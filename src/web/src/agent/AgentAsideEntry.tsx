@@ -3,10 +3,11 @@ import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
-import { CollapsibleCardContent, NestedTranscript } from "./AgentNestedCard";
+import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "./AgentPendingRequests";
 import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
+import { CollapsibleCardContent } from "./CollapsibleCardContent";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;

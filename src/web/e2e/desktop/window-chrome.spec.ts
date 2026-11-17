@@ -32,7 +32,7 @@ const driver = (workspace: string, origin: string) => `
       return {
         stage: welcome ? 'welcome' : 'workspace', chrome,
         bar: rect ? {left: rect.left, top: rect.top, width: rect.width, height: rect.height} : null,
-        start: labels(welcome ? '.welcome-bar > .tb-ctl:not(.welcome-bar-fill ~ .tb-ctl)' : '.titlebar > .tb-ctl'),
+        start: labels(welcome ? '.welcome-bar > .tb-ctl:not(.welcome-bar-fill ~ .tb-ctl)' : '.titlebar .tb-left > .tb-ctl'),
         end: labels(welcome ? '.welcome-bar-fill ~ .tb-ctl' : '.titlebar .tb-controls > .tb-ctl'),
         frame: outerHeight - innerHeight,
       };

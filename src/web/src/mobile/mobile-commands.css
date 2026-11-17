@@ -24,8 +24,7 @@
   }
 
   .app.compact .tb-left,
-  .app.compact .tb-controls,
-  .app.compact .titlebar > .tb-ctl {
+  .app.compact .tb-controls {
     display: none;
   }
 

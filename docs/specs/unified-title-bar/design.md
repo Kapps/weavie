@@ -9,7 +9,8 @@ search in the centre, the build number on the right, and the window buttons wher
 macOS keeps its real traffic lights, floated over the bar. Linux gets Weavie-drawn buttons in the order and
 on the side the desktop configures. Dragging, double-clicking, and on Linux middle- and right-clicking
 empty bar space behave as on a native title bar. The Linux welcome screen gets a slim strip with the same
-buttons. The browser client loses three window buttons that never did anything. Windows does not change.
+buttons. The browser client loses three window buttons that never did anything. On every system, Windows included,
+the search box is centred in the window.
 
 ## How it is built
 
@@ -313,8 +314,12 @@ rules. Extracted from `TitleBar.tsx:51-82` so the welcome strip shares it.
 </div>
 ```
 
-- `barStyle` sets `--titlebar-h` when `barHeight` is non-null and `padding-inline-start` / `-end` from
-  `inset`. `.titlebar` reads `height: var(--titlebar-h, 38px)`.
+- `.titlebar` is a three-column grid, `minmax(max-content, 1fr) minmax(0, 576px) minmax(max-content, 1fr)`:
+  equal sides centre the omnibar in the window on every host, and a narrow window shrinks the omnibar
+  before either side. Start buttons live inside `.tb-left`.
+- `barStyle` sets `--titlebar-h` when `barHeight` is non-null and `--titlebar-inset-start` / `-end` from
+  `inset`, which pad `.tb-left` and `.tb-controls` so the omnibar stays centred in the window, not in the
+  space beside the traffic lights. `.titlebar` reads `height: var(--titlebar-h, 38px)`.
 - The Windows `app-region` rules stay as they are; the other engines ignore the property.
 - `.tb-controls` keeps `app-region: no-drag` only on the buttons, so the build number drags on Windows as
   it does elsewhere. Check this against Windows behaviour before changing it; if it differs, leave Windows

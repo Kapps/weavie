@@ -9,7 +9,7 @@ controls. The OS title bar above it is gone, as it already is on Windows.
 
 | | Left | Centre | Right |
 | --- | --- | --- | --- |
-| Windows (unchanged) | logo, menus | search | build number, minimize / maximize / close |
+| Windows | logo, menus | search | build number, minimize / maximize / close |
 | Linux | logo, menus | search | build number |
 | macOS | native traffic lights | search | build number |
 
@@ -38,6 +38,7 @@ controls. The OS title bar above it is gone, as it already is on Windows.
   with a themed bar. macOS keeps the system's because they look the same in every app and carry the
   green-button tiling menu.
 - The build number appears in the bar on macOS and Linux, as on Windows.
+- The search box is centred in the window on every system, Windows included.
 - The macOS window title is no longer visible in the window. It still names the window in Mission Control
   and the Window menu; the search box already shows the workspace name.
 - No setting restores the OS title bar. It would keep the two-strip layout alive and tested on both systems.
@@ -54,7 +55,7 @@ controls. The OS title bar above it is gone, as it already is on Windows.
 
 ## Out of scope
 
-- Windows behaviour.
+- Windows behaviour, apart from the search box now centred in the window.
 - The welcome windows on macOS and Windows, which keep the OS title bar.
 - Mobile, and the browser client beyond dropping its dead window buttons.
 - Drawing custom window buttons on macOS.

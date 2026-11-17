@@ -8,6 +8,10 @@
   flex-direction: column;
 }
 
+.welcome-bar {
+  display: flex;
+}
+
 .welcome-bar-fill {
   flex: 1 1 auto;
   align-self: stretch;

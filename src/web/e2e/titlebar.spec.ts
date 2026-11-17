@@ -95,9 +95,9 @@ for (const [name, chrome] of Object.entries(CHROME)) {
       const bar = page.locator(".titlebar");
       await expect(bar).toBeVisible();
       await expect(bar.locator(".tb-menu")).toHaveCount(chrome.menus ? 1 : 0);
-      await expect(page.locator(".titlebar > .tb-ctl")).toHaveCount(chrome.controls.start.length);
+      await expect(page.locator(".tb-left > .tb-ctl")).toHaveCount(chrome.controls.start.length);
       const start = await page
-        .locator(".titlebar > .tb-ctl")
+        .locator(".tb-left > .tb-ctl")
         .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
       const end = await page
         .locator(".titlebar .tb-controls > .tb-ctl")
@@ -106,9 +106,15 @@ for (const [name, chrome] of Object.entries(CHROME)) {
       expect(end).toEqual(chrome.controls.end.map((action) => LABELS[action]));
       const box = await bar.boundingBox();
       expect(box?.height).toBe(chrome.barHeight ?? 38);
-      expect(await bar.evaluate((element) => getComputedStyle(element).paddingLeft)).toBe(
-        `${chrome.inset.start}px`,
-      );
+      expect(
+        await page.locator(".tb-left").evaluate((element) => getComputedStyle(element).paddingLeft),
+      ).toBe(`${8 + chrome.inset.start}px`);
+      // The omnibar is centred in the window, whatever each side holds.
+      const omnibar = await page.locator(".tb-omnibar").boundingBox();
+      const width = await page.evaluate(() => window.innerWidth);
+      expect(
+        Math.abs((omnibar?.x ?? 0) + (omnibar?.width ?? 0) / 2 - width / 2),
+      ).toBeLessThanOrEqual(1);
       await expect(page.locator(".resize-frame")).toHaveCount(chrome.resizeHandles ? 1 : 0);
       await expect(page.locator(".tb-build")).toHaveText("test");
     } finally {
@@ -130,14 +136,14 @@ test("without a shell config there is no title bar", async ({ page }) => {
 test("a pushed chrome description redraws the bar", async ({ page }) => {
   const host = await openApp(page, CHROME.linux);
   try {
-    await expect(page.locator(".titlebar > .tb-ctl")).toHaveCount(2);
+    await expect(page.locator(".tb-left > .tb-ctl")).toHaveCount(2);
 
     host.publishHost("window", "chrome", {
       ...CHROME.linux,
       controls: { start: [], end: ["minimize", "close"] },
     });
 
-    await expect(page.locator(".titlebar > .tb-ctl")).toHaveCount(0);
+    await expect(page.locator(".tb-left > .tb-ctl")).toHaveCount(0);
     await expect(page.locator(".titlebar .tb-controls > .tb-ctl")).toHaveCount(2);
   } finally {
     await host.close();

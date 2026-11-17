@@ -7,7 +7,7 @@ import { WeavieIcon } from "./WeavieIcon";
 import { WindowControls } from "./WindowControls";
 
 // The window's title bar on every host, drawn from the host's chrome description: menus, omnibar, build
-// badge, and whichever window buttons the page draws. Empty bar space is marked `data-caption`; on Windows
+// badge, and whichever window buttons the page draws. The omnibar is centred in the window. Empty bar space is marked `data-caption`; on Windows
 // CSS `app-region` makes it the caption, elsewhere a press there goes to the host (caption-press.ts).
 export function TitleBar(props: {
   chrome: WeavieWindowChrome;
@@ -35,8 +35,8 @@ export function TitleBar(props: {
       onMouseDown={onCaptionMouseDown}
       onContextMenu={onCaptionContextMenu}
     >
-      <WindowControls actions={props.chrome.controls.start} maximized={props.maximized} />
       <div class="tb-left" data-caption>
+        <WindowControls actions={props.chrome.controls.start} maximized={props.maximized} />
         <Show when={props.chrome.menus}>
           <span class="tb-icon" aria-hidden="true" data-caption>
             <WeavieIcon size={18} />
@@ -70,11 +70,11 @@ export function TitleBar(props: {
   );
 }
 
-/** The bar's measured height and the room it leaves for buttons the OS draws over it. */
+/** The bar's measured height and the room its ends leave for buttons the OS draws over it. */
 export function barStyle(chrome: WeavieWindowChrome): JSX.CSSProperties {
   return {
     "--titlebar-h": chrome.barHeight === null ? undefined : `${chrome.barHeight}px`,
-    "padding-inline-start": `${chrome.inset.start}px`,
-    "padding-inline-end": `${chrome.inset.end}px`,
+    "--titlebar-inset-start": `${chrome.inset.start}px`,
+    "--titlebar-inset-end": `${chrome.inset.end}px`,
   };
 }

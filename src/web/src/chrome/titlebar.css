@@ -5,9 +5,12 @@
    page-drawn window buttons. On Windows `app-region: drag` makes the background the caption (WebView2);
    other engines ignore it and the host handles presses on `data-caption` space. The host may set the
    height (`--titlebar-h`, macOS's title bar) and inline padding (room for its own buttons). */
+/* Equal side columns keep the omnibar centred in the window; when space runs out the omnibar narrows
+   before either side gives up its content. */
 .titlebar {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, 576px) minmax(max-content, 1fr);
   align-items: center;
   box-sizing: border-box;
   height: var(--titlebar-h, 38px);
@@ -41,13 +44,12 @@
 }
 
 .tb-left {
-  flex: 0 0 auto;
+  align-self: stretch;
   gap: 2px;
-  padding-left: 8px;
+  padding-inline-start: calc(8px + var(--titlebar-inset-start, 0px));
 }
 
 .tb-center {
-  flex: 1 1 auto;
   justify-content: center;
   /* Full bar height + stretch the omnibar to fill it, so the box is flush top and bottom (no gaps). */
   align-self: stretch;
@@ -57,11 +59,10 @@
 }
 
 .tb-controls {
-  flex: 0 0 auto;
   /* Stretch to the bar height so the buttons fill it (height: 100%) rather than a hardcoded px height. */
   align-self: stretch;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  justify-content: flex-end;
+  padding-inline-end: var(--titlebar-inset-end, 0px);
 }
 
 /* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular

@@ -97,7 +97,7 @@
   --row-gap: 8px;
   --control-height: 24px;
   --control-height-lg: 28px;
-  --control-height-cell: 32px; /* dialog and card action cells */
+  --control-height-cell: 36px; /* dialog and card action cells */
   --control-height-xl: 40px; /* landing surfaces */
   --control-radius: 0px;
   --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);

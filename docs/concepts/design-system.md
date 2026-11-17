@@ -117,7 +117,7 @@ A card is a square panel on the panel tone.
   `footer.confirm-actions`, which bleeds through `--card-pad`. A surface that draws its own display heading
   passes `labelledBy` instead of `title`. Controls that belong beside the title (a host picker, a close
   button) are the body's first row.
-- **Actions.** Each `PromptButton` is a 32px cell (`--control-height-cell`) along the card's bottom edge,
+- **Actions.** Each `PromptButton` is a 36px cell (`--control-height-cell`) along the card's bottom edge,
   sharing the row equally: the default action is `primary` or `danger` and solid, the rest are plain with
   no outline, since the card frames them. A
   shortcut shows as a `.ui-kbd-cap` (`↵` for Enter, `esc` for Esc).
@@ -126,7 +126,7 @@ A card is a square panel on the panel tone.
   that asks one thing; a container's header is a control strip, and a tag on it competes with the tags of the
   cards inside.
 - **Pending requests.** A request waiting on the user in the agent transcript (permission, question, sign-in,
-  link) is a card whose tag carries an amber dot, with its decisions as joined 32px cells.
+  link) is a card whose tag carries an amber dot, with its decisions as joined 36px cells.
 - **Backdrop and lift.** `.ui-scrim` dims and blurs what is behind a modal surface; `--shadow-modal` lifts
   it. A modal that cannot be a `ModalShell` uses both, never its own copy.
 
@@ -137,7 +137,7 @@ flowchart TB
       direction TB
       tag[".ui-section-label.ui-card-tag: half above the top edge"]
       body["body: 16px inset"]
-      subgraph actions["footer.confirm-actions: edge to edge, 32px"]
+      subgraph actions["footer.confirm-actions: edge to edge, 36px"]
         direction LR
         cancel["PromptButton: plain cell, esc"] --- go["PromptButton: primary or danger cell, ↵"]
       end

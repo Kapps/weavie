@@ -46,7 +46,7 @@ export function DeleteSessionDialog(props: {
 
   return (
     <ModalShell
-      title="Delete session?"
+      title="Delete session"
       onDismiss={props.onCancel}
       onKeyDown={onKeyDown}
       actions={
@@ -76,7 +76,7 @@ export function DeleteSessionDialog(props: {
     >
       <div class="confirm-body">
         <p>
-          <strong>{props.label}</strong>
+          Delete <strong>{props.label}</strong>?
         </p>
         <p>
           <Switch fallback="Its worktree is removed. The branch and its commits are kept.">

@@ -25,6 +25,20 @@ public sealed class HostCoreLspTests {
 	}
 
 	[Fact]
+	public async Task EachStartReadsTheCurrentSetting() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.WorkspaceSession;
+
+		foreach (string name in new[] { "first-ls", "second-ls" }) {
+			host.Settings.Set(Key, JsonSerializer.SerializeToElement($"[\"{name}\"]"), host.RepoRoot);
+			var result = await host.SessionRequestAsync<HostSession.LspStartResult>(
+				session, "lsp", "start", new { server = "csharp", channel = name });
+
+			Assert.Equal($"C# language server not found (tried {name})", result.Error);
+		}
+	}
+
+	[Fact]
 	public async Task OnlyRestartRepublishesAndOnlyToTheInvokingSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);

@@ -137,6 +137,22 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task SetSetting_LanguageServerCommand_SaysToRestartLanguageServers() {
+		using var store = NewStore();
+		await using var server = NewServer(store);
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+
+		await SendAsync(ws, Request(6, "tools/call",
+			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"lsp.csharp.command\",\"value\":\"[\\\"my-ls\\\"]\"}}"));
+		using var response = await ReceiveAsync(ws);
+
+		Assert.EndsWith(
+			" Run weavie.lsp.restart to apply it to running language servers.",
+			response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+	}
+
+	[Fact]
 	public async Task SetSetting_WorkspaceScopedKey_FromAWorktreeSession_LandsWhereItsWorkspaceReadsIt() {
 		using var store = NewStore();
 		string worktree = _dir.Combine("worktree");

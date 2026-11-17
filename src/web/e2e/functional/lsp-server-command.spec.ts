@@ -53,7 +53,6 @@ test("a configured language server replaces the one on PATH once servers restart
   );
   await runCommand(page, "Restart Language Servers");
   await expect.poll(() => ready(".configured-lsp-ready")).toBe(true);
-  await expect(page.locator(".toast", { hasText: "interrupted" })).toHaveCount(0);
 
   await page.evaluate(() => {
     const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;

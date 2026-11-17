@@ -811,6 +811,7 @@ public sealed class SettingsStore : IDisposable {
 		ApplyMode.Live => "live",
 		ApplyMode.ReopensTerminal => "reopensTerminal",
 		ApplyMode.NextSession => "nextSession",
+		ApplyMode.NextLanguageServerStart => "nextLanguageServerStart",
 		ApplyMode.RestartRequired => "restartRequired",
 		_ => apply.ToString().ToLowerInvariant(),
 	};

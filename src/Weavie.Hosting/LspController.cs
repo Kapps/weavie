@@ -64,8 +64,6 @@ public sealed class LspController : IAsyncDisposable {
 			return false;
 		}
 
-		_log($"{descriptor.Id}: {command.FileName} {string.Join(' ', command.Arguments)}");
-
 		var key = new ChannelKey(owner, channel);
 		var ch = new LspChannel(
 			owner.Target.Feature("lsp"),
@@ -81,6 +79,7 @@ public sealed class LspController : IAsyncDisposable {
 			return false;
 		}
 
+		_log($"{descriptor.Id}: {string.Join(' ', [command.FileName, .. command.Arguments])}");
 		ch.Start();
 		error = null;
 		return true;

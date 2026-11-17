@@ -12,18 +12,20 @@ public static class LspSettings {
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 		foreach (var descriptor in LanguageServerCatalog.All) {
-			string builtIn = string.Join(", ", descriptor.Candidates.Select(c => c.Command));
+			string builtIn = descriptor.Candidates is [var only]
+				? only.Command
+				: $"the first of {string.Join(", ", descriptor.Candidates.Select(c => c.Command))} found";
 			registry.Register(new SettingDefinition {
 				Key = CommandKey(descriptor.Id),
 				Kind = SettingKind.String,
 				Scope = SettingScope.Workspace,
 				Description = $"The {descriptor.DisplayName} language server to run: a JSON array of the executable and its "
 					+ "arguments, e.g. [\"node_modules/.bin/server\",\"--stdio\"]. A bare name is found on PATH; a path is "
-					+ $"relative to the session's worktree. Empty runs the first of {builtIn} found on PATH. Set it for one "
-					+ "repository, or user-wide for every repository without its own. Applies when the server next starts: "
-					+ "run Restart Language Servers.",
+					+ $"relative to the session's worktree. Empty runs {builtIn} on PATH. setSetting stores it for this "
+					+ "repository; a value in the user settings.toml applies to every repository without its own. Running "
+					+ "servers keep their command until Restart Language Servers.",
 				Aliases = [$"{descriptor.DisplayName} language server", $"{descriptor.Id} lsp", $"{descriptor.Id} server path"],
-				Apply = ApplyMode.NextSession,
+				Apply = ApplyMode.NextLanguageServerStart,
 				Default = "",
 				Validate = static value => value is string { Length: 0 } || TryParse(value as string ?? "", out _, out string error)
 					? ValidationResult.Success

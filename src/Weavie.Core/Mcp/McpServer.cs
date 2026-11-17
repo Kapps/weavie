@@ -568,17 +568,19 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private static string FormatSetSummary(string key, JsonElement value, SetResult result) {
-		string note = result.Apply switch {
-			ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
-			ApplyMode.NextSession => " It applies to the next session that starts.",
-			ApplyMode.RestartRequired => " Restart weavie to apply.",
-			_ => " It is live now.",
-		};
 		string shadow = result.ShadowedByEnv is null
 			? string.Empty
 			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
-		return $"Set {key} to {value.GetRawText()}.{note}{shadow}";
+		return $"Set {key} to {value.GetRawText()}.{ApplyNote(result.Apply)}{shadow}";
 	}
+
+	private static string ApplyNote(ApplyMode apply) => apply switch {
+		ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
+		ApplyMode.NextSession => " It applies to the next session that starts.",
+		ApplyMode.NextLanguageServerStart => $" Run {CoreCommands.RestartLanguageServers} to apply it to running language servers.",
+		ApplyMode.RestartRequired => " Restart weavie to apply.",
+		_ => " It is live now.",
+	};
 
 	private async Task HandleClearSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
@@ -607,13 +609,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			return $"{key} had no user-file override to clear; it was already at its default or env value.{shadow}";
 		}
 
-		string note = result.Apply switch {
-			ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
-			ApplyMode.NextSession => " It applies to the next session that starts.",
-			ApplyMode.RestartRequired => " Restart weavie to apply.",
-			_ => " It is live now.",
-		};
-		return $"Cleared {key}; it now falls back to its default.{note}{shadow}";
+		return $"Cleared {key}; it now falls back to its default.{ApplyNote(result.Apply)}{shadow}";
 	}
 
 	private async Task HandleGetLayoutAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {

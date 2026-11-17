@@ -210,6 +210,9 @@ vi.mock("../editor/vscode-services", () => ({
 }));
 vi.mock("../notify/notify", () => ({
   notify: (_level: string, text: string) => runtime.notices.push(text),
+  clearNotification: () => {
+    runtime.notices = [];
+  },
 }));
 
 function session(id: string, workspace: string): FakeSession {
@@ -424,14 +427,13 @@ describe("session-owned language clients", () => {
     await settle();
 
     expect(runtime.clients).toHaveLength(0);
-    expect(runtime.notices).toEqual([
-      "csharp language intelligence is unavailable (C# language server not found (tried /repo/ls))",
-    ]);
+    expect(runtime.notices).toEqual(["C# language server not found (tried /repo/ls)"]);
 
     runtime.startFailure = undefined;
     owner.state.lsp.set({ ...(owner.state.lsp.current as WeavieLspConfig), revision: 1 });
     await settle();
 
     expect(runtime.clients).toHaveLength(1);
+    expect(runtime.notices).toEqual([]);
   });
 });

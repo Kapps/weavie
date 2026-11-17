@@ -161,6 +161,7 @@ public enum ApplyMode {
     Live,            // observers reflect it immediately, nothing restarts
     ReopensTerminal, // the affected terminal pane(s) restart to apply (shell)
     NextSession,     // existing sessions keep the old value; the next one started picks it up
+    NextLanguageServerStart, // running language servers keep the old value until they restart
     RestartRequired, // needs a full app restart
 }
 

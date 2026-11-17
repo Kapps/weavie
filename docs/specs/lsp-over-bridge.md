@@ -74,11 +74,15 @@ value replaces them, so a configured executable that is missing fails the start 
 A bare executable name is found on `PATH`. A path is relative to the session's worktree, so each worktree
 runs the server in its own `node_modules`; `~` is the home directory.
 
+The workspace overlay lives outside the repository, so a clone cannot set the command. A relative path in the
+user-wide `settings.toml` runs whatever each repository has at that path, including an untrusted clone; keep a
+user-wide value to a bare name or an absolute path.
+
 `HostSession` resolves the recipe through `LspSettings.Effective` on every `start`, so the setting has no
 cached copy. Running servers keep the command they started with. Restart Language Servers
 (`weavie.lsp.restart`) increments the invoking session's `revision` and republishes `config`; each page then
-replaces that session's clients, and their `start` reads the current setting. Every start logs the command it
-launches under `[lsp]`.
+replaces that session's clients, and their `start` reads the current setting. `setSetting` reports this
+through `ApplyMode.NextLanguageServerStart`. Every start logs the command it launches under `[lsp]`.
 
 ## Ordering and concurrency
 

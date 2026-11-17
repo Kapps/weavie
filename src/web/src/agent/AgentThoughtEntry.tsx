@@ -1,6 +1,6 @@
 import { createMemo, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { Disclosure } from "./AgentDisclosure";
+import { RowDisclosure } from "./AgentDisclosure";
 import { AgentMarkdown } from "./AgentMarkdown";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { thoughtPreview } from "./AgentThoughtPreview";
@@ -18,20 +18,19 @@ export function AgentThoughtEntry(props: {
   return (
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-system`}>
       <Show when={props.entry.thoughtCollapsed} fallback={text()}>
-        <Disclosure
-          summaryClass=""
+        <RowDisclosure
           class="agent-thought"
           label={
-            <span class="agent-thought-row ui-row ui-row-compact">
+            <>
               <span class="agent-thought-label">Thinking</span>
               <span class="agent-thought-preview">{preview()}</span>
-            </span>
+            </>
           }
           open={props.expandedDetails.has(props.entry.id)}
           onToggle={(open) => props.onDetailsToggle(props.entry.id, open)}
         >
-          <div class="agent-thought-body">{text()}</div>
-        </Disclosure>
+          {text()}
+        </RowDisclosure>
       </Show>
     </article>
   );

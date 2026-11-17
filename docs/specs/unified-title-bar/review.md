@@ -3,14 +3,15 @@
 Reviews [PR #1253](https://github.com/Kapps/weavie/pull/1253) against [design.md](design.md).
 
 - **Baseline:** `git diff 31359366 62f7e0e9` (branch point on `main` to the PR head; merged as `9faf4783`).
-- **Recheck baseline:** `git diff b10f734e 4c9168de`, the single fix commit of
-  [PR #1258](https://github.com/Kapps/weavie/pull/1258) on `main` at `b10f734e`.
+- **Recheck baselines:** `git diff b10f734e 4c9168de` (first fix commit) and `git diff 4c9168de de794595`
+  (second fix commit), both on [PR #1258](https://github.com/Kapps/weavie/pull/1258), on `main` at `b10f734e`.
 - **Method:** one `weavie-reviewer` pass over the design, the code diff and the verification record,
   covering correctness, design conformance, repo standards, duplication and tests. Each finding was then
   checked against the code; R1, R2 and R9 were also measured. The recheck read the fix commit against each
   finding, rebuilt the page, reran the specs and unit tests, and measured the bar across layouts and widths.
-- **Result:** 2 bugs, 7 warnings, 11 nits in the review. The recheck confirms 16 fixed and none reopened;
-  R10, R15, R19 and R20 stay open. The fixes introduced two new warnings, R21 and R22, fixed in the second fix stage.
+- **Result:** 2 bugs, 7 warnings, 11 nits in the review, plus 2 warnings and 1 nit found in rechecks. 18 are
+  confirmed fixed and none reopened. Open: the nits R10, R15, R20 and R23, and R19, which needs the macOS
+  hand test.
 - **Dropped:** "the window tests sit in a class named for terminal actions" — they were there before this
   PR.
 
@@ -38,6 +39,7 @@ Reviews [PR #1253](https://github.com/Kapps/weavie/pull/1253) against [design.md
 | R20 | nit | open | In a right-to-left desktop GTK's "start" side is the right; the page draws it on the left |
 | R21 | warn | fixed | Found in recheck: with left-side buttons the search box shrinks to nothing between 760px and about 950px |
 | R22 | warn | fixed | Found in recheck: in a narrow window the right end of the bar, window buttons included, is pushed off the window |
+| R23 | nit | open | Found in second recheck: the width sweep restates the compact breakpoint as `760` |
 
 ## Bugs
 
@@ -295,3 +297,37 @@ In the compact layout the search box is not in the bar at all, so the equal colu
 - Test: `the <layout> bar fits every window width` sweeps 500–1280px for the linux, linuxLeft, windows and
   mac rows. On #1258's layout it fails for both Linux rows (buttons outside the window; omnibar 234px and
   130px); with the fix all pass, and R9's centring at 1280px still holds.
+
+## Second recheck
+
+Fix commit `de794595` (PR #1258): `titlebar.css`, `TitleBar.tsx`, the browser spec and the design. Design and
+scope are unchanged. Nothing was fixed in this stage.
+
+| Check | Result |
+| --- | --- |
+| `npx vite build` on `de794595` | succeeds |
+| `playwright test e2e/titlebar.spec.ts e2e/middle-click-autoscroll.spec.ts e2e/bridge.spec.ts --project chromium` | 45/45 |
+| `biome check` on the three changed files | clean |
+| Bar measured in the built page: windows, linux, linuxLeft, mac, browser at 14 widths from 380px to 1600px | see below |
+| CI on `de794595` | platforms and web checks pass; .NET tests, the three native builds and e2e still running at the time of writing |
+
+- **R21** holds. With three left-side buttons the search box is 514px at 1280px, 334px at 1100px, and 304px
+  from 1000px down to 761px. It is never narrower than 304px above the compact breakpoint in any layout.
+- **R22** holds. Every window button and the build number are inside the window at every measured width
+  down to 380px, in every layout.
+- **R9** still holds at the widths it was raised for: centred at 1280px in every layout. The fix for R21
+  trades centring for width in narrower windows, as the design now says: the box sits right of centre
+  below about 1070px with three left-side buttons (35px at 1000px, 135px at 800px), below about 975px with
+  two, and only between 761px and 782px with the buttons on the right.
+- **R1** still holds: the bar keeps its height and buttons in the compact layout in every desktop row.
+- Below the two sides' combined width (about 415px with menus) the sides overlap by the shortfall; at 380px
+  the right side covers 32–38px of the last menu. That limit predates both fixes.
+
+### R23 — the width sweep restates the compact breakpoint
+
+`src/web/e2e/titlebar.spec.ts:212`
+
+`if (width > 760)` copies the breakpoint in `src/web/src/mobile/useCompactMode.ts:3`. If the breakpoint
+moves, the search-box assertion is skipped or misapplied without a failure. The page's own `.app.compact`
+class answers the same question.
+

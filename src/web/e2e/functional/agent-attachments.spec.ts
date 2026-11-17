@@ -160,6 +160,59 @@ test("editor selections retain automatic context and can pin excerpts with sourc
   await expect(chips).toHaveCount(0);
 });
 
+test("a selection comment sends on Enter and joins the next prompt on Mod+Enter", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "selection-comment-keys");
+  await openFile(page, "notes.txt");
+  const draft = surface.locator("[data-agent-composer] textarea");
+  await draft.fill("unsent draft");
+  const chips = surface.locator("[data-agent-composer] .agent-attachment-selection");
+  const dialog = page.getByRole("dialog", { name: "Comment on Selection" });
+  const comment = dialog.getByRole("textbox", { name: "Comment", exact: true });
+  const commentOnLine = async (): Promise<void> => {
+    await clickIntoEditor(page);
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+    await expect(comment).toBeFocused();
+  };
+
+  await commentOnLine();
+  await expect(dialog.getByRole("button", { name: "Send", exact: true })).toHaveAttribute(
+    "title",
+    "Send (Enter)",
+  );
+  await expect(dialog.getByRole("button", { name: "Add to context", exact: true })).toHaveAttribute(
+    "title",
+    /^Add to context \((Ctrl|⌘)\+Enter\)$/,
+  );
+  await page.keyboard.press("Enter");
+  await expect(comment).toHaveValue("");
+  await page.keyboard.type("why this line");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("and not another");
+  await expect(comment).toHaveValue("why this line\nand not another");
+  await page.keyboard.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  const answer = surface.locator(".agent-markdown", { hasText: "echo: why this line" });
+  await expect(answer).toContainText("and not another");
+  await expect(answer).toContainText("Attached selection (notes.txt:1:1-1:16):");
+  await expect(answer).toContainText("just plain text");
+  await expect(answer).not.toContainText("Comment:");
+  await expect(draft).toHaveValue("unsent draft");
+  await expect(chips).toHaveCount(0);
+
+  await commentOnLine();
+  await page.keyboard.type("collect this");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(chips).toHaveCount(1);
+  await expect(chips).toContainText("collect this");
+  await expect(draft).toHaveValue("unsent draft");
+  await expect(surface.locator(".agent-markdown", { hasText: "collect this" })).toHaveCount(0);
+});
+
 async function highlight(page: Page, reply: Locator): Promise<void> {
   // Completed replies replace their paragraphs once, so measure after the turn settles.
   await expect(page.locator(".agent-working")).toHaveCount(0);

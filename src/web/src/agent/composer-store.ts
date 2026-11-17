@@ -10,7 +10,7 @@ export type {
   AgentInvocation,
   AgentSelection,
 } from "./composer-state";
-export { clearReplyComposer, clearReplyComposers } from "./composer-state";
+export { clearReplyComposer, clearReplyComposers, commentedSelection } from "./composer-state";
 
 import type { AgentInvocation, AgentSelection } from "./composer-state";
 
@@ -30,6 +30,11 @@ export const uploadAgentImage = (session: ClientSession, blob: Blob): void =>
   state.uploadAgentImage(main(session), blob);
 export const attachAgentSelection = (session: ClientSession, selection: AgentSelection): void =>
   state.attachSelection(main(session), selection);
+export const sendAgentSelection = (
+  session: ClientSession,
+  selection: AgentSelection,
+  comment: string,
+): void => state.sendSelection(main(session), selection, comment);
 
 export function replyComposer(session: ClientSession, conversationId: string) {
   const owner = state.composerOwner(session, conversationId);

@@ -524,8 +524,13 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 - `RequireImageSupport` and terminal delivery consider only `Image` attachments.
 - Command `weavie.agent.attachSelection` (*Attach Selection to Prompt*, web, unbound), registered by the
   selected reply or editor, with `When = "agentSelectionAttachable"`. A completed highlight offers
-  this action and `weavie.agent.commentSelection` (*Comment on Selection*) in a toolbar. Comments
-  travel with their captured excerpt as a selection attachment.
+  this action and `weavie.agent.commentSelection` (*Comment on Selection*) in a toolbar.
+- The comment box has two outcomes, each a web command bound while its input holds focus
+  (`agentSelectionCommentFocused`). `weavie.agent.sendSelectionComment` (*Send*, `Enter`) submits the
+  comment as its own prompt with the excerpt as its one selection, leaving the composer's draft and
+  attachments alone; a refused send lands in the composer as the commented selection beside the reason.
+  `weavie.agent.addSelectionComment` (*Add to context*, `$mod+Enter`) attaches the excerpt with its
+  comment to the next prompt. `Shift+Enter` types a newline, and on a compact shell so does `Enter`.
 - Command `weavie.agent.attachBlock` (*Attach Block to Prompt*, web, unbound) attaches a whole chart or table. The
   block owns it while focus is inside it, and its header button shows the shortcut.
 

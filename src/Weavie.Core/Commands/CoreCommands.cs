@@ -178,6 +178,12 @@ public static partial class CoreCommands {
 	/// <summary>Attaches highlighted reply or editor text to the next prompt.</summary>
 	public const string AttachAgentSelection = "weavie.agent.attachSelection";
 
+	/// <summary>Sends the focused selection comment with its excerpt as its own prompt; bound to <c>Enter</c>.</summary>
+	public const string SendAgentSelectionComment = "weavie.agent.sendSelectionComment";
+
+	/// <summary>Attaches the focused selection comment with its excerpt to the next prompt; bound to <c>$mod+Enter</c>.</summary>
+	public const string AddAgentSelectionComment = "weavie.agent.addSelectionComment";
+
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
 	public const string AttachAgentBlock = "weavie.agent.attachBlock";
 
@@ -1244,9 +1250,34 @@ public static partial class CoreCommands {
 			Title = "Comment on Selection",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Attach highlighted reply or editor text with a comment to the next prompt.",
+			Description = "Comment on highlighted reply or editor text, then send it or add it to the next prompt.",
 			Aliases = ["comment selection", "annotate selection"],
 			When = "agentSelectionAttachable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SendAgentSelectionComment,
+			Title = "Send Selection Comment",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Send the focused selection comment and its excerpt to the agent as its own prompt.",
+			Aliases = ["send comment", "ask about selection"],
+			// Like the composer, a touch keyboard's Enter types a newline.
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter", When = "agentSelectionCommentFocused && !compact" }],
+			When = "agentSelectionCommentFocused",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AddAgentSelectionComment,
+			Title = "Add Selection Comment to Context",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Attach the focused selection comment and its excerpt to the next prompt without sending.",
+			Aliases = ["add comment to context", "attach comment"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter" }],
+			When = "agentSelectionCommentFocused",
+			ShowInPalette = false,
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1579,7 +1610,7 @@ public static partial class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1602,7 +1633,7 @@ public static partial class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the previous change in the inline diff.",
 			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Up", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Up", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1614,7 +1645,7 @@ public static partial class CoreCommands {
 			Description = "Keep the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — keep at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["accept change", "keep change", "keep edit", "keep hunk", "accept edit"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1626,7 +1657,7 @@ public static partial class CoreCommands {
 			Description = "Reject the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — revert at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["reject change", "revert hunk", "reject edit", "discard proposal"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1785,7 +1816,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the next changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["next file in review", "next changed file", "next review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Right", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Right", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1795,7 +1826,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1806,7 +1837,7 @@ public static partial class CoreCommands {
 			When = "unifiedReviewActive",
 			Description = "Jump the unified review to a changed file. Without a path, open a filterable list of the review's files.",
 			Aliases = ["switch review file", "pick review file", "review file list", "changed files list"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+p", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+p", When = "!terminalFocused && !commentFocused" }],
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to jump to; omit to open the file list\"}}",
 		});
 
@@ -1852,7 +1883,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Undo the most recent Keep — bring its change back into the pending review set.",
 			Aliases = ["undo keep", "undo accept", "unkeep", "undo last keep"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1862,7 +1893,7 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Undo the most recent Revert — restore its change on disk.",
 			Aliases = ["undo revert", "undo reject", "restore reverted", "undo last revert"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace", When = "!terminalFocused && !prCommentFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace", When = "!terminalFocused && !commentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1876,7 +1907,7 @@ public static partial class CoreCommands {
 
 		// Pull request comments: the session branch's PR threads render inline wherever its changed files are
 		// open. Submit/Cancel only bind while a comment box has focus, and every Keep/Revert/nav chord above
-		// carries `!prCommentFocused`, so typing in a comment never acts on the review.
+		// carries `!commentFocused`, so typing in a comment never acts on the review.
 		registry.Register(new CommandDefinition {
 			Id = PullRequestComment,
 			Title = "Comment on Line (Pull Request)",

@@ -59,8 +59,9 @@ Threads are stepped through with review hints by Next/Previous Comment or Hint (
 files; see [review-points-of-interest](review-points-of-interest/design.md). A thread resolved on the forge (read,
 never written) starts collapsed with a Resolved badge.
 
-`prCommentFocused` comes from focus (`[data-pr-comment-input]`), and the review chords exclude it, so
-Ctrl+Enter in a comment box submits the comment instead of keeping a hunk.
+`prCommentFocused` comes from focus (`[data-pr-comment-input]`). The review chords exclude `commentFocused`,
+which is true in any comment box (this one or a selection comment), so Ctrl+Enter there submits the comment
+instead of keeping a hunk.
 
 ## Card behaviour
 

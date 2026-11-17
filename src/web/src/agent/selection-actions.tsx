@@ -4,11 +4,16 @@ import { render } from "solid-js/web";
 import { type ClientSession, onSelectedSession } from "../bridge";
 import { modalActive, onModalOpened } from "../chrome/modal-state";
 import { insideOmnibar } from "../chrome/omnibar-controller";
-import { setContext } from "../commands/context";
+import { evaluateWhen, setContext } from "../commands/context";
 import { keyHintInCatalog } from "../commands/key-hint";
-import { dispatchCommand, registerCommand } from "../commands/registry";
+import { type CommandHandler, dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { type AgentSelection, attachAgentSelection } from "./composer-store";
+import {
+  type AgentSelection,
+  attachAgentSelection,
+  commentedSelection,
+  sendAgentSelection,
+} from "./composer-store";
 import "./selection-actions.css";
 
 let releaseCurrent: (() => void) | null = null;
@@ -27,28 +32,36 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     document.body.append(root);
     const [commenting, setCommenting] = createSignal(false);
     const [comment, setComment] = createSignal("");
+    const note = (): string => comment().trim();
     const attach = (): boolean => {
-      const note = comment().trim();
       attachAgentSelection(
         session,
-        note.length === 0
-          ? selection
-          : {
-              label: `${selection.label} — ${note}`,
-              text: `${selection.text}\n\nComment:\n${note}`,
-            },
+        note() === "" ? selection : commentedSelection(selection, note()),
       );
       clear();
       return true;
     };
-    const offAttach = registerCommand(CommandIds.attachAgentSelection, (_args, context) =>
-      context.session === session ? attach() : false,
-    );
-    const offComment = registerCommand(CommandIds.commentAgentSelection, (_args, context) => {
-      if (context.session !== session) return false;
-      setCommenting(true);
+    const send = (): boolean => {
+      sendAgentSelection(session, selection, note());
+      clear();
       return true;
-    });
+    };
+    // An empty note still consumes the key, so Enter neither types a newline nor reaches another binding.
+    const commented = (act: () => boolean) => (): boolean =>
+      commenting() && (note() === "" || act());
+    const owned =
+      (run: () => boolean): CommandHandler =>
+      (_args, context) =>
+        context.session === session && run();
+    const offCommands = [
+      registerCommand(CommandIds.attachAgentSelection, owned(attach)),
+      registerCommand(
+        CommandIds.commentAgentSelection,
+        owned(() => setCommenting(true)),
+      ),
+      registerCommand(CommandIds.sendAgentSelectionComment, owned(commented(send))),
+      registerCommand(CommandIds.addAgentSelectionComment, owned(commented(attach))),
+    ];
     setContext("agentSelectionAttachable", true);
     const title = (id: string, label: string): string =>
       label + keyHintInCatalog(session.connection.id, id);
@@ -87,12 +100,14 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
         >
           <section
             class="selection-comment"
+            data-comment-box
             role="dialog"
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
             <textarea
               class="selection-comment-input ui-field"
+              data-agent-selection-comment
               aria-label="Comment"
               placeholder="Comment"
               rows={3}
@@ -106,11 +121,25 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
               </button>
               <button
                 type="button"
-                class="ui-button ui-button-primary"
-                disabled={comment().trim().length === 0}
+                class="ui-button"
+                disabled={note() === ""}
+                title={title(CommandIds.addAgentSelectionComment, "Add to context")}
                 onClick={attach}
               >
                 Add to context
+              </button>
+              <button
+                type="button"
+                class="ui-button ui-button-primary"
+                disabled={note() === ""}
+                title={
+                  evaluateWhen("compact")
+                    ? "Send"
+                    : title(CommandIds.sendAgentSelectionComment, "Send")
+                }
+                onClick={send}
+              >
+                Send
               </button>
             </div>
           </section>
@@ -140,8 +169,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     release = () => {
       if (releaseCurrent === release) releaseCurrent = null;
       release = null;
-      offAttach();
-      offComment();
+      for (const off of offCommands) off();
       setContext("agentSelectionAttachable", false);
       document.removeEventListener("pointerdown", onPress, true);
       document.removeEventListener("scroll", onScroll, true);

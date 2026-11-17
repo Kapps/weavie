@@ -136,10 +136,10 @@ describe("filterSlash", () => {
 
   it("returns all entries for an empty query", () => {
     expect(filterSlash(entries, "").map((match) => match.name)).toEqual([
-      "model",
       "approvals",
-      "sandbox",
+      "model",
       "review-pr",
+      "sandbox",
     ]);
   });
 
@@ -149,9 +149,9 @@ describe("filterSlash", () => {
     expect(filterSlash(entries, "review").map((match) => match.name)).toEqual(["review-pr"]);
   });
 
-  it("caps the list at eight entries", () => {
+  it("keeps every matching command reachable", () => {
     const many = Array.from({ length: 20 }, (_, index) => entry(`skill-${index}`));
-    expect(filterSlash(many, "skill")).toHaveLength(8);
+    expect(filterSlash(many, "skill")).toHaveLength(20);
   });
 });
 

@@ -42,10 +42,10 @@ function UrlInputActions(props: InputRequestProps): JSX.Element {
     }
   };
   return (
-    <div class="agent-approval-actions">
+    <div class="agent-approval-actions ui-button-group">
       <button
         type="button"
-        class="default ui-button"
+        class="ui-button ui-button-primary"
         title={withKey("Open link in your browser", liveKeyLabel(CommandIds.openUrlExternal))}
         onClick={() => void open()}
       >
@@ -102,7 +102,7 @@ function InputForm(props: InputRequestProps): JSX.Element {
       <QuestionFooter {...props}>
         <button
           type="submit"
-          class="default ui-button ui-button-primary"
+          class="ui-button ui-button-primary"
           title={withKey("Submit answers", ownedKeyLabel(props, CommandIds.agentAcceptInput))}
         >
           Submit answers

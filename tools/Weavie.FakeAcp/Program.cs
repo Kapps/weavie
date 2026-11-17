@@ -2,8 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.FakeAcp;
 
-if (args is ["lsp"]) {
-	await LspFake.RunAsync().ConfigureAwait(false);
+if (args is ["lsp", ..]) {
+	await LspFake.RunAsync(args is [_, var readyFile] ? readyFile : ".fake-lsp-ready").ConfigureAwait(false);
 	return;
 }
 

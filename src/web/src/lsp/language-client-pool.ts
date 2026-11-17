@@ -8,7 +8,7 @@ import type { BaseLanguageClient } from "vscode-languageclient/browser.js";
 import { type ClientSession, log } from "../bridge";
 import { hostUriString, protocolUri, sessionFileUri } from "../editor/session-uri";
 import { PAGE_EPOCH } from "../messaging/page-epoch";
-import { notify } from "../notify/notify";
+import { clearNotification, notify } from "../notify/notify";
 import { LspStartError, openLspChannel } from "./lsp-bridge-transport";
 import { describeError, isCancellation } from "./lsp-errors";
 import type { WeavieLspConfig, WeavieLspServer } from "./types";
@@ -134,11 +134,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
         "error",
         `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
       );
-      notify(
-        "error",
-        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
-        key,
-      );
+      notify("error", `${server.id} language intelligence is unavailable: ${reason}`, key);
       return;
     }
     // First failure of a streak: a self-dismissing warn so the user sees the hiccup immediately.
@@ -181,11 +177,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     } else {
       forget();
       log("error", `lsp: ${server.id} unavailable (${reason})`);
-      notify(
-        "warn",
-        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
-        key,
-      );
+      notify("warn", reason, key);
     }
   };
 
@@ -292,6 +284,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
           return;
         }
         log("info", `lsp: ${server.id} client started`);
+        clearNotification(key);
         onStarted();
       },
       (err: unknown) => fail(`initialize failed: ${describeError(err)}`, true),

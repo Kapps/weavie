@@ -139,6 +139,9 @@ public static class WeaviePaths {
 	/// <summary>A workspace's pane layout + window geometry: <c>~/.weavie/workspaces/&lt;id&gt;/layout.json</c>.</summary>
 	public static string WorkspaceLayoutFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "layout.json");
 
+	/// <summary>A workspace's learned command choices.</summary>
+	public static string WorkspaceCommandUsageFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "command-usage.json");
+
 	/// <summary>A workspace's frecency-ranked recent files (the omnibar's Recent section): <c>~/.weavie/workspaces/&lt;id&gt;/recent-files.json</c>.</summary>
 	public static string WorkspaceRecentFilesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "recent-files.json");
 

@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { type DeleteSessionState, needsAcknowledgement } from "./delete-session-confirm";
 import { ModalShell, modalSubmitKeys, PromptButton } from "./ModalShell";
 
@@ -46,7 +46,7 @@ export function DeleteSessionDialog(props: {
 
   return (
     <ModalShell
-      title="Delete session?"
+      title="Delete session"
       onDismiss={props.onCancel}
       onKeyDown={onKeyDown}
       actions={
@@ -75,33 +75,25 @@ export function DeleteSessionDialog(props: {
       }
     >
       <div class="confirm-body">
-        <Show when={props.state === "clean"}>
-          <Show
-            when={props.branchless}
-            fallback={
-              <>
-                Remove the worktree for "{props.label}"? The branch is kept, so committed work is
-                safe and you can recreate a session on it later.
-              </>
-            }
-          >
-            Remove the worktree for "{props.label}"? It has <strong>no branch</strong>, so the
-            commits made here are lost with it.
-          </Show>
-        </Show>
-        <Show when={props.state === "untracked"}>
-          <div>
-            Removing the worktree for "{props.label}" also deletes its{" "}
-            <strong>untracked files</strong> — they aren't committed, so they can't be recovered.
-            The branch is kept.
-          </div>
-        </Show>
-        <Show when={props.state === "modified"}>
-          <div>
-            "{props.label}" has <strong>uncommitted changes</strong> that will be permanently lost
-            when its worktree is removed. The branch keeps only committed work.
-          </div>
-        </Show>
+        <p>
+          Delete <strong>{props.label}</strong>?
+        </p>
+        <p>
+          <Switch fallback="Its worktree is removed. The branch and its commits are kept.">
+            <Match when={props.state === "untracked"}>
+              Its worktree is removed with its <strong>untracked files</strong>, which can't be
+              recovered. The branch is kept.
+            </Match>
+            <Match when={props.state === "modified"}>
+              Its <strong>uncommitted changes</strong> are lost when the worktree is removed. The
+              branch keeps only committed work.
+            </Match>
+            <Match when={props.branchless}>
+              Its worktree is removed. It has <strong>no branch</strong>, so the commits made here
+              are lost.
+            </Match>
+          </Switch>
+        </p>
         <Show when={props.branchless && props.state !== "clean"}>
           <div class="confirm-warn">
             This checkout has <strong>no branch</strong>, so its commits are lost too.

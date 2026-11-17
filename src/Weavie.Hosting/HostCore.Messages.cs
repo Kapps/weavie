@@ -15,6 +15,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void WireHostMessages() {
 		WireSystemNotificationMessages();
+		WireCommandUsage();
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse(
@@ -188,14 +189,6 @@ public sealed partial class HostCore {
 			});
 
 		var window = _messages.Host.Feature("window");
-		window.Handle("control", MessageActivity.ActionFailed("Controlling the window"), WireJson.Default.JsonElement, (message, _) => {
-			_shell?.HandleWindowControl(message);
-			return Task.CompletedTask;
-		});
-		window.Handle("resize", MessageActivity.ActionFailed("Resizing the window"), WireJson.Default.JsonElement, (message, _) => {
-			_shell?.HandleWindowResize(message);
-			return Task.CompletedTask;
-		});
 		window.Handle("menu", MessageActivity.ActionFailed("Running a menu action"), WireJson.Default.JsonElement, (message, _) => {
 			_menuActions.Enqueue(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
 				.HandleMenuAction(message));
@@ -222,6 +215,7 @@ public sealed partial class HostCore {
 		var args = message.Args;
 		string? id = ReadString(args, "id");
 		return message.Id switch {
+			CoreCommands.ResetCommandLearning => ResetCommandLearning(),
 			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
 				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
@@ -344,6 +338,7 @@ public sealed partial class HostCore {
 			ResolvedTestProfile(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
+			BuildCommandUsage(),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
@@ -427,7 +422,7 @@ public sealed partial class HostCore {
 		string TestProfile,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
-		CommandCatalogSnapshot CommandCatalog);
+		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
 
 	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
 

@@ -57,6 +57,7 @@ True(controlFired, "plain nested key equivalent action");
 
 currentFile.PerformActionForItem(0);
 Sequence([new ApplicationMenuActivation(2, "second")], secondActivations, "mouse menu activation");
+Weavie.Mac.Tests.TitleBarChecks.Run();
 return 0;
 
 static ApplicationMenuState State(long revision, string token) => new() {

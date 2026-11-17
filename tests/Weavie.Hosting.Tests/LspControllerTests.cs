@@ -207,7 +207,19 @@ public sealed class LspControllerTests {
 		Assert.False(controller.Start(peer, "ghost", "ch1", out string? error));
 
 		Assert.Empty(launcher.Servers);
-		Assert.Contains("PATH", error);
+		Assert.Equal("Ghost language server not found (tried weavie-no-such-language-server-xyz)", error);
+	}
+
+	[Fact]
+	public void Start_logs_the_command_it_launches() {
+		var log = new List<string>();
+		var bus = NewBus(new FakeHostBridge());
+		var controller = new LspController(
+			Path.GetTempPath(), new FakeLauncher(), _ => FakeRecipe with { Candidates = [new("dotnet", ["--stdio"])] }, log.Add);
+
+		Assert.True(controller.Start(bus.Peer(WebPeer.Native), "fake", "ch1", out _));
+
+		Assert.Contains($"fake: {ServerResolver.FindOnPath("dotnet")} --stdio", log);
 	}
 
 	[Fact]

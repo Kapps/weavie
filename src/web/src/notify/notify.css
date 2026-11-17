@@ -22,7 +22,7 @@
 .toast {
   --toast-accent: var(--accent);
   position: relative;
-  overflow: hidden; /* clip the drain fill to the rounded corners */
+  overflow: hidden; /* clip the drain fill to the box */
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -31,7 +31,6 @@
   color: var(--fg);
   border: 1px solid var(--border);
   border-left: 3px solid var(--toast-accent);
-  border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
   /* Drop in rather than pop; the leaving class fades it back out before it's removed (Toasts.tsx), so

@@ -24,7 +24,7 @@ import { AgentThoughtEntry } from "./AgentThoughtEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
-import { inputQuestions, isStructuredInput } from "./input-questions";
+import { isStructuredInput } from "./input-questions";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -97,27 +97,26 @@ export function TranscriptEntry(props: {
       />
     );
   }
-  const questionTitleId = createUniqueId();
-  const pendingQuestion = (): boolean =>
-    isPendingRequest(props.entry) && isStructuredInput(props.entry.actionMessage);
+  const requestTitleId = createUniqueId();
+  const pending = (): boolean => isPendingRequest(props.entry);
   return (
     <article
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
-      aria-labelledby={pendingQuestion() ? questionTitleId : undefined}
+      aria-labelledby={pending() ? requestTitleId : undefined}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
-        "agent-entry-waiting": isPendingRequest(props.entry),
+        "agent-entry-waiting": pending(),
         "agent-entry-question": isStructuredInput(props.entry.actionMessage),
-        "ui-card": pendingQuestion(),
+        "ui-card": pending(),
       }}
     >
-      <Show when={pendingQuestion()}>
-        <h3 id={questionTitleId} class="ui-section-label ui-card-tag">
-          Question
+      <Show when={pending()}>
+        <h3 id={requestTitleId} class="ui-section-label ui-card-tag">
+          {entryLabel(props.entry)}
         </h3>
       </Show>
-      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
+      <Show when={!pending() && (props.sectionLabel !== null || showEntryHeader(props.entry))}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
           <span class="agent-entry-label">
             {props.entry.kind === "plan" && props.sectionLabel !== null
@@ -231,12 +230,6 @@ function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {
-  if (
-    isPendingRequest(entry) &&
-    isStructuredInput(entry.actionMessage) &&
-    inputQuestions(entry.actionMessage).length > 0
-  )
-    return false;
   return entry.kind !== "message" || entry.tone !== "assistant";
 }
 

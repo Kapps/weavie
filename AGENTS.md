@@ -207,14 +207,15 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   `biome check`. `em` font sizes live only in prose (`*.prose.css`, `SOURCE_STYLES`); new chrome geometry is
   px, with `em` only where it should scale with the content font. See
   [docs/concepts/design-system.md](docs/concepts/design-system.md).
-- **Build chrome from the primitives.** Lists and menus use `.ui-row`, buttons `.ui-button`, inputs
-  `.ui-field`, section headings `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons
-  `.ui-icon`; editor-font-sized surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title`
-  and `actions`) with `PromptButton`s; a titled panel is a `.ui-card` with a `.ui-card-tag`, and any other
-  modal surface sits on `.ui-scrim` with `--shadow-modal`. Related buttons join in a `.ui-button-group`,
-  with at most one `-primary` and one `-danger` action per group. Add the primitive beside the feature
-  class; never restyle a button, row or field from scratch, never set a font on a control, and never set a
-  `border-radius` on a card or the controls inside one.
+- **Build chrome from the primitives.** Lists and menus use `.ui-row` (a row that names a thing and reports on
+  it: `.ui-row-name` over `.ui-row-note`), buttons `.ui-button`, inputs `.ui-field`, section headings
+  `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons `.ui-icon`; editor-font-sized
+  surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title` and `actions`) with
+  `PromptButton`s; a titled panel is a `.ui-card` with a `.ui-card-tag`, and any other modal surface sits on
+  `.ui-scrim` with `--shadow-modal`. Related buttons join in a `.ui-button-group`, with at most one `-primary`
+  and one `-danger` action per group. Add the primitive beside the feature class; never restyle a button, row
+  or field from scratch, never set a font on a control, and never set a `border-radius` on a card or the
+  controls inside one.
 - **Alignment and height by construction.** Text beside text aligns on the baseline; an icon or control
   beside text sits in a box one line tall (`.ui-icon`). Rows and controls take their height from the row and
   control tokens — never from `em` padding, a literal height, or `align-items: center` over mixed sizes.

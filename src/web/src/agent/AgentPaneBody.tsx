@@ -11,7 +11,6 @@ import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
 export function AgentPaneBody(props: {
-  active: boolean;
   compact: boolean;
   inputProtocol: number;
   model: AgentPaneModel;
@@ -51,7 +50,6 @@ export function AgentPaneBody(props: {
       <AgentStrip session={props.model.session} cards={props.model.cards()} />
       <AgentCurrentThought text={props.model.transcript().currentThought} />
       <AgentComposer
-        active={props.active}
         compact={props.compact}
         history={props.model.history()}
         inputProtocol={props.inputProtocol}

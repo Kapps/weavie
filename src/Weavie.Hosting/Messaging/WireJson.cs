@@ -5,6 +5,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
+using Weavie.Core.Shell;
 using Weavie.Core.Sources;
 using Weavie.Core.Spelling;
 using Weavie.Core.Theming;
@@ -80,6 +81,11 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(AttentionRaised))]
 [JsonSerializable(typeof(NotificationActivated))]
 [JsonSerializable(typeof(WindowStateChanged))]
+[JsonSerializable(typeof(WindowChrome))]
+[JsonSerializable(typeof(WindowControlRequest))]
+[JsonSerializable(typeof(WindowResizeRequest))]
+[JsonSerializable(typeof(CaptionPress))]
+[JsonSerializable(typeof(WelcomeConfigWire))]
 [JsonSerializable(typeof(GitStatusSnapshot))]
 [JsonSerializable(typeof(ReviewCommitsSnapshot))]
 [JsonSerializable(typeof(PullRequestStatusSnapshot))]
@@ -108,6 +114,8 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.ReviewOverviewCollapse))]
 [JsonSerializable(typeof(RecentWorkspacesChanged))]
 [JsonSerializable(typeof(RecentFilesChanged))]
+[JsonSerializable(typeof(CommandUsageSnapshot))]
+[JsonSerializable(typeof(RecordCommandUsage))]
 [JsonSerializable(typeof(FileProviderChanged))]
 [JsonSerializable(typeof(FileIndexWire))]
 [JsonSerializable(typeof(AttachmentState))]

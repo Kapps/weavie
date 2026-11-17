@@ -39,6 +39,14 @@ vi.mock("../bridge", () => ({
   },
 }));
 
+const learning = vi.hoisted(() => ({ record: vi.fn() }));
+vi.mock("../commands/usage-store", () => ({
+  captureCommandUsage: (backend: string, id: string, query: string) => () =>
+    learning.record(backend, id, query),
+  slashUsageId: (_session: ClientSession, entry: { kind: string; name: string }) =>
+    `${entry.kind}:${entry.name}`,
+}));
+
 const store = await import("./composer-store");
 
 function ensureSession(
@@ -188,6 +196,47 @@ describe("agent composer attachments", () => {
     expect(store.composerState(session).attachments).toEqual([]);
   });
 
+  it("sends a commented selection as its own prompt without touching the composer", () => {
+    const session = owner("selection-send", "slot");
+    store.setComposerDraft(session, "unrelated draft");
+    store.attachAgentSelection(session, { label: "collected", text: "kept" });
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    const submission = bridge.posted.find(({ name }) => name === "submit")!;
+    expect(submission.payload).toMatchObject({
+      prompt: "why?",
+      kind: "prompt",
+      attachmentIds: [],
+      selections: [{ label: "notes.txt:1:1-1:6", text: "plain" }],
+    });
+    deliver("selection-send", "slot", "submissionState", {
+      id: submission.payload.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session)).toMatchObject({
+      draft: "unrelated draft",
+      attachments: [{ label: "collected" }],
+      pendingSubmission: null,
+      error: null,
+    });
+  });
+
+  it("returns a refused selection send to the composer with its comment and the reason", () => {
+    const session = owner("selection-refused", "slot");
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    deliver("selection-refused", "slot", "submissionState", {
+      id: bridge.posted.find(({ name }) => name === "submit")!.payload.id,
+      attachmentIds: [],
+      status: "rejected",
+      error: "Agent input is paused while Weavie restarts.",
+    });
+    expect(store.composerState(session)).toMatchObject({
+      attachments: [{ label: "notes.txt:1:1-1:6 — why?", text: "plain\n\nComment:\nwhy?" }],
+      error: "Agent input is paused while Weavie restarts.",
+    });
+  });
+
   it("removes a selection chip without telling the host", () => {
     const session = owner("selection-remove", "slot");
     store.attachAgentSelection(session, { label: "rows 2-4", text: "a" });
@@ -285,10 +334,10 @@ describe("agent composer attachments", () => {
       pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
       session,
     );
-    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null, "btw")).toBe(false);
     await flushAsyncWork();
     const attachmentId = store.composerState(session).attachments[0]!.id;
-    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null, "btw")).toBe(false);
     expect(bridge.invokeCommand).not.toHaveBeenCalled();
     deliver("remote-aside", "slot-aside", "attachmentState", {
       id: attachmentId,
@@ -296,8 +345,8 @@ describe("agent composer attachments", () => {
       error: "",
     });
     bridge.invokeCommand.mockResolvedValueOnce({ ok: false, error: "Fork unavailable" });
-    expect(store.submitAgentAside(session, "describe it", null)).toBe(true);
-    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null, "btw")).toBe(true);
+    expect(store.submitAgentAside(session, "describe it", null, "btw")).toBe(false);
     expect(store.composerState(session).draft).toBe("/btw describe it");
     store.setComposerDraft(session, "edited while opening");
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
@@ -319,7 +368,7 @@ describe("agent composer attachments", () => {
     const other = owner("remote-aside", "other-slot");
     store.setComposerDraft(other, "keep this draft");
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
-    expect(store.submitAgentAside(session, "describe it", null)).toBe(true);
+    expect(store.submitAgentAside(session, "describe it", null, "btw")).toBe(true);
     store.setComposerDraft(session, "next question");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([2])], { type: "image/png" })),
@@ -343,7 +392,9 @@ describe("agent composer attachments", () => {
     const session = owner("aside-command", kind);
     store.setComposerDraft(session, "/btw /review details");
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
-    expect(store.submitAgentAside(session, "/review details", { kind, name: "review" })).toBe(true);
+    expect(
+      store.submitAgentAside(session, "/review details", { kind, name: "review" }, "btw"),
+    ).toBe(true);
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
       question: "/review details",
       kind,
@@ -359,7 +410,7 @@ describe("agent composer attachments", () => {
   it("accepts an image-only aside and rejects an empty aside", async () => {
     const session = owner("image-only", "aside");
     store.setComposerDraft(session, "/btw");
-    expect(store.submitAgentAside(session, "", null)).toBe(false);
+    expect(store.submitAgentAside(session, "", null, "btw")).toBe(false);
     expect(store.composerState(session).error).toContain("attach something");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
@@ -373,7 +424,7 @@ describe("agent composer attachments", () => {
       error: "",
     });
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
-    expect(store.submitAgentAside(session, "", null)).toBe(true);
+    expect(store.submitAgentAside(session, "", null, "btw")).toBe(true);
     await flushAsyncWork();
     expect(store.composerState(session).attachments).toHaveLength(0);
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
@@ -585,3 +636,35 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+describe("command learning receipts", () => {
+  it("learns accepted commands once, never rejected submissions or their arguments", () => {
+    learning.record.mockClear();
+    const session = owner("learning", "session");
+    store.setComposerDraft(session, "/review private arguments");
+    const submit = () => {
+      expect(
+        store.submitAgentTurn(session, { kind: "providerCommand", name: "review", query: "rev" }),
+      ).toBe(true);
+      return store.composerState(session).pendingSubmission!.id;
+    };
+    const receipt = (id: string, status: string) =>
+      deliver("learning", "session", "submissionState", {
+        id,
+        status,
+        attachmentIds: [],
+        error: "refused",
+      });
+    const rejected = submit();
+    receipt(rejected, "rejected");
+    expect(learning.record).not.toHaveBeenCalled();
+    const accepted = submit();
+    receipt(accepted, "accepted");
+    receipt(accepted, "accepted");
+    expect(learning.record).toHaveBeenCalledExactlyOnceWith(
+      "learning",
+      "providerCommand:review",
+      "rev",
+    );
+  });
+});

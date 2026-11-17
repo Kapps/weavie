@@ -19,9 +19,6 @@
   margin: 0;
   font: var(--font-chrome-body);
 }
-.theme-picker .confirm-actions > small {
-  padding: 0 16px;
-}
 .theme-picker-sources [aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
@@ -31,9 +28,6 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-}
-.theme-picker-list .ui-row {
-  flex-shrink: 0;
 }
 .theme-picker-list .ui-row:disabled {
   opacity: 0.6;

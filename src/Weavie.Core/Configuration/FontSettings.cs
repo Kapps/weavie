@@ -67,8 +67,8 @@ public static class FontSettings {
 	private const string DefaultEditorFamily =
 		"\"Go Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
 
-	// Leads with the bundled Chivo (see web/src/fonts.css) so it renders even where it isn't installed.
-	private const string DefaultInterfaceFamily = "\"Chivo\", system-ui, sans-serif";
+	// Leads with the bundled Sora (see web/src/fonts.css) so it renders even where it isn't installed.
+	private const string DefaultInterfaceFamily = "\"Sora\", system-ui, sans-serif";
 
 	/// <summary>The default global font size (px), and the value the "reset font size" command restores.</summary>
 	public const long DefaultSize = 16;

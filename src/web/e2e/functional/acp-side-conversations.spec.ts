@@ -1,4 +1,4 @@
-import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { createAcpSession, expectHeaderOnlyCard, submitAcpDraft } from "../harness/acp-session";
 import {
   activeSessionSlot,
   runCommand,
@@ -101,6 +101,7 @@ test("BTW stays at its creation point and collapse state through later primary o
   await expectCreationOrder();
   await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
   await expect(reply).toBeHidden();
+  await expectHeaderOnlyCard(aside);
 
   await runCommand(page, "Unload Session");
   await showParked(page);
@@ -209,4 +210,17 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   await command.getByText("show output", { exact: true }).click();
   await expect(command.locator(".agent-tool-output")).toContainText("hello");
   await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+});
+
+test("a collapsed BTW keeps a pending request under its header", async ({ page }) => {
+  const surface = await createAcpSession(page, "acp-side-pending");
+  await submitAcpDraft(surface, "/btw input");
+  const aside = surface.locator(".agent-aside");
+  const choice = aside.locator(".agent-choice-row", { hasText: "One" });
+  await expect(choice).toBeVisible();
+  await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
+  await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeHidden();
+  await expect(choice).toBeVisible();
+  await choice.click();
+  await expectHeaderOnlyCard(aside);
 });

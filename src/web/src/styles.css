@@ -37,6 +37,7 @@
   --font-prose-family: var(--prose-font-family);
 
   --font-weight-regular: 400;
+  --font-weight-medium: 500; /* the name line of a row that carries a note */
   --font-weight-emphasis: 600;
   --font-weight-mono-bold: 700; /* Go Mono ships 400/700 only */
 
@@ -96,7 +97,7 @@
   --row-gap: 8px;
   --control-height: 24px;
   --control-height-lg: 28px;
-  --control-height-cell: 32px; /* dialog and card action cells */
+  --control-height-cell: 36px; /* dialog and card action cells */
   --control-height-xl: 40px; /* landing surfaces */
   --control-radius: 0px;
   --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);

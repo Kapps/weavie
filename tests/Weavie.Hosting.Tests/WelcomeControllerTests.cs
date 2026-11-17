@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Shell;
 using Weavie.Hosting.Messaging;
 using Weavie.Hosting.Web;
 using Xunit;
@@ -18,6 +19,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 	private readonly FakeWebSurface _surface = new();
 	private readonly List<string> _recents = ["/a/one", "/b/two"];
 	private readonly List<string> _opened = [];
+	private readonly WelcomeWindow _window = new();
 	private readonly WelcomeController _controller;
 	private int _folderOpens;
 
@@ -25,7 +27,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 		LoginShellEnvironment.MarkImported();
 		_services = TestHost.IsolatedServices(_temp.Path);
 		_controller = new WelcomeController(
-			_bridge, _surface, new InlineUiDispatcher(), _services, "app://app/welcome.html", () => _recents,
+			new WelcomeHost(_bridge, _surface, new InlineUiDispatcher(), _window), _services, "app://app/welcome.html", () => _recents,
 			() => _folderOpens++, _opened.Add);
 	}
 
@@ -34,7 +36,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 		await _controller.ShowAsync();
 
 		Assert.StartsWith(
-			"""window.__WEAVIE_WELCOME__ = {"recents":["/a/one","/b/two"],"setupCompleted":true};""",
+			"""window.__WEAVIE_WELCOME__ = {"recents":["/a/one","/b/two"],"setupCompleted":true,"chrome":{"menus":false,"caption":"press","resizeHandles":false,"barHeight":null,"controls":{"start":[],"end":["close"]},"inset":{"start":0,"end":0}}};""",
 			_surface.LastScript,
 			StringComparison.Ordinal);
 		foreach (string global in new[] { "__WEAVIE_AGENT__", "__WEAVIE_THEME__", "__WEAVIE_COMMANDS__", "__WEAVIE_KEYBINDINGS__" }) {
@@ -59,6 +61,20 @@ public sealed class WelcomeControllerTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task WindowMessages_ReachTheWelcomeWindow_AndChromeChangesArePushed() {
+		await _controller.ShowAsync();
+
+		_bridge.Receive(HostEvent("window", "control", """{"action":"close"}"""));
+		_bridge.Receive(HostEvent("window", "captionPress", """{"button":0,"count":2}"""));
+		await Wait.UntilAsync(() => _window.Calls.Count == 2);
+		_window.Change(_window.Chrome with { Controls = new WindowControls([WindowControl.Close], []) });
+
+		Assert.Equal(["close", "press:0:2"], _window.Calls);
+		await Wait.UntilAsync(() => _bridge.PostedEvents("window", "chrome").Any(chrome =>
+			chrome.GetProperty("controls").GetProperty("start").GetArrayLength() == 1));
+	}
+
+	[Fact]
 	public async Task Detach_StopsServingThePage() {
 		await _controller.ShowAsync();
 		Assert.True(_bridge.HasMessageReceiver);
@@ -77,7 +93,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 		await _controller.RefreshAsync();
 
 		Assert.StartsWith(
-			"""window.__WEAVIE_WELCOME__ = {"recents":[],"setupCompleted":false};""",
+			"""window.__WEAVIE_WELCOME__ = {"recents":[],"setupCompleted":false,"chrome":{"menus":false,"caption":"press","resizeHandles":false,"barHeight":null,"controls":{"start":[],"end":["close"]},"inset":{"start":0,"end":0}}};""",
 			_surface.LastScript,
 			StringComparison.Ordinal);
 	}
@@ -147,5 +163,20 @@ public sealed class WelcomeControllerTests : IDisposable {
 			LastScript = script;
 			return Task.CompletedTask;
 		}
+	}
+
+	private sealed class WelcomeWindow : IShellWindow {
+		public List<string> Calls { get; } = [];
+		public WindowChrome Chrome { get; private set; } = new(
+			false, CaptionMode.Press, false, null, new WindowControls([], [WindowControl.Close]), default);
+		public event Action? ChromeChanged;
+
+		public void Change(WindowChrome chrome) {
+			Chrome = chrome;
+			ChromeChanged?.Invoke();
+		}
+
+		public void Close() => Calls.Add("close");
+		public void PressCaption(CaptionPress press) => Calls.Add($"press:{press.Button}:{press.Count}");
 	}
 }

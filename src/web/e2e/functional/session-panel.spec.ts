@@ -138,6 +138,36 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   await expect(panel).toBeHidden();
 });
 
+test("the pinned panel lists idle sessions by how recently they were active", async ({ page }) => {
+  for (const name of ["older", "newer"]) {
+    const surface = await createAcpSession(page, `feature/idle-${name}`);
+    await submitAcpDraft(surface, name);
+    await expect(surface).toContainText(`echo: ${name}`);
+  }
+  await page.locator(".session-rail").hover();
+  await page.getByRole("button", { name: /Pin session panel/ }).click();
+
+  // Rail order is older, then newer.
+  const titles = page.locator(".session-panel-row .session-panel-title", { hasText: "idle " });
+  await expect(titles).toHaveText(["idle newer", "idle older"]);
+
+  // An idle row says where its work stands and how long ago it was active, in place of the word "idle".
+  const newer = page.locator(".session-panel-row", { hasText: "idle newer" });
+  await expect(newer.locator(".session-panel-activity")).toHaveText("uncommitted changes");
+  await expect(newer.locator(".session-panel-age")).toHaveText(/^(now|\d+m)$/);
+
+  // A window too short for the list scrolls it: every row keeps both of its lines.
+  await page.setViewportSize({ width: 1280, height: 200 });
+  const squeezed = await page.locator(".session-panel-row").evaluateAll(
+    (rows) =>
+      rows.filter((row) => {
+        const text = row.querySelector(".session-panel-text");
+        return (text?.getBoundingClientRect().bottom ?? 0) > row.getBoundingClientRect().bottom;
+      }).length,
+  );
+  expect(squeezed).toBe(0);
+});
+
 test("a session waiting on approval shows amber on the rail and its request when expanded", async ({
   page,
 }) => {
@@ -188,6 +218,8 @@ test("parked sessions fold behind one toggle shared by the rail and the pinned p
   const parkedHeader = page.locator(".session-panel-parked");
   await expect(parkedHeader).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(1);
+  // A parked session has nothing to report, so its row is one line.
+  await expect(page.locator(".session-panel-row.parked .session-panel-activity")).toHaveCount(0);
   await parkedHeader.click();
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(0);
   await runCommand(page, "Pin Session Panel");

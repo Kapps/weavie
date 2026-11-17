@@ -7,6 +7,9 @@ namespace Weavie.Core.Configuration;
 /// claude discovery, so every host shares one path through the registry.
 /// </summary>
 public static class CoreSettings {
+	/// <summary>Whether command pickers learn from executed choices.</summary>
+	public const string CommandLearning = "commands.learning";
+
 	/// <summary>The workspace path setting.</summary>
 	public const string Workspace = "workspace";
 
@@ -51,6 +54,14 @@ public static class CoreSettings {
 	/// <summary>Registers the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+		registry.Register(new SettingDefinition {
+			Key = CommandLearning,
+			Kind = SettingKind.Bool,
+			Description = "Learn command palette and slash-command ordering from recent, frequent, and query-specific choices. Disabling stops recording and ranking by history; retained history can be reset with Reset Command Learning.",
+			Aliases = ["command ranking", "command history", "command learning"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
 
 		registry.Register(new SettingDefinition {
 			Key = Workspace,
@@ -196,7 +207,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ProgressDisplay,
 			Kind = SettingKind.String,
-			Description = "Show the latest agent update with earlier updates and completed work collapsed, or show all updates. Pending questions and running work stay visible.",
+			Description = "Show the agent's replies and latest update with earlier updates and completed work collapsed, or show all updates. Pending questions and running work stay visible.",
 			Aliases = ["progress updates", "collapse updates", "agent narration"],
 			Apply = ApplyMode.Live,
 			Default = "latest",
@@ -284,6 +295,7 @@ public static class CoreSettings {
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
+		LspSettings.Register(registry);
 		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
 		WorkflowSettings.Register(registry);

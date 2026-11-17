@@ -22,14 +22,14 @@ declare global {
 }
 
 // Plain-browser dev fallback (no host injection); in the shipped app a missing value throws (see
-// hostInjected). Mirrors the host's defaults: a monospace stack at size 16, weight normal, and Chivo for chrome/prose.
+// hostInjected). Mirrors the host's defaults: a monospace stack at size 16, weight normal, and Sora for chrome/prose.
 const DEFAULT_SPEC: FontSpec = {
   family: 'ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace',
   size: 16,
   weight: "normal",
 };
 
-const DEFAULT_UI_FAMILY = '"Chivo", system-ui, sans-serif';
+const DEFAULT_UI_FAMILY = '"Sora", system-ui, sans-serif';
 const DEFAULT_CONFIG: FontConfig = {
   editor: DEFAULT_SPEC,
   terminal: DEFAULT_SPEC,

@@ -36,6 +36,9 @@ public enum ApplyMode {
 	/// <summary>Existing sessions keep the old value; the next one started picks it up.</summary>
 	NextSession,
 
+	/// <summary>Running language servers keep the old value; one started later, or by Restart Language Servers, picks it up.</summary>
+	NextLanguageServerStart,
+
 	/// <summary>Needs a full app restart.</summary>
 	RestartRequired,
 }

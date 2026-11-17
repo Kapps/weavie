@@ -6,7 +6,7 @@ namespace Weavie.Mac;
 
 // The macOS IHostPlatform seam, one per workspace window. The window owns the bridge + web view; the shared native
 // pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. AppKit owns the window frame and
-// application menu; the web app bar retains only the omnibar.
+// application menu; the page's title bar sits under the traffic lights and holds the omnibar.
 internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
@@ -19,9 +19,6 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 
 	HostTransport IHostPlatform.Transport => HostTransport.Local;
 
-	// Native NSWindow chrome plus the web omnibar strip (no web window controls).
-	string? IHostPlatform.TitleBar => "mac";
-
 	IReadOnlyList<string> IHostPlatform.Recents => _app.Recents.Items;
 
 	event Action? IHostPlatform.RecentsChanged {
@@ -29,8 +26,8 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 		remove => _app.Recents.Changed -= value;
 	}
 
-	// AppKit owns window controls, so the shared web app bar never drives the native window.
-	IShellWindow? IHostPlatform.Window => null;
+	// AppKit draws the traffic lights over the page's bar; the bar reports caption presses (WorkspaceWindow.Chrome.cs).
+	IShellWindow IHostPlatform.Window => this;
 
 	IShellMenuActions IHostPlatform.MenuActions => this;
 

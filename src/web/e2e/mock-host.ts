@@ -867,6 +867,7 @@ export class MockHost {
       testProfile: "",
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
+      commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
       commandCatalog: this.commandCatalog,
     };
   }
@@ -916,7 +917,7 @@ export class MockHost {
       return;
     }
     try {
-      if (relative === "index.html") {
+      if (relative === "index.html" || relative === "welcome.html") {
         const html = await readFile(resolved, "utf8");
         res
           .writeHead(200, { "content-type": "text/html; charset=utf-8" })
@@ -967,8 +968,8 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: {
     editor: FONT_SPEC,
     terminal: FONT_SPEC,
-    interface: '"Chivo", system-ui, sans-serif',
-    prose: '"Chivo", system-ui, sans-serif',
+    interface: '"Sora", system-ui, sans-serif',
+    prose: '"Sora", system-ui, sans-serif',
   },
   __WEAVIE_NOTIFICATIONS__: {
     sounds: true,

@@ -14,6 +14,7 @@ import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { captureCommandUsage, commandUsage, slashUsageId } from "../commands/usage-store";
 import { MobileActionLabel } from "../mobile/MobileActionLabel";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
@@ -50,8 +51,8 @@ import {
 import {
   classifyAgentDraft,
   classifyAgentSubmission,
-  filterSlash,
   invocationForAction,
+  rankSlash,
   slashCompletionScope,
   slashQuery,
   weavieCommandInput,
@@ -60,7 +61,6 @@ import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines"
 import type { PendingRequestKind } from "./turn-progress";
 
 export function AgentComposer(props: {
-  active: boolean;
   compact: boolean;
   history: readonly string[];
   inputProtocol: number;
@@ -134,7 +134,12 @@ export function AgentComposer(props: {
   const slashText = createMemo(() => slashQuery(slashScope().draft));
   const slashEntries = createMemo(() => {
     const query = slashText();
-    return query === null || slashDismissed() ? [] : filterSlash(slashScope().entries, query);
+    const session = props.session;
+    return query === null || slashDismissed() || session === null
+      ? []
+      : rankSlash(slashScope().entries, query, commandUsage(session.connection.id), (entry) =>
+          slashUsageId(session, entry),
+        );
   });
   // A draft that's no longer a slash command clears any prior dismissal, so the next "/" reopens the menu.
   createEffect(() => {
@@ -152,23 +157,65 @@ export function AgentComposer(props: {
     });
   };
 
+  type SlashChoice = { session: ClientSession; name: string; query: string };
+  let choice: SlashChoice | null = null;
+  let asideChoice: SlashChoice | null = null;
+  createEffect(() => {
+    const name = slashScope().draft.trim().split(/\s/)[0]?.slice(1);
+    if (choice?.session !== props.session || choice?.name !== name) choice = null;
+    const outerName = composer().draft.trim().split(/\s/)[0]?.slice(1);
+    if (asideChoice?.session !== props.session || asideChoice?.name !== outerName)
+      asideChoice = null;
+  });
+  const learnedQuery = (entry: AgentSlashEntry) => {
+    const selected = entry.commandId === CommandIds.askAgentAside ? asideChoice : choice;
+    return selected?.session === props.session && selected.name === entry.name
+      ? selected.query
+      : entry.name;
+  };
+  const rememberChoice = (session: ClientSession, entry: AgentSlashEntry, query: string) => {
+    const selected = { session, name: entry.name, query };
+    if (entry.commandId === CommandIds.askAgentAside) asideChoice = selected;
+    else choice = selected;
+  };
+  const invocation = (action: ReturnType<typeof classifyAgentDraft>) => {
+    const value = invocationForAction(action);
+    return value === null || action.kind !== "command"
+      ? null
+      : { ...value, query: learnedQuery(action.entry) };
+  };
+  const runSlash = (session: ClientSession, entry: AgentSlashEntry, args: unknown) => {
+    const record = captureCommandUsage(
+      session.connection.id,
+      slashUsageId(session, entry),
+      learnedQuery(entry),
+    );
+    void runCommandWithFeedback(entry.commandId!, args).then((result) => {
+      if (result.ok && !result.cancelled) record();
+    });
+  };
+
   const acceptSlash = (entry: AgentSlashEntry, execute: boolean): void => {
     const session = props.session;
     if (session === null) {
       return;
     }
+    const query = slashText() ?? entry.name;
     if (entry.kind === "weavieCommand") {
       if (entry.inputName === null) {
         setComposerDraft(session, "");
-        void runCommandWithFeedback(entry.commandId);
+        rememberChoice(session, entry, query);
+        runSlash(session, entry, undefined);
       } else {
         const draft = `/${entry.name} `;
         setComposerDraft(session, draft);
+        rememberChoice(session, entry, query);
         placeCaretAfterDraftUpdate(draft, draft.length);
       }
     } else {
       const draft = `${slashScope().prefix}/${entry.name}${entry.inputHint === null ? "" : " "}`;
       setComposerDraft(session, draft);
+      rememberChoice(session, entry, query);
       if (execute) submit();
       else placeCaretAfterDraftUpdate(draft, draft.length);
     }
@@ -236,7 +283,7 @@ export function AgentComposer(props: {
   // A refusal shows its reason in the composer and still consumes Enter, so it never types a newline.
   const submit = (): boolean => {
     const session = props.session;
-    if (!props.active || session === null) {
+    if (session === null) {
       return false;
     }
     const action = draftAction();
@@ -251,7 +298,8 @@ export function AgentComposer(props: {
           setComposerError(session, `/${inner.entry.name} cannot run in a side conversation.`);
           return true;
         }
-        if (submitAgentAside(session, input ?? "", invocationForAction(inner))) submitted();
+        if (submitAgentAside(session, input ?? "", invocation(inner), learnedQuery(weavieCommand)))
+          submitted();
         return true;
       }
       if (weavieCommand.inputName !== null && input === null) {
@@ -265,8 +313,8 @@ export function AgentComposer(props: {
         weavieCommand.inputName === null || input === null
           ? undefined
           : { [weavieCommand.inputName]: input };
+      runSlash(session, weavieCommand, args);
       setComposerDraft(session, "");
-      void runCommandWithFeedback(weavieCommand.commandId, args);
       setHistoryCursor(IDLE_CURSOR);
       return true;
     }
@@ -284,7 +332,7 @@ export function AgentComposer(props: {
       });
       setComposerDraft(session, "");
       submitted();
-    } else if (submitAgentTurn(session, invocationForAction(action))) {
+    } else if (submitAgentTurn(session, invocation(action))) {
       submitted();
     }
     return true;
@@ -297,7 +345,7 @@ export function AgentComposer(props: {
 
   const interrupt = (): boolean => {
     const session = props.session;
-    if (!props.active || session === null || !canInterrupt()) {
+    if (session === null || !canInterrupt()) {
       return false;
     }
     session.feature("agent").publish("interrupt", {});
@@ -438,7 +486,9 @@ export function AgentComposer(props: {
         placeholder={
           props.turnActive
             ? "Steer the running turn…"
-            : "Write a prompt — / for commands and skills"
+            : props.compact
+              ? "Prompt — / for commands"
+              : "Write a prompt — / for commands and skills"
         }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
@@ -465,7 +515,7 @@ export function AgentComposer(props: {
         <Show when={canInterrupt()}>
           <button
             type="button"
-            class="ui-button ui-button-lg"
+            class="ui-button"
             aria-label="Interrupt"
             title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
@@ -475,7 +525,7 @@ export function AgentComposer(props: {
         </Show>
         <button
           type="submit"
-          class="ui-button ui-button-lg"
+          class="ui-button"
           classList={{ "ui-button-primary": canSubmit() }}
           aria-label={props.turnActive ? "Steer" : "Run"}
           title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}

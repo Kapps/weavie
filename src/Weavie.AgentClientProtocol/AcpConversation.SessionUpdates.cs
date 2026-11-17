@@ -151,6 +151,8 @@ internal sealed partial class AcpConversation {
 			snapshot = new(_contextUsage, [.. _usageLimits.Values]);
 		}
 		_port.UsageChanged(snapshot);
+		// Claude's adapter names who started a model cycle only on the usage update that ends it.
+		if (update.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("_claude/origin", out _)) CompleteReply();
 	}
 
 	// Usage windows ride a vendor _meta extension, not the ACP schema: Claude's adapter reports one window

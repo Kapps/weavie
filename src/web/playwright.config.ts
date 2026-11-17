@@ -70,6 +70,7 @@ export default defineConfig({
         "runner-connect.spec.ts",
         "session-switch-performance.spec.ts",
         "process-tree.spec.ts",
+        "titlebar.spec.ts",
       ],
       use: { ...devices["Desktop Chrome"] },
     },

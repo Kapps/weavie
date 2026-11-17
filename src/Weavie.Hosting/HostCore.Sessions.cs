@@ -54,6 +54,11 @@ public sealed partial class HostCore {
 						return Task.FromResult(CommandResult.Failure(ex.Message));
 					}
 				}, ct));
+		session.Commands.RegisterHandler(CoreCommands.RestartLanguageServers, (_, ct) => _ui.InvokeAsync(() => {
+			session.LspRevision++;
+			PushLspConfigToWeb(session);
+			return Task.FromResult(CommandResult.Success("Restarting language servers."));
+		}, ct));
 		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (argsJson, _) => {
 			try {
 				if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
@@ -106,6 +111,7 @@ public sealed partial class HostCore {
 			(_, _) => Task.FromResult(RunLearn(session)));
 		RegisterCredentialHandlers(session);
 		RegisterDecisionProviderHandler(session);
+		session.Commands.RegisterHandler(CoreCommands.ResetCommandLearning, (_, _) => Task.FromResult(ResetCommandLearning()));
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));

@@ -82,8 +82,9 @@ Linux. Chosen over OS-standard config dirs (`%APPDATA%`, `~/Library/Application 
 mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is created on first write
 and is the natural home for future per-user state; this spec only defines `settings.toml`.
 
-**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`) don't
-live in the repo — they persist to a per-workspace file, `~/.weavie/workspaces/<id>/settings.toml`
+**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`,
+`lsp.<id>.command`) don't live in the repo — they persist to a per-workspace file,
+`~/.weavie/workspaces/<id>/settings.toml`
 (`<id>` = `WorkspaceId.ForPath(root)`, the same keying as terminal logs and pasted images). Keeping
 them out of source control means configuring a workspace never touches the repo, and an untrusted
 clone can't inject a committed, auto-executed setup command. `SettingsStore` takes the root→file
@@ -160,6 +161,7 @@ public enum ApplyMode {
     Live,            // observers reflect it immediately, nothing restarts
     ReopensTerminal, // the affected terminal pane(s) restart to apply (shell)
     NextSession,     // existing sessions keep the old value; the next one started picks it up
+    NextLanguageServerStart, // running language servers keep the old value until they restart
     RestartRequired, // needs a full app restart
 }
 
@@ -410,7 +412,7 @@ applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no r
 | `terminal.font.family` | String | `""` → inherit                  | terminal family override                 |
 | `terminal.font.size`   | Int    | `0` → inherit                   | terminal size override (0, or 6–72)      |
 | `terminal.font.weight` | String | `inherit`                       | terminal weight override                 |
-| `interface.font.family`| String | bundled Chivo stack             | interface (chrome) family                |
+| `interface.font.family`| String | bundled Sora stack              | interface (chrome) family                |
 | `prose.font.family`    | String | `""` → interface font          | agent replies + rendered markdown family |
 
 An override left at its **inherit sentinel** — empty family, `0` size, `"inherit"` weight — falls

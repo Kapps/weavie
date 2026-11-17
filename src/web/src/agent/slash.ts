@@ -1,4 +1,5 @@
 import type { AgentControlState, AgentSlashEntry } from "../bridge";
+import { type CommandUsage, rankCommands } from "../commands/ranking";
 import { CommandIds } from "../commands/types";
 
 /** The command input and entries at the selected conversation destination. */
@@ -22,10 +23,28 @@ export function slashQuery(draft: string): string | null {
   return draft.slice(1);
 }
 
-/** Entries whose name contains the query (case-insensitive), capped for a compact menu. */
+/** All matching slash commands remain keyboard-reachable in the scrolling menu. */
 export function filterSlash(entries: readonly AgentSlashEntry[], query: string): AgentSlashEntry[] {
-  const needle = query.toLowerCase();
-  return entries.filter((entry) => entry.name.toLowerCase().includes(needle)).slice(0, 8);
+  return rankSlash(entries, query, [], (entry) => entry.id);
+}
+
+export function rankSlash(
+  entries: readonly AgentSlashEntry[],
+  query: string,
+  usage: readonly CommandUsage[],
+  identity: (entry: AgentSlashEntry) => string,
+): AgentSlashEntry[] {
+  return rankCommands(
+    entries.map((entry) => ({
+      item: entry,
+      id: identity(entry),
+      title: entry.name,
+      aliases: [],
+      metadata: entry.description,
+    })),
+    query,
+    usage,
+  ).map((row) => row.item);
 }
 
 /** The exact provider command or bundled MCP prompt invoked by a draft. */

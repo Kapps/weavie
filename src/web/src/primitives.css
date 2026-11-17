@@ -30,7 +30,9 @@
     line-height: var(--font-content-row-line);
   }
 
+  /* Its height is its content's: a list too short for its rows scrolls and never squeezes them. */
   .ui-row-stack {
+    flex-shrink: 0;
     height: auto;
     min-height: calc(var(--row-line) + 2 * var(--row-pad));
     white-space: normal;
@@ -46,6 +48,18 @@
   .ui-row-desc {
     color: var(--dim);
     font: var(--font-chrome-body);
+  }
+
+  /* The name line of a row that carries a note. */
+  .ui-row-name {
+    font-weight: var(--font-weight-medium);
+  }
+
+  /* A row's small secondary text: the line under its name, or a value at its end. */
+  .ui-row-note {
+    color: var(--dim);
+    font: var(--font-chrome-badge);
+    font-weight: var(--font-weight-regular);
   }
 
   .ui-row-end {
@@ -146,14 +160,13 @@
   /* Related buttons joined into one frame, each sharing an edge with its neighbour. */
   .ui-button-group {
     display: inline-flex;
+    padding-right: 1px;
   }
 
+  /* Each button overlaps the one after it, so a wrapped row starts on the same edge as the first. */
   .ui-button-group > .ui-button {
     position: relative;
-  }
-
-  .ui-button-group > .ui-button + .ui-button {
-    margin-left: -1px;
+    margin-right: -1px;
   }
 
   .ui-button-group > .ui-button:focus-visible {
@@ -204,9 +217,9 @@
 
   /* The dimmed, blurred layer behind a modal surface. */
   .ui-scrim {
-    background: rgba(0, 0, 0, 0.5);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
+    background: rgba(0, 0, 0, 0.7);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
   }
 
   .ui-kbd {

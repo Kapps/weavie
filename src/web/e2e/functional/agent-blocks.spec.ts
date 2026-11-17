@@ -187,6 +187,9 @@ test("an update that lands while a column filter is open leaves it open", async 
     surface,
     `block:claude:updateBlock:${JSON.stringify({ id: "errors", append })}`,
   );
+  // The prompt's own row grows the transcript; opened before it lands, the filter's column scrolls out and closes it.
+  await expect(surface.locator(".agent-entry-message.agent-tone-user")).toHaveCount(2);
+  await expect(surface.locator(".agent-working")).toBeVisible();
   await block.getByRole("button", { name: "Filter level" }).click();
   const byLevel = page.getByRole("dialog", { name: "Filter level" });
   await byLevel.getByRole("button", { name: "error" }).click();

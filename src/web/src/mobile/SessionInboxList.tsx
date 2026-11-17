@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import { sessionMenuAt } from "../chrome/session-menu";
 import type { RailSession } from "../chrome/session-store";
-import { SESSION_GROUPS, sessionGroup } from "../chrome/session-summary";
+import { panelOrder, SESSION_GROUPS, sessionsIn } from "../chrome/session-summary";
 import { captureCommandRunner } from "../commands/registry";
 import { holdToOpen } from "./long-press";
 import { SessionInboxRow } from "./SessionInboxRow";
@@ -30,6 +30,8 @@ export function SessionInboxList(props: {
     return true;
   });
 
+  const ordered = createMemo(() => panelOrder(props.sessions));
+
   return (
     <>
       <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
@@ -39,9 +41,7 @@ export function SessionInboxList(props: {
         >
           <For each={SESSION_GROUPS}>
             {(group) => {
-              const members = createMemo(() =>
-                props.sessions.filter((session) => sessionGroup(session) === group.id),
-              );
+              const members = createMemo(() => sessionsIn(group.id, ordered()));
               return (
                 <Show when={members().length > 0}>
                   <section class="session-inbox-group" aria-label={group.title}>

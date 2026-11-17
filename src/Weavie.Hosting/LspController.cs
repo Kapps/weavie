@@ -42,7 +42,7 @@ public sealed class LspController : IAsyncDisposable {
 
 	/// <summary>
 	/// Starts a server for <paramref name="server"/> bound to <paramref name="channel"/>. An unknown recipe, a
-	/// server not on <c>PATH</c>, or a duplicate channel returns false with <paramref name="error"/>.
+	/// server that can't be found, or a duplicate channel returns false with <paramref name="error"/>.
 	/// </summary>
 	internal bool Start(MessagePeer owner, string server, string channel, out string? error) {
 		ArgumentNullException.ThrowIfNull(owner);
@@ -60,7 +60,7 @@ public sealed class LspController : IAsyncDisposable {
 		var command = ServerResolver.Resolve(descriptor);
 		if (command is null) {
 			string tried = string.Join(", ", descriptor.Candidates.Select(c => c.Command));
-			error = $"{descriptor.DisplayName}: no language server on PATH (tried {tried})";
+			error = $"{descriptor.DisplayName} language server not found (tried {tried})";
 			return false;
 		}
 
@@ -79,6 +79,7 @@ public sealed class LspController : IAsyncDisposable {
 			return false;
 		}
 
+		_log($"{descriptor.Id}: {string.Join(' ', [command.FileName, .. command.Arguments])}");
 		ch.Start();
 		error = null;
 		return true;

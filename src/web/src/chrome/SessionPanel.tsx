@@ -23,7 +23,7 @@ import {
 } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { SESSION_GROUPS, sessionGroup, switchShortcut } from "./session-summary";
+import { panelOrder, SESSION_GROUPS, sessionsIn, switchShortcut } from "./session-summary";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 520;
@@ -50,15 +50,11 @@ export function SessionPanel(props: {
   });
   // Rows key on session identity, not object identity: chips are rebuilt on every status or activity push, and
   // re-creating a row would drop keyboard focus mid-navigation.
+  const keyOf = (session: RailSession): string => `${session.backendId} ${session.id}`;
   const byKey = createMemo(
-    () =>
-      new Map(
-        props.sessions.map((session, index) => [
-          `${session.backendId} ${session.id}`,
-          { session, index },
-        ]),
-      ),
+    () => new Map(props.sessions.map((session, index) => [keyOf(session), { session, index }])),
   );
+  const ordered = createMemo(() => panelOrder(props.sessions));
   let panel: HTMLElement | undefined;
   let returnFocus: HTMLElement | null = null;
 
@@ -209,14 +205,9 @@ export function SessionPanel(props: {
         </div>
         <For each={SESSION_GROUPS}>
           {(group) => {
-            const members = createMemo(
-              () =>
-                [...byKey()]
-                  .filter(([, entry]) => sessionGroup(entry.session) === group.id)
-                  .map(([key]) => key),
-              [],
-              { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
-            );
+            const members = createMemo(() => sessionsIn(group.id, ordered()).map(keyOf), [], {
+              equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]),
+            });
             return (
               <Show when={members().length > 0}>
                 <Show

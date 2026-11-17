@@ -78,20 +78,22 @@ export function ApprovalActions(props: {
       <button
         type="button"
         class="ui-button"
-        classList={{ default: bound().get(value) === CommandIds.agentApprove }}
+        classList={{ "ui-button-primary": bound().get(value) === CommandIds.agentApprove }}
         title={key() === "" ? label : `${label} (${key()})`}
         onClick={() => choose(value)}
       >
         {label}
         <Show when={key() !== ""}>
-          <kbd class="agent-key-chip ui-kbd">{key()}</kbd>
+          <span class="agent-key-chip ui-kbd ui-kbd-cap" aria-hidden="true">
+            {key()}
+          </span>
         </Show>
       </button>
     );
   };
 
   return (
-    <div class="agent-approval-actions">
+    <div class="agent-approval-actions ui-button-group">
       <For each={props.message.actions ?? []}>{(action) => decision(action.label, action.id)}</For>
     </div>
   );
@@ -119,12 +121,13 @@ export function AuthenticationActions(props: {
   });
   const firstId = (): string | null => props.message.actions?.[0]?.id ?? null;
   return (
-    <div class="agent-approval-actions">
+    <div class="agent-approval-actions ui-button-group">
       <For each={props.message.actions ?? []}>
         {(action) => (
           <button
             type="button"
             class="ui-button"
+            classList={{ "ui-button-primary": props.answersToKeys && action.id === firstId() }}
             title={
               props.answersToKeys &&
               action.id === firstId() &&

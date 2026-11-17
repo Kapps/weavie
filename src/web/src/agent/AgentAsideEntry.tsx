@@ -3,9 +3,11 @@ import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
-import { CollapsibleCardContent, NestedTranscript } from "./AgentNestedCard";
+import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { hasPendingRequest } from "./AgentPendingRequests";
 import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
+import { CollapsibleCardContent } from "./CollapsibleCardContent";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -28,6 +30,7 @@ export function AsideEntry(props: {
     <AgentCardShell
       label={props.entry.label}
       collapsed={collapsed()}
+      headOnly={collapsed() && !(props.entry.asideEntries ?? []).some(hasPendingRequest)}
       meta={
         <Show when={props.entry.status !== null}>
           <small>{props.entry.status}</small>
@@ -38,27 +41,25 @@ export function AsideEntry(props: {
       onOwn={own}
       data={{ "data-agent-aside": conversationId }}
     >
-      <div>
-        <NestedTranscript
-          currentThought={props.entry.currentThought ?? null}
-          entries={props.entry.asideEntries ?? []}
-          pendingOnly={collapsed()}
-          expandedDetails={props.expandedDetails}
-          keyboardRequestKey={props.keyboardRequestKey}
-          onDetailsToggle={props.onDetailsToggle}
-          onUpdatesToggle={props.onUpdatesToggle}
-          session={props.session}
-        />
-        <CollapsibleCardContent collapsed={collapsed()}>
-          <Show when={props.entry.asideReplyable !== false}>
-            <AgentAsideReplyBox
-              session={props.session}
-              conversationId={conversationId}
-              disabled={props.entry.asideActive === true}
-            />
-          </Show>
-        </CollapsibleCardContent>
-      </div>
+      <NestedTranscript
+        currentThought={props.entry.currentThought ?? null}
+        entries={props.entry.asideEntries ?? []}
+        pendingOnly={collapsed()}
+        expandedDetails={props.expandedDetails}
+        keyboardRequestKey={props.keyboardRequestKey}
+        onDetailsToggle={props.onDetailsToggle}
+        onUpdatesToggle={props.onUpdatesToggle}
+        session={props.session}
+      />
+      <CollapsibleCardContent collapsed={collapsed()}>
+        <Show when={props.entry.asideReplyable !== false}>
+          <AgentAsideReplyBox
+            session={props.session}
+            conversationId={conversationId}
+            disabled={props.entry.asideActive === true}
+          />
+        </Show>
+      </CollapsibleCardContent>
     </AgentCardShell>
   );
 }

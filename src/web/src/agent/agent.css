@@ -37,24 +37,12 @@
   --agent-scroll-nav-inline-size: 40px;
 }
 
-.agent-scroll-nav:not(:empty)::before {
-  position: absolute;
-  top: calc(var(--agent-scroll-nav-inline-size) / 2);
-  bottom: calc(var(--agent-scroll-nav-inline-size) / 2);
-  left: calc(50% - 0.5px);
-  width: 1px;
-  background: color-mix(in srgb, var(--border) 75%, transparent);
-  content: "";
-}
-
 .agent-scroll-nav-button {
-  z-index: 1;
   display: grid;
   flex: 0 0 var(--agent-scroll-nav-inline-size);
   width: var(--agent-scroll-nav-inline-size);
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-  border-radius: 7px;
   color: color-mix(in srgb, var(--fg) 88%, var(--accent));
   background: color-mix(in srgb, var(--bar) 88%, var(--bg));
   box-shadow: 0 2px 8px color-mix(in srgb, var(--bg) 65%, transparent);
@@ -238,7 +226,6 @@
 .agent-aside {
   margin: 10px 14px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, var(--accent));
-  border-radius: 10px;
   background: color-mix(in srgb, var(--bar) 94%, var(--accent));
   overflow: hidden;
 }
@@ -249,16 +236,20 @@
   align-items: baseline;
   gap: 10px;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
   color: var(--dim);
 }
 
-/* A row primitive with no padding of its own; the head pads it. */
+/* The divider belongs to the body, so a card showing its head alone has none. */
+.agent-aside-body {
+  border-top: 1px solid var(--border);
+}
+
+/* A row primitive with no padding of its own; the head pads it. It takes the space the meta leaves, and at least a share of the head. */
 .agent-aside-toggle {
   --row-pad: 0px;
   --row-pad-x: 0px;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 30%;
 }
 
 /* The row is a flex container, so the label is the item that ellipsizes. */
@@ -308,9 +299,13 @@
   margin-top: 4px;
 }
 
+/* Once the label is at its share, the meta ellipsizes too, so a narrow head stays one row. */
 .agent-aside-head small {
-  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
   font: var(--font-chrome-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-aside-transcript {
@@ -333,7 +328,6 @@
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
   padding: 7px 8px;
 }
 
@@ -574,53 +568,42 @@ a:has(> .agent-path-dir) {
   background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
-/* Permissions, authentication and link requests use a warning frame. */
-.agent-entry-request.agent-entry-waiting:not(.agent-entry-question) {
-  padding: 0;
-  border: 2px solid var(--warn);
-  background: color-mix(in srgb, var(--bar) 58%, var(--bg));
-  /* Inset: the card is flush with the pane, which would clip an outer glow. */
-  box-shadow: inset 0 0 10px color-mix(in srgb, var(--warn) 22%, transparent);
+/* A pending request is a .ui-card in the transcript, restating the card's box over the entry's own bar and tint;
+   the top margin leaves room for the half of its tag above it. */
+.agent-entry-waiting {
+  --card-pad: 18px;
+  width: auto;
+  max-width: 920px;
+  margin: 22px 12px 12px;
+  padding: var(--card-pad);
+  border: 1px solid var(--border);
+  background: var(--bar);
+  font: var(--font-chrome-body-wrap);
 }
 
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-head {
-  font: var(--font-chrome-body);
-  margin: 0;
-  padding: 3px 9px;
-  background: color-mix(in srgb, var(--warn) 16%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+.agent-entry-waiting > .ui-card-tag {
+  margin-bottom: 12px;
 }
 
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-head::before {
+/* The dot marks a card that is waiting on the user. */
+.agent-entry-waiting > .ui-card-tag::before {
   content: "";
-  flex: none;
-  align-self: center;
+  display: inline-block;
   width: 7px;
   height: 7px;
+  margin-right: 6px;
   border-radius: 50%;
   background: var(--warn);
 }
 
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-label {
-  font: var(--font-chrome-body);
-  font-weight: var(--font-weight-emphasis);
-  color: var(--warn);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-status {
-  font: var(--font-chrome-body);
-  margin-left: auto;
-}
-
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-main {
-  font: var(--font-chrome-body-wrap);
-  padding: 7px 10px 9px;
+/* Its decisions are cells, like a dialog's. */
+.agent-entry-waiting :is(.agent-question-actions, .agent-approval-actions) > .ui-button {
+  --control-h: var(--control-height-cell);
+  padding-inline: 18px;
 }
 
 /* The command under review stays code. */
-.agent-entry-waiting:not(.agent-entry-question) .agent-entry-text {
+.agent-entry-waiting .agent-entry-text {
   font: var(--font-content);
 }
 
@@ -698,6 +681,11 @@ a:has(> .agent-path-dir) {
   overflow: hidden;
 }
 
+/* A dashboard's blocks leave as it collapses, so its body has no height to ease. */
+[data-agent-dashboard] > .agent-card-content {
+  transition: none;
+}
+
 .agent-disclosure {
   margin-top: 3px;
   color: var(--dim);
@@ -753,10 +741,6 @@ a:has(> .agent-path-dir) {
 .agent-thought > summary {
   display: flex;
   color: var(--dim);
-}
-
-.agent-thought-row {
-  border-radius: 4px;
 }
 
 .agent-thought-row:hover {
@@ -863,15 +847,20 @@ a:has(> .agent-path-dir) {
   justify-self: end;
 }
 
+/* One line of the draft is as tall as its buttons; a longer draft keeps them on its last line. */
 .agent-compose {
+  --agent-compose-min: var(--control-height-lg);
+  --agent-compose-lines: 6;
+  --agent-compose-line: calc(var(--font-content-size) * var(--font-content-line));
+  /* The line, its 1px underline, and at least 2px above and below. */
+  --agent-compose-h: max(var(--agent-compose-min), var(--agent-compose-line) + 5px);
   font: var(--font-content);
   position: relative;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: end;
   gap: 8px;
-  min-height: 42px;
   padding: 5px 8px;
   border-top: 1px solid var(--border);
   background:
@@ -1039,9 +1028,17 @@ a:has(> .agent-path-dir) {
   color: color-mix(in srgb, var(--warn) 72%, var(--dim));
 }
 
+.agent-compose-actions > button {
+  --control-h: var(--agent-compose-h);
+}
+
 .agent-compose textarea {
-  min-height: 26px;
-  max-height: 116px;
+  min-height: var(--agent-compose-h);
+  max-height: calc(
+    var(--agent-compose-h) +
+    (var(--agent-compose-lines) - 1) *
+    var(--agent-compose-line)
+  );
   field-sizing: content;
   resize: none;
   color: var(--fg);
@@ -1050,13 +1047,20 @@ a:has(> .agent-path-dir) {
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   margin-left: var(--agent-control-inline-padding);
-  padding: 3px 0 2px;
+  padding: calc((var(--agent-compose-h) - var(--agent-compose-line) - 1px) / 2) 0;
+}
+
+/* The placeholder never wraps, so an empty draft is one line tall at any pane width. */
+.agent-compose textarea::placeholder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .agent-compose textarea:focus {
   outline: 0;
   border-color: var(--accent);
-  box-shadow: 0 1px 0 var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
 }
 
 .agent-approval-actions {
@@ -1082,17 +1086,13 @@ a:has(> .agent-path-dir) {
   justify-content: flex-end;
 }
 
-.agent-entry-waiting:not(.agent-entry-question) .agent-approval-actions {
-  margin-top: 7px;
+/* Joined cells; a narrow pane wraps them onto rows. */
+.agent-approval-actions.ui-button-group {
+  gap: 6px 0;
 }
 
-.agent-entry-waiting:not(.agent-entry-question) .agent-approval-actions button.default {
-  border-color: var(--warn);
-}
-
-.agent-key-chip {
-  border-color: color-mix(in srgb, var(--border) 85%, var(--fg));
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+.agent-entry-waiting .agent-approval-actions {
+  margin-top: 12px;
 }
 
 .agent-status-line {
@@ -1131,7 +1131,6 @@ a:has(> .agent-path-dir) {
   gap: 5px;
   padding: 0 3px;
   border: 0;
-  border-radius: 3px;
   background: transparent;
   color: var(--dim);
   cursor: pointer;
@@ -1266,7 +1265,6 @@ a:has(> .agent-path-dir) {
   max-width: min(320px, calc(100vw - 16px));
   padding: 7px 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
-  border-radius: 4px;
   color: var(--fg);
   background: color-mix(in srgb, var(--bar) 94%, var(--bg));
   box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
@@ -1328,7 +1326,6 @@ a:has(> .agent-path-dir) {
   overflow-y: auto;
   padding: 3px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-  border-radius: 4px;
   background: color-mix(in srgb, var(--bar) 92%, var(--bg));
   box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
 }
@@ -1337,7 +1334,6 @@ a:has(> .agent-path-dir) {
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content);
   gap: 10px;
-  border-radius: 3px;
 }
 
 .agent-slash-option.active {
@@ -1380,7 +1376,6 @@ a:has(> .agent-path-dir) {
   justify-content: center;
   padding: 5px;
   border: 1px solid var(--border);
-  border-radius: 4px;
   background: var(--bar);
   color: var(--dim);
   cursor: pointer;

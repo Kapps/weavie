@@ -1,15 +1,19 @@
-/* Custom/native-frame app bars, menu dropdowns, and window controls (TitleBar / NativeTitleBar / Menu). */
+/* The window's title bar, menu dropdowns, and window buttons (TitleBar / WindowControls / Menu). */
 
-/* ── Custom title bar (Windows) ──────────────────────────────────────────────────────────────────
-   A VS Code–style title bar drawn in-web over a frameless host window: app icon + File/View menus,
-   a center "Go to File" omnibar, and min/maximize/close. The bar background is draggable via
-   `app-region: drag` (WebView2 maps it to the window caption); interactive regions opt out with
-   `no-drag`. Only rendered on Windows (gated on the injected shell config). */
+/* ── Title bar ───────────────────────────────────────────────────────────────────────────────────
+   Drawn from the host's chrome description: icon + menus, a center omnibar, the build badge, and the
+   page-drawn window buttons. On Windows `app-region: drag` makes the background the caption (WebView2);
+   other engines ignore it and the host handles presses on `data-caption` space. The host may set the
+   height (`--titlebar-h`, macOS's title bar) and inline padding (room for its own buttons). */
+/* Equal side columns keep the omnibar centred in the window; when space runs out the omnibar narrows
+   before either side gives up its content. */
 .titlebar {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, 576px) minmax(max-content, 1fr);
   align-items: center;
-  height: 38px;
+  box-sizing: border-box;
+  height: var(--titlebar-h, 38px);
   background: var(--bar);
   border-bottom: 1px solid var(--border);
   user-select: none;
@@ -19,33 +23,6 @@
 
 .titlebar.blurred {
   color: var(--dim);
-}
-
-/* Native-frame app bar: the omnibar plus Linux's web menu, rendered below the OS title bar. AppKit owns the
-   macOS application menu as well as the window frame. */
-.native-titlebar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: stretch;
-  height: 38px;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
-  user-select: none;
-}
-
-.native-tb-left,
-.native-tb-right {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  /* Equal min-widths on both ends keep the center omnibar visually centered in the bar. */
-  min-width: 160px;
-  gap: 4px;
-  padding: 0 8px;
-}
-
-.native-tb-right {
-  justify-content: flex-end;
 }
 
 .tb-icon {
@@ -67,13 +44,12 @@
 }
 
 .tb-left {
-  flex: 0 0 auto;
+  align-self: stretch;
   gap: 2px;
-  padding-left: 8px;
+  padding-inline-start: calc(8px + var(--titlebar-inset-start, 0px));
 }
 
 .tb-center {
-  flex: 1 1 auto;
   justify-content: center;
   /* Full bar height + stretch the omnibar to fill it, so the box is flush top and bottom (no gaps). */
   align-self: stretch;
@@ -83,11 +59,10 @@
 }
 
 .tb-controls {
-  flex: 0 0 auto;
   /* Stretch to the bar height so the buttons fill it (height: 100%) rather than a hardcoded px height. */
   align-self: stretch;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  justify-content: flex-end;
+  padding-inline-end: var(--titlebar-inset-end, 0px);
 }
 
 /* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular
@@ -139,6 +114,9 @@
 
 /* Window controls — fill the full bar height (no fixed px); width stays fixed (it's a horizontal hit area). */
 .tb-ctl {
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
   display: flex;
   align-items: center;
   justify-content: center;

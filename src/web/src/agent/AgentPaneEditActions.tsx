@@ -72,7 +72,9 @@ export function PlanActions(props: {
         >
           Open plan
           <Show when={key() !== ""}>
-            <kbd class="agent-key-chip ui-kbd">{key()}</kbd>
+            <span class="agent-key-chip ui-kbd ui-kbd-cap" aria-hidden="true">
+              {key()}
+            </span>
           </Show>
         </button>
       </div>

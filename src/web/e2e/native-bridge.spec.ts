@@ -156,6 +156,7 @@ test.describe("native in-process bridge contract", () => {
             testProfile: "",
             sourceLinkHosts: [],
             agentDefaults,
+            commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
             commandCatalog: { commands: [], keybindings: [] },
           } satisfies HostHello);
         } else if (

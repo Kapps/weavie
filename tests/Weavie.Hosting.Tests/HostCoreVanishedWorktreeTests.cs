@@ -11,11 +11,6 @@ public sealed class HostCoreVanishedWorktreeTests {
 	// git's account of a directory that isn't there — the words this fix exists to stop republishing.
 	private const string MissingDirectory = "Git working directory does not exist";
 
-	private static IReadOnlyList<string?> SessionIds(TestHost host) {
-		var list = host.Bridge.LastEvent("sessions", "catalog");
-		return list is null ? [] : [.. list.Value.EnumerateArray().Select(s => s.GetProperty("id").GetString())];
-	}
-
 	private static string[] NotificationMessages(TestHost host) => [.. host.Bridge
 		.PostedEvents("notifications", "show")
 		.Select(notification => notification.GetProperty("message").GetString()!)];
@@ -41,7 +36,7 @@ public sealed class HostCoreVanishedWorktreeTests {
 
 		await Wait.UntilAsync(() => NotificationMessages(host).Contains(closed));
 		AssertReportedOnce(host, closed);
-		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.DoesNotContain("feature", host.SessionLabels);
 	}
 
 	[Fact]

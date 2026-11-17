@@ -182,7 +182,7 @@ public sealed class HostCoreWorkflowTests {
 
 		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
 		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "wf" }, CancellationToken.None)).Ok);
+			new { id = host.SlotId("wf") }, CancellationToken.None)).Ok);
 		var reloaded = await WaitForSessionAsync(host, "wf");
 		Assert.True(File.Exists(image));
 
@@ -264,7 +264,7 @@ public sealed class HostCoreWorkflowTests {
 
 		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
 		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "wf" }, CancellationToken.None)).Ok);
+			new { id = host.SlotId("wf") }, CancellationToken.None)).Ok);
 		var reloaded = await WaitForSessionAsync(host, "wf");
 
 		Assert.Equal((run.Id, WorkflowPhase.Asking), (reloaded.Workflow.Current!.Id, reloaded.Workflow.Current.Phase));

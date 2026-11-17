@@ -7,10 +7,10 @@ namespace Weavie.Hosting.Tests;
 
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionReloadTests {
-	private static IEnumerable<JsonElement> CatalogEntries(TestHost host, string id) =>
+	private static IEnumerable<JsonElement> CatalogEntries(TestHost host, string label) =>
 		host.Bridge.PostedEvents("sessions", "catalog")
 			.SelectMany(catalog => catalog.EnumerateArray())
-			.Where(entry => entry.GetProperty("id").GetString() == id);
+			.Where(entry => entry.GetProperty("label").GetString() == label);
 
 	[Fact]
 	public async Task ReloadSwapsTheIncarnationWithoutEverGoingDormantOrFlushing() {

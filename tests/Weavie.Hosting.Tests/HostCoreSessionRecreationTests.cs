@@ -54,7 +54,7 @@ public sealed class HostCoreSessionRecreationTests {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		Assert.True((await host.UnloadSessionAsync("feature")).Ok);
-		Assert.True((await RecreateAsync(host, "feature", "structured")).GetProperty("ok").GetBoolean());
+		Assert.True((await RecreateAsync(host, host.SlotId("feature"), "structured")).GetProperty("ok").GetBoolean());
 		Assert.Equal("structured", host.Session("feature").Agent.Provider.Id);
 	}
 

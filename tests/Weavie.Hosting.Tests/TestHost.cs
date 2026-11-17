@@ -362,6 +362,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The id of the slot named by its branch label, or <paramref name="slot"/> when it already is an id.</summary>
 	public string SlotId(string slot) => Core.SlotIdForTest(slot) ?? slot;
 
+	/// <summary>The latest published session catalog, empty before the first one.</summary>
+	public IReadOnlyList<JsonElement> SessionCatalog =>
+		Bridge.LastEvent("sessions", "catalog") is { } catalog ? [.. catalog.EnumerateArray()] : [];
+
+	/// <summary>The branch label of every session on the latest published catalog.</summary>
+	public IReadOnlyList<string?> SessionLabels => [.. SessionCatalog.Select(entry => entry.GetProperty("label").GetString())];
+
+	/// <summary>The latest published catalog entry of the session with this branch label.</summary>
+	public JsonElement CatalogEntry(string label) =>
+		SessionCatalog.Single(entry => entry.GetProperty("label").GetString() == label);
+
 	/// <summary>Returns one exact live session slot, named by its id or its branch label.</summary>
 	public HostSession Session(string slot) =>
 		Core.SessionForTest(slot) ?? throw new InvalidOperationException($"Session '{slot}' is not live.");

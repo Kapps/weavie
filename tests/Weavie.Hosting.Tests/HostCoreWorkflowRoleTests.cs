@@ -67,7 +67,7 @@ public sealed class HostCoreWorkflowRoleTests {
 		Assert.Equal("GPT Next", session.Workflow.AgentOf("build")!.Model);
 		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
 		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "wf" }, CancellationToken.None)).Ok);
+			new { id = host.SlotId("wf") }, CancellationToken.None)).Ok);
 		Assert.Equal("GPT Next", (await WaitForSessionAsync(host, "wf")).Workflow.AgentOf("build")!.Model);
 	}
 

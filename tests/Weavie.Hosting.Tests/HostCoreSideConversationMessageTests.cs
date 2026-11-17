@@ -27,8 +27,8 @@ public sealed class HostCoreSideConversationMessageTests {
 
 		await Eventually(() => Pane(host, session).Any(IsToolReply));
 		var reply = Pane(host, session).Single(IsToolReply);
-		Assert.Equal("messageSession: Delivered to 'btw-parent' (status: working). It replies with messageSession if it has something to report; don't wait for it.", Text(reply));
-		var sender = new AgentMessageSender($"btw-parent#{reply.GetProperty("conversationId").GetString()}", "btw parent BTW");
+		Assert.Equal($"messageSession: Delivered to '{session.SlotId}' (status: working). It replies with messageSession if it has something to report; don't wait for it.", Text(reply));
+		var sender = new AgentMessageSender($"{session.SlotId}#{reply.GetProperty("conversationId").GetString()}", "btw parent BTW");
 		if (!steering) {
 			await Eventually(() => host.Bridge.PostedEvents(session.Address, "agent", "queue").Any(queue =>
 				queue.GetProperty("queued").EnumerateArray().Any(queued => Text(queued) == "finding" && Sender(queued) == sender)));
@@ -48,13 +48,13 @@ public sealed class HostCoreSideConversationMessageTests {
 		session.Agent.SideConversations!.AskAside(AgentTurnSubmission.Prompt("mcp:currentSession:{}"));
 		await Eventually(() => Pane(host, session).Any(IsToolReply));
 		var current = Pane(host, session).Single(IsToolReply);
-		string side = $"btw-parent#{current.GetProperty("conversationId").GetString()}";
-		Assert.Equal($$"""currentSession: {"id":"{{side}}","parent":"btw-parent"}""", Text(current));
+		string side = $"{session.SlotId}#{current.GetProperty("conversationId").GetString()}";
+		Assert.Equal($$"""currentSession: {"id":"{{side}}","parent":"{{session.SlotId}}"}""", Text(current));
 		await Eventually(() => session.Agent.SideConversations.Asides is [{ Running: false }]);
 
 		var listed = await session.Peers.ListAsync(includeSides: true, CancellationToken.None);
 		Assert.Equal(
-			new SessionPeer(side, "btw parent BTW", "fake-acp", true, "idle", SessionPeerReceive.Ready, "btw-parent", "mcp:currentSession:{}"),
+			new SessionPeer(side, "btw parent BTW", "fake-acp", true, "idle", SessionPeerReceive.Ready, session.SlotId, "mcp:currentSession:{}"),
 			Assert.Single(listed, peer => peer.Parent is not null));
 		Assert.DoesNotContain(await session.Peers.ListAsync(includeSides: false, CancellationToken.None), peer => peer.Parent is not null);
 
@@ -62,18 +62,18 @@ public sealed class HostCoreSideConversationMessageTests {
 
 		await Eventually(() => Pane(host, session).Any(message => message.GetProperty("type").GetString() == "item-completed" && Text(message) == "echo: answer"));
 		var answer = Assert.Single(Pane(host, session), message => Text(message) == "answer");
-		Assert.Equal((current.GetProperty("conversationId").GetString(), new AgentMessageSender("btw-parent", "btw parent")),
+		Assert.Equal((current.GetProperty("conversationId").GetString(), new AgentMessageSender(session.SlotId, "btw parent")),
 			(answer.GetProperty("conversationId").GetString(), Sender(answer)));
 		var transcript = await session.Peers.ReadAsync(side, 2, CancellationToken.None);
 		Assert.Equal((side, "btw parent BTW"), (transcript.Id, transcript.Title));
 		Assert.Equal(
-			[new(AgentTranscriptRole.User, "answer", null, "btw-parent"), new AgentTranscriptEntry(AgentTranscriptRole.Agent, "echo: answer", "completed", null)],
+			[new(AgentTranscriptRole.User, "answer", null, session.SlotId), new AgentTranscriptEntry(AgentTranscriptRole.Agent, "echo: answer", "completed", null)],
 			transcript.Entries);
 
 		var peers = session.Peers.Side(side[(side.IndexOf('#') + 1)..]);
 		Assert.Equal("A session can't message itself.", (await RefusedAsync(() => peers.SendAsync(side, "ping", CancellationToken.None))).Message);
-		Assert.Equal("A session can't message itself.", (await RefusedAsync(() => session.Peers.SendAsync("btw-parent", "ping", CancellationToken.None))).Message);
-		foreach (string unknown in new[] { "btw-parent#gone", "btw-parent#" }) {
+		Assert.Equal("A session can't message itself.", (await RefusedAsync(() => session.Peers.SendAsync(session.SlotId, "ping", CancellationToken.None))).Message);
+		foreach (string unknown in new[] { $"{session.SlotId}#gone", $"{session.SlotId}#" }) {
 			Assert.Contains($"No session has id '{unknown}'", (await RefusedAsync(() => session.Peers.SendAsync(unknown, "ping", CancellationToken.None))).Message, StringComparison.Ordinal);
 			Assert.Contains($"No session has id '{unknown}'", (await RefusedAsync(() => session.Peers.ReadAsync(unknown, 1, CancellationToken.None))).Message, StringComparison.Ordinal);
 		}

@@ -2,8 +2,9 @@ import type { CommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { ContextMenuEntry, ContextMenuState } from "./ContextMenu";
 import type { RailSession } from "./session-store";
+import { sessionName } from "./session-summary";
 
-/** The whole open menu for a session, named by its label (qualified by location when it isn't local). */
+/** The whole open menu for a session, headed by its full name. */
 export function sessionMenuAt(
   session: RailSession,
   x: number,
@@ -14,7 +15,7 @@ export function sessionMenuAt(
     runCommand,
     x,
     y,
-    header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,
+    header: sessionName(session),
     entries: sessionMenuEntries(session),
   };
 }

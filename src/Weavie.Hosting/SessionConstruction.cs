@@ -2,7 +2,6 @@ using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
-using Weavie.Core.Corrections;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
@@ -25,9 +24,6 @@ internal sealed record SessionServices {
 	public required KeybindingStore Keybindings { get; init; }
 
 	public required ThemeOverridesStore ThemeOverrides { get; init; }
-
-	/// <summary>The workspace's shared correction ring each session records into.</summary>
-	public required CorrectionCorpus Corrections { get; init; }
 
 	public required IInferenceService Inference { get; init; }
 
@@ -59,8 +55,8 @@ internal sealed record SessionPaths {
 	/// <summary>The session's own root: the worktree its agent and terminals open in.</summary>
 	public required string WorkspaceRoot { get; init; }
 
-	/// <summary>The workspace whose overlay holds the workspace-scoped settings the agent changes.</summary>
-	public required string SettingsWorkspaceRoot { get; init; }
+	/// <summary>The repo this checkout belongs to: its settings overlay, corrections, and recent files.</summary>
+	public required Repo Repo { get; init; }
 
 	/// <summary>Untitled buffers, outside the worktree so they never reach the tree, index, git, or agent.</summary>
 	public required string ScratchDir { get; init; }
@@ -74,13 +70,13 @@ internal sealed record SessionPaths {
 	/// <summary>A shell terminal's scrollback log, from its id.</summary>
 	public required Func<string, string> ShellScrollback { get; init; }
 
-	/// <summary>The paths of the session rooted at <paramref name="worktree"/> in <paramref name="workspace"/>.</summary>
-	public static SessionPaths For(WorkspaceId workspace, string settingsWorkspaceRoot, string worktree) {
+	/// <summary>The paths of the session rooted at <paramref name="worktree"/> of <paramref name="repo"/> in <paramref name="workspace"/>.</summary>
+	public static SessionPaths For(WorkspaceId workspace, Repo repo, string worktree) {
 		ArgumentException.ThrowIfNullOrEmpty(worktree);
 		string worktreeDigest = WorkspaceId.ForPath(worktree).Value;
 		return new() {
 			WorkspaceRoot = worktree,
-			SettingsWorkspaceRoot = settingsWorkspaceRoot,
+			Repo = repo,
 			ScratchDir = Path.Combine(WeaviePaths.WorkspaceScratchDir(workspace), worktreeDigest),
 			PastedImagesDir = Path.Combine(WeaviePaths.WorkspacePastedImagesDir(workspace), worktreeDigest),
 			AuthenticationTerminalLog = WeaviePaths.WorkspaceTerminalLogFile(workspace, worktreeDigest, "agent-authentication"),

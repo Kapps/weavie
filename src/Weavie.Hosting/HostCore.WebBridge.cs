@@ -182,8 +182,8 @@ public sealed partial class HostCore {
 	private const int RecentFilesPushCount = 50;
 
 	/// <summary>
-	/// Records a visit as a checkout-relative path in the workspace-wide recent-files store. The page resolves
-	/// that path against whichever session is selected, so recency follows a file across worktrees.
+	/// Records a visit as a checkout-relative path in the repo's recent-files store. The page resolves that path
+	/// against whichever of the repo's sessions is selected, so recency follows a file across worktrees.
 	/// </summary>
 	private void RecordRecentFile(HostSession session, ActiveEditor editor) {
 		// A file outside the checkout has no checkout-relative path, so it stays out rather than becoming "../..".
@@ -193,21 +193,22 @@ public sealed partial class HostCore {
 
 		string path = Path.GetRelativePath(session.WorkspaceRoot, editor.FilePath)
 			.Replace(Path.DirectorySeparatorChar, '/');
-		if (string.Equals(path, _lastRecentPath, StringComparison.Ordinal)) {
+		var repo = session.Repo;
+		if (string.Equals(path, repo.LastRecentFile, StringComparison.Ordinal)) {
 			return;
 		}
 
-		_lastRecentPath = path;
-		_recentFiles.Record(path, DateTime.UtcNow.Ticks);
-		PushRecentFilesToWeb();
+		repo.LastRecentFile = path;
+		repo.RecentFiles.Record(path, DateTime.UtcNow.Ticks);
+		PushRecentFiles(repo);
 	}
 
-	/// <summary>Pushes the frecency-ranked recent files (most-relevant first) for the omnibar's Recent section.</summary>
-	private void PushRecentFilesToWeb() =>
-		_messages.Host.Feature("recentFiles").Publish(
-			"changed",
-			WireJson.Default.RecentFilesChanged,
-			new(_recentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks)));
+	/// <summary>Pushes the repo's frecency-ranked recent files (most-relevant first) for the omnibar's Recent section.</summary>
+	private void PushRecentFiles(Repo repo) => _messages.Host.Feature("recentFiles").Publish(
+		"changed", WireJson.Default.RecentFilesChanged, new(repo.Root, RecentFiles(repo)));
+
+	private static IReadOnlyList<string> RecentFiles(Repo repo) =>
+		repo.RecentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks);
 
 	/// <summary>
 	/// Pushes the per-turn change list (each changed file + its first-change line) for the page's review walk +
@@ -603,15 +604,14 @@ public sealed partial class HostCore {
 	public void ClearNotify(string key) =>
 		_messages.Host.Feature("notifications").Publish("clear", WireJson.Default.ToastKey, new(key));
 
-	private async Task<string[]> ListBranchesAsync(CancellationToken ct) {
+	private async Task<string[]> ListBranchesAsync(BranchesRequest request, CancellationToken ct) {
 		var git = new GitService();
 		string[] branches = [];
 		try {
-			var all = await git.ListBranchesAsync(WorkspaceRoot, ct).ConfigureAwait(false);
-			var worktrees = await git.ListWorktreesAsync(WorkspaceRoot, ct).ConfigureAwait(false);
-			var sessionBranches = new HashSet<string>(
-				_sessions?.Slots.Select(slot => slot.Label) ?? [],
-				StringComparer.Ordinal);
+			string repoRoot = (await LaunchAsync(request.SourceId, request.Repo, ct).ConfigureAwait(false)).RepoRoot;
+			var all = await git.ListBranchesAsync(repoRoot, ct).ConfigureAwait(false);
+			var worktrees = await git.ListWorktreesAsync(repoRoot, ct).ConfigureAwait(false);
+			var sessionBranches = SessionLabels(repoRoot);
 			var checkedOut = new HashSet<string>(
 				worktrees
 					.Where(w => w.Branch is not null && !sessionBranches.Contains(w.Branch))
@@ -624,6 +624,8 @@ public sealed partial class HostCore {
 
 		return branches;
 	}
+
+	internal sealed record BranchesRequest(string? SourceId, string? Repo);
 
 	internal sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
 
@@ -778,7 +780,7 @@ internal sealed record RemoteAgentsChanged(IReadOnlyList<HostCore.RemoteAgentSna
 
 internal sealed record RecentWorkspacesChanged(IReadOnlyList<string> Recents);
 
-internal sealed record RecentFilesChanged(IReadOnlyList<string> Files);
+internal sealed record RecentFilesChanged(string Repo, IReadOnlyList<string> Files);
 
 internal sealed record FileProviderChanged(IReadOnlyList<FileProviderChange> Changes);
 

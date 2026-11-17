@@ -95,6 +95,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		State = new SessionState(Bus);
 		DisplayLabel = endpoint.Address.Slot;
 		WorkspaceRoot = workspaceRoot;
+		Repo = paths.Repo;
 		_editorMessages = Bus.Feature("editor");
 		_notificationMessages = Bus.Feature("notifications");
 
@@ -176,9 +177,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Status = new SessionStatusMachine();
 		Activity = new SessionActivityTracker(Status);
 		// Appends the user's corrections (editor saves over an agent hunk, and review-UI reverts) into the
-		// workspace's shared ring, one entry per action — captured at the moment they act, not at a boundary.
+		// repo's shared ring, one entry per action — captured at the moment they act, not at a boundary.
 		// See docs/specs/learn-from-corrections.md.
-		Corrections = new CorrectionRecorder(services.Corrections);
+		Corrections = new CorrectionRecorder(Repo.Corrections);
 		Changes.Corrected += edits => {
 			if (settings.RequireBool(CorrectionsSettings.Enabled)) Corrections.Record(edits);
 		};
@@ -209,7 +210,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			new McpCapabilities {
 				ExposeIdeTools = exposeRegistryIdeTools,
 				Settings = settings,
-				SettingsWorkspaceRoot = paths.SettingsWorkspaceRoot,
+				SettingsWorkspaceRoot = Repo.Root,
 				Layout = services.Layout,
 				Editor = Editor,
 				Commands = Commands,
@@ -267,7 +268,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			workspaceRoot,
 			new LspServerLauncher(),
 			selector => LanguageServerCatalog.Resolve(selector) is { } descriptor
-				? LspSettings.Effective(descriptor, settings, paths.SettingsWorkspaceRoot, workspaceRoot)
+				? LspSettings.Effective(descriptor, settings, Repo.Root, workspaceRoot)
 				: null,
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
@@ -424,6 +425,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>The directory this session's agent, shell, file opener, and LSP are rooted at.</summary>
 	public string WorkspaceRoot { get; }
+
+	/// <summary>The repo this session's checkout belongs to.</summary>
+	public Repo Repo { get; }
 
 	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
 	public IFileSystem FileSystem { get; }

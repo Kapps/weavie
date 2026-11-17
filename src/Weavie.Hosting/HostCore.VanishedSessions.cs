@@ -42,7 +42,7 @@ public sealed partial class HostCore {
 
 		await _ui.InvokeAsync(() => UnloadSlotAsync(slot), CancellationToken.None).ConfigureAwait(false);
 		await RetireSlotAsync(slot).ConfigureAwait(false);
-		if (_worktrees is { } worktrees) {
+		if (slot.Repo.Worktrees is { } worktrees) {
 			await worktrees.ReconcileAsync(CancellationToken.None).ConfigureAwait(false);
 		}
 

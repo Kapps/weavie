@@ -48,8 +48,8 @@ public sealed partial class HostCore {
 		try {
 			await ReplaceSlotAsync(target, () => {
 				provider.ClearConversation(target.WorktreePath);
-				if (_worktrees?.Registry.FindByPath(target.WorktreePath) is { } record) {
-					_worktrees.Registry.Add(record with { AgentProviderId = provider.Info.Id });
+				if (target.Repo.Worktrees?.Registry is { } registry && registry.FindByPath(target.WorktreePath) is { } record) {
+					registry.Add(record with { AgentProviderId = provider.Info.Id });
 				}
 				target.AgentProviderId = provider.Info.Id;
 			}).ConfigureAwait(false);

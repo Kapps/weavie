@@ -1,4 +1,5 @@
 using Weavie.Core.FileSystem;
+using Weavie.Core.Git;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
@@ -42,7 +43,8 @@ public sealed partial class HostCore {
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
 				slot = new SessionSlot {
 					Label = _workspaceSessionLabel,
-					WorktreePath = WorkspaceRoot,
+					Repo = Home,
+					WorktreePath = HomeFolder,
 					AgentProviderId = item.AgentProviderId,
 					Session = null,
 					EditorSession = item.EditorSession,
@@ -52,6 +54,8 @@ public sealed partial class HostCore {
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
+			} else if (await RestoreForeignSlotAsync(item).ConfigureAwait(false) is { } foreign) {
+				_sessions.Add(slot = foreign);
 			}
 
 			if (slot is { }) {
@@ -93,10 +97,33 @@ public sealed partial class HostCore {
 		}
 	}
 
+	// A saved session outside the home repo: git says which repo its worktree belongs to.
+	private async Task<SessionSlot?> RestoreForeignSlotAsync(SessionDescriptor item) {
+		if (!Directory.Exists(item.WorktreePath)) {
+			return null;
+		}
+
+		try {
+			var repo = await RepoForAsync(item.WorktreePath, CancellationToken.None).ConfigureAwait(false);
+			return repo == Home ? null : new SessionSlot {
+				Label = item.Label,
+				Repo = repo,
+				WorktreePath = item.WorktreePath,
+				AgentProviderId = item.AgentProviderId,
+				Session = null,
+				EditorSession = item.EditorSession,
+				ShellTerminals = item.ShellTerminals,
+			};
+		} catch (GitException ex) {
+			_sessionStartupNotices.Add(("warn", $"The session '{item.Label}' wasn't restored: {ex.Message}"));
+			return null;
+		}
+	}
+
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.ShellTerminals);
+			session = CreateSession(slot.Repo, slot.WorktreePath, slot.AgentProviderId, slot.ShellTerminals);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);

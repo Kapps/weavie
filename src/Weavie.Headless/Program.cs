@@ -65,14 +65,14 @@ await using var instances = new InstanceServer(
 	WeaviePaths.Root,
 	request => DesktopHandoff.Offer(
 		request.Paths,
-		core.WorkspaceRoot,
+		core.HomeFolder,
 		DesktopHandoff.GitToplevel,
 		core.RequestOpenPath),
 	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
 if (transport is HostTransport.Local) {
 	instances.TryStart();
 }
-Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
+Console.WriteLine($"[weavie-headless] workspace: {core.HomeFolder}");
 Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");
 Console.Out.Flush();

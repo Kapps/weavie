@@ -2245,9 +2245,7 @@ export default function App(): JSX.Element {
       <Suggestions
         items={suggestions()}
         onDismiss={(id, forever) =>
-          selectedSession()
-            ?.connection.host.feature("suggestions")
-            .publish("dismiss", { id, forever })
+          selectedSession()?.feature("suggestions").publish("dismiss", { id, forever })
         }
       />
       <ThemePicker />

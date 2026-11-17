@@ -619,7 +619,7 @@ public sealed class SettingsStore : IDisposable {
 		double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out number) && double.IsFinite(number);
 
 	/// <summary>Replaces a leading <c>~</c> in <paramref name="path"/> with the user's home directory.</summary>
-	internal static string ExpandHome(string path) {
+	public static string ExpandHome(string path) {
 		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		if (path == "~") {
 			return home;

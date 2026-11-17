@@ -11,6 +11,8 @@ public sealed partial class HostCore {
 			var peer = new SessionPeer(
 				entry.Id,
 				entry.Title,
+				entry.Repo,
+				entry.Worktree,
 				entry.ProviderId,
 				entry.Loaded,
 				entry.Status,

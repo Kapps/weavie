@@ -11,7 +11,7 @@ import {
 } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { sessionDetail, sessionSubtitle, switchShortcut } from "./session-summary";
+import { sessionDetail, sessionName, sessionSubtitle, switchShortcut } from "./session-summary";
 
 /** The session panel's list behavior, applied to the rail while it stands in for the unpinned panel. */
 export interface SessionListHandlers {
@@ -36,9 +36,8 @@ export function SessionRail(props: {
   onTogglePin: () => void;
 }): JSX.Element {
   const chipTitle = (session: RailSession, index: number): string => {
-    const where = session.isLocal ? "" : ` @ ${session.locationName}`;
     const shortcut = switchShortcut(index);
-    const base = `${session.label}${where} — ${sessionSubtitle(session, Date.now())}`;
+    const base = `${sessionName(session)} — ${sessionSubtitle(session, Date.now())}`;
     const titled = shortcut !== "" ? `${base} (${shortcut})` : base;
     const detail = sessionDetail(session);
     return detail !== "" ? `${titled}\n${detail}` : titled;
@@ -89,6 +88,9 @@ export function SessionRail(props: {
                     <SessionStatus session={session} />
                     <Show when={session.pending}>
                       <span class="session-chip-spinner" aria-hidden="true" />
+                    </Show>
+                    <Show when={session.repoLabel !== ""}>
+                      <span class="session-chip-repo">{session.repoLabel}</span>
                     </Show>
                     <span class="session-chip-words">
                       {session.title.split(" ").slice(0, 2).join(" ")}

@@ -25,6 +25,9 @@ public sealed class SessionSlot {
 	/// <summary>A turn finished here that no client has viewed since.</summary>
 	public bool Unseen { get; set; }
 
+	/// <summary>The repo this checkout belongs to.</summary>
+	public required Repo Repo { get; init; }
+
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }
 

@@ -16,6 +16,8 @@ public sealed partial class McpServer {
 				writer.WriteStartObject();
 				writer.WriteString("id", peer.Id);
 				writer.WriteString("title", peer.Title);
+				writer.WriteString("repo", peer.Repo);
+				writer.WriteString("worktree", peer.Worktree);
 				writer.WriteString("provider", peer.ProviderId);
 				writer.WriteBoolean("loaded", peer.Loaded);
 				writer.WriteString("status", peer.Status);

@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CommandIds } from "../commands/types";
 import { sessionMenuEntries } from "./session-menu";
 import type { RailSession } from "./session-store";
+
+vi.mock("../commands/registry", () => ({ getKeybindings: () => [], onCommandsChanged: () => {} }));
 
 function railSession(over: Partial<RailSession>): RailSession {
   return {
@@ -23,6 +25,8 @@ function railSession(over: Partial<RailSession>): RailSession {
     workspaceCheckout: false,
     reloadRequired: null,
     external: false,
+    repo: "/repo",
+    repoLabel: "",
     backendId: "local",
     locationName: "default",
     isLocal: true,

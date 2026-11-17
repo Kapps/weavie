@@ -89,8 +89,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly LayoutStore _layout;
 	// Per-workspace session overlay, so reopen restores each slot's runtime and editor state.
 	private readonly SessionStore _sessionStore;
-	private readonly RecentFilesStore _recentFiles;
-	private readonly CorrectionCorpus _corrections;
 	private readonly WorkflowDecisionHistory _decisionHistory;
 	private readonly WorkspaceFileRoutes _fileRoutes = new();
 	private readonly WorkspaceHttpServer _http;
@@ -99,8 +97,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private string _workspaceSessionLabel = string.Empty;
 	// Empty unless the startup shell probe failed; surfaced at hello, where the user can actually see it.
 	private string _environmentImportFailure = string.Empty;
-	private WorktreeManager? _worktrees;
-	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
@@ -214,30 +210,19 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_pullRequestDiscussion = services.PullRequestDiscussion;
 		_sources = services.Sources;
 		_credentials = services.Credentials;
-		WorkspaceRoot = workspaceRoot;
+		HomeFolder = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 		_workflowDocuments = new Weavie.Core.Workflows.WorkflowDocumentFolders(WeaviePaths.WorkspaceWorkflowDocumentsDir(Id), message => _ui.Post(() => Notify("error", message)));
-
-		// Back per-workspace settings (worktree.setupCommand, test.profile) from the workspace's out-of-repo overlay.
-		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
-		_settings.RegisterWorkspace(workspaceRoot);
 
 		// Per-workspace layout and session catalog, keyed by the folder's path id.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_sessionStore = new SessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceSessionsFile(Id));
 		_sessionStore.Log += Log;
 		_commandUsage = new CommandUsageStore(new LocalFileSystem(), WeaviePaths.WorkspaceCommandUsageFile(Id));
-		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
-		_recentFiles.Log += Log;
-		// One correction ring per workspace, shared by every session/worktree: rules about how the agent codes
-		// in this repo are repo-level. Its count gates the corrections.learn card, so changes re-evaluate.
-		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
-		_corrections.Log += Log;
-		_corrections.Changed += () => _suggestions?.Evaluate();
-		// Workspace-level like the corrections ring, and like it re-evaluates suggestions when it changes.
+		// Workspace-level, and every repo's suggestions read it.
 		_decisionHistory = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(Id));
 		_decisionHistory.Log += Log;
-		_decisionHistory.Changed += () => _suggestions?.Evaluate();
+		_decisionHistory.Changed += EvaluateSuggestions;
 		_sessionServices = CreateSessionServices();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
 		_windowFeature = new WindowFeature(_messages.Host, _platform.Window);
@@ -245,10 +230,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
 		_messages.Host.PeerDisconnected += OnApplicationMenuPeerDisconnected;
 	}
-
-	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
-	// file) bumps frecency once per distinct file visit, not per move.
-	private string? _lastRecentPath;
 
 	/// <summary>
 	/// Raised when the connection hello is built. A shell with a web-rendered title bar subscribes to push the
@@ -259,8 +240,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	/// <summary>This workspace's stable identity (path-derived).</summary>
 	public WorkspaceId Id { get; }
 
-	/// <summary>The absolute workspace root this core serves.</summary>
-	public string WorkspaceRoot { get; }
+	/// <summary>The folder this workspace was opened on: its identity, and a repository or a plain folder.</summary>
+	public string HomeFolder { get; }
 
 	/// <summary>The shared HTTP origin serving this workspace's app and streamed resources.</summary>
 	public string WorkspaceOrigin => _http.Origin;
@@ -284,7 +265,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	}
 
 	/// <summary>The folder's leaf name for the window title / shell label (e.g. <c>weavie</c> for <c>/src/weavie</c>).</summary>
-	public string WorkspaceLabel => WorkspaceNaming.Label(WorkspaceRoot);
+	public string WorkspaceLabel => WorkspaceNaming.Label(HomeFolder);
 
 	/// <summary>
 	/// Builds the workspace's live backend: the session set (pre-existing worktrees
@@ -338,15 +319,15 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
 		// session on the workspace checkout.
-		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
-		_sessions = new SessionManager(_worktrees);
+		Home = OpenRepo(HomeFolder, git, isRepo);
+		_sessions = new SessionManager();
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		LogStartup("worktrees discovered");
 		await GatedAsync(_sessionCatalog, RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
 		LogStartup("sessions restored");
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
-		InitSuggestions();
+		Home.Suggestions.Start();
 
 		WireReactions();
 		_http.MarkReady();
@@ -367,7 +348,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase, WireJson.Default.String)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ _global.BootstrapScript()
-			+ BuildTestProfileScript()
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.Window.Chrome, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
 
@@ -427,11 +407,15 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
 				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold or InferenceSettings.DecisionProvider) {
-				_suggestions?.Evaluate();
+				foreach (var repo in ReposAffectedBy(change)) {
+					repo.Suggestions.Evaluate();
+				}
 			}
 
 			if (change.Key == TestSettings.Profile) {
-				PushTestProfileToWeb();
+				foreach (var repo in ReposAffectedBy(change)) {
+					PushTestProfile(repo);
+				}
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;

@@ -117,6 +117,9 @@ export function SessionText(props: { session: RailSession; now: number }): JSX.E
   return (
     <span class="session-panel-text ui-row-text">
       <span class="session-panel-name">
+        <Show when={props.session.repoLabel !== ""}>
+          <span class="session-panel-repo ui-row-note">{props.session.repoLabel}</span>
+        </Show>
         <span class="session-panel-title ui-row-name">{props.session.title}</span>
         <span class="session-panel-age ui-row-note">{sessionAge(props.session, props.now)}</span>
       </span>

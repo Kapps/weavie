@@ -145,22 +145,27 @@ public sealed partial class HostCore {
 			(message, ct) => BlameHistoryAsync(session, message, ct));
 		git.HandleConcurrent(
 			"commitRef", MessageActivity.ActionFailed("Loading a commit"), WireJson.Default.CommitRefRequest, WireJson.Default.CommitRefResult,
-			(message, ct) => CommitRefAsync(message, ct));
+			(message, ct) => CommitRefAsync(session, message, ct));
 
 		var pullRequests = session.Bus.Feature("pullRequests");
 		// Lookups are read-only and the dialog keeps only its latest answer, so they never queue behind an open.
 		pullRequests.HandleConcurrent(
 			"list", MessageActivity.ActionFailed("Listing pull requests"), WireJson.Default.PullRequestQuery, WireJson.Default.PullRequestWireArray,
-			(message, ct) => ListPullRequestsAsync(message.Query, ct));
+			(message, ct) => ListPullRequestsAsync(session, message.Query, ct));
 		pullRequests.HandleConcurrent(
 			"resolve", MessageActivity.ActionFailed("Looking up a pull request"), WireJson.Default.PullRequestReference, WireJson.Default.PullRequestWire,
-			(message, ct) => GetPullRequestAsync(message, ct));
+			(message, ct) => GetPullRequestAsync(session, message, ct));
 		pullRequests.HandleKeyed(
 			"open", _ => MessageActivity.NoDeadline("Opening a pull request"), WireJson.Default.PullRequestReference, WireJson.Default.CommandWireResult,
 			message => $"open:{message.Owner}/{message.Repo}#{message.Number}",
 			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
 		HandlePullRequestComments(session, pullRequests);
+
+		session.Bus.Feature("suggestions").Handle("dismiss", MessageActivity.ActionFailed("Dismissing a suggestion"), WireJson.Default.SuggestionDismissal, (message, _) => {
+			DismissSuggestion(session, message.Id, message.Forever);
+			return Task.CompletedTask;
+		});
 
 		var sources = session.Bus.Feature("sources");
 		sources.Handle("open", MessageActivity.ActionFailed("Opening a source"), WireJson.Default.OpenTargetMessage, (message, _) => {
@@ -212,6 +217,7 @@ public sealed partial class HostCore {
 
 	internal sealed record HostBranchPreviewRequest(
 		string? SourceId,
+		string? Repo,
 		string? Prompt,
 		IReadOnlyList<NewSessionAttachment> Attachments,
 		bool UserInitiated);

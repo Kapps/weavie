@@ -70,11 +70,6 @@ public sealed partial class HostCore {
 			return Task.FromResult(true);
 		});
 
-		_messages.Host.Feature("suggestions").Handle("dismiss", MessageActivity.ActionFailed("Dismissing a suggestion"), WireJson.Default.SuggestionDismissal, (message, _) => {
-			DismissSuggestion(message.Id, message.Forever);
-			return Task.CompletedTask;
-		});
-
 		var remoteAgents = _messages.Host.Feature("remoteAgents");
 		remoteAgents.Handle("add", MessageActivity.ActionFailed("Adding a remote agent"), WireJson.Default.RemoteAgentMessage, (message, _) => {
 			if (!string.IsNullOrWhiteSpace(message.Name)) {
@@ -150,8 +145,8 @@ public sealed partial class HostCore {
 		});
 
 		_messages.Host.Feature("git").Handle(
-			"branches", MessageActivity.ActionFailed("Listing branches"), WireJson.Default.EmptyPayload, WireJson.Default.StringArray,
-			(_, ct) => ListBranchesAsync(ct));
+			"branches", MessageActivity.ActionFailed("Listing branches"), WireJson.Default.BranchesRequest, WireJson.Default.StringArray,
+			ListBranchesAsync);
 
 		_messages.Host.Feature("sessions").HandleKeyed(
 			"invoke", CommandActivity, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
@@ -307,21 +302,24 @@ public sealed partial class HostCore {
 		&& element.TryGetProperty(name, out var value)
 		&& value.ValueKind == JsonValueKind.True;
 
-	private Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
+	private async Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
 		HostBranchPreviewRequest message,
 		CancellationToken ct) {
-		if (!TryLaunchRoot(message.SourceId, out string root)) {
-			return Task.FromResult(BranchPreviewResult.Failed(SourceGoneMessage));
+		Launch launch;
+		try {
+			launch = await LaunchAsync(message.SourceId, message.Repo, ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
+			return BranchPreviewResult.Failed(ex.Message);
 		}
 
-		return PreviewBranchNameAsync(
-			root,
+		return await PreviewBranchNameAsync(
+			launch,
 			message.Prompt,
 			message.Attachments,
 			message.UserInitiated
 				? InferenceInvocationOrigin.UserInitiated
 				: InferenceInvocationOrigin.Automatic,
-			ct);
+			ct).ConfigureAwait(false);
 	}
 
 	private HostHello BuildHello() {
@@ -335,7 +333,7 @@ public sealed partial class HostCore {
 			BuildRailSnapshot(),
 			BuildSearchSnapshot(),
 			BuildReviewOverviewSnapshot(),
-			ResolvedTestProfile(),
+			RepoStates(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
 			BuildCommandUsage(),
@@ -419,7 +417,7 @@ public sealed partial class HostCore {
 		RailSnapshot Rail,
 		SearchSnapshot Search,
 		ReviewOverviewSnapshot ReviewOverview,
-		string TestProfile,
+		RepoState[] Repos,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);

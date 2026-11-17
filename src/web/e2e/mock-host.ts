@@ -31,6 +31,8 @@ export interface MockSession {
   workspaceCheckout: boolean;
   reloadRequired: string | null;
   external: boolean;
+  repo: string;
+  repoLabel: string;
   shellTerminals: string[];
 }
 
@@ -100,6 +102,8 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     workspaceCheckout: false,
     reloadRequired: null,
     external: false,
+    repo: "/workspace",
+    repoLabel: "workspace",
     shellTerminals: [`${id}-shell`],
   };
 }
@@ -864,7 +868,7 @@ export class MockHost {
         recentTerms: [],
       },
       reviewOverview: { collapsed: [] },
-      testProfile: "",
+      repos: [],
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
       commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },

@@ -78,6 +78,8 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		var peers = payload.RootElement.GetProperty("sessions").EnumerateArray()
 			.Select(peer => (peer.GetProperty("id").GetString(), peer.GetProperty("receive").GetString())).ToList();
 		Assert.Equal([("feat/self", "ready"), ("feat/other", "needsLoad"), ("feat/claude", "unsupported")], peers);
+		var other = payload.RootElement.GetProperty("sessions")[1];
+		Assert.Equal(("/infra", "/infra/wt/other"), (other.GetProperty("repo").GetString(), other.GetProperty("worktree").GetString()));
 	}
 
 	[Fact]
@@ -180,10 +182,10 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		public ISessionPeers Side(string conversationId) => new FakePeers(Root, conversationId);
 
 		public Task<IReadOnlyList<SessionPeer>> ListAsync(bool includeSides, CancellationToken ct) => Task.FromResult<IReadOnlyList<SessionPeer>>([
-			new("feat/self", "Self", "codex", true, "working", SessionPeerReceive.Ready, null, null),
-			new("feat/other", "Other", "codex", false, "idle", SessionPeerReceive.NeedsLoad, null, null),
-			new("feat/claude", "Claude", "claude", true, "idle", SessionPeerReceive.Unsupported, null, null),
-			.. includeSides ? [new SessionPeer("feat/self#b7", "Self BTW", "codex", true, "idle", SessionPeerReceive.Ready, "feat/self", "why?")] : Array.Empty<SessionPeer>(),
+			new("feat/self", "Self", "/repo", "/repo/wt/self", "codex", true, "working", SessionPeerReceive.Ready, null, null),
+			new("feat/other", "Other", "/infra", "/infra/wt/other", "codex", false, "idle", SessionPeerReceive.NeedsLoad, null, null),
+			new("feat/claude", "Claude", "/repo", "/repo/wt/claude", "claude", true, "idle", SessionPeerReceive.Unsupported, null, null),
+			.. includeSides ? [new SessionPeer("feat/self#b7", "Self BTW", "/repo", "/repo/wt/self", "codex", true, "idle", SessionPeerReceive.Ready, "feat/self", "why?")] : Array.Empty<SessionPeer>(),
 		]);
 
 		public Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct) {

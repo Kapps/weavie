@@ -226,6 +226,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 		var service = new SuggestionService(
 			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout,
 			Push, probe, signals);
+		service.Start();
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		IReadOnlyList<ActiveSuggestion> Active() {
 			lock (gate) {

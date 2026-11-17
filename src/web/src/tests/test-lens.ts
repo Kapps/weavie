@@ -137,7 +137,7 @@ function ruleForModel(model: monaco.editor.ITextModel): TestRule | undefined {
   const session = sessionForUri(model.uri);
   return session === undefined
     ? undefined
-    : testRulesFor(session.connection).find((rule) => globMatches(rule.glob, relative));
+    : testRulesFor(session).find((rule) => globMatches(rule.glob, relative));
 }
 
 // The model's path relative to the workspace root (forward-slashed), or undefined when the file is outside the

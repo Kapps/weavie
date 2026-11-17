@@ -1,4 +1,5 @@
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
@@ -7,7 +8,7 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
 	private async Task<BranchPreviewResult> PreviewBranchNameAsync(
-		string sourceRoot,
+		Launch launch,
 		string? prompt,
 		IReadOnlyList<NewSessionAttachment> attachments,
 		InferenceInvocationOrigin origin,
@@ -23,11 +24,12 @@ public sealed partial class HostCore {
 				"Type a prompt or attach an image before requesting a branch suggestion.");
 		}
 
+		string sourceRoot = launch.Root;
 		var git = new GitService();
 		HashSet<string> taken;
 		BranchNameInferenceInput input;
 		try {
-			taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
+			taken = await TakenBranchNamesAsync(launch.RepoRoot, ct).ConfigureAwait(false);
 			var recent = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false);
 			string? defaultBranch = await git.ResolveDefaultBranchAsync(sourceRoot, ct).ConfigureAwait(false);
 			var mine = NamingExamples(recent.Mine, defaultBranch);
@@ -119,20 +121,14 @@ public sealed partial class HostCore {
 		return true;
 	}
 
-	private async Task<HashSet<string>> TakenBranchNamesAsync(CancellationToken ct) {
-		var taken = new HashSet<string>(StringComparer.Ordinal);
-		if (_sessions is not null) {
-			foreach (var slot in _sessions.Slots) {
-				taken.Add(slot.Label);
-			}
-		}
-
-		foreach (string branch in await new GitService()
-			.ListBranchesAsync(WorkspaceRoot, ct)
-			.ConfigureAwait(false)) {
-			taken.Add(branch);
-		}
-
+	private async Task<HashSet<string>> TakenBranchNamesAsync(string repoRoot, CancellationToken ct) {
+		var taken = SessionLabels(repoRoot);
+		taken.UnionWith(await new GitService().ListBranchesAsync(repoRoot, ct).ConfigureAwait(false));
 		return taken;
 	}
+
+	/// <summary>The labels of the sessions in the repo at <paramref name="repoRoot"/>.</summary>
+	private HashSet<string> SessionLabels(string repoRoot) => new(
+		_sessions?.Slots.Where(slot => PathIdentity.Equals(slot.Repo.Root, repoRoot)).Select(slot => slot.Label) ?? [],
+		StringComparer.Ordinal);
 }

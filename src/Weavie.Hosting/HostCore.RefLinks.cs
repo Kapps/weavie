@@ -17,7 +17,7 @@ public sealed partial class HostCore {
 
 	private void PushRefLinkBase(HostSession session, Messaging.MessageTarget target) {
 		_ = session.Background.Run(async ct => {
-			var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
+			var repo = await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false);
 			string? prefix = repo is null ? null : _pullRequests.RefUrlBase(repo);
 			ct.ThrowIfCancellationRequested();
 			target.Feature("git").Publish("refLinkBase", WireJson.Default.RefLinkBase, new(prefix));

@@ -39,7 +39,7 @@ internal sealed partial class WorkspaceHost {
 		var toplevel = new ToplevelCache();
 		var reply = DesktopHandoff.Offer(
 			request.Paths,
-			Volatile.Read(ref _core)?.WorkspaceRoot,
+			Volatile.Read(ref _core)?.HomeFolder,
 			toplevel.For,
 			file => GtkMain.Invoke(() => _core?.RequestOpenPath(file)));
 		if (reply.Accepted) {
@@ -56,7 +56,7 @@ internal sealed partial class WorkspaceHost {
 		foreach (string path in _launchPaths) {
 			var target = OpenTargetResolver.Resolve(
 				path,
-				_core is null ? [] : [_core.WorkspaceRoot],
+				_core is null ? [] : [_core.HomeFolder],
 				toplevel.For(path));
 			if (target.File is { } file) {
 				_core?.RequestOpenPath(file);

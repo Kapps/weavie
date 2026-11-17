@@ -134,6 +134,8 @@ registerHostFeature((connection) =>
             workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
             reloadRequired: entry.reloadRequired,
+            repo: entry.repo,
+            repoLabel: entry.repoLabel,
           };
         }),
       );
@@ -227,6 +229,7 @@ const merged = createMemo<RailSession[]>(() => {
     }
     const isLocal = backendId === "local";
     const offline = backendPhase(backendId) !== "online";
+    const manyRepos = new Set(chips.map((chip) => chip.repo)).size > 1;
     for (const chip of chips) {
       // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
       const active = chip.owner !== null && selected === chip.owner;
@@ -235,6 +238,7 @@ const merged = createMemo<RailSession[]>(() => {
         backendId,
         isLocal,
         locationName: backendName(backendId),
+        repoLabel: manyRepos ? chip.repoLabel : "",
         active,
         // The selected session reads seen at once rather than flashing Finished until the host clears it.
         unseen: chip.unseen && !active,

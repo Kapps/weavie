@@ -1,5 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
@@ -12,15 +13,28 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private const string SourceGoneMessage = "The source session no longer exists.";
 
-	// Where a start reads its workflows and conventions from: the session it is made from, else the workspace. It is
-	// read before any worktree exists, so a bad start leaves no session behind and the new one runs what was checked.
-	private string LaunchRoot(SessionSlot? source) => source?.WorktreePath ?? WorkspaceRoot;
+	// Where a start reads its workflows and conventions from: the session it is made from when that is in the
+	// start's repo, else the repo itself. It is read before any worktree exists, so a bad start leaves no session
+	// behind and the new one runs what was checked.
+	private static string LaunchRoot(SessionSlot? source, string repoRoot) =>
+		source is not null && PathIdentity.Equals(source.Repo.Root, repoRoot) ? source.WorktreePath : repoRoot;
 
-	// False when the session a start names is gone.
-	private bool TryLaunchRoot(string? sourceId, out string root) {
-		var source = string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
-		root = LaunchRoot(source);
-		return source is not null || string.IsNullOrWhiteSpace(sourceId);
+	// The repo a start is made in and the folder it reads from.
+	private readonly record struct Launch(string RepoRoot, string Root);
+
+	// A start names its repo by path, else it is its source session's, else the home folder's.
+	private async Task<Launch> LaunchAsync(string? sourceId, string? repo, CancellationToken ct) {
+		var source = string.IsNullOrWhiteSpace(sourceId)
+			? null
+			: _sessions?.Find(sourceId) ?? throw new InvalidOperationException(SourceGoneMessage);
+		string repoRoot = (source?.Repo ?? Home).Root;
+		if (!string.IsNullOrWhiteSpace(repo)) {
+			repoRoot = await RepoRootAsync(SettingsStore.ExpandHome(repo.Trim()), ct).ConfigureAwait(false);
+			// Its settings overlay is read before the repo has a session here.
+			_settings.RegisterWorkspace(repoRoot);
+		}
+
+		return new(repoRoot, LaunchRoot(source, repoRoot));
 	}
 
 	// The one rule for a workflow's roles in sessions of the provider described by info.
@@ -28,17 +42,15 @@ public sealed partial class HostCore {
 
 	private AgentProviderInfo RequireProvider(string providerId) => WeavieWorkflows.RequireProvider(_agentProviders, providerId);
 
-	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(string root, string providerId, CancellationToken ct) {
-		string configured = _settings.RequireString(WorkflowSettings.Default, WorkspaceRoot);
+	private Task<WorkflowStartOptions> WorkflowStartOptionsAsync(Launch launch, string providerId, CancellationToken ct) {
+		string configured = _settings.RequireString(WorkflowSettings.Default, launch.RepoRoot);
 		var roles = RoleResolver(RequireProvider(providerId));
-		return Task.Run(() => WorkflowStartOptions.From(WeavieWorkflows.Catalog(root), configured, roles), ct);
+		return Task.Run(() => WorkflowStartOptions.From(WeavieWorkflows.Catalog(launch.Root), configured, roles), ct);
 	}
 
-	private string RequireLaunchRoot(string? sourceId) =>
-		TryLaunchRoot(sourceId, out string root) ? root : throw new InvalidOperationException(SourceGoneMessage);
-
 	private async Task<WorkflowStartCatalog> WorkflowStartCatalogAsync(WorkflowStartTarget target, CancellationToken ct) {
-		var options = await WorkflowStartOptionsAsync(RequireLaunchRoot(target.SourceId), target.ProviderId, ct).ConfigureAwait(false);
+		var launch = await LaunchAsync(target.SourceId, target.Repo, ct).ConfigureAwait(false);
+		var options = await WorkflowStartOptionsAsync(launch, target.ProviderId, ct).ConfigureAwait(false);
 		return new(
 			[.. options.Offered.Select(option => new WorkflowOptionWire(
 				option.Entry.Id,
@@ -53,8 +65,9 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<WorkflowSuggestionResult> SuggestWorkflowAsync(WorkflowSuggestionRequest request, CancellationToken ct) {
-		string root = RequireLaunchRoot(request.SourceId);
-		var options = await WorkflowStartOptionsAsync(root, request.ProviderId, ct).ConfigureAwait(false);
+		var launch = await LaunchAsync(request.SourceId, request.Repo, ct).ConfigureAwait(false);
+		string root = launch.Root;
+		var options = await WorkflowStartOptionsAsync(launch, request.ProviderId, ct).ConfigureAwait(false);
 		var suggestion = await new WorkflowSuggester(_decisions, _decisionHistory)
 			.SuggestAsync(options.Startable, request.Prompt, root, _settings.RequireNumber(WorkflowSettings.DecisionConfidence),
 				request.UserInitiated ? InferenceInvocationOrigin.UserInitiated : InferenceInvocationOrigin.Automatic, ct)
@@ -82,7 +95,7 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<RoleSuggestionResult> SuggestRoleAsync(RoleSuggestionRequest request, CancellationToken ct) {
-		string root = RequireLaunchRoot(request.SourceId);
+		string root = (await LaunchAsync(request.SourceId, request.Repo, ct).ConfigureAwait(false)).Root;
 		var resolver = RoleResolver(RequireProvider(request.ProviderId));
 		var definition = await Task.Run(() => WeavieWorkflows.Catalog(root).Winner(request.Workflow)?.Definition, ct).ConfigureAwait(false);
 		var read = definition is null ? null : resolver.Read(definition);
@@ -96,9 +109,9 @@ public sealed partial class HostCore {
 		return Reply(suggestion, static (applies, model, error) => new RoleSuggestionResult(applies, model, error));
 	}
 
-	internal sealed record WorkflowStartTarget(string? SourceId, string ProviderId);
+	internal sealed record WorkflowStartTarget(string? SourceId, string? Repo, string ProviderId);
 
-	internal sealed record WorkflowSuggestionRequest(string? SourceId, string ProviderId, string Prompt, bool UserInitiated);
+	internal sealed record WorkflowSuggestionRequest(string? SourceId, string? Repo, string ProviderId, string Prompt, bool UserInitiated);
 
 	internal sealed record WorkflowRoleNeedWire(string Role, string? Problem);
 
@@ -110,7 +123,7 @@ public sealed partial class HostCore {
 
 	internal sealed record RoleControlsRequest(string ProviderId, string Model);
 
-	internal sealed record RoleSuggestionRequest(string? SourceId, string ProviderId, string Workflow, string Role);
+	internal sealed record RoleSuggestionRequest(string? SourceId, string? Repo, string ProviderId, string Workflow, string Role);
 
 	internal sealed record RoleSuggestionResult(bool Applies, string? Model, string? Error);
 }

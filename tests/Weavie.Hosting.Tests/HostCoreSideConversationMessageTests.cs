@@ -54,7 +54,7 @@ public sealed class HostCoreSideConversationMessageTests {
 
 		var listed = await session.Peers.ListAsync(includeSides: true, CancellationToken.None);
 		Assert.Equal(
-			new SessionPeer(side, "btw parent BTW", "fake-acp", true, "idle", SessionPeerReceive.Ready, session.SlotId, "mcp:currentSession:{}"),
+			new SessionPeer(side, "btw parent BTW", session.Repo.Root, session.WorkspaceRoot, "fake-acp", true, "idle", SessionPeerReceive.Ready, session.SlotId, "mcp:currentSession:{}"),
 			Assert.Single(listed, peer => peer.Parent is not null));
 		Assert.DoesNotContain(await session.Peers.ListAsync(includeSides: false, CancellationToken.None), peer => peer.Parent is not null);
 

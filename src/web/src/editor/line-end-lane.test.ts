@@ -30,7 +30,10 @@ function element() {
       children.push(child);
       return child;
     },
-    replaceChildren: vi.fn(),
+    insertBefore: (child: FakeElement, before: FakeElement | null) => {
+      children.splice(before === null ? children.length : children.indexOf(before), 0, child);
+      return child;
+    },
     remove: vi.fn(),
   };
 }

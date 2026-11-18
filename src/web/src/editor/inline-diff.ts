@@ -5,9 +5,15 @@
 import { type ClientSession, log } from "../bridge";
 import { setContext } from "../commands/context";
 import { IS_MAC } from "../commands/keybindings";
+import { onCommandsChanged } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
-import { addLineEndItem, type LineEndItem } from "./line-end-lane";
+import {
+  type KeyedLineEndItem,
+  keyedLineEndItems,
+  type TrackedLine,
+  trackLine,
+} from "./line-end-lane";
 import type { monaco } from "./monaco-setup";
 import { splitDiffLines } from "./review/diff-computation";
 import { DiffComputer } from "./review/diff-computer";
@@ -274,9 +280,11 @@ export function createInlineDiff(
   let currentOptions: InlineDiffOptions | undefined;
   let fallbackNavigation: InlineDiffOptions | undefined;
   let currentHunks: DiffHunk[] = [];
-  // The per-hunk line-end affordances — ✓ keep / ✕ revert beside each bright pending hunk, ↶ undo beside each
-  // faded accepted one — as removals, run on every re-render.
-  let hunkWidgets: (() => void)[] = [];
+  // Hunk actions asked for while an edit's recompute is pending, each pinned to the line it was asked at and run
+  // in order on the hunk found there once the change geometry is fresh again.
+  let deferredActions: { at: TrackedLine; act(hunk: DiffHunk | undefined): void }[] = [];
+  // Bumped when key bindings change, so the toolbar and hunk controls rebuild with the new shortcut tooltips.
+  let shortcutsRevision = 0;
   // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
   let renderedScope = presentation.scope.current;
   // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
@@ -285,7 +293,11 @@ export function createInlineDiff(
   let dotsNode: HTMLElement | undefined;
   let scopeMenuNode: HTMLElement | undefined;
   let scopeWrapNode: HTMLElement | undefined;
-  // Survives a toolbar rebuild (a debounced recompute, a font change) so a background render doesn't
+  let scopeCountNodes: { file?: HTMLElement; all?: HTMLElement } = {};
+  // What the live toolbar was built from; a render with the same shape keeps it and updates its counts.
+  let toolbarShape: string | undefined;
+  let shownToolbarItems: HTMLElement[] = [];
+  // Survives a toolbar rebuild (a font change, a file joining the review) so a background render doesn't
   // silently close the dropdown mid-gesture; reset explicitly on model swap and clearAll.
   let scopeMenuOpen = false;
   // Session-global review undo/redo: availability (host-pushed) + the bound handlers, plus the toolbar buttons
@@ -297,8 +309,6 @@ export function createInlineDiff(
     canRedo: false,
   };
   let historyHandlers: ReviewHistoryHandlers | undefined;
-  // Every control whose action names a specific hunk, with the title it carries when it can act.
-  let scopeActions: { button: HTMLButtonElement; title: string }[] = [];
   let undoButton: HTMLButtonElement | undefined;
   let redoButton: HTMLButtonElement | undefined;
   // The parked-navigator summary (review set non-empty, no changed file in view) + whether it's the rendered
@@ -308,6 +318,7 @@ export function createInlineDiff(
   const replaceToolbar = (next: HTMLElement | undefined): void => {
     const previous = toolbarNode;
     toolbarNode = next;
+    toolbarShape = undefined;
     if (next !== undefined) {
       const host = presentation.toolbarHost();
       if (host !== null) mountReviewToolbar(host, next);
@@ -315,17 +326,22 @@ export function createInlineDiff(
     previous?.remove();
   };
 
-  const clearControls = (): void => {
-    for (const remove of hunkWidgets) remove();
-    hunkWidgets = [];
+  // Forgets the toolbar's live parts; each toolbar builder sets the ones it has.
+  const resetToolbarParts = (): void => {
     counterNode = undefined;
     dotsNode = undefined;
     scopeMenuNode = undefined;
     scopeWrapNode = undefined;
-    scopeActions = [];
+    scopeCountNodes = {};
     undoButton = undefined;
     redoButton = undefined;
+  };
 
+  const clearControls = (): void => {
+    pendingControls.clear();
+    acceptedControls.clear();
+    for (const { at } of deferredActions) at.dispose();
+    deferredActions = [];
     showingParked = false;
     renderedVersion = undefined;
     currentOptions = undefined;
@@ -349,9 +365,11 @@ export function createInlineDiff(
     }
   };
 
+  // Every path that clears the render replaces the toolbar too, so its live parts go with it.
   const clearRenderState = (): void => {
     clearPaint();
     clearControls();
+    resetToolbarParts();
     renderedUri = undefined;
     presentation.cleared();
   };
@@ -360,22 +378,20 @@ export function createInlineDiff(
     replaceToolbar(undefined);
   };
 
-  // A hunk's affordance at its first line's end, first in the shared line-end row.
-  const anchoredWidget = (
-    model: monaco.editor.ITextModel,
-    anchorLine: number,
-    dom: HTMLElement,
-  ): LineEndItem => {
-    const line = Math.min(model.getLineCount(), Math.max(1, anchorLine));
-    return { dom, order: 0, line: () => line };
-  };
+  // Hunk controls are keyed by the lines they cover plus the shortcuts their tooltips show, so a recompute keeps
+  // the ones it finds again.
+  const byKey = <H extends { anchorLine: number }>(hunks: readonly H[], key: (hunk: H) => string) =>
+    new Map(
+      hunks.map((hunk) => [
+        `${key(hunk)}@${shortcutsRevision}`,
+        { line: hunk.anchorLine, value: hunk },
+      ]),
+    );
 
   // The faded hunk's widget: a "✓ accepted" tag + an inline ↶ undo that un-keeps just that hunk (posts
   // onUnkeepHunk).
-  const buildUndoWidget = (
-    hunk: AcceptedDiffHunk,
-    model: monaco.editor.ITextModel,
-  ): LineEndItem => {
+  const buildUndoWidget = (initial: AcceptedDiffHunk): KeyedLineEndItem<AcceptedDiffHunk> => {
+    let hunk = initial;
     const dom = document.createElement("div");
     dom.className = "weavie-inline-accepted-tag";
     const kept = document.createElement("span");
@@ -400,34 +416,41 @@ export function createInlineDiff(
       },
     );
     dom.append(kept, undo);
-    return anchoredWidget(model, hunk.anchorLine, dom);
+    return { dom, update: (next) => (hunk = next), dispose: () => {} };
   };
 
   // The pending-band counterpart: ✓ keep / ✕ revert beside a bright hunk's first line — the mouse path to the
   // same per-hunk actions the keyboard chords and toolbar drive.
-  const buildPendingWidget = (hunk: DiffHunk, model: monaco.editor.ITextModel): LineEndItem => {
+  const buildPendingWidget = (
+    _hunk: DiffHunk,
+    line: () => number | null,
+  ): KeyedLineEndItem<DiffHunk> => {
+    const act = (action: (hunk: DiffHunk) => void) => () =>
+      withHunkAt(line(), (hunk) => {
+        if (hunk !== undefined) action(hunk);
+      });
     const dom = document.createElement("div");
     dom.className = "weavie-inline-pending-tag";
     dom.append(
-      trackScopeAction(
-        makeButton(
-          "weavie-inline-pending-keep",
-          "✓ keep",
-          withShortcut("Keep this change", CommandIds.acceptChange),
-          () => keepHunkNow(hunk),
-        ),
+      makeButton(
+        "weavie-inline-pending-keep",
+        "✓ keep",
+        withShortcut("Keep this change", CommandIds.acceptChange),
+        act(keepHunkNow),
       ),
-      trackScopeAction(
-        makeButton(
-          "weavie-inline-pending-revert",
-          "✕ revert",
-          withShortcut("Revert this change", CommandIds.rejectChange),
-          () => revertHunkNow(hunk),
-        ),
+      makeButton(
+        "weavie-inline-pending-revert",
+        "✕ revert",
+        withShortcut("Revert this change", CommandIds.rejectChange),
+        act(revertHunkNow),
       ),
     );
-    return anchoredWidget(model, hunk.anchorLine, dom);
+    return { dom, update: () => {}, dispose: () => {} };
   };
+
+  // The per-hunk line-end controls: ✓ keep / ✕ revert beside each bright pending hunk, ↶ undo beside each faded one.
+  const pendingControls = keyedLineEndItems(editor, 0, buildPendingWidget);
+  const acceptedControls = keyedLineEndItems(editor, 0, buildUndoWidget);
 
   const reveal = (line: number): void => {
     editor.setPosition({ lineNumber: line, column: 1 });
@@ -456,13 +479,12 @@ export function createInlineDiff(
     return true;
   };
 
-  // The hunk at the review line (the last one starting at/before it), defaulting to the first — the subject of
-  // a per-hunk Keep / Revert and of the counter's `change j/M`.
-  const hunkAtReviewLine = (): DiffHunk | undefined => {
+  // The hunk at `line` (the last one starting at/before it), defaulting to the first — at the review line, the
+  // subject of a per-hunk Keep / Revert and of the counter's `change j/M`.
+  const hunkAt = (line: number): DiffHunk | undefined => {
     if (currentHunks.length === 0) {
       return undefined;
     }
-    const line = reviewLine();
     let hunk = currentHunks[0];
     for (const h of currentHunks) {
       if (h.anchorLine <= line) {
@@ -490,21 +512,10 @@ export function createInlineDiff(
   const geometryStale = (): boolean =>
     currentOptions !== undefined && renderedVersion !== editor.getModel()?.getVersionId();
 
-  const STALE_TITLE = "Waiting for the edited file's change geometry";
-
-  // Dim every per-hunk control while its coordinates are a version behind, and say why — the chords swallow
-  // themselves in that window, so the reason belongs where the user meets it.
-  const syncScopeButtons = (): void => {
-    const blocked = geometryStale();
-    for (const { button, title } of scopeActions) {
-      button.disabled = blocked;
-      button.title = blocked ? STALE_TITLE : title;
-    }
-  };
-
-  const trackScopeAction = (button: HTMLButtonElement): HTMLButtonElement => {
-    scopeActions.push({ button, title: button.title });
-    return button;
+  // Runs `act` on the hunk at `line` now, or once the recompute an edit armed finds where the edit moved that line.
+  const withHunkAt = (line: number | null, act: (hunk: DiffHunk | undefined) => void): void => {
+    if (!geometryStale()) act(line === null ? undefined : hunkAt(line));
+    else if (line !== null) deferredActions.push({ at: trackLine(editor, line), act });
   };
 
   // A hunk's live-model text plus its keep/revert coordinates — the payload (with concurrency guard) both post.
@@ -526,12 +537,7 @@ export function createInlineDiff(
   const keepHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (
-      options?.mode !== "applied" ||
-      options.onKeepHunk === undefined ||
-      model === null ||
-      geometryStale()
-    ) {
+    if (options?.mode !== "applied" || options.onKeepHunk === undefined || model === null) {
       return;
     }
     const remaining = currentHunks.filter((h) => h !== hunk);
@@ -548,12 +554,7 @@ export function createInlineDiff(
   const revertHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (
-      options?.mode !== "applied" ||
-      options.onRevertHunk === undefined ||
-      model === null ||
-      geometryStale()
-    ) {
+    if (options?.mode !== "applied" || options.onRevertHunk === undefined || model === null) {
       return;
     }
     // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
@@ -569,13 +570,14 @@ export function createInlineDiff(
     if (currentOptions?.mode !== "applied" || currentOptions.onKeepHunk === undefined) {
       return false;
     }
-    const hunk = hunkAtReviewLine();
-    if (hunk !== undefined) {
-      if (presentation.confirmTarget(hunk)) keepHunkNow(hunk);
-    } else if (!geometryStale() && currentOptions.onNextPendingFile?.() !== true) {
-      // Nothing left at "change 0/0" nor in any other file: Keep finishes the review.
-      currentOptions.onKeepAll?.();
-    }
+    withHunkAt(reviewLine(), (hunk) => {
+      if (hunk !== undefined) {
+        if (presentation.confirmTarget(hunk)) keepHunkNow(hunk);
+      } else if (currentOptions?.onNextPendingFile?.() !== true) {
+        // Nothing left at "change 0/0" nor in any other file: Keep finishes the review.
+        currentOptions?.onKeepAll?.();
+      }
+    });
     return true;
   };
 
@@ -584,10 +586,9 @@ export function createInlineDiff(
     if (currentOptions?.mode !== "applied" || currentOptions.onRevertHunk === undefined) {
       return false;
     }
-    const hunk = hunkAtReviewLine();
-    if (hunk !== undefined && presentation.confirmTarget(hunk)) {
-      revertHunkNow(hunk);
-    }
+    withHunkAt(reviewLine(), (hunk) => {
+      if (hunk !== undefined && presentation.confirmTarget(hunk)) revertHunkNow(hunk);
+    });
     // At "change 0/0" consume the key rather than fall through to the editor.
     return true;
   };
@@ -712,7 +713,6 @@ export function createInlineDiff(
       return;
     }
     presentation.scope.current = scope;
-    syncScopeButtons(); // the re-render is async; don't leave the old scope's blocked state up meanwhile
     renderActive();
   };
 
@@ -727,7 +727,7 @@ export function createInlineDiff(
       return;
     }
     const total = currentHunks.length;
-    const hunk = hunkAtReviewLine();
+    const hunk = hunkAt(reviewLine());
     const idx = hunk === undefined ? -1 : currentHunks.indexOf(hunk);
     const labelPart = options.reviewLabel === undefined ? "" : `${options.reviewLabel} · `;
     const filePart =
@@ -789,7 +789,7 @@ export function createInlineDiff(
     head.className = "weavie-inline-scope-head ui-section-label";
     head.textContent = "Keep / Revert…";
     menu.appendChild(head);
-    const addItem = (value: ReviewScope, label: string, count: number | undefined): void => {
+    const addItem = (value: ReviewScope, label: string, counted: boolean): void => {
       const item = makeButton(
         `weavie-inline-scope-item ui-row${value === scope ? " active" : ""}`,
         label,
@@ -799,26 +799,21 @@ export function createInlineDiff(
           setScope(value);
         },
       );
-      if (count !== undefined) {
+      if (counted) {
         const tag = document.createElement("span");
         tag.className = "weavie-inline-scope-count";
-        tag.textContent = String(count);
         item.appendChild(tag);
+        scopeCountNodes[value === "file" ? "file" : "all"] = tag;
       }
       menu.appendChild(item);
     };
-    addItem("change", "This change", undefined);
-    addItem("file", "This file", currentHunks.length);
+    addItem("change", "This change", false);
+    addItem("file", "This file", true);
     // "All" always offered — it's the only Keep/Revert scope that commits the whole review and closes the
     // navigator (keep-all / revert-all), so a single-file review still has a way out. "All files" reads wrong
     // for one file, so name it "All changes" (counting hunks) there.
-    const manyFiles = (options.fileCount ?? 1) > 1;
     if (options.allActionsDisabled !== true) {
-      addItem(
-        "all",
-        manyFiles ? "All files" : "All changes",
-        manyFiles ? options.fileCount : currentHunks.length,
-      );
+      addItem("all", (options.fileCount ?? 1) > 1 ? "All files" : "All changes", true);
     }
     wrap.append(toggle, menu);
     return wrap;
@@ -826,7 +821,11 @@ export function createInlineDiff(
 
   // The applied-review toolbar: a 2D navigator (files ← →, hunks ↑ ↓) around a stacked filename + counter,
   // then a scope picker feeding Keep / Revert buttons whose label/handler/shortcut follow the sticky scope.
-  const buildAppliedBar = (bar: HTMLElement, options: InlineDiffOptions): void => {
+  const buildAppliedBar = (
+    bar: HTMLElement,
+    options: InlineDiffOptions,
+    items: HTMLElement[],
+  ): void => {
     const multiFile =
       options.fileCount !== undefined &&
       options.fileCount > 1 &&
@@ -864,7 +863,7 @@ export function createInlineDiff(
     dotsNode = document.createElement("span");
     dotsNode.className = "weavie-inline-dots";
     bar.appendChild(dotsNode);
-    bar.append(buttonGroup(...navButtons()), ...presentation.toolbarItems());
+    bar.append(buttonGroup(...navButtons()), ...items);
     const divider = document.createElement("span");
     divider.className = "weavie-inline-divider";
     bar.appendChild(divider);
@@ -898,11 +897,6 @@ export function createInlineDiff(
       withShortcut(revertTip, CommandIds.rejectChange),
       reject,
     );
-    // Only the change scope names a hunk; File / All changes act on coordinates an edit can't move.
-    if (scope === "change") {
-      trackScopeAction(keep);
-      trackScopeAction(revert);
-    }
     bar.append(buttonGroup(keep, revert));
     // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
     // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
@@ -929,11 +923,12 @@ export function createInlineDiff(
   // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar), which also carries
   // Comment/Reply for a PR file; review mode is the hunk arrows + Keep/Reject for the proposal; view mode is
   // arrows alone.
-  const buildToolbar = (options: InlineDiffOptions): HTMLElement => {
+  const buildToolbar = (options: InlineDiffOptions, items: HTMLElement[]): HTMLElement => {
+    resetToolbarParts();
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
     if (options.mode === "applied") {
-      buildAppliedBar(bar, options);
+      buildAppliedBar(bar, options, items);
       return bar;
     }
     bar.append(buttonGroup(...navButtons()));
@@ -1052,6 +1047,43 @@ export function createInlineDiff(
     renderedUri = uriString;
   };
 
+  // Builds the toolbar when what it shows changed; otherwise keeps it, so typing never replaces its buttons.
+  const showToolbar = (options: InlineDiffOptions): void => {
+    const items = presentation.toolbarItems();
+    const shape = JSON.stringify([
+      options.mode,
+      options.fileLabel,
+      options.fileCount,
+      options.allActionsDisabled,
+      options.onAccept !== undefined,
+      options.onReject !== undefined,
+      options.onPrevFile !== undefined,
+      options.onNextFile !== undefined,
+      presentation.scope.current,
+      shortcutsRevision,
+    ]);
+    const kept =
+      toolbarNode?.isConnected === true &&
+      shape === toolbarShape &&
+      items.length === shownToolbarItems.length &&
+      items.every((item, index) => item === shownToolbarItems[index]);
+    if (!kept) {
+      replaceToolbar(buildToolbar(options, items));
+      toolbarShape = shape;
+      shownToolbarItems = items;
+    }
+    const counts = {
+      file: String(currentHunks.length),
+      all: String((options.fileCount ?? 1) > 1 ? options.fileCount : currentHunks.length),
+    };
+    for (const scope of ["file", "all"] as const) {
+      const node = scopeCountNodes[scope];
+      if (node !== undefined && node.textContent !== counts[scope])
+        node.textContent = counts[scope];
+    }
+    syncHistoryButtons();
+  };
+
   const replacePaint = (markers: ReturnType<typeof computeDiffMarkers>): void => {
     if (decorations === undefined) {
       decorations = editor.createDecorationsCollection(markers.decorations);
@@ -1105,7 +1137,7 @@ export function createInlineDiff(
 
     let initialLine: number | undefined;
     presentation.updateGeometry(() => {
-      clearControls();
+      fallbackNavigation = undefined;
       if (options.allActionsDisabled === true && presentation.scope.current === "all") {
         presentation.scope.current = "change";
       }
@@ -1137,23 +1169,25 @@ export function createInlineDiff(
         initialLine = hunks[0].anchorLine;
       }
       renderedScope = presentation.scope.current;
-      replaceToolbar(buildToolbar(options));
+      showToolbar(options);
       // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
-      if (
+      const actionable =
         options.mode === "applied" &&
         options.onKeepHunk !== undefined &&
-        options.onRevertHunk !== undefined
-      ) {
-        for (const hunk of hunks) {
-          hunkWidgets.push(addLineEndItem(editor, buildPendingWidget(hunk, model)));
-        }
-      }
-      // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
-      if (options.onUnkeepHunk !== undefined) {
-        for (const hunk of acceptedHunks) {
-          hunkWidgets.push(addLineEndItem(editor, buildUndoWidget(hunk, model)));
-        }
-      }
+        options.onRevertHunk !== undefined;
+      pendingControls.sync(
+        byKey(
+          actionable ? hunks : [],
+          (hunk) => `${hunk.baselineStart}:${hunk.baselineEndExclusive}`,
+        ),
+      );
+      // The inline ↶ undo widgets (faded band only); none when there's no accepted band or no un-keep handler.
+      acceptedControls.sync(
+        byKey(
+          options.onUnkeepHunk !== undefined ? acceptedHunks : [],
+          (hunk) => `${hunk.acceptedStart}:${hunk.acceptedEndExclusive}:${hunk.reviewStart}`,
+        ),
+      );
       renderedUri = uriString;
       presentation.prepareGeometry(markers);
     });
@@ -1162,6 +1196,14 @@ export function createInlineDiff(
     if (initialLine !== undefined) {
       editor.setPosition({ lineNumber: initialLine, column: 1 });
       presentation.revealLine(initialLine);
+    }
+    const deferred = deferredActions;
+    deferredActions = [];
+    for (const { at, act } of deferred) {
+      const line = at.line();
+      at.dispose();
+      // An earlier action that left this file's review takes the rest with it.
+      if (currentOptions === options && line !== null) act(hunkAt(line));
     }
   };
 
@@ -1273,7 +1315,6 @@ export function createInlineDiff(
     }
     initialProposalReveals.delete(uriString);
     renderGeneration++;
-    syncScopeButtons();
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
     }
@@ -1293,6 +1334,10 @@ export function createInlineDiff(
   });
   const onContent = editor.onDidChangeModelContent(scheduleRender);
   const offFonts = onFontsChanged(renderActive);
+  const offCommands = onCommandsChanged(() => {
+    shortcutsRevision++;
+    renderActive();
+  });
   // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
   const onCursor = editor.onDidChangeCursorPosition(() => {
     const uri = editor.getModel()?.uri.toString();
@@ -1516,6 +1561,7 @@ export function createInlineDiff(
       onModel.dispose();
       onContent.dispose();
       offFonts();
+      offCommands();
       clearRender();
     },
   };

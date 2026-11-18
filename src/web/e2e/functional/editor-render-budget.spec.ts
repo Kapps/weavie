@@ -115,6 +115,10 @@ function createdEditors(page: Page): Promise<JSHandle<number[]>> {
 // also refocuses the window, which refreshes PR comments, so the minute's refresh tick landing mid-run adds nothing
 // new: the host publishes only changed comments (Refresh_PublishesOnlyWhenTheCommentsChanged).
 async function expectTypingWithin(page: Page, key: string, perKey: Budget): Promise<RenderSample> {
+  // Every item beside a line's end (keep/revert buttons, hint pills): typing must keep each one, not rebuild it.
+  const items = await page.evaluateHandle(() => [
+    ...document.querySelectorAll(".weavie-line-end > *"),
+  ]);
   const sample = await measureRender(page, KEYS, KEYS * perKey.reads, async () => {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.keyboard.type(key);
@@ -122,6 +126,10 @@ async function expectTypingWithin(page: Page, key: string, perKey: Budget): Prom
   });
   const report = describeSample(sample);
   expect(sample.added + sample.removed, report).toBe(0);
+  expect(
+    await items.evaluate((before) => before.filter((item) => !item.isConnected).length),
+    "typing rebuilt items beside the line ends",
+  ).toBe(0);
   expectWithin(sample, KEYS, perKey);
   expect(sample.reads, `the probe must still see Weavie's frames\n${report}`).toBeGreaterThan(0);
   const line = await (await focusedEditor(page)).evaluate((editor) =>

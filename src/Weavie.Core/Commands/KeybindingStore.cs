@@ -82,7 +82,7 @@ public sealed class KeybindingStore : IDisposable {
 		}
 	}
 
-	/// <summary>The full command catalog (with current keys) as a JSON array (for <c>__WEAVIE_COMMANDS__</c> + <c>listCommands</c>).</summary>
+	/// <summary>The full command catalog (with current keys) as a JSON array (for <c>__WEAVIE_COMMANDS__</c>).</summary>
 	public string BuildCommandsJson() {
 		lock (_gate) {
 			return CommandCatalog.BuildCommandsArrayJson(_registry.Definitions, _resolved);

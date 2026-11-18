@@ -155,7 +155,7 @@ public sealed record CommandDefinition {
 
 	/// <summary>
 	/// Optional raw-JSON Schema for the command's <c>args</c> (the <c>properties</c> map), surfaced in
-	/// <c>listCommands</c> so Claude knows the shape. Informational; coercion is lenient.
+	/// <c>describeCommand</c> so Claude knows the shape. Informational; coercion is lenient.
 	/// </summary>
 	public string? ArgsSchemaJson { get; init; }
 }

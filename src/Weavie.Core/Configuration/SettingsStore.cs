@@ -313,7 +313,7 @@ public sealed class SettingsStore : IDisposable {
 		return new Subscription(() => SettingChanged -= Filtered);
 	}
 
-	/// <summary>Builds the <c>listSettings</c> catalog JSON with values resolved through env → user file → default (no workspace overlay).</summary>
+	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
 	public string BuildCatalogJson() => BuildCatalog(workspaceRoot: null);
 
 	/// <summary>As <see cref="BuildCatalogJson()"/>, resolving <see cref="SettingScope.Workspace"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
@@ -326,7 +326,7 @@ public sealed class SettingsStore : IDisposable {
 				writer.WriteStartObject();
 				writer.WriteStartArray("settings");
 				foreach (var definition in _registry.Definitions) {
-					WriteSettingObject(writer, definition, workspaceRoot);
+					WriteSettingObject(writer, definition, workspaceRoot, detailed: false);
 				}
 
 				writer.WriteEndArray();
@@ -337,7 +337,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	/// <summary>Builds the <c>getSetting</c> JSON for one key resolved through env → user file → default (no workspace overlay).</summary>
+	/// <summary>Builds the <c>getSetting</c> JSON (the full entry) for one key resolved through env → user file → default (no workspace overlay).</summary>
 	public string BuildGetJson(string key) => BuildGet(key, workspaceRoot: null);
 
 	/// <summary>As <see cref="BuildGetJson(string)"/>, resolving a <see cref="SettingScope.Workspace"/> key against <paramref name="workspaceRoot"/>'s overlay.</summary>
@@ -348,7 +348,7 @@ public sealed class SettingsStore : IDisposable {
 			var definition = _registry.Require(key);
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
-				WriteSettingObject(writer, definition, workspaceRoot);
+				WriteSettingObject(writer, definition, workspaceRoot, detailed: true);
 			}
 
 			return Encoding.UTF8.GetString(stream.ToArray());
@@ -372,31 +372,37 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot) {
+	// The listSettings index omits what getSetting adds: description, scope, aliases, default, and apply.
+	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot, bool detailed) {
 		var (value, source) = ResolveLocked(definition, workspaceRoot);
-		object? fallback = definition.ComputeDefault?.Invoke() ?? definition.Default;
 
 		writer.WriteStartObject();
 		writer.WriteString("key", definition.Key);
 		writer.WriteString("type", KindName(definition.Kind));
-		writer.WriteString(
-			"description",
-			definition.Resets.Count == 0
-				? definition.Description
-				: $"{definition.Description} Changing it clears {string.Join(", ", definition.Resets)}.");
-		writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
-		writer.WriteStartArray("aliases");
-		foreach (string alias in definition.Aliases) {
-			writer.WriteStringValue(alias);
+		if (detailed) {
+			writer.WriteString(
+				"description",
+				definition.Resets.Count == 0
+					? definition.Description
+					: $"{definition.Description} Changing it clears {string.Join(", ", definition.Resets)}.");
+			writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
+			writer.WriteStartArray("aliases");
+			foreach (string alias in definition.Aliases) {
+				writer.WriteStringValue(alias);
+			}
+
+			writer.WriteEndArray();
 		}
 
-		writer.WriteEndArray();
 		writer.WritePropertyName("value");
 		WriteTypedValue(writer, value);
 		writer.WriteString("source", SourceName(source));
-		writer.WritePropertyName("default");
-		WriteTypedValue(writer, fallback);
-		writer.WriteString("apply", ApplyName(definition.Apply));
+		if (detailed) {
+			writer.WritePropertyName("default");
+			WriteTypedValue(writer, definition.ComputeDefault?.Invoke() ?? definition.Default);
+			writer.WriteString("apply", ApplyName(definition.Apply));
+		}
+
 		if (definition.AllowedValues is not null) {
 			writer.WriteStartArray("allowedValues");
 			foreach (string allowed in definition.AllowedValues) {

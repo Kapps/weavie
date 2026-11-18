@@ -454,6 +454,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "listCommands":
 				await HandleListCommandsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "describeCommand":
+				await HandleDescribeCommandAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			case RunCommandTool:
 				await HandleRunCommandAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
@@ -647,14 +650,29 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private async Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
+	private IReadOnlyList<ResolvedKeybinding> Keybindings => _keybindings?.Resolved ?? [];
+
+	private Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) =>
+		SendToolTextAsync(
+			responder,
+			idRaw,
+			CommandCatalog.BuildCommandIndexJson(Require(_commands, "Commands").Registry.Definitions, Keybindings),
+			ct);
+
+	private async Task HandleDescribeCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
-		// Prefer the keybinding store's catalog (it includes each command's current keys); fall back to the
-		// registry alone (no keys) when no keybinding store was wired.
-		string commandsArray = _keybindings is not null
-			? _keybindings.BuildCommandsJson()
-			: CommandCatalog.BuildCommandsArrayJson(commands.Registry.Definitions, []);
-		await SendToolTextAsync(responder, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
+		string? id = args.GetStringOrNull("id");
+		if (string.IsNullOrEmpty(id)) {
+			await SendToolErrorAsync(responder, idRaw, "describeCommand requires an 'id'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			string json = CommandCatalog.BuildCommandJson(commands.Registry.Require(id), Keybindings);
+			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
+		} catch (UnknownCommandException ex) {
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
 	}
 
 	internal async Task HandleRunCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {

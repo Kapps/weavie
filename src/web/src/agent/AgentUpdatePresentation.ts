@@ -44,6 +44,7 @@ export function presentUpdates(
   if (display === "all") return source;
   const entries: AgentTranscriptEntry[] = [];
   const pending = new Set(source.pendingRowIndexes.map((index) => source.entries[index]!.id));
+  const resumed = new Map<string, number>();
   let start = 0;
   let turn: string | undefined;
   let prompt: string | undefined;
@@ -52,7 +53,7 @@ export function presentUpdates(
     const boundary = entry?.turnKey !== undefined && turn !== undefined && entry.turnKey !== turn;
     if (entry?.turnKey !== undefined) turn = entry.turnKey;
     if (entry !== undefined && entry.tone !== "user" && !boundary) continue;
-    foldSpan(source.entries.slice(start, index), { prompt, pending, expanded }, entries);
+    foldSpan(source.entries.slice(start, index), { prompt, pending, expanded, resumed }, entries);
     if (entry?.tone === "user") {
       entries.push(entry);
       prompt = entry.id;
@@ -82,25 +83,31 @@ function foldSpan(
     prompt: string | undefined;
     pending: ReadonlySet<string>;
     expanded: ReadonlySet<string>;
+    resumed: Map<string, number>;
   },
   output: AgentTranscriptEntry[],
 ): void {
   const { prompt, pending, expanded } = options;
+  const id = `updates:${prompt ?? turnAnchor(source, options.resumed)}`;
   const latest = source.findLastIndex(isReply);
+  // The first reply after the user's message may be their answer, so it never folds.
+  const answer = prompt === undefined ? -1 : source.findIndex(isReply);
   const kept = (entry: AgentTranscriptEntry, index: number) =>
     pending.has(entry.id) ||
-    (isReply(entry) ? index === latest || entry.final : !isSettledWork(entry));
+    (isReply(entry) ? index === latest || index === answer || entry.final : !isSettledWork(entry));
   const folded = new Set(source.flatMap((entry, index) => (kept(entry, index) ? [] : [index])));
   if (folded.size === 0) {
     for (const entry of source) output.push(entry);
     return;
   }
-  const anchor = prompt ?? source.find((entry) => entry.kind !== "thought")!.id;
-  const id = `updates:${anchor}`;
   const open = expanded.has(id);
   const first = folded.values().next().value!;
-  // One disclosure per span, ahead of its first shown reply even when all of its work followed that reply.
-  const shown = source.findIndex((entry, index) => isReply(entry) && !folded.has(index));
+  // One disclosure per span, ahead of its first shown reply even when all of its work followed that
+  // reply, and after the answer once a later reply is shown.
+  const shown = source.findIndex(
+    (entry, index) =>
+      isReply(entry) && !folded.has(index) && (index !== answer || index === latest),
+  );
   const position = shown < 0 ? first : Math.min(first, shown);
   source.forEach((entry, index) => {
     if (index === position) {
@@ -121,6 +128,14 @@ function foldSpan(
     }
     if (!folded.has(index) || open) output.push(entry);
   });
+}
+
+// A span with no prompt is named by its turn and by how many of that turn's spans came before it.
+function turnAnchor(source: readonly AgentTranscriptEntry[], resumed: Map<string, number>): string {
+  const turn = source.find((entry) => entry.turnKey !== undefined)?.turnKey ?? "";
+  const earlier = resumed.get(turn) ?? 0;
+  resumed.set(turn, earlier + 1);
+  return `${turn}:${earlier}`;
 }
 
 function isSettledWork(entry: AgentTranscriptEntry): boolean {

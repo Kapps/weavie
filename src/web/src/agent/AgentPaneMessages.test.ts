@@ -825,7 +825,54 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["Working", "Permission", "Agent"]);
   });
 
-  it("separates new work from earlier work across a resolved permission", () => {
+  it("keeps work in one group below its latest note until the user speaks or the turn ends", () => {
+    const note = (itemId: string): AgentPaneUpdate => ({
+      type: "item-completed",
+      providerId: "acp",
+      turnId: "turn",
+      itemId,
+      itemType: "agentMessage",
+      text: itemId,
+    });
+    const command = (itemId: string): AgentPaneUpdate => ({
+      type: "item-completed",
+      providerId: "acp",
+      turnId: "turn",
+      itemId,
+      itemType: "commandExecution",
+      summary: itemId,
+      status: "completed",
+    });
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "turn", text: "Build it" },
+      note("Answer"),
+      command("read"),
+      note("Building"),
+      command("build"),
+      command("test"),
+      { ...note("Stopped"), final: true },
+      command("publish"),
+      note("Done"),
+      { type: "turn-completed", providerId: "acp", turnId: "turn", status: "end_turn" },
+      command("late"),
+      { type: "user-steer", providerId: "acp", turnId: "turn", text: "Also lint" },
+      command("lint"),
+    ]);
+
+    expect(transcript.map((entry) => entry.text ?? entry.summary)).toEqual([
+      "Build it",
+      "Answer",
+      "Building",
+      "Stopped",
+      "ran 4 commands",
+      "Done",
+      "ran 1 command",
+      "Also lint",
+      "ran 1 command",
+    ]);
+  });
+
+  it("keeps work on both sides of a resolved permission in one group below it", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
@@ -853,7 +900,8 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.label)).toEqual(["Working", "Permission", "Working"]);
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working"]);
+    expect(transcript[1]!.detailCount).toBe(2);
   });
 
   it("keeps a pending request below the working block so the ask stays at the bottom", () => {

@@ -268,10 +268,13 @@ export class AgentConversationProjection {
       if (!message.turnId) return false;
       const segment = this.segments.find(message, "");
       const activity = segment === undefined ? undefined : this.activities.get(segment.entry.id);
+      // A new step moves a group that is not last, which only a projection does.
       if (
         segment === undefined ||
         activity === undefined ||
-        !activity.projection.canUpsert(message)
+        !activity.projection.canUpsert(message) ||
+        (activity.projection.starts(message) &&
+          activity.index !== this.state[0]().entries.length - 1)
       )
         return false;
       mutations.push({ activity, segment, message });

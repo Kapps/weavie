@@ -25,6 +25,12 @@ export class ProjectedAgentActivity {
     return share(this.sources, other.sources) === this.sources;
   }
 
+  /** Whether `message` adds a step instead of updating one. */
+  starts(message: AgentPaneUpdate): boolean {
+    const category = activityCategory(message);
+    return category !== null && !this.indexes.has(activityStepId(message, category));
+  }
+
   canUpsert(message: AgentPaneUpdate): boolean {
     const category = activityCategory(message);
     if (category === null) {

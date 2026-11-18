@@ -20,7 +20,7 @@ declare global {
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
-  progressDisplay: "latest",
+  progressDisplay: "all",
   thoughtDisplay: "collapsed",
   providers: [
     {

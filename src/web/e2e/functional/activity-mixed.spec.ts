@@ -4,6 +4,14 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
+test.use({
+  fakeScript: {
+    steps: [
+      { op: "mcp", tool: "setSetting", args: { key: "agent.progressDisplay", value: "latest" } },
+    ],
+  },
+});
+
 test("settled tools and questions fold together while subagents remain accessible in the roster", async ({
   page,
   weavie,
@@ -48,8 +56,10 @@ test("settled tools and questions fold together while subagents remain accessibl
   const trailing = surface.locator(".agent-entry-activity").last();
   await expect(trailing).not.toHaveClass(/agent-tone-error/);
   await trailing.locator("summary").click();
-  await expect(trailing.locator(".agent-activity-step")).toContainText("Trailing verification");
-  await expect(trailing.locator(".agent-step-status")).toHaveText("failed");
+  const verification = trailing.locator(".agent-activity-step", {
+    hasText: "Trailing verification",
+  });
+  await expect(verification.locator(".agent-step-status")).toHaveText("failed");
   await surface.locator(".pane-fullscreen").click();
   await child.getByRole("button", { name: "Explore", exact: true }).click();
   const tab = page.locator(".editor-agent-view");

@@ -10,7 +10,7 @@ export const AGENT_IMAGE_HEIGHT = 240;
 const proseLineHeight = 27;
 const monoLineHeight = 18;
 /** One expander row under the gap between transcript rows. */
-const expanderRowHeight = 29;
+const expanderRowHeight = 31;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
 
 // Called for every unmeasured row on each measurement pass, so the per-entry result is memoized.

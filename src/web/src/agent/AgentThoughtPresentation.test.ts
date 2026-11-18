@@ -131,7 +131,7 @@ it("restores both display choices from history without losing text or disclosure
   const collapsed = entries().filter((entry) => entry.kind === "thought");
   expect(collapsed.map((entry) => entry.text)).toEqual(["First", "Latest"]);
   expect(collapsed.every((entry) => entry.thoughtCollapsed)).toBe(true);
-  expect(collapsed.map(estimateEntrySize)).toEqual([29, 29]);
+  expect(collapsed.map(estimateEntrySize)).toEqual([31, 31]);
   const firstId = collapsed[0]!.id;
   model.setActivityExpanded(firstId, true);
   expect(estimateEntrySize(entries().find((entry) => entry.id === firstId))).toBeGreaterThan(29);

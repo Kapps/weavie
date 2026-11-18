@@ -34,7 +34,7 @@ describe("estimateEntrySize", () => {
       thoughtCollapsed: true,
       text: "A long thought.\n".repeat(200),
     });
-    expect(estimateEntrySize(thought)).toBe(29);
+    expect(estimateEntrySize(thought)).toBe(31);
   });
 
   it("wraps assistant prose at the markdown measure, not at 48 columns", () => {
@@ -60,7 +60,7 @@ describe("estimateEntrySize", () => {
 
   it("keeps an activity summary to one line however long the running command is", () => {
     const running = entry({ kind: "activity", tone: "activity", summary: "z".repeat(500) });
-    expect(estimateEntrySize(running)).toBe(29);
+    expect(estimateEntrySize(running)).toBe(31);
   });
 
   it("does not reserve hidden history as scroll space", () => {

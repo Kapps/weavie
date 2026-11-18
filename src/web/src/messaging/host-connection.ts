@@ -3,7 +3,7 @@ import type { CommandInfo, ResolvedKeybinding } from "../commands/types";
 import { ClientSessionState } from "./client-session-state";
 import { MessageBus } from "./message-bus";
 import type { MessageEnvelope, SessionAddress } from "./message-envelope";
-import type { AgentDefaults } from "./protocol-types";
+import type { AgentDefaults, RepoState } from "./protocol-types";
 
 export interface SessionCatalogEntry {
   id: string;
@@ -20,6 +20,9 @@ export interface SessionCatalogEntry {
   workspaceCheckout: boolean;
   external: boolean;
   reloadRequired: string | null;
+  /** The root of the repo the session's checkout belongs to. */
+  repo: string;
+  repoLabel: string;
 }
 
 export interface HostHello {
@@ -48,7 +51,7 @@ export interface HostHello {
     recentTerms: string[];
   };
   reviewOverview: { collapsed: string[] };
-  testProfile: string;
+  repos: RepoState[];
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
   commandUsage: CommandUsageSnapshot;
@@ -65,6 +68,8 @@ export class ClientSession {
   constructor(
     readonly connection: HostConnection,
     readonly address: SessionAddress,
+    /** The root of the repo this session's checkout belongs to. */
+    readonly repo: string,
   ) {
     this.bus = new MessageBus("session", address, (json) => connection.send(json));
     this.state = new ClientSessionState(this.bus);
@@ -299,7 +304,7 @@ export class HostConnection {
       }
       const key = this.addressKey(entry.address);
       if (!this.sessionsByAddress.has(key)) {
-        const session = new ClientSession(this, entry.address);
+        const session = new ClientSession(this, entry.address, entry.repo);
         this.sessionsByAddress.set(key, session);
       }
     }

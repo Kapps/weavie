@@ -1,20 +1,22 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
 	private async Task<PullRequestWire[]> ListPullRequestsAsync(
+		HostSession session,
 		string query,
 		CancellationToken ct) {
-		if (await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } repo) {
-			throw new InvalidOperationException(
-				"This workspace's 'origin' isn't a recognized GitHub repository.");
+		if (await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false) is not { } repo) {
+			throw new InvalidOperationException(NoGitHubOrigin(session));
 		}
 
 		var pullRequests = string.IsNullOrWhiteSpace(query)
@@ -24,10 +26,11 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<PullRequestWire?> GetPullRequestAsync(
+		HostSession session,
 		PullRequestReference request,
 		CancellationToken ct) {
 		if (request.Number <= 0
-			|| await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } repo
+			|| await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false) is not { } repo
 			|| IsForeign(request.Owner, request.Repo, repo)) {
 			return null;
 		}
@@ -49,10 +52,9 @@ public sealed partial class HostCore {
 		void Step(string step) =>
 			Console.WriteLine($"[pr-open] #{request.Number} {step} +{Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0}ms");
 
-		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
+		var repo = await ResolveOriginRepoAsync(source, ct).ConfigureAwait(false);
 		if (repo is null) {
-			return CommandResult.Failure(
-				"This workspace's 'origin' isn't a recognized GitHub repository.");
+			return CommandResult.Failure(NoGitHubOrigin(source));
 		}
 
 		if (IsForeign(request.Owner, request.Repo, repo)) {
@@ -82,12 +84,15 @@ public sealed partial class HostCore {
 				$"PR #{request.Number} has an unexpected branch name ('{headRef}').");
 		}
 
+		bool opensNewSession;
 		try {
 			var git = new GitService();
-			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, ct).ConfigureAwait(false)) {
-				await git.FetchCommitAsync(WorkspaceRoot, "origin", pullRequest.HeadSha, ct).ConfigureAwait(false);
-				await git.CreateBranchAsync(WorkspaceRoot, headRef, pullRequest.HeadSha, ct).ConfigureAwait(false);
+			if (!await git.BranchExistsAsync(source.Repo.Root, headRef, ct).ConfigureAwait(false)) {
+				await git.FetchCommitAsync(source.Repo.Root, "origin", pullRequest.HeadSha, ct).ConfigureAwait(false);
+				await git.CreateBranchAsync(source.Repo.Root, headRef, pullRequest.HeadSha, ct).ConfigureAwait(false);
 			}
+
+			opensNewSession = await SlotOnBranchAsync(source.Repo, headRef, ct).ConfigureAwait(false) is null;
 		} catch (GitException ex) {
 			return CommandResult.Failure(
 				$"Couldn't fetch PR #{request.Number} ('{headRef}'): {ex.Message}");
@@ -99,7 +104,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,
-				Prompt = _sessions?.Find(headRef) is null && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
+				Prompt = opensNewSession && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},
@@ -108,7 +113,9 @@ public sealed partial class HostCore {
 			return created;
 		}
 
-		if (_sessions?.Find(headRef)?.Session is not { } target) {
+		// The session the open answered with is the one reviewed, whatever its label says.
+		var opened = JsonSerializer.Deserialize(created.DataJson ?? "null", WireJson.Default.SessionActivation);
+		if (opened is null || _sessions?.Find(opened.Id)?.Session is not { } target) {
 			return CommandResult.Failure(
 				$"Opened PR #{request.Number}, but its session failed to load.");
 		}
@@ -156,7 +163,7 @@ public sealed partial class HostCore {
 			headSha = headRef;
 		}
 
-		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
+		var repo = await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false);
 		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, $"origin/{baseRef}", headRef);
 		try {
 			// The page activates this PR's session as this request's answer, landing on its overview.
@@ -173,13 +180,17 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) =>
-		ResolveRemoteRepoAsync("origin", ct);
+	private static string NoGitHubOrigin(HostSession session) =>
+		$"The 'origin' of '{session.Repo.Label}' isn't a recognized GitHub repository.";
 
-	private async Task<RepoRef?> ResolveRemoteRepoAsync(string remote, CancellationToken ct) {
+	private static Task<RepoRef?> ResolveOriginRepoAsync(HostSession session, CancellationToken ct) =>
+		ResolveRemoteRepoAsync(session, "origin", ct);
+
+	// A remote is the same from every worktree of a repo, so it is asked of the session's own.
+	private static async Task<RepoRef?> ResolveRemoteRepoAsync(HostSession session, string remote, CancellationToken ct) {
 		try {
 			string? url = await new GitService()
-				.GetRemoteUrlAsync(WorkspaceRoot, remote, ct)
+				.GetRemoteUrlAsync(session.WorkspaceRoot, remote, ct)
 				.ConfigureAwait(false);
 			return RepoRef.FromRemoteUrl(url);
 		} catch (GitException) {

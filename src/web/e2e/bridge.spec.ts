@@ -340,7 +340,8 @@ test.describe("session-addressed WebSocket transport", () => {
     await draft.fill(BRANCH_INFERENCE_DRAFT);
     const request = await preview;
     expect(request.payload).toMatchObject({
-      sourceId: "main",
+      sourceId: null,
+      repo: "/workspace",
       attachments: [],
     });
     host.respond(request, {
@@ -1211,7 +1212,8 @@ test.describe("session-addressed WebSocket transport", () => {
     });
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
     expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
-    expect(geometry.optionTargetRows).toBe(1);
+    // Location, agent and the action share a row; the repository picker takes the one under it.
+    expect(geometry.optionTargetRows).toBe(2);
     expect(geometry.inboxScrollHeight).toBeGreaterThan(geometry.inboxClientHeight);
     expect(geometry.listScrollHeight).toBe(geometry.listClientHeight);
 

@@ -15,10 +15,8 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionDeleteTests {
-	private static IReadOnlyList<string?> SessionIds(TestHost host) {
-		var list = host.Bridge.LastEvent("sessions", "catalog");
-		return list is null ? [] : [.. list.Value.EnumerateArray().Select(s => s.GetProperty("id").GetString())];
-	}
+	private static IReadOnlyList<string?> SessionIds(TestHost host) =>
+		[.. host.SessionCatalog.Select(s => s.GetProperty("id").GetString())];
 
 	private static string[] NotificationMessages(TestHost host) => [.. host.Bridge
 		.PostedEvents("notifications", "show")
@@ -33,7 +31,7 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task Delete_WithoutId_TargetsTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		Assert.Contains("feature", SessionIds(host));
+		Assert.Contains("feature", host.SessionLabels);
 		host.Bridge.Clear();
 
 		var result = await host.InvokeCommandAsync(
@@ -44,7 +42,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
-		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.DoesNotContain("feature", host.SessionLabels);
 		Assert.Equal(
 			new[] { "Session 'feature' was deleted. Its branch was kept." },
 			NotificationMessages(host));
@@ -63,7 +61,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
 		host.SelectWorkspaceSession();
-		await Wait.ForAsync<bool>(() => SessionIds(host).Contains("feature") ? null : true);
+		await Wait.ForAsync<bool>(() => host.SessionLabels.Contains("feature") ? null : true);
 		Assert.Equal(
 			new[] { "Session 'feature' was deleted. Its branch was kept." },
 			NotificationMessages(host));
@@ -102,7 +100,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = host.SlotId("feature") },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -172,7 +170,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = host.SlotId("feature") },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -208,7 +206,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature", classify = true },
+						args = new { id = host.SlotId("feature"), classify = true },
 					})).ToJson());
 			MessageHealthSnapshot? health = null;
 			for (int attempt = 0; attempt < 80; attempt++) {
@@ -368,18 +366,18 @@ public sealed class HostCoreSessionDeleteTests {
 			envelope => envelope is { Kind: MessageKind.Response } && envelope.RequestId == requestId));
 
 		try {
-			Invoke("slow-delete", new { id = "slow" });
+			Invoke("slow-delete", new { id = host.SlotId("slow") });
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
 				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }
 					&& envelope.Session == slow));
 
-			Invoke("other-classify", new { id = "other", classify = true });
+			Invoke("other-classify", new { id = host.SlotId("other"), classify = true });
 			Assert.True((await Response("other-classify")).Payload.GetProperty("ok").GetBoolean());
-			Invoke("other-delete", new { id = "other" });
+			Invoke("other-delete", new { id = host.SlotId("other") });
 			Assert.True((await Response("other-delete")).Payload.GetProperty("ok").GetBoolean());
-			Assert.DoesNotContain("other", SessionIds(host));
-			Assert.Contains("slow", SessionIds(host));
+			Assert.DoesNotContain("other", host.SessionLabels);
+			Assert.Contains("slow", host.SessionLabels);
 			Assert.Null(PostedEnvelope(
 				host,
 				envelope => envelope is { Kind: MessageKind.Response, RequestId: "slow-delete" }));
@@ -398,7 +396,7 @@ public sealed class HostCoreSessionDeleteTests {
 					flushResponse.Error).ToJson());
 			flush = null;
 			Assert.True((await Response("slow-delete")).Payload.GetProperty("ok").GetBoolean());
-			Assert.DoesNotContain("slow", SessionIds(host));
+			Assert.DoesNotContain("slow", host.SessionLabels);
 		} finally {
 			host.Bridge.RequestResponder = originalResponder;
 			if (flush is not null) {
@@ -505,8 +503,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
-		var feature = host.Bridge.LastEvent("sessions", "catalog")!.Value
-			.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "feature");
+		var feature = host.CatalogEntry("feature");
 		Assert.False(feature.GetProperty("loaded").GetBoolean());
 		Assert.Equal(
 			new[] { "Session 'feature' was unloaded. Its worktree was kept." },
@@ -522,7 +519,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var fromWorkspace = host.InvokeCommandAsync(
 			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
-			new { id = "feature" },
+			new { id = host.SlotId("feature") },
 			CancellationToken.None);
 		var fromOwner = host.InvokeCommandAsync(
 			"feature",
@@ -532,8 +529,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var results = await Task.WhenAll(fromWorkspace, fromOwner);
 
 		Assert.All(results, result => Assert.True(result.Ok, result.Error));
-		var feature = host.Bridge.LastEvent("sessions", "catalog")!.Value
-			.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "feature");
+		var feature = host.CatalogEntry("feature");
 		Assert.False(feature.GetProperty("loaded").GetBoolean());
 		Assert.Null(host.Core.SessionForTest("feature"));
 		Assert.Equal(
@@ -555,7 +551,7 @@ public sealed class HostCoreSessionDeleteTests {
 		var result = await host.InvokeCommandAsync(
 			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
-			new { id = "feature" },
+			new { id = host.SlotId("feature") },
 			CancellationToken.None);
 
 		Assert.False(result.Ok);
@@ -585,14 +581,14 @@ public sealed class HostCoreSessionDeleteTests {
 		var result = await host.DeleteSessionAsync("no-such-branch", force: false, classify: false);
 
 		Assert.False(result.Ok);
-		Assert.Contains("No such session", result.Error!);
+		Assert.Contains("No session has id", result.Error!);
 	}
 
 	[Fact]
 	public async Task Delete_ByExplicitId_RemovesThatSessionFromTheRail() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		Assert.Contains("feature", SessionIds(host));
+		Assert.Contains("feature", host.SessionLabels);
 		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 
@@ -600,7 +596,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
-		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.DoesNotContain("feature", host.SessionLabels);
 		Assert.Equal(
 			new[] { "Session 'feature' was deleted. Its branch was kept." },
 			NotificationMessages(host));
@@ -669,7 +665,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(result.Ok);
 		Assert.Contains("workspace's own checkout", result.Error!, StringComparison.Ordinal);
 		Assert.Contains(workspaceId, SessionIds(host));
-		Assert.Contains("feature", SessionIds(host));
+		Assert.Contains("feature", host.SessionLabels);
 		Assert.True(Directory.Exists(host.RepoRoot));
 	}
 
@@ -683,7 +679,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		await host.RestartAsync(() => DropPersistedSession(host, workspaceId));
 
-		Assert.Contains("feature", SessionIds(host));
+		Assert.Contains("feature", host.SessionLabels);
 		var restored = Assert.Single(
 			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
 			entry => entry.GetProperty("workspaceCheckout").GetBoolean());
@@ -720,7 +716,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		var external = host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray()
 			.Where(entry => entry.GetProperty("external").GetBoolean())
-			.Select(entry => entry.GetProperty("id").GetString());
+			.Select(entry => entry.GetProperty("label").GetString());
 		Assert.Equal(["manual"], external);
 	}
 
@@ -731,14 +727,14 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task DeletingADiscoveredCheckoutRemovesItsWorktreeForGood() {
 		await using var host = await TestHost.StartAsync();
 		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
-		Assert.Contains("manual", SessionIds(host));
+		Assert.Contains("manual", host.SessionLabels);
 
 		var result = await host.DeleteSessionAsync("manual", force: false, classify: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));
 		await host.RestartAsync();
-		Assert.DoesNotContain("manual", SessionIds(host));
+		Assert.DoesNotContain("manual", host.SessionLabels);
 	}
 
 	[Fact]
@@ -753,7 +749,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(blocked.Ok);
 		Assert.Contains("uncommitted changes", blocked.Error);
 		Assert.True(Directory.Exists(checkout));
-		Assert.Contains("manual", SessionIds(host));
+		Assert.Contains("manual", host.SessionLabels);
 
 		Assert.True((await host.DeleteSessionAsync("manual", force: true, classify: false)).Ok);
 		Assert.False(Directory.Exists(checkout));
@@ -807,7 +803,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(result.Ok);
 		Assert.Contains("locked working tree", result.Error);
 		Assert.True(Directory.Exists(checkout));
-		Assert.Contains("manual", SessionIds(host));
+		Assert.Contains("manual", host.SessionLabels);
 	}
 
 	// A detached checkout has no branch to keep its commits, so removing it orphans them: that costs force, and
@@ -850,7 +846,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));
 		await host.RestartAsync();
-		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.DoesNotContain("feature", host.SessionLabels);
 	}
 
 	[Fact]

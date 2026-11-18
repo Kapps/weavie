@@ -72,7 +72,10 @@ test("creating a session focuses its agent while ordinary session switching does
   await inbox
     .getByRole("textbox", { name: "Branch for the new session" })
     .fill("e2e/session-focus");
-  const start = await inbox.getByRole("button", { name: "Start", exact: true }).boundingBox();
+  // Opening Sessions re-reads the workflow catalog, and Start is disabled until it lands.
+  const startButton = inbox.getByRole("button", { name: "Start", exact: true });
+  await expect(startButton).toBeEnabled();
+  const start = await startButton.boundingBox();
   expect(start).not.toBeNull();
   await withHeldAnimationFrames(page, async () => {
     await page.mouse.click(start!.x + start!.width / 2, start!.y + start!.height / 2);

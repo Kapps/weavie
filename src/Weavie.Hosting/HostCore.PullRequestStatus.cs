@@ -52,7 +52,7 @@ public sealed partial class HostCore {
 			branch = await new GitService()
 				.GetCurrentBranchAsync(session.WorkspaceRoot, ct)
 				.ConfigureAwait(false);
-			if (branch is null || await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } headRepo) {
+			if (branch is null || await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false) is not { } headRepo) {
 				return new PullRequestStatusSnapshot(branch, null, null, null);
 			}
 
@@ -60,7 +60,7 @@ public sealed partial class HostCore {
 				return Unsupported(branch, headRepo.Host);
 			}
 
-			var upstream = await ResolveRemoteRepoAsync("upstream", ct).ConfigureAwait(false);
+			var upstream = await ResolveRemoteRepoAsync(session, "upstream", ct).ConfigureAwait(false);
 			var baseRepo = upstream ?? headRepo;
 			string baseRemote = upstream is null ? "origin" : "upstream";
 			if (!baseRepo.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) {

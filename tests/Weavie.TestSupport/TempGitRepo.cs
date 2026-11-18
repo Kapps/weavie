@@ -37,6 +37,14 @@ public sealed class TempGitRepo : IDisposable {
 		Run(workingDirectory, "config", "commit.gpgsign", "false");
 	}
 
+	/// <summary>Initialises a repo in an existing directory and commits one file, so it has a branch to fork.</summary>
+	public static void InitCommitted(string workingDirectory) {
+		Init(workingDirectory);
+		File.WriteAllText(System.IO.Path.Combine(workingDirectory, "readme.txt"), "hello\n");
+		Run(workingDirectory, "add", "-A");
+		Run(workingDirectory, "commit", "--quiet", "-m", "initial");
+	}
+
 	/// <summary>Runs <c>git</c> in <paramref name="workingDirectory"/> and returns stdout; throws on a non-zero exit.</summary>
 	public static string Run(string workingDirectory, params string[] args) {
 		var info = new ProcessStartInfo("git") {

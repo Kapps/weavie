@@ -1,10 +1,15 @@
-import type { WorkflowStartCatalog, WorkflowStartOption, WorkflowSuggestion } from "../bridge";
+import type {
+  LaunchOrigin,
+  WorkflowStartCatalog,
+  WorkflowStartOption,
+  WorkflowSuggestion,
+} from "../bridge";
 import { DraftSettleTimer, draftWorthQuerying } from "./new-session-draft-settle";
 
-/** Where a new session would start: the host, the session it branches from (null for the workspace), and its provider. */
+/** Where a new session would start: the host, what it starts from, and its provider. */
 export interface WorkflowTarget {
   backendId: string;
-  sourceId: string | null;
+  origin: LaunchOrigin;
   providerId: string;
 }
 
@@ -44,7 +49,8 @@ const sameTarget = (left: WorkflowTarget | null, right: WorkflowTarget | null): 
   (left !== null &&
     right !== null &&
     left.backendId === right.backendId &&
-    left.sourceId === right.sourceId &&
+    left.origin.sourceId === right.origin.sourceId &&
+    left.origin.repo === right.origin.repo &&
     left.providerId === right.providerId);
 
 /** The text of a failed request. */

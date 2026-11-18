@@ -1,22 +1,12 @@
-using Weavie.Core.Worktrees;
-
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Owns the rail's <see cref="SessionSlot"/>s for one workspace (the root checkout plus every surfaced worktree, each
-/// loaded or dormant), plus the <see cref="WorktreeManager"/>. Selection belongs to each client, never the host.
+/// Owns the rail's <see cref="SessionSlot"/>s for one workspace: the home folder's session plus every worktree
+/// session of every repo, each loaded or dormant. Selection belongs to each client, never the host.
 /// </summary>
 public sealed class SessionManager : IAsyncDisposable {
 	private readonly List<SessionSlot> _slots = [];
 	private readonly Lock _gate = new();
-
-	/// <summary>Creates the manager over <paramref name="worktrees"/> (the workspace's worktree manager, or <c>null</c> when the root is not a git repo).</summary>
-	public SessionManager(WorktreeManager? worktrees) {
-		Worktrees = worktrees;
-	}
-
-	/// <summary>The workspace's worktree manager, or <c>null</c> when the workspace root is not a git repo.</summary>
-	public WorktreeManager? Worktrees { get; }
 
 	/// <summary>Snapshot of all slots, in creation order. Safe to enumerate.</summary>
 	public IReadOnlyList<SessionSlot> Slots {

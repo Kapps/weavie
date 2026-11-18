@@ -22,21 +22,6 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionRestoreTests {
-	private static JsonElement SessionEntry(FakeHostBridge bridge, Func<JsonElement, bool> match) {
-		var catalog = bridge.LastEvent("sessions", "catalog");
-		Assert.True(catalog.HasValue, "no session catalog was published");
-		foreach (var session in catalog!.Value.EnumerateArray()) {
-			if (match(session)) {
-				return session;
-			}
-		}
-
-		throw new Xunit.Sdk.XunitException("no matching session in the list");
-	}
-
-	private static JsonElement SessionById(FakeHostBridge bridge, string id) =>
-		SessionEntry(bridge, s => s.GetProperty("id").GetString() == id);
-
 	[Fact]
 	public async Task LoadedSessionsSurviveRestart_WhileClientSelectionResetsIndependently() {
 		await using var host = await TestHost.StartAsync();
@@ -51,8 +36,8 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync();
 
-		var a = SessionById(host.Bridge, "branch-a");
-		var b = SessionById(host.Bridge, "branch-b");
+		var a = host.CatalogEntry("branch-a");
+		var b = host.CatalogEntry("branch-b");
 		Assert.True(a.GetProperty("loaded").GetBoolean());
 		Assert.True(b.GetProperty("loaded").GetBoolean());
 		Assert.False(a.TryGetProperty("active", out _));
@@ -81,6 +66,7 @@ public sealed class HostCoreSessionRestoreTests {
 			new {
 				id = SessionCommands.NewSession,
 				args = new {
+					repo = host.RepoRoot,
 					branch = "branch-a",
 					@base = "main",
 					existing = true,
@@ -104,7 +90,7 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync();
 
-		var a = SessionById(host.Bridge, "branch-a");
+		var a = host.CatalogEntry("branch-a");
 		Assert.False(a.GetProperty("loaded").GetBoolean());
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 	}
@@ -117,13 +103,13 @@ public sealed class HostCoreSessionRestoreTests {
 
 		var alreadyLoaded = await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" });
+			new { id = host.SlotId("branch-a") });
 		AssertAddress(alreadyLoaded, host.Session("branch-a"));
 
 		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
 		var loaded = await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" });
+			new { id = host.SlotId("branch-a") });
 		AssertAddress(loaded, host.Session("branch-a"));
 	}
 
@@ -142,11 +128,11 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True(result.Ok, result.Error);
 		host.SelectWorkspaceSession();
 		await Wait.ForAsync<bool>(() =>
-			SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean()
+			host.CatalogEntry("branch-a").GetProperty("loaded").GetBoolean()
 				? null
 				: true);
 		Assert.Null(host.Core.SessionForTest("branch-a"));
-		Assert.False(SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean());
+		Assert.False(host.CatalogEntry("branch-a").GetProperty("loaded").GetBoolean());
 		Assert.Empty(dispatcherErrors);
 		Assert.Empty(host.UiDispatchFailures);
 	}
@@ -177,7 +163,7 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync();
 
-		var session = SessionById(host.Bridge, "structured-branch");
+		var session = host.CatalogEntry("structured-branch");
 		Assert.Equal("structured", session.GetProperty("providerId").GetString());
 		Assert.Equal("structured", session.GetProperty("agentSurface").GetString());
 		Assert.Equal(2, session.GetProperty("agentInputProtocol").GetInt32());
@@ -202,7 +188,7 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
 		Assert.Empty(catalog.Removed);
 		await host.RestartAsync();
-		Assert.Equal("structured", SessionById(host.Bridge, "structured-branch")
+		Assert.Equal("structured", host.CatalogEntry("structured-branch")
 			.GetProperty("providerId").GetString());
 	}
 
@@ -321,7 +307,7 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":3,"sessions":[]}"""));
 
-		var session = SessionById(host.Bridge, "structured-branch");
+		var session = host.CatalogEntry("structured-branch");
 		Assert.Equal("structured", session.GetProperty("providerId").GetString());
 		Assert.False(session.GetProperty("loaded").GetBoolean());
 	}
@@ -340,7 +326,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await host.RestartAsync();
 
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
-		var stale = SessionById(host.Bridge, "branch-a");
+		var stale = host.CatalogEntry("branch-a");
 		Assert.Equal("removed-provider", stale.GetProperty("providerId").GetString());
 		Assert.Equal("unavailable", stale.GetProperty("agentSurface").GetString());
 		Assert.False(stale.GetProperty("loaded").GetBoolean());
@@ -363,7 +349,7 @@ public sealed class HostCoreSessionRestoreTests {
 			Assert.IsType<WorktreeRecord>(registry.FindByBranch("structured-branch"))
 				with { AgentProviderId = "removed-provider" }));
 
-		var stale = SessionById(host.Bridge, "structured-branch");
+		var stale = host.CatalogEntry("structured-branch");
 		Assert.False(stale.GetProperty("loaded").GetBoolean());
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		Assert.Contains(
@@ -382,9 +368,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await host.Core.StartAsync();
 		await host.ConnectAsync();
 
-		var workspace = SessionEntry(
-			host.Bridge,
-			session => session.GetProperty("label").GetString() == host.WorkspaceSession.DisplayLabel);
+		var workspace = host.CatalogEntry(host.WorkspaceSession.DisplayLabel);
 		Assert.Equal("claude", workspace.GetProperty("providerId").GetString());
 		Assert.Contains(
 			host.Bridge.PostedEvents("notifications", "show"),
@@ -406,9 +390,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await host.RestartAsync();
 
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
-		Assert.DoesNotContain(
-			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
-			s => s.GetProperty("id").GetString() == "ghost");
+		Assert.DoesNotContain("ghost", host.SessionLabels);
 	}
 
 	[Fact]
@@ -480,7 +462,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await host.RestartAsync();
 		Assert.True((await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
-			new { id = "branch-a" })).Ok);
+			new { id = host.SlotId("branch-a") })).Ok);
 
 		Assert.Equal(branchFile, RestoredActive(host, host.Session("branch-a")));
 	}

@@ -45,6 +45,10 @@ export interface SessionChip {
   workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
   external: boolean;
+  /** The root of the repo the session's checkout belongs to. */
+  repo: string;
+  /** The repo's name; on a rail session, empty unless the workspace's sessions span more than one repo. */
+  repoLabel: string;
 }
 
 export type SessionRunState =
@@ -342,6 +346,14 @@ export interface Suggestion {
   title: string;
   body: string;
   actions: SuggestionAction[];
+}
+
+/** What the page shows of one repo: its raw test profile, its contextual suggestions, and its recent files. */
+export interface RepoState {
+  repo: string;
+  testProfile: string;
+  suggestions: Suggestion[];
+  recentFiles: string[];
 }
 
 export type ResizeEdge =

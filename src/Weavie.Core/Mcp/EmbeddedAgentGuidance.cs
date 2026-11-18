@@ -65,6 +65,10 @@ public static class EmbeddedAgentGuidance {
 		`mcp__weavie__listSessions`, read its conversation with `mcp__weavie__readSession`, and send it a message
 		with `mcp__weavie__messageSession`. Messages are asynchronous: don't wait for a reply.
 
+		Sessions can be in different repositories. `listSessions` gives each session's `repo` and the `worktree`
+		its files are in, which you may read. Don't edit another session's worktree: message that session, or when
+		the work needs a session in another repository, create one with `weavie.session.new` and its `repo` path.
+
 		When the user asks you to check with, ask, or get a second opinion from another agent or model by name
 		(e.g. "check with Astra"), call `mcp__weavie__listAgents` to resolve that name to an exact provider id and
 		model id, then call `mcp__weavie__consultAgent`. The consulted agent can't see this conversation, so give

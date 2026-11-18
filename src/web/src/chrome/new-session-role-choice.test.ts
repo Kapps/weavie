@@ -8,7 +8,11 @@ import {
   rolesReady,
 } from "./new-session-role-choice";
 
-const TARGET = { backendId: "local", sourceId: null, providerId: "codex" };
+const TARGET = {
+  backendId: "local",
+  origin: { sourceId: null, repo: null },
+  providerId: "codex",
+};
 const option = (id: string, label: string) => ({ id, label, description: null, group: null });
 const modelAxis = (value: string): AgentControlAxis => ({
   id: "model",

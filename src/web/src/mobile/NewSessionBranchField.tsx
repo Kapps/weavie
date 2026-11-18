@@ -1,6 +1,11 @@
 import { GitBranch, RefreshCw } from "lucide-solid";
 import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { backendPhase, type EncodedImageAttachment, requestBranchPreview } from "../bridge";
+import {
+  backendPhase,
+  type EncodedImageAttachment,
+  type LaunchOrigin,
+  requestBranchPreview,
+} from "../bridge";
 import {
   type BranchPreviewState,
   NewSessionBranchPreview,
@@ -21,6 +26,7 @@ export interface NewSessionBranchActions {
 export function NewSessionBranchField(props: {
   active: boolean;
   backendId: string;
+  origin: LaunchOrigin;
   attachments: readonly EncodedImageAttachment[];
   inputReady: boolean;
   prompt: string;
@@ -38,6 +44,7 @@ export function NewSessionBranchField(props: {
     (context, userInitiated, signal) =>
       requestBranchPreview(
         context.backendId,
+        context.origin,
         context.prompt,
         context.attachments,
         userInitiated,
@@ -73,6 +80,7 @@ export function NewSessionBranchField(props: {
       props.inputReady && online()
         ? {
             backendId: props.backendId,
+            origin: props.origin,
             prompt,
             attachments: props.attachments,
           }

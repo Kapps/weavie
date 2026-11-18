@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Lsp;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Configuration;
 
@@ -56,7 +57,7 @@ public static class LspSettings {
 
 	// A bare name stays a PATH lookup; anything path-shaped is anchored at the worktree.
 	private static string Anchor(string command, string worktree) {
-		string expanded = SettingsStore.ExpandHome(command);
+		string expanded = WorkspacePaths.ExpandHome(command);
 		return expanded.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) < 0
 			? expanded
 			: Path.GetFullPath(expanded, worktree);

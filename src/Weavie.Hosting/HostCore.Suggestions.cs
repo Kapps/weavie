@@ -1,6 +1,4 @@
-using System.Text.Json;
 using Weavie.Core;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Workspaces;
@@ -8,45 +6,38 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// Contextual suggestions: the per-workspace SuggestionService evaluates the registered nudges, this partial
-// constructs it, fans the active set out to the page, applies dismissals, and seeds the workspace-setup prompt.
+// Contextual suggestions: each repo's SuggestionService evaluates the registered nudges; this partial pushes its
+// active set to the page under the repo's root, applies dismissals, and seeds the workspace-setup prompt.
 // See docs/specs/suggestions.md.
 public sealed partial class HostCore {
-	private SuggestionService? _suggestions;
-
-	private void InitSuggestions() {
-		var fileSystem = new LocalFileSystem();
-		var dismissals = new SuggestionDismissals(fileSystem, WeaviePaths.WorkspaceSuggestionsFile(Id));
-		dismissals.Log += Log;
-		// Built-in auto-config runs as the probe: it detects the language(s), writes the unset setup/test settings,
-		// and reports whether a manifest is present (the card gate). Set before the service, whose ctor starts it.
-		_autoConfig = new WorkspaceAutoConfig(_settings, WorkspaceRoot);
-		_suggestions = new SuggestionService(
-			_suggestionRegistry, _settings, fileSystem, WorkspaceRoot, dismissals,
-			TimeSpan.FromMilliseconds(500), PushSuggestions, () => RunAutoConfigProbe(fileSystem),
-			() => new SuggestionSignals(_corrections.Count, _decisionHistory.Summary()));
+	private void EvaluateSuggestions() {
+		foreach (var repo in _repos.Values) {
+			repo.Suggestions.Evaluate();
+		}
 	}
 
-	// Fan the active suggestion set out to every client, like the session list.
-	private void PushSuggestions(IReadOnlyList<ActiveSuggestion> active) =>
-		_messages.Host.Feature("suggestions").Publish("changed", WireJson.Default.SuggestionsChanged, new([
-			.. active.Select(s => new SuggestionWire(
-				s.Definition.Id,
-				s.Definition.Title,
-				s.Body,
-				[.. s.Definition.Actions.Select(a => new SuggestionActionWire(a.Label, a.Kind.ToString(), a.CommandId, a.ArgsJson))])),
-		]));
+	private void PushSuggestions(string repo, IReadOnlyList<ActiveSuggestion> active) =>
+		_messages.Host.Feature("suggestions").Publish(
+			"changed", WireJson.Default.SuggestionsChanged, new(repo, SuggestionWires(active)));
+
+	private static SuggestionWire[] SuggestionWires(IReadOnlyList<ActiveSuggestion> active) => [
+		.. active.Select(s => new SuggestionWire(
+			s.Definition.Id,
+			s.Definition.Title,
+			s.Body,
+			[.. s.Definition.Actions.Select(a => new SuggestionActionWire(a.Label, a.Kind.ToString(), a.CommandId, a.ArgsJson))])),
+	];
 
 	// Apply a web dismissal ("not now" → snooze for this run; "don't ask again" → forever); the service re-pushes.
-	private void DismissSuggestion(string id, bool forever) {
-		if (string.IsNullOrEmpty(id) || _suggestions is null) {
+	private static void DismissSuggestion(HostSession session, string id, bool forever) {
+		if (string.IsNullOrEmpty(id)) {
 			return;
 		}
 
 		if (forever) {
-			_suggestions.DismissForever(id);
+			session.Repo.Suggestions.DismissForever(id);
 		} else {
-			_suggestions.Snooze(id);
+			session.Repo.Suggestions.Snooze(id);
 		}
 	}
 
@@ -58,7 +49,7 @@ public sealed partial class HostCore {
 		session.PrefillAgentPrompt(WorkspaceSetupPrompt.Prompt.Text);
 }
 
-internal sealed record SuggestionsChanged(IReadOnlyList<SuggestionWire> Items);
+internal sealed record SuggestionsChanged(string Repo, IReadOnlyList<SuggestionWire> Items);
 
 internal sealed record SuggestionWire(string Id, string Title, string Body, IReadOnlyList<SuggestionActionWire> Actions);
 

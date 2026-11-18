@@ -88,6 +88,13 @@
   overflow-wrap: anywhere;
   text-align: center;
 }
+.session-chip-repo {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .session-chip:focus-visible,
 .session-rail-add:focus-visible,
 .session-rail-cloud:focus-visible {

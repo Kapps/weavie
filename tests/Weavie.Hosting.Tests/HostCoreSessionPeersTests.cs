@@ -19,13 +19,13 @@ public sealed class HostCoreSessionPeersTests {
 		var delivery = await sender.Peers.SendAsync(target.SlotId, "ping", CancellationToken.None);
 		await target.Agent.DrainPaneAsync(CancellationToken.None);
 
-		Assert.Equal("peer-target", delivery.Id);
+		Assert.Equal(target.SlotId, delivery.Id);
 		var shown = Assert.Single(
 			host.Bridge.PostedEvents(target.Address, "agent", "pane"),
 			message => message.GetProperty("type").GetString() == "user-message");
 		Assert.Equal("ping", shown.GetProperty("text").GetString());
 		Assert.Equal(
-			("peer-sender", "peer sender"),
+			(sender.SlotId, "peer sender"),
 			(shown.GetProperty("sender").GetProperty("id").GetString(), shown.GetProperty("sender").GetProperty("title").GetString()));
 		Assert.DoesNotContain(
 			host.Bridge.PostedEvents(sender.Address, "agent", "pane"),
@@ -33,7 +33,7 @@ public sealed class HostCoreSessionPeersTests {
 
 		var transcript = await sender.Peers.ReadAsync(target.SlotId, 2, CancellationToken.None);
 		Assert.Equal(
-			[new(AgentTranscriptRole.User, "ping", null, "peer-sender"), new AgentTranscriptEntry(AgentTranscriptRole.Agent, "echo: ping", "completed", null)],
+			[new(AgentTranscriptRole.User, "ping", null, sender.SlotId), new AgentTranscriptEntry(AgentTranscriptRole.Agent, "echo: ping", "completed", null)],
 			transcript.Entries);
 	}
 
@@ -41,20 +41,20 @@ public sealed class HostCoreSessionPeersTests {
 	public async Task SessionsThatCantReceiveRefuseAndListSaysWhy() {
 		await using var host = await TestHost.StartAsync();
 		var sender = await CreateStructuredAsync(host, "peer-sender");
-		await CreateStructuredAsync(host, "peer-dormant");
+		string dormant = (await CreateStructuredAsync(host, "peer-dormant")).SlotId;
 		var unloaded = await host.InvokeCommandAsync(
-			sender.SlotId, SessionCommands.UnloadSession, new { id = "peer-dormant" }, CancellationToken.None);
+			sender.SlotId, SessionCommands.UnloadSession, new { id = dormant }, CancellationToken.None);
 		Assert.True(unloaded.Ok, unloaded.Error);
 		string claude = host.WorkspaceSession.SlotId;
 
 		var peers = (await sender.Peers.ListAsync(includeSides: true, CancellationToken.None)).ToDictionary(peer => peer.Id, peer => peer.Receive);
-		Assert.Equal(SessionPeerReceive.Ready, peers["peer-sender"]);
-		Assert.Equal(SessionPeerReceive.NeedsLoad, peers["peer-dormant"]);
+		Assert.Equal(SessionPeerReceive.Ready, peers[sender.SlotId]);
+		Assert.Equal(SessionPeerReceive.NeedsLoad, peers[dormant]);
 		Assert.Equal(SessionPeerReceive.Unsupported, peers[claude]);
 
-		await AssertRefusedAsync(sender, "peer-sender", "can't message itself");
+		await AssertRefusedAsync(sender, sender.SlotId, "can't message itself");
 		await AssertRefusedAsync(sender, "no-such-session", "No session has id");
-		await AssertRefusedAsync(sender, "peer-dormant", "weavie.session.load");
+		await AssertRefusedAsync(sender, dormant, "weavie.session.load");
 		await AssertRefusedAsync(sender, claude, "in a terminal");
 	}
 
@@ -65,12 +65,12 @@ public sealed class HostCoreSessionPeersTests {
 		var target = await CreateStructuredAsync(host, "peer-target");
 		var stale = (await CreateStructuredAsync(host, "peer-reloaded")).Peers.Side("b7");
 		foreach (string command in new[] { SessionCommands.UnloadSession, SessionCommands.LoadSession }) {
-			var result = await host.InvokeCommandAsync(target.SlotId, command, new { id = "peer-reloaded" }, CancellationToken.None);
+			var result = await host.InvokeCommandAsync(target.SlotId, command, new { id = host.SlotId("peer-reloaded") }, CancellationToken.None);
 			Assert.True(result.Ok, result.Error);
 		}
 		var reloaded = host.Session("peer-reloaded");
 
-		foreach (string id in new[] { "peer-reloaded", "peer-target" }) {
+		foreach (string id in new[] { reloaded.SlotId, target.SlotId }) {
 			var refused = await Assert.ThrowsAsync<SessionPeerException>(() => stale.SendAsync(id, "ping", CancellationToken.None));
 			Assert.Equal("The sending session no longer exists.", refused.Message);
 		}
@@ -94,10 +94,10 @@ public sealed class HostCoreSessionPeersTests {
 			attachmentIds = Array.Empty<string>(),
 		});
 		var unloaded = await host.InvokeCommandAsync(
-			reader.SlotId, SessionCommands.UnloadSession, new { id = "peer-history" }, CancellationToken.None);
+			reader.SlotId, SessionCommands.UnloadSession, new { id = dormant.SlotId }, CancellationToken.None);
 		Assert.True(unloaded.Ok, unloaded.Error);
 
-		var transcript = await reader.Peers.ReadAsync("peer-history", 1, CancellationToken.None);
+		var transcript = await reader.Peers.ReadAsync(dormant.SlotId, 1, CancellationToken.None);
 
 		Assert.Equal(2, transcript.Total);
 		Assert.Equal("echo: remember me", Assert.Single(transcript.Entries).Text);

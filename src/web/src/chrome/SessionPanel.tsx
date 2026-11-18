@@ -23,7 +23,13 @@ import {
 } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { panelOrder, SESSION_GROUPS, sessionsIn, switchShortcut } from "./session-summary";
+import {
+  panelOrder,
+  SESSION_GROUPS,
+  sessionName,
+  sessionsIn,
+  switchShortcut,
+} from "./session-summary";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 520;
@@ -237,9 +243,7 @@ export function SessionPanel(props: {
                               offline: session().offline,
                             }}
                             data-session-slot={session().id}
-                            title={`${session().label}${session().isLocal ? "" : ` @ ${session().locationName}`}${
-                              shortcut() === "" ? "" : ` (${shortcut()})`
-                            }`}
+                            title={`${sessionName(session())}${shortcut() === "" ? "" : ` (${shortcut()})`}`}
                             onClick={() => choose(session())}
                             onContextMenu={(event) => menu.open(event, session())}
                           >

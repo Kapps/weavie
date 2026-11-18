@@ -15,7 +15,7 @@ public sealed partial class HostCore {
 		}
 
 		// Peek (Count) before consuming so an empty ring fails WITHOUT draining.
-		if (_corrections.Count == 0) {
+		if (session.Repo.Corrections.Count == 0) {
 			return CommandResult.Failure(
 				"No corrections recorded yet — after you revert or hand-edit something the agent wrote, run this again.");
 		}
@@ -23,7 +23,7 @@ public sealed partial class HostCore {
 		// Atomic read+clear: a correction another session appends after this stays in the ring; one appended
 		// before is returned here and analyzed — never silently evicted. Take fires Changed → the suggestion
 		// re-evaluates and the corrections.learn card vanishes.
-		var records = _corrections.Take();
+		var records = session.Repo.Corrections.Take();
 		if (records.Count == 0) {
 			return CommandResult.Failure(
 				"No corrections recorded yet — after you revert or hand-edit something the agent wrote, run this again.");

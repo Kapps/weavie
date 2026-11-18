@@ -1,8 +1,8 @@
-// The active workspace's test profile on the web side: parsed from window.__WEAVIE_TEST_PROFILE__ (injected
-// before navigation) and re-parsed on each host tests.profile event. Drives the run-lens provider.
+// A repo's test profile on the web side: its test.profile, parsed for the session it is asked for. Drives the
+// run-lens provider.
 
-import { createMemo, createSignal } from "solid-js";
-import { type HostConnection, log, registerHostFeature, selectedSession } from "../bridge";
+import { type ClientSession, log } from "../bridge";
+import { repoStateOf } from "../repo-state";
 
 /** One profile rule (mirrors Core's TestRule): a file glob + a symbol regex, plus the run-command templates. */
 export interface TestRule {
@@ -14,34 +14,17 @@ export interface TestRule {
   header?: string;
 }
 
-declare global {
-  interface Window {
-    /** The raw test.profile JSON the host injects before navigation ("" when unconfigured). */
-    __WEAVIE_TEST_PROFILE__?: string;
+const parsed = new Map<string, TestRule[]>();
+
+/** A session's test rules (empty when unconfigured or its repo declared no tests). */
+export function testRulesFor(session: ClientSession | null): TestRule[] {
+  const json = repoStateOf(session).testProfile;
+  let rules = parsed.get(json);
+  if (rules === undefined) {
+    rules = parseProfile(json);
+    parsed.set(json, rules);
   }
-}
-
-const [profiles, setProfiles] = createSignal(
-  new Map<string, TestRule[]>([["local", parseProfile(window.__WEAVIE_TEST_PROFILE__ ?? "")]]),
-);
-const changeListeners = new Set<() => void>();
-
-/** The active workspace's test rules (empty when unconfigured or the repo declared no tests). */
-export function testRulesFor(connection: HostConnection): TestRule[] {
-  return profiles().get(connection.id) ?? [];
-}
-
-export const testRules = createMemo(() => {
-  const session = selectedSession();
-  return session === null ? [] : testRulesFor(session.connection);
-});
-
-/** Subscribes to profile changes (a host push). Returns an unsubscribe. Use outside a Solid reactive root. */
-export function onTestProfileChanged(listener: () => void): () => void {
-  changeListeners.add(listener);
-  return () => {
-    changeListeners.delete(listener);
-  };
+  return rules;
 }
 
 /** Parses the raw test.profile JSON into rules; a bad or empty value yields no rules (no lenses). */
@@ -79,21 +62,3 @@ export function parseProfile(json: string): TestRule[] {
   }
   return result;
 }
-
-function applyProfile(connection: HostConnection, profile: string): void {
-  setProfiles((previous) => new Map(previous).set(connection.id, parseProfile(profile)));
-  for (const listener of changeListeners) {
-    listener();
-  }
-}
-
-registerHostFeature((connection) => {
-  const offHello = connection.onHello((hello) => applyProfile(connection, hello.testProfile));
-  const offProfile = connection.host
-    .feature("tests")
-    .on<{ profile: string }>("profile", ({ profile }) => applyProfile(connection, profile));
-  return () => {
-    offHello();
-    offProfile();
-  };
-});

@@ -22,14 +22,14 @@ public sealed class SuggestionService {
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
 
+	private readonly TaskCompletionSource _probed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private bool _hasManifest;
-	private IReadOnlyList<ActiveSuggestion> _current = [];
 
 	/// <summary>
-	/// Creates the service and kicks off the off-the-hot-path <paramref name="probe"/> — the host-supplied walk
-	/// that classifies + auto-configures the workspace and reports whether it carries a build manifest.
-	/// <paramref name="probeTimeout"/> bounds it, failing open (card shown) if it doesn't finish in time.
-	/// <paramref name="signals"/> supplies the workspace's live history per evaluation.
+	/// Creates the service over the host-supplied <paramref name="probe"/>: the walk that classifies +
+	/// auto-configures the workspace and reports whether it carries a build manifest. <see cref="Start"/> runs it.
+	/// <paramref name="probeTimeout"/> bounds the wait for a first evaluation, failing open (card shown) if the
+	/// probe doesn't finish in time. <paramref name="signals"/> supplies the workspace's live history per evaluation.
 	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
@@ -58,8 +58,16 @@ public sealed class SuggestionService {
 		_push = push;
 		_probe = probe;
 		_signals = signals;
-		_ = RunProbeAsync();
 	}
+
+	/// <summary>Completes once the probe has run to its end, whatever it found: the workspace is auto-configured.</summary>
+	public Task Probed => _probed.Task;
+
+	/// <summary>The active set as of the last evaluation.</summary>
+	public IReadOnlyList<ActiveSuggestion> Current { get; private set; } = [];
+
+	/// <summary>Runs the probe off the hot path, then evaluates.</summary>
+	public void Start() => _ = RunProbeAsync();
 
 	/// <summary>Re-evaluates and pushes the active set. Call on a trigger (setting changed, session created).</summary>
 	public void Evaluate() {
@@ -75,7 +83,7 @@ public sealed class SuggestionService {
 			active = [.. _registry.Definitions
 				.Where(d => !_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))
 				.Select(d => new ActiveSuggestion(d, d.Body(context)))];
-			_current = active;
+			Current = active;
 		}
 
 		_push(active);
@@ -84,16 +92,6 @@ public sealed class SuggestionService {
 	// Dismissed if the card's own id — or any id it superseded — was dismissed forever (migration continuity).
 	private bool IsDismissed(SuggestionDefinition definition) =>
 		_dismissals.IsDismissed(definition.Id) || definition.LegacyIds.Any(_dismissals.IsDismissed);
-
-	/// <summary>Pushes the current active set without re-evaluating (used on the page's first <c>ready</c>).</summary>
-	public void PushCurrent() {
-		IReadOnlyList<ActiveSuggestion> current;
-		lock (_gate) {
-			current = _current;
-		}
-
-		_push(current);
-	}
 
 	/// <summary>Hides <paramref name="id"/> for this app run ("not now").</summary>
 	public void Snooze(string id) {
@@ -114,6 +112,7 @@ public sealed class SuggestionService {
 
 	private async Task RunProbeAsync() {
 		var scan = Task.Run(_probe);
+		_ = scan.ContinueWith(_ => _probed.TrySetResult(), TaskScheduler.Default);
 		var winner = await Task.WhenAny(scan, Task.Delay(_probeTimeout)).ConfigureAwait(false);
 
 		// Fail open: only a completed probe that found nothing yields false. A timeout (a tree too slow or large to

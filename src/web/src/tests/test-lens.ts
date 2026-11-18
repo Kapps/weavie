@@ -11,9 +11,10 @@ import type { TextEditorConnection } from "../editor/editor-context";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "../editor/session-uri";
 import { onLanguageClientStarted } from "../lsp/lsp-client";
 import { notify } from "../notify/notify";
+import { onTestProfileChanged } from "../repo-state";
 import { globMatches } from "./glob";
 import { testRunTargetAt } from "./test-match";
-import { onTestProfileChanged, type TestRule, testRulesFor } from "./test-profile";
+import { type TestRule, testRulesFor } from "./test-profile";
 import { documentTestHits } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.
@@ -137,7 +138,7 @@ function ruleForModel(model: monaco.editor.ITextModel): TestRule | undefined {
   const session = sessionForUri(model.uri);
   return session === undefined
     ? undefined
-    : testRulesFor(session.connection).find((rule) => globMatches(rule.glob, relative));
+    : testRulesFor(session).find((rule) => globMatches(rule.glob, relative));
 }
 
 // The model's path relative to the workspace root (forward-slashed), or undefined when the file is outside the

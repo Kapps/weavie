@@ -27,7 +27,8 @@ public sealed class HostCoreSuggestionsTests {
 
 		// forever:false → snooze (in-memory), so this asserts the dispatch → service → re-push wiring without
 		// writing a dismissals file.
-		host.HostEvent(
+		host.SessionEvent(
+			host.SelectedSession,
 			"suggestions",
 			"dismiss",
 			new { id = "worktree.setupCommand", forever = false });

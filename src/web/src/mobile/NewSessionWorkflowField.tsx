@@ -11,7 +11,7 @@ import {
 } from "solid-js";
 import {
   backendPhase,
-  launchSource,
+  type LaunchOrigin,
   type RolePick,
   requestRoleControls,
   requestRoleSuggestion,
@@ -59,7 +59,7 @@ const NONE_HINT = "Tell your agent how you like to work and ask it to create a w
 export function NewSessionWorkflowField(props: {
   active: boolean;
   backendId: string;
-  base: "source" | "main";
+  origin: LaunchOrigin;
   providerId: string;
   prompt: string;
   /** Whether a start would run what the field shows: its catalog is read and every role has a model. */
@@ -75,11 +75,11 @@ export function NewSessionWorkflowField(props: {
   const [roles, setRoles] = createSignal<RoleChoiceState>({ rows: [], error: null });
   let target: WorkflowTarget | null = null;
   const choice = new NewSessionWorkflowChoice(
-    (to, signal) => requestWorkflowCatalog(to.backendId, to.sourceId, to.providerId, signal),
+    (to, signal) => requestWorkflowCatalog(to.backendId, to.origin, to.providerId, signal),
     (to, prompt, userInitiated, signal) =>
       requestWorkflowSuggestion(
         to.backendId,
-        to.sourceId,
+        to.origin,
         to.providerId,
         prompt,
         userInitiated,
@@ -92,7 +92,7 @@ export function NewSessionWorkflowField(props: {
     (pair, role, signal) =>
       requestRoleSuggestion(
         pair.target.backendId,
-        pair.target.sourceId,
+        pair.target.origin,
         pair.target.providerId,
         pair.workflow,
         role,
@@ -107,14 +107,11 @@ export function NewSessionWorkflowField(props: {
   });
 
   const online = createMemo(() => backendPhase(props.backendId) === "online");
-  const sourceId = createMemo(
-    () => launchSource(props.backendId, props.base)?.address.slot ?? null,
-  );
   // Opening Sessions re-reads the catalog, so a workflow written since the last visit is offered.
   createEffect(() => {
     if (props.active) {
       target = online()
-        ? { backendId: props.backendId, sourceId: sourceId(), providerId: props.providerId }
+        ? { backendId: props.backendId, origin: props.origin, providerId: props.providerId }
         : null;
       choice.retarget(target);
     }

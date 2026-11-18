@@ -8,6 +8,7 @@ import {
   sessionDetail,
   sessionGroup,
   sessionLine,
+  sessionName,
   sessionStatusLabel,
   sessionSubtitle,
   sessionTooltip,
@@ -36,6 +37,8 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   workspaceCheckout: false,
   external: false,
   reloadRequired: null,
+  repo: "/code/repo",
+  repoLabel: "",
   backendId: "local",
   locationName: "default",
   isLocal: true,
@@ -158,6 +161,13 @@ describe("sessionSubtitle", () => {
       "implement · needs your answer",
     );
     expect(sessionSubtitle(session({ loaded: false, run }), NOW)).toBe("not loaded");
+  });
+
+  it("names a session by branch, led by its repo when labelled and trailed by a remote location", () => {
+    expect(sessionName(session({}))).toBe("feature/review-front-door");
+    expect(sessionName(session({ repoLabel: "infra", isLocal: false, locationName: "box" }))).toBe(
+      "infra / feature/review-front-door @ box",
+    );
   });
 
   it("marks a worktree Weavie didn't create", () => {

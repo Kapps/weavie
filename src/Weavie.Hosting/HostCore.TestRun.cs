@@ -34,9 +34,8 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("No file to run tests for — open a test file or pass a file path.");
 		}
 
-		// The profile is a per-workspace setting, resolved against this HostCore's workspace (shared by all its
-		// sessions/worktrees); the file path and shell are the session's own.
-		string profileJson = _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
+		// The profile is the repo's, shared by all its sessions; the file path and shell are the session's own.
+		string profileJson = ResolvedTestProfile(session.Repo);
 		if (string.IsNullOrWhiteSpace(profileJson)) {
 			return CommandResult.Failure("No test profile is configured — run 'Set Up This Workspace' first.");
 		}
@@ -106,15 +105,12 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>The page-bootstrap fragment seeding <c>window.__WEAVIE_TEST_PROFILE__</c> with this workspace's raw test.profile (empty when unset).</summary>
-	public string BuildTestProfileScript() =>
-		"window.__WEAVIE_TEST_PROFILE__ = " + JsonSerializer.Serialize(ResolvedTestProfile(), WireJson.Default.String) + ";";
+	// The repo's raw test.profile (empty when unset), for the page's lens provider.
+	private void PushTestProfile(Repo repo) => _messages.Host.Feature("tests").Publish(
+		"profile", WireJson.Default.TestProfileChanged, new(repo.Root, ResolvedTestProfile(repo)));
 
-	// Re-push the workspace's test profile so the page's lens provider refreshes (fired on a test.profile change).
-	private void PushTestProfileToWeb() =>
-		_messages.Host.Feature("tests").Publish("profile", WireJson.Default.TestProfileChanged, new(ResolvedTestProfile()));
-
-	private string ResolvedTestProfile() => _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
+	private string ResolvedTestProfile(Repo repo) =>
+		_settings.Resolve(TestSettings.Profile, repo.Root).Value as string ?? string.Empty;
 
 	// PowerShell (the Windows default) gets '' -doubling single-quotes; everything else POSIX single-quoting.
 	// cmd.exe isn't specially handled — it's never the default, and single-quoting isn't its convention.
@@ -127,4 +123,4 @@ public sealed partial class HostCore {
 
 internal sealed record PaneFocus(string Kind, string TerminalId);
 
-internal sealed record TestProfileChanged(string Profile);
+internal sealed record TestProfileChanged(string Repo, string Profile);

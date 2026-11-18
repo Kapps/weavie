@@ -23,7 +23,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		Directory.CreateDirectory(runFile);
 		try {
 			var error = await Assert.ThrowsAsync<AggregateException>(() => fixture.Host.InvokeCommandAsync(fixture.Host.WorkspaceSession.SlotId,
-				SessionCommands.UnloadSession, new { id = "conversation" }, CancellationToken.None));
+				SessionCommands.UnloadSession, new { id = fixture.Host.SlotId("conversation") }, CancellationToken.None));
 			Assert.Contains("Could not save workflow run", error.Message, StringComparison.Ordinal);
 			await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
 			Assert.True(process.HasExited);

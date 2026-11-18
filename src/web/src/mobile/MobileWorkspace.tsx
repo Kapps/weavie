@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import type { ClientSession } from "../bridge";
 import type { RailSession } from "../chrome/session-store";
 import {
   type MobileSurface,
@@ -21,6 +22,8 @@ export function MobileWorkspace(props: {
     seed: () => Promise<NewSessionSeed | null>,
     backendId: string,
     providerId: string,
+    repo: string | null,
+    source: ClientSession | null,
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
   onSurface: (surface: MobileSurface) => void;

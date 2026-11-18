@@ -1,21 +1,8 @@
-import { createMemo, createSignal } from "solid-js";
-import { registerHostFeature, selectedSession } from "../bridge";
+import { createMemo } from "solid-js";
+import { selectedSession } from "../bridge";
 import { normalizePath, repoRelativePath } from "../editor/fs-path";
 import { selectedFileIndex } from "../files/session-files";
-
-// Each backend pushes checkout-relative paths so one workspace-wide history follows files across sessions.
-// Keep them keyed by backend and resolve the active one's paths against the selected checkout.
-const [byBackend, setByBackend] = createSignal<Map<string, readonly string[]>>(new Map());
-
-registerHostFeature((connection) =>
-  connection.host.feature("recentFiles").on<{ files: string[] }>("changed", ({ files }) => {
-    setByBackend((prev) => {
-      const next = new Map(prev);
-      next.set(connection.id, files);
-      return next;
-    });
-  }),
-);
+import { repoStateOf } from "../repo-state";
 
 export function projectRecentFiles(
   relativeHistory: readonly string[],
@@ -55,13 +42,16 @@ export interface RecentFilesState {
   hasHistory: boolean;
 }
 
-/** Selected-checkout paths in backend frecency order, intersected with its exact file index. */
+/**
+ * Selected-checkout paths in its repo's frecency order, intersected with its exact file index. The history is
+ * checkout-relative, so recency follows a file across the repo's sessions.
+ */
 export const recentFilesState = createMemo<RecentFilesState>(() => {
   const session = selectedSession();
   if (session === null) {
     return { files: [], loading: false, hasHistory: false };
   }
-  const history = byBackend().get(session.connection.id) ?? [];
+  const history = repoStateOf(session).recentFiles;
   const index = selectedFileIndex();
   if (index.root === null || index.pending) {
     return { files: [], loading: true, hasHistory: history.length > 0 };

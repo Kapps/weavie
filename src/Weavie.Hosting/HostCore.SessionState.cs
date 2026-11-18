@@ -1,4 +1,5 @@
 using Weavie.Core.FileSystem;
+using Weavie.Core.Git;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
@@ -8,6 +9,8 @@ public sealed partial class HostCore {
 	private const int MaxConcurrentSessionRestores = 8;
 
 	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
+	// Saved sessions git couldn't place in a repo at startup: kept in the store so a later start can restore them.
+	private readonly List<SessionDescriptor> _unrestoredSessions = [];
 
 	private void PersistSessionState() {
 		if (_sessions is null) {
@@ -27,6 +30,7 @@ public sealed partial class HostCore {
 				EditorSession = slot.EditorSession,
 				ShellTerminals = slot.ShellTerminals,
 			})
+			.Concat(_unrestoredSessions)
 			.ToList();
 		_sessionStore.Save(sessions);
 	}
@@ -38,22 +42,14 @@ public sealed partial class HostCore {
 
 		var toLoad = new List<SessionSlot>();
 		foreach (var item in _sessionStore.Items) {
-			var slot = _sessions.Find(item.Id.Value)
-				?? _sessions.Slots.FirstOrDefault(candidate => PathIdentity.Equals(candidate.WorktreePath, item.WorktreePath));
+			var slot = _sessions.Find(SessionSlot.IdFor(item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
-				slot = new SessionSlot {
-					Id = item.Id.Value,
-					Label = _workspaceSessionLabel,
-					WorktreePath = WorkspaceRoot,
-					AgentProviderId = item.AgentProviderId,
-					Session = null,
-					EditorSession = item.EditorSession,
-					ShellTerminals = item.ShellTerminals,
-				};
-				_sessions.Add(slot);
+				_sessions.Add(slot = DormantSlot(item, Home, _workspaceSessionLabel, HomeFolder));
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
+			} else if (await RestoreForeignSlotAsync(item).ConfigureAwait(false) is { } foreign) {
+				_sessions.Add(slot = foreign);
 			}
 
 			if (slot is { }) {
@@ -95,10 +91,45 @@ public sealed partial class HostCore {
 		}
 	}
 
+	// A saved session outside the home repo: git says which repo its worktree belongs to.
+	private async Task<SessionSlot?> RestoreForeignSlotAsync(SessionDescriptor item) {
+		if (!Directory.Exists(item.WorktreePath)) {
+			return null;
+		}
+
+		try {
+			var repo = await RepoForAsync(item.WorktreePath, CancellationToken.None).ConfigureAwait(false);
+			if (repo == Home) {
+				return null;
+			}
+
+			Join(repo);
+			// Its label is the branch git has there now, as the home repo's are.
+			string label = await new GitService().GetCurrentBranchAsync(item.WorktreePath).ConfigureAwait(false) ?? item.Label;
+			return DormantSlot(item, repo, label, item.WorktreePath);
+		} catch (GitException ex) {
+			_unrestoredSessions.Add(item);
+			_sessionStartupNotices.Add(
+				("warn", $"The session '{item.Label}' wasn't restored: {ex.Message} It is tried again at each start; "
+					+ $"delete its worktree {item.WorktreePath} to drop it."));
+			return null;
+		}
+	}
+
+	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
+		Label = label,
+		Repo = repo,
+		WorktreePath = worktreePath,
+		AgentProviderId = item.AgentProviderId,
+		Session = null,
+		EditorSession = item.EditorSession,
+		ShellTerminals = item.ShellTerminals,
+	};
+
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id, slot.ShellTerminals);
+			session = CreateSession(slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);
@@ -115,7 +146,7 @@ public sealed partial class HostCore {
 			lock (publicationGate) {
 				var failure = RollbackSessionLoad(slot, session, removeSlot: false, error);
 				_sessionStartupNotices.Add(
-					("error", $"Couldn't restore the session '{slot.Label}': {Innermost(failure).Message}"));
+					("error", $"Couldn't restore the session '{NameOf(slot)}': {Innermost(failure).Message}"));
 				Log($"[sessions] restoring '{slot.Label}' failed: {failure}");
 			}
 		}

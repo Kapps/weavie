@@ -83,6 +83,11 @@
   flex: none;
   white-space: nowrap;
 }
+.session-panel-repo {
+  flex: 0 1 auto;
+  max-width: 40%;
+}
+.session-panel-repo,
 .session-panel-title,
 .session-panel-activity {
   min-width: 0;

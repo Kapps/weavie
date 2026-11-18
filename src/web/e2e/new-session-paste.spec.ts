@@ -96,7 +96,8 @@ test("desktop image paste participates in preview and submit while text remains 
     await inbox.getByRole("combobox", { name: "Branch starting point" }).focus();
     await expect(branch).toHaveValue("bug/image-only-task");
     expect(branchPreviews[0]).toMatchObject({
-      sourceId: "main",
+      sourceId: null,
+      repo: "/workspace",
       prompt: "",
       attachments: [{ mime: "image/png", dataB64: PNG_B64 }],
     });

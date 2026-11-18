@@ -59,7 +59,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		string runId = fixture.Session.Workflow.Current!.Id;
 		Assert.True((await fixture.Host.UnloadSessionAsync("conversation")).Ok);
 		Assert.True((await fixture.Host.InvokeCommandAsync(fixture.Host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "conversation" }, CancellationToken.None)).Ok);
+			new { id = fixture.Host.SlotId("conversation") }, CancellationToken.None)).Ok);
 		await Eventually(() => fixture.Host.Core.SessionForTest("conversation") is not null);
 		Assert.Equal((runId, WorkflowPhase.Paused), (fixture.Session.Workflow.Current!.Id, fixture.Session.Workflow.Current.Phase));
 		await Eventually(() => fixture.Session.Agent.Controls!.ControlState.Ready);

@@ -124,6 +124,13 @@ function sessionStateText(session: RailSession): string {
     : sessionStatusLabel(session).toLowerCase();
 }
 
+/** A session's full name: its branch, led by its repo when the workspace spans several, then where it runs. */
+export function sessionName(session: RailSession): string {
+  const branch =
+    session.repoLabel === "" ? session.label : `${session.repoLabel} / ${session.label}`;
+  return session.isLocal ? branch : `${branch} @ ${session.locationName}`;
+}
+
 /** The session's state, with workflow context and the full attention reason when present. */
 export function sessionTooltip(session: RailSession): string {
   const run = session.loaded ? session.run : null;

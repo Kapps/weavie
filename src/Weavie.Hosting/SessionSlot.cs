@@ -1,5 +1,6 @@
 using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Hosting;
 
@@ -9,8 +10,11 @@ namespace Weavie.Hosting;
 /// <see cref="Id"/> is stable and independent of any <see cref="HostSession"/> so a chip keeps its place.
 /// </summary>
 public sealed class SessionSlot {
-	/// <summary>Stable rail identity, independent of a live runtime incarnation.</summary>
-	public required string Id { get; init; }
+	/// <summary>Stable rail identity, independent of a live runtime incarnation and of the branch checked out.</summary>
+	public string Id => IdFor(WorktreePath);
+
+	/// <summary>The id of the slot rooted at <paramref name="worktreePath"/>: one checkout is one session.</summary>
+	public static string IdFor(string worktreePath) => WorkspaceId.ForPath(worktreePath).Value;
 
 	/// <summary>Branch (or folder leaf) name; the switcher shows it as <see cref="SessionName"/>.</summary>
 	public required string Label { get; init; }
@@ -20,6 +24,9 @@ public sealed class SessionSlot {
 
 	/// <summary>A turn finished here that no client has viewed since.</summary>
 	public bool Unseen { get; set; }
+
+	/// <summary>The repo this checkout belongs to.</summary>
+	public required Repo Repo { get; init; }
 
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }

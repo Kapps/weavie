@@ -100,9 +100,9 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private async Task<CommitRefResult> CommitRefAsync(CommitRefRequest request, CancellationToken ct) {
+	private async Task<CommitRefResult> CommitRefAsync(HostSession session, CommitRefRequest request, CancellationToken ct) {
 		if (!GitService.IsCommitSha(request.Sha)
-			|| await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } repo) {
+			|| await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false) is not { } repo) {
 			return new CommitRefResult(null, null, null);
 		}
 

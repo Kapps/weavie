@@ -11,7 +11,7 @@ public sealed partial class HostCore {
 		CommandInvocationContext context,
 		CancellationToken ct) => RunSlotLifecycleAsync(sessionId, "Reload needs an existing session id.", async target => {
 			if (target.Session is null) {
-				return CommandResult.Failure($"'{target.Label}' isn't loaded.");
+				return CommandResult.Failure($"'{NameOf(target)}' isn't loaded.");
 			}
 			if (BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal) return refusal;
 			if (source is not null && ReferenceEquals(target.Session, source)) {
@@ -31,9 +31,9 @@ public sealed partial class HostCore {
 	private async Task<CommandResult> ReloadSlotAsync(SessionSlot target) {
 		try {
 			await ReplaceSlotAsync(target, static () => { }).ConfigureAwait(false);
-			return CommandResult.Success($"Reloaded '{target.Label}'.");
+			return CommandResult.Success($"Reloaded '{NameOf(target)}'.");
 		} catch (Exception ex) {
-			return CommandResult.Failure($"Couldn't reload '{target.Label}': {ex.Message}");
+			return CommandResult.Failure($"Couldn't reload '{NameOf(target)}': {ex.Message}");
 		}
 	}
 

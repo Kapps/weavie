@@ -134,6 +134,8 @@ registerHostFeature((connection) =>
             workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
             reloadRequired: entry.reloadRequired,
+            repo: entry.repo,
+            repoLabel: entry.repoLabel,
           };
         }),
       );
@@ -227,6 +229,7 @@ const merged = createMemo<RailSession[]>(() => {
     }
     const isLocal = backendId === "local";
     const offline = backendPhase(backendId) !== "online";
+    const manyRepos = new Set(chips.map((chip) => chip.repo)).size > 1;
     for (const chip of chips) {
       // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
       const active = chip.owner !== null && selected === chip.owner;
@@ -235,6 +238,7 @@ const merged = createMemo<RailSession[]>(() => {
         backendId,
         isLocal,
         locationName: backendName(backendId),
+        repoLabel: manyRepos ? chip.repoLabel : "",
         active,
         // The selected session reads seen at once rather than flashing Finished until the host clears it.
         unseen: chip.unseen && !active,
@@ -245,6 +249,20 @@ const merged = createMemo<RailSession[]>(() => {
   }
   return out;
 });
+
+/** The repos a backend's sessions live in, each with the host's name for it: the home folder's, then by name. */
+export function backendRepos(backendId: string): { repo: string; label: string }[] {
+  const chips = byBackend().get(backendId) ?? [];
+  const home = chips.find((chip) => chip.workspaceCheckout)?.repo;
+  const labels = new Map(chips.map((chip) => [chip.repo, chip.repoLabel]));
+  return [...labels]
+    .map(([repo, label]) => ({ repo, label }))
+    .sort(
+      (left, right) =>
+        Number(right.repo === home) - Number(left.repo === home) ||
+        left.label.localeCompare(right.label),
+    );
+}
 
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;

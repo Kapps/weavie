@@ -126,6 +126,7 @@ test("the composer suggests a workflow once, lets the keyboard change it, and st
     const asked = await suggestion;
     expect(asked.payload).toEqual({
       sourceId: null,
+      repo: "/workspace",
       providerId: expect.any(String),
       prompt: DRAFT,
       userInitiated: false,

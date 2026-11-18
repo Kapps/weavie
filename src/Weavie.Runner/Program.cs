@@ -19,7 +19,7 @@ foreach (string unknown in RunnerOptions.UnknownArgs(args)) {
 }
 
 if (!Directory.Exists(Path.Combine(options.WorkspaceRoot, ".git"))) {
-	Console.WriteLine($"[weavie-runner] note: {options.WorkspaceRoot} is not a git repo — New Session (worktrees) needs git.");
+	Console.WriteLine($"[weavie-runner] note: {options.WorkspaceRoot} is not a git repo — a new session needs the path of one.");
 }
 
 // Print identity before anything that can block (the tailscale front shells out), so a stall is always visible.

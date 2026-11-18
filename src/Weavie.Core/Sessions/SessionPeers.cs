@@ -42,12 +42,15 @@ public enum SessionPeerReceive {
 }
 
 /// <summary>
-/// One session as listed to a peer. A <c>/btw</c> side session names its <paramref name="Parent"/> session and the
+/// One session as listed to a peer: its <paramref name="Repo"/> root and the <paramref name="Worktree"/> its files
+/// are in. A <c>/btw</c> side session names its <paramref name="Parent"/> session and the
 /// <paramref name="Prompt"/> that started it.
 /// </summary>
 public sealed record SessionPeer(
 	string Id,
 	string Title,
+	string Repo,
+	string Worktree,
 	string ProviderId,
 	bool Loaded,
 	string Status,

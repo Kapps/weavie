@@ -2,13 +2,16 @@ using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Corrections;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
+using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
+using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Tests;
@@ -26,7 +29,7 @@ internal static class TestSessions {
 			[ShellTerminalId.New()],
 			new SessionPaths {
 				WorkspaceRoot = dir.Path,
-				SettingsWorkspaceRoot = dir.Path,
+				Repo = PlainRepo(dir, settings, files),
 				ScratchDir = dir.Combine("scratch"),
 				PastedImagesDir = dir.Combine("pasted"),
 				AuthenticationTerminalLog = dir.Combine("agent-pane.json"),
@@ -38,7 +41,6 @@ internal static class TestSessions {
 				CommandRegistry = commands,
 				Keybindings = new KeybindingStore(commands, dir.Combine("keybindings.json"), enableWatcher: false),
 				ThemeOverrides = new ThemeOverridesStore(files, dir.Combine("theme-overrides.json")),
-				Corrections = new CorrectionCorpus(files, dir.Combine("corrections.jsonl")),
 				Inference = UnusedInferenceService.Instance,
 				AgentConsultation = AgentConsultation.None,
 				PtyLauncher = launcher,
@@ -58,5 +60,21 @@ internal static class TestSessions {
 			});
 		session.ActivateOwnedRuntimeAndMessages();
 		return session;
+	}
+
+	/// <summary>A repo over the plain folder <paramref name="dir"/>, with isolated stores and suggestions that never run.</summary>
+	private static Repo PlainRepo(TempDirectory dir, SettingsStore settings, LocalFileSystem files) {
+		var corrections = new CorrectionCorpus(files, dir.Combine("corrections.jsonl"));
+		return new Repo {
+			Root = dir.Path,
+			Worktrees = null,
+			Provisioner = NullWorktreeProvisioner.Instance,
+			Corrections = corrections,
+			RecentFiles = new RecentFilesStore(files, dir.Combine("recent-files.json")),
+			Suggestions = new SuggestionService(
+				CoreSuggestions.CreateRegistry(), settings, files, dir.Path,
+				new SuggestionDismissals(files, dir.Combine("suggestions.json")), TimeSpan.Zero, _ => { }, () => false,
+				() => new SuggestionSignals(corrections.Count, new DecisionHistorySummary(0, TimeSpan.Zero))),
+		};
 	}
 }

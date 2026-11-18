@@ -180,8 +180,12 @@ test("session controls align with inset icons that preserve native input on desk
 }) => {
   await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
+  // Equal grid tracks land one layout unit (1/64px) apart when their space doesn't divide evenly, as at 910.
+  const sameTrack = (left: number, right: number): void =>
+    expect(Math.abs(left - right)).toBeLessThanOrEqual(1 / 64);
   for (const viewport of [
     { width: 1280, height: 800 },
+    { width: 910, height: 800 },
     { width: 390, height: 844 },
     { width: 320, height: 844 },
   ]) {
@@ -199,7 +203,12 @@ test("session controls align with inset icons that preserve native input on desk
           field: rect(button.parentElement!.querySelector(".ui-field")!),
         })),
         footers: [...element.querySelectorAll(".session-composer-options")].map((footer) =>
-          [...footer.querySelectorAll(".ui-field, .session-composer-submit")].map(rect),
+          [...footer.querySelectorAll("select:not(.session-repo), .session-composer-submit")].map(
+            rect,
+          ),
+        ),
+        repos: [...element.querySelectorAll(".session-composer-options select.session-repo")].map(
+          rect,
         ),
         promptTextLeft: (() => {
           const prompt = element.querySelector(".session-composer textarea")!;
@@ -242,11 +251,27 @@ test("session controls align with inset icons that preserve native input on desk
       expect(footer[0].x).toBe(geometry.fields[0].x);
       expect(new Set(footer.map((control) => control.y)).size).toBe(1);
       expect(new Set(footer.map((control) => control.height)).size).toBe(1);
-      expect(footer[0].width).toBe(footer[1].width);
+      sameTrack(footer[0].width, footer[1].width);
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
-    expect(geometry.icons).toHaveLength(8);
+    // The repository follows the agent on the row on desktop, and fills the row under it when narrow.
+    expect(geometry.repos).toHaveLength(2);
+    geometry.repos.forEach((repo, index) => {
+      const [location, agent, action] = geometry.footers[index];
+      expect(repo.height).toBe(location.height);
+      if (viewport.width > 760) {
+        expect(repo.y).toBe(location.y);
+        sameTrack(repo.width, location.width);
+        expect(repo.x).toBeGreaterThan(agent.x + agent.width);
+        expect(repo.x + repo.width).toBeLessThan(action.x);
+      } else {
+        expect(repo.y).toBeGreaterThan(location.y);
+        expect(repo.x).toBe(location.x);
+        expect(repo.x + repo.width).toBe(action.x + action.width);
+      }
+    });
+    expect(geometry.icons).toHaveLength(10);
     for (const { icon, control, textLeft, hit } of geometry.icons) {
       expect(icon.x).toBeGreaterThanOrEqual(control.x);
       expect(icon.y).toBeGreaterThanOrEqual(control.y);

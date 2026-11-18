@@ -2,7 +2,7 @@
 
 Run buttons at each test block and a "run tests in file" command, with **zero per-language or
 per-framework detection code in Weavie**. Test positions come from LSP `documentSymbol`; which symbols
-are tests and what command runs them is **workspace-settings data**, authored once per workspace by
+are tests and what command runs them is **workspace-settings data**, authored once per repo by
 Claude through a generalized **workspace setup** flow that replaces the single-purpose
 `worktree.setupCommand` nudge. Running a test writes the composed command into the session's shell
 terminal — visible to the user and to Claude, never a hidden runner.
@@ -99,8 +99,9 @@ placeholders; Claude derives each rule's globs and commands from the repo itself
 The matcher runs in the web: the symbols already live there (`monaco-languageclient` per language),
 the lens renders there, and Monaco owns the refresh lifecycle. New `src/web/src/tests/` folder:
 
-- `test-profile.ts` — profile signal from `__WEAVIE_TEST_PROFILE__` pre-nav injection + host `tests.profile`
-  bridge push (re-sent on `SettingChanged` for `test.profile`).
+- `test-profile.ts` — a session's rules, parsed from its repo's profile in `repo-state.ts`: every repo's
+  profile arrives in the hello, then as a host `tests.profile` push under the repo's root (re-sent on
+  `SettingChanged` for `test.profile`).
 - `glob.ts` — small glob→RegExp (`**`, `*`, `?`, `{a,b}`), vitest-covered.
 - `test-symbols.ts` — queries the document-symbol provider via
   `StandaloneServices.get(ILanguageFeaturesService)` (same deep-import style as

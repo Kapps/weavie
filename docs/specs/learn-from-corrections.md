@@ -10,7 +10,7 @@ Weavie sits between the user and the embedded agent. When the user **edits the a
 or reverts a hunk in the review UI**, that correction never enters the agent's transcript — so it is
 invisible to the model forever. That *edit over agent output* is signal only Weavie has.
 
-This feature persists those corrections per-workspace and lets the user run **`/learn`** to have the
+This feature persists those corrections per repo and lets the user run **`/learn`** to have the
 invoking session's Claude mine them for `AGENTS.md` rules. The division of labor is firm: **Weavie stores
 the signal; Claude does all the reasoning** — there is no classifier, scorer, or intent-detector in Core.
 The corpus holds raw deltas only.
@@ -40,7 +40,7 @@ All in `Weavie.Core.Corrections` unless noted:
 - **`CorrectionRecord`** — one user action's corrections: the producing turn's `Prompt` (inline, truncated;
   null for providers that report none) plus a list of `CorrectionFile { Path, Delta }`. `Delta` is a
   unified diff of `before → after`; `Path` is workspace-root-relative. Serializes as one JSONL line.
-- **`CorrectionCorpus`** (per workspace) — a byte-capped ring over `IFileSystem` at
+- **`CorrectionCorpus`** (per repo) — a byte-capped ring over `IFileSystem` at
   `~/.weavie/workspaces/<id>/corrections.jsonl` (`WeaviePaths.WorkspaceCorrectionsFile`): `Append` (returns the
   stored line), `Coalesce(record, previousLine)` (replaces that line in place, or appends fresh when it is gone),
   `Remove(line)`, `ReadAll`, `Take` (atomic read+clear), a locked `Count`, and a `Changed` event. Oldest-first;
@@ -60,9 +60,9 @@ All in `Weavie.Core.Corrections` unless noted:
   changed region's range on both sides. Its linear-memory alignment, minimal below the cost bound, backs both
   provenance tracking and `CorrectionDiff` (one alignment for both).
 
-The corpus is **per-workspace** (rules about "how the agent codes in this repo" are repo-level, pooled
-across every session/worktree), which is why it is a standalone store owned by `HostCore` and **not** part
-of the per-session tracker state.
+The corpus is **per repo** (rules about "how the agent codes in this repo" are repo-level, pooled
+across every session/worktree of it), which is why it is a standalone store owned by the session's `Repo` and
+**not** part of the per-session tracker state.
 
 ## Capturing a correction
 

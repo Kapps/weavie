@@ -35,7 +35,7 @@ public sealed partial class HostCore {
 						return await RecreateSlotAsync(target, provider, cancellation).ConfigureAwait(false);
 					}, cancellation).ConfigureAwait(false);
 					Notify(result.Ok ? "info" : "error", result.Ok
-						? $"Recreated '{target.Label}' with {provider.Info.Name}."
+						? $"Recreated '{NameOf(target)}' with {provider.Info.Name}."
 						: result.Error!);
 				});
 				return CommandResult.Success("The session will be recreated after this reply.");
@@ -48,14 +48,14 @@ public sealed partial class HostCore {
 		try {
 			await ReplaceSlotAsync(target, () => {
 				provider.ClearConversation(target.WorktreePath);
-				if (_worktrees?.Registry.FindByPath(target.WorktreePath) is { } record) {
-					_worktrees.Registry.Add(record with { AgentProviderId = provider.Info.Id });
+				if (target.Repo.Worktrees?.Registry is { } registry && registry.FindByPath(target.WorktreePath) is { } record) {
+					registry.Add(record with { AgentProviderId = provider.Info.Id });
 				}
 				target.AgentProviderId = provider.Info.Id;
 			}).ConfigureAwait(false);
-			return CommandResult.Success($"Recreated '{target.Label}' with {provider.Info.Name}.", SessionActivationJson(target));
+			return CommandResult.Success($"Recreated '{NameOf(target)}' with {provider.Info.Name}.", SessionActivationJson(target));
 		} catch (Exception ex) {
-			return CommandResult.Failure($"Couldn't recreate '{target.Label}': {ex.Message}");
+			return CommandResult.Failure($"Couldn't recreate '{NameOf(target)}': {ex.Message}");
 		}
 	}
 

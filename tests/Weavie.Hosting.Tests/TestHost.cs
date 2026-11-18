@@ -322,10 +322,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		Action<TestPlatform> configurePlatform) {
 		var temp = new TempDirectory("weavie-host-it");
 		string repo = temp.CreateDirectory("repo");
-		TempGitRepo.Init(repo);
-		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
-		TempGitRepo.Run(repo, "add", "-A");
-		TempGitRepo.Run(repo, "commit", "--quiet", "-m", "initial");
+		TempGitRepo.InitCommitted(repo);
 		prepareRepo(repo);
 
 		EnsureRelayBinary();
@@ -359,14 +356,28 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The session selected by this test client; selection never enters <see cref="HostCore"/>.</summary>
 	public HostSession SelectedSession => Session(_selectedSlot);
 
-	/// <summary>Returns one exact live session slot.</summary>
+	/// <summary>The id of the slot named by its branch label, or <paramref name="slot"/> when it already is an id.</summary>
+	public string SlotId(string slot) => Core.SlotIdForTest(slot) ?? slot;
+
+	/// <summary>The latest published session catalog, empty before the first one.</summary>
+	public IReadOnlyList<JsonElement> SessionCatalog =>
+		Bridge.LastEvent("sessions", "catalog") is { } catalog ? [.. catalog.EnumerateArray()] : [];
+
+	/// <summary>The branch label of every session on the latest published catalog.</summary>
+	public IReadOnlyList<string?> SessionLabels => [.. SessionCatalog.Select(entry => entry.GetProperty("label").GetString())];
+
+	/// <summary>The latest published catalog entry of the session with this branch label.</summary>
+	public JsonElement CatalogEntry(string label) =>
+		SessionCatalog.Single(entry => entry.GetProperty("label").GetString() == label);
+
+	/// <summary>Returns one exact live session slot, named by its id or its branch label.</summary>
 	public HostSession Session(string slot) =>
 		Core.SessionForTest(slot) ?? throw new InvalidOperationException($"Session '{slot}' is not live.");
 
 	/// <summary>Selects one exact live session in the test client and updates its host view binding.</summary>
 	public void SelectSession(string slot) {
 		var session = Session(slot);
-		_selectedSlot = slot;
+		_selectedSlot = session.SlotId;
 		SessionEvent(session, "view", "attach", new { pageEpoch = "test-page" });
 	}
 
@@ -433,9 +444,9 @@ internal sealed class TestHost : IAsyncDisposable {
 		var result = await InvokeCommandAsync(
 			_selectedSlot,
 			SessionCommands.UnloadSession,
-			new { id = slot },
+			new { id = SlotId(slot) },
 			CancellationToken.None).ConfigureAwait(false);
-		if (result.Ok && _selectedSlot == slot) {
+		if (result.Ok && _selectedSlot == SlotId(slot)) {
 			SelectWorkspaceSession();
 		}
 
@@ -447,7 +458,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		InvokeCommandAsync(
 			_selectedSlot,
 			SessionCommands.DeleteSession,
-			new { id = slot, force, classify },
+			new { id = SlotId(slot), force, classify },
 			CancellationToken.None);
 
 	/// <summary>Performs the host hello and session sync sequence used by a real client connection.</summary>

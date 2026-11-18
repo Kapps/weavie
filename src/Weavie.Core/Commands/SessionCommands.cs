@@ -108,8 +108,9 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
-			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'main' (the repository's "
-				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
+			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'repo' is the folder of the repository "
+				+ "to create it in, any repository on this machine; omitted, it is the invoking session's repository. 'base' is 'main' (the repository's "
+				+ "default branch; the default) or 'source' (the invoking session's HEAD, same repository only). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "With 'workflow' (an id from listWorkflows) the new session starts that workflow instead, its first stage as the first input: "
@@ -121,7 +122,7 @@ public static class SessionCommands {
 			// Hidden from the palette: the human-facing entry is the Sessions surface. Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"},\"roles\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"string\"},\"options\":{\"type\":\"object\"}},\"required\":[\"model\"]}},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\",\"description\":\"Path to the repository; defaults to the invoking session's\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"},\"roles\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"string\"},\"options\":{\"type\":\"object\"}},\"required\":[\"model\"]}},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -527,6 +528,7 @@ public static class SessionCommands {
 
 		return new NewSessionRequest {
 			Branch = GetString(args, "branch"),
+			Repo = GetString(args, "repo"),
 			Base = GetString(args, "base"),
 			Prompt = GetString(args, "prompt"),
 			Attachments = GetAttachments(args),

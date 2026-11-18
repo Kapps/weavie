@@ -55,7 +55,7 @@ public sealed class HostCoreWorkflowStartTests {
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		File.WriteAllText(Path.Combine(host.Session("wf").WorkspaceRoot, ".weavie", "workflows", "local.yaml"),
 			"id: local\ndescription: d\nstages:\n  - id: a\n    run: { prompt: \"x\" }\n");
-		Assert.Contains("local", Ids(await CatalogAsync(host, "wf")));
+		Assert.Contains("local", Ids(await CatalogAsync(host, host.SlotId("wf"))));
 		Assert.DoesNotContain("local", Ids(await CatalogAsync(host, null)));
 		await Assert.ThrowsAnyAsync<Exception>(() => CatalogAsync(host, "gone"));
 	}

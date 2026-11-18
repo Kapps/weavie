@@ -1,12 +1,28 @@
-import { ArrowUp, Bot, GitBranch, Laptop } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
+import { ArrowUp, Bot, FolderGit2, GitBranch, Laptop } from "lucide-solid";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
+import {
+  backendPhase,
+  type ClientSession,
+  connectedBackends,
+  requestBranches,
+  selectedSession,
+} from "../bridge";
 import {
   agentProviders,
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import type { RailSession } from "../chrome/session-store";
+import { chosenRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
+import { backendRepos, type RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -29,12 +45,18 @@ export function SessionInbox(props: {
     seed: () => Promise<NewSessionSeed | null>,
     backendId: string,
     providerId: string,
+    repo: string | null,
+    source: ClientSession | null,
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
 }): JSX.Element {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
+  // The repo picked from the list; null is the default.
+  const [repoPick, setRepoPick] = createSignal<string | null>(null);
+  // The path typed for "Other…": a repo no session here is in yet.
+  const [repoPath, setRepoPath] = createSignal("");
   const [base, setBase] = createSignal<"source" | "main">("main");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -44,6 +66,59 @@ export function SessionInbox(props: {
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let providerChosen = false;
+  let repoTyped: ReturnType<typeof setTimeout> | undefined;
+
+  // The session Sessions was opened from. "From current session" branches from it and its repo is preselected,
+  // whichever session is selected by the time a request goes out.
+  const [owner, setOwner] = createSignal<ClientSession | null>(null);
+  const sourceRepo = (): string | undefined =>
+    owner()?.connection.id === backendId() ? owner()?.repo : undefined;
+  // The same list is the same value, so its options aren't rebuilt each time the session list is pushed.
+  const repos = createMemo(() => backendRepos(backendId()), [], {
+    equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+  });
+  // What the list shows is what is sent: a repo that left the list is never named behind another's label.
+  const chosen = createMemo(() =>
+    chosenRepo(
+      [repoPick(), sourceRepo()],
+      repos().map((option) => option.repo),
+    ),
+  );
+  const typingRepo = (): boolean => chosen() === OTHER_REPO;
+  const repo = createMemo(() => sentRepo(typingRepo() ? repoPath() : chosen()));
+  // A start names its repo: "Other…" with no path names none.
+  const repoNamed = (): boolean => repo() !== null;
+  // "From current session" branches inside that session's own repo, while that session is still on the rail.
+  const source = (): ClientSession | null =>
+    repo() === sourceRepo() && props.sessions.some((session) => session.owner === owner())
+      ? owner()
+      : null;
+  const resetRepo = (): void => {
+    clearTimeout(repoTyped);
+    setRepoPick(null);
+    setRepoPath("");
+  };
+  // Picking "Other…" moves to the path it asks for, in the form it was picked in.
+  const pickRepo = (select: HTMLSelectElement): void => {
+    setRepoPick(select.value);
+    if (select.value === OTHER_REPO) {
+      select
+        .closest(".session-composer-destination")
+        ?.querySelector<HTMLInputElement>(".session-repo-path")
+        ?.focus();
+    }
+  };
+  // A typed path is asked about once typing pauses, so Start is ready by the time it is pressed.
+  const typeRepo = (path: string): void => {
+    clearTimeout(repoTyped);
+    repoTyped = setTimeout(() => setRepoPath(path), 400);
+  };
+  // Leaving the field or pressing Enter names the path at once, ahead of the submit Enter also causes.
+  const commitRepo = (path: string): void => {
+    clearTimeout(repoTyped);
+    setRepoPath(path);
+  };
+  onCleanup(() => clearTimeout(repoTyped));
 
   const selectBackend = (id: string): void => {
     if (id === backendId()) {
@@ -52,6 +127,7 @@ export function SessionInbox(props: {
     providerChosen = false;
     setBackendId(id);
     setProviderId(defaultAgentProvider(id));
+    resetRepo();
   };
 
   const selectProvider = (id: string): void => {
@@ -84,8 +160,11 @@ export function SessionInbox(props: {
     const active = props.active;
     const initialBackendId = props.initialBackendId;
     if (active && (!wasActive || initialBackendId !== previousBackendId)) {
+      setOwner(untrack(selectedSession));
       selectBackend(initialBackendId);
-      setBase("main"); // A base pick is never carried into the next open.
+      // A base or repo pick is never carried into the next open.
+      setBase("main");
+      resetRepo();
     }
     wasActive = active;
     previousBackendId = initialBackendId;
@@ -99,12 +178,16 @@ export function SessionInbox(props: {
   });
 
   createEffect(() => {
-    const id = backendId();
-    const phase = backendPhase(id);
-    if (!props.active) return;
-    if (selectedSession()?.connection.id !== id) {
+    if (source() === null) {
       setBase("main");
     }
+  });
+
+  createEffect(() => {
+    const id = backendId();
+    const phase = backendPhase(id);
+    const target = repo();
+    if (!props.active) return;
     setBranches([]);
     setBranchListError("");
     if (phase !== "online") {
@@ -116,7 +199,7 @@ export function SessionInbox(props: {
       current = false;
     });
     setLoadingBranches(true);
-    void requestBranches(id).then(
+    void requestBranches(id, target).then(
       (result) => {
         if (!current) return;
         setBranches(result);
@@ -132,7 +215,7 @@ export function SessionInbox(props: {
 
   const startNew = async (seed: () => Promise<NewSessionSeed | null>): Promise<boolean> => {
     setSubmitting("new");
-    const created = await props.onCreate(seed, backendId(), providerId());
+    const created = await props.onCreate(seed, backendId(), providerId(), repo(), source());
     setSubmitting(null);
     return created;
   };
@@ -154,6 +237,8 @@ export function SessionInbox(props: {
         }),
         backendId(),
         providerId(),
+        repo(),
+        null,
       )
     ) {
       setExistingBranch("");
@@ -161,12 +246,17 @@ export function SessionInbox(props: {
     setSubmitting(null);
   };
 
-  const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
-    <>
+  const destinationFields = (
+    locationLabel: string,
+    repoLabel: string,
+    providerLabel: string,
+  ): JSX.Element => (
+    <div class="session-composer-destination">
       <NewSessionControl icon={<Laptop />}>
         <select
           class="ui-field"
           aria-label={locationLabel}
+          disabled={submitting() !== null}
           value={backendId()}
           onChange={(event) => selectBackend(event.currentTarget.value)}
         >
@@ -181,7 +271,7 @@ export function SessionInbox(props: {
         <select
           class="ui-field"
           aria-label={providerLabel}
-          disabled={savingProvider()}
+          disabled={savingProvider() || submitting() !== null}
           onChange={(event) => selectProvider(event.currentTarget.value)}
         >
           <For each={agentProviders(backendId())}>
@@ -199,6 +289,42 @@ export function SessionInbox(props: {
           </For>
         </select>
       </NewSessionControl>
+      <NewSessionControl icon={<FolderGit2 />}>
+        <select
+          class="session-repo ui-field"
+          aria-label={repoLabel}
+          disabled={submitting() !== null}
+          onChange={(event) => pickRepo(event.currentTarget)}
+        >
+          <For each={repos()}>
+            {(option) => (
+              <option value={option.repo} selected={option.repo === chosen()} title={option.repo}>
+                {option.label}
+              </option>
+            )}
+          </For>
+          <option value={OTHER_REPO} selected={typingRepo()}>
+            Other…
+          </option>
+        </select>
+      </NewSessionControl>
+      <Show when={typingRepo()}>
+        <NewSessionControl icon={<FolderGit2 />}>
+          <input
+            class="session-repo-path ui-field ui-field-mono"
+            type="text"
+            aria-label="Repository path"
+            disabled={submitting() !== null}
+            placeholder="Path to a repository"
+            autocapitalize="none"
+            autocomplete="off"
+            spellcheck={false}
+            value={repoPath()}
+            onInput={(event) => typeRepo(event.currentTarget.value)}
+            onChange={(event) => commitRepo(event.currentTarget.value)}
+          />
+        </NewSessionControl>
+      </Show>
       <Show
         when={
           agentProviders(backendId()).find((provider) => provider.id === providerId())
@@ -211,7 +337,7 @@ export function SessionInbox(props: {
           </small>
         )}
       </Show>
-    </>
+    </div>
   );
 
   return (
@@ -244,14 +370,17 @@ export function SessionInbox(props: {
           <NewSessionComposer
             active={props.active}
             backendId={backendId()}
+            repo={repo()}
             base={base()}
+            source={source()}
+            repoNamed={repoNamed()}
             providerId={providerId()}
             providerAvailable={agentProviders(backendId()).some(
               (provider) => provider.id === providerId() && provider.available,
             )}
             busy={submitting() !== null}
             starting={submitting() === "new"}
-            destination={destinationFields("Session location", "Agent provider")}
+            destination={destinationFields("Session location", "Repository", "Agent provider")}
             onBase={setBase}
             onStart={startNew}
           />
@@ -298,12 +427,14 @@ export function SessionInbox(props: {
               </Show>
             </div>
             <div class="session-composer-options">
-              {destinationFields("Open on", "Open with")}
+              {destinationFields("Open on", "Open in", "Open with")}
               <button
                 type="submit"
                 class="session-composer-submit ui-button ui-button-lg ui-button-primary"
                 aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
-                disabled={submitting() !== null || existingBranch().trim().length === 0}
+                disabled={
+                  submitting() !== null || existingBranch().trim().length === 0 || !repoNamed()
+                }
               >
                 <MobileActionLabel icon={<ArrowUp />}>
                   {submitting() === "existing" ? "Opening…" : "Open"}

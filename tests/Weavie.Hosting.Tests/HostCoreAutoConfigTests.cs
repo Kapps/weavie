@@ -58,7 +58,7 @@ public sealed class HostCoreAutoConfigTests {
 
 	private static JsonElement? AutoConfigToast(TestHost host) {
 		foreach (var message in host.Bridge.PostedEvents("notifications", "show")) {
-			if (message.TryGetProperty("key", out var key) && key.GetString() == "workspace-autoconfig") {
+			if (message.TryGetProperty("key", out var key) && key.GetString()!.StartsWith("workspace-autoconfig:", StringComparison.Ordinal)) {
 				return message;
 			}
 		}

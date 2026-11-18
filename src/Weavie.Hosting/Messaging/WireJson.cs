@@ -181,6 +181,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.HistoryResult))]
 [JsonSerializable(typeof(HostCore.HostBranchPreviewRequest))]
 [JsonSerializable(typeof(HostCore.WorkflowStartTarget))]
+[JsonSerializable(typeof(HostCore.BranchesRequest))]
 [JsonSerializable(typeof(HostCore.WorkflowStartCatalog))]
 [JsonSerializable(typeof(HostCore.WorkflowSuggestionRequest))]
 [JsonSerializable(typeof(HostCore.WorkflowSuggestionResult))]

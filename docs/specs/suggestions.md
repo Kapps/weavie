@@ -24,7 +24,7 @@ interactive session* (subscription-billed), never `claude -p`/SDK.
 
 - **Goal**: register a suggestion in one place; have it evaluated, surfaced, actioned, and dismissed.
 - **Goal**: actions map to commands, so each advertises its keybinding (the keyboard-first rule).
-- **Goal**: per-workspace dismissal — "don't ask again" silences it here, not on the next repo.
+- **Goal**: per-repo dismissal — "don't ask again" silences it here, not on the next repo.
 - **Non-goal**: a notification *log* or history. A suggestion is live state; when it stops being
   relevant (or is dismissed) it disappears. Toasts (`notify`) remain the channel for transient events.
 - **Non-goal**: a bespoke prompt-injection mechanism. We seed the same way `SeedFirstPrompt` does
@@ -69,7 +69,7 @@ public sealed record SuggestionSignals(int PendingCorrectionCount, DecisionHisto
 
 A `RunCommand` action is also treated as engagement: after its command dispatches, the suggestion is
 snoozed (the user took the offer; stop showing it). `Snooze` is "not now" — hidden for this app run.
-`DismissForever` persists per-workspace.
+`DismissForever` persists per repo.
 
 ## Registry, evaluation, dispatch
 
@@ -91,16 +91,16 @@ flowchart LR
   ids that are snoozed (in-memory set) or dismissed-forever (persisted store), runs each `IsRelevant`,
   and pushes the surviving set. It re-evaluates on the trigger points and exposes `Snooze(id)` /
   `DismissForever(id)`. It also owns the **bounded, memoized manifest probe**: kicked off asynchronously
-  on workspace open (off the hot path, with a fail-open timeout — see below), cached per workspace and
-  invalidated on switch, and it re-evaluates + pushes once the probe resolves. Re-evaluation on a
+  when its repo joins the workspace (off the hot path, with a fail-open timeout — see below), cached per repo,
+  and it re-evaluates + pushes once the probe resolves. Re-evaluation on a
   frequent trigger reads the cached signal rather than re-walking the disk.
 - **Triggers** — workspace open, after a session/worktree is created, and on `SettingChanged` for keys
   a suggestion depends on (so setting `worktree.setupCommand` makes the card vanish immediately).
 
-## Dismissal — per-workspace
+## Dismissal — per repo
 
-Dismissal is per-workspace *state*, not a global tunable, so it does **not** live in `settings.toml`.
-It follows the per-workspace JSON pattern (`WorktreeRegistry`, `LayoutStore`):
+Dismissal is per-repo *state*, not a global tunable, so it does **not** live in `settings.toml`.
+It follows the JSON-store pattern (`WorktreeRegistry`, `LayoutStore`), keyed by the repo's root:
 
 - File: `~/.weavie/workspaces/<id>/suggestions.json`, via `WeaviePaths.WorkspaceDir(id)`.
 - Atomic writes; malformed file backed up to `suggestions.json.bad` and reset (`JsonStoreFile.BackupBad`).
@@ -161,7 +161,7 @@ knowledge-shaped workspace settings — see
 - **Off the hot path.** The probe runs **asynchronously**, kicked off on workspace open — never inside a
   trigger — and the surviving set is re-pushed when it resolves, so the card simply appears a beat after
   open. The walk **short-circuits on the first manifest**, is capped structurally (root + ≤2 levels,
-  minus the skip-list), and is **memoized per workspace** (see below) so it runs at most once per open,
+  minus the skip-list), and is **memoized per repo** (see below) so it runs at most once per open,
   not per trigger.
 - **Timeout (a scoped, deliberate exception).** The probe also carries a wall-clock timeout, a backstop
   against a pathologically slow or huge tree (e.g. a network filesystem) the structural cap alone

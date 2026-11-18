@@ -187,9 +187,12 @@ function deliverCatalog(
         agentInputProtocol: 0,
         lastActiveAt: null,
         unseen: unseen.includes(slot),
-        workspaceCheckout: false,
+        workspaceCheckout: slot === "main",
         reloadRequired: null,
         external: false,
+        // A slot named `infra/…` lives in the infra repo; every other slot in the home repo.
+        repo: slot.startsWith("infra/") ? "/code/infra" : "/code/repo",
+        repoLabel: slot.startsWith("infra/") ? "infra" : "repo",
       }) as SessionCatalogEntry,
   );
   for (const handler of connection(backendId).catalogs) {
@@ -216,6 +219,30 @@ describe("rail order", () => {
       .filter((s) => s.backendId === "local" || s.backendId === "remote:order")
       .map((s) => `${s.backendId}/${s.id}`);
     expect(order).toEqual(["local/main", "remote:order/r1", "local/l2", "remote:order/r2"]);
+  });
+});
+
+describe("repo labels", () => {
+  const labels = () =>
+    store
+      .sessions()
+      .filter((s) => s.backendId === "local")
+      .map((s) => s.repoLabel);
+
+  it("label every chip once a backend's sessions span repos, and none while they share one", () => {
+    deliverCatalog("local", ["main", "feature"]);
+    expect(labels()).toEqual(["", ""]);
+    deliverCatalog("local", ["main", "infra/deploy"]);
+    expect(labels()).toEqual(["repo", "infra"]);
+  });
+
+  it("lists a backend's repos once each by the host's name, the home folder's first", () => {
+    deliverCatalog("local", ["infra/deploy", "main", "feature", "infra/rollout"]);
+    expect(store.backendRepos("local")).toEqual([
+      { repo: "/code/repo", label: "repo" },
+      { repo: "/code/infra", label: "infra" },
+    ]);
+    expect(store.backendRepos("gone")).toEqual([]);
   });
 });
 
@@ -324,6 +351,8 @@ const chip = (id: string, active: boolean): RailSession => ({
   workspaceCheckout: false,
   reloadRequired: null,
   external: false,
+  repo: "/code/repo",
+  repoLabel: "",
   backendId: "local",
   locationName: "default",
   isLocal: true,

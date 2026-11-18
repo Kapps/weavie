@@ -413,6 +413,40 @@ burst. It is deliberately not in this change: it alters when a section's content
 behaviour change that wants validating against the full suite and a human eye, not a 2 a.m. commit. It is not a
 route to p99 under 10 ms on its own.
 
+## Mounting ahead while the review rests
+
+A section entering the rendered set is the stall, and its cost is the editor it builds: about 28 ms of script
+(editor construction, diff decorations, collapsed context and sizing, Monaco's first render and deferred
+contributions, none dominant) and about 17 ms of style, layout and paint for the roughly 800 elements it adds. No
+stylesheet changes and the restyle is confined to the new subtree, so nothing remains to remove from that frame;
+the work has to move off the gesture.
+
+`review-mount-window.ts` is the virtualizer's range extractor. The overscan of one file is always mounted. Once the
+scroll position has held for 200 ms it mounts one more file on each side, and another 150 ms later, up to
+`editor.reviewFilesAhead` (default 2, 0 to 6). A step takes about 350 ms when a file mounted above the viewport
+corrects the scroll position, because that moves it. A scroll keeps what is mounted, and two files past that reach,
+so crossing into a neighbouring file builds and removes nothing; the next rest prunes back to the reach.
+
+The rest only extends files already rendered around the visible ones. Where none carries over (a jump, a new file
+list, a hidden tab shown again) only the overscan mounts and the rest starts over, so none of those builds more
+editors at once than before. Nothing is deferred or withheld, which is what broke navigation in the three deferrals
+above.
+
+Measured in headless WebKit on a loaded build server, so the figures are relative: 900 notches in bursts of 45 with
+0.85 s pauses, the setting at 0 and at 2 alternating on one build.
+
+| per run | light review, 0 | light review, 2 | heavy review, 0 | heavy review, 2 |
+|---|---|---|---|---|
+| sections entering or leaving mid-scroll | 17-19 | 0 | 6 | 0 |
+| frames with the main thread blocked over 15 ms | 15-21 | 1-4 | 7-11 | 2-8 |
+| blocked time per frame, p99 | 19-26 ms | 10-11 ms | 14-24 ms | 12-15 ms |
+| blocked time per frame, p50 | 4-5 ms | 5 ms | 5 ms | 5-6 ms |
+
+The heavy review has blame on every line, a review hint on every hunk and 600-line files. Nothing on screen moves
+when a section mounts during a rest (0.0 px across every run). Keeping up to seven sections mounted instead of
+three adds about a third of a millisecond per frame. A continuous scroll through more files than the reach still
+mounts mid-gesture, as before.
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

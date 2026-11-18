@@ -114,6 +114,9 @@ public static class EditorSettings {
 	/// <summary>Whether stepping through comments and hints includes resolved and outdated threads.</summary>
 	public const string ReviewStepSettled = "editor.reviewStepSettled";
 
+	/// <summary>How many files past the ones on screen the unified review mounts while it rests.</summary>
+	public const string ReviewFilesAhead = "editor.reviewFilesAhead";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		SpellCheck,
@@ -122,7 +125,7 @@ public static class EditorSettings {
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks, FullscreenCenter,
-		ReviewComments, ReviewHints, ReviewStepSettled,
+		ReviewComments, ReviewHints, ReviewStepSettled, ReviewFilesAhead,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -147,6 +150,8 @@ public static class EditorSettings {
 	// Sticky scroll asks the language server for every symbol in the file after each typing pause: 151 MB and ~8s for
 	// a 260k-line generated file.
 	private const long DefaultStickyScrollMaxLines = 5000;
+	private const long DefaultReviewFilesAhead = 2;
+	private const long MaxReviewFilesAhead = 6;
 	private const long MaxFileLineLimit = 10_000_000;
 
 	private const long DefaultMouseWheelScrollSensitivity = 1;
@@ -332,6 +337,12 @@ public static class EditorSettings {
 		registry.Register(Toggle(ReviewStepSettled,
 			"Include resolved and outdated pull request threads when stepping with Next Comment or Hint.",
 			["resolved comments", "outdated comments", "step resolved threads"], false));
+		registry.Register(Ranged(ReviewFilesAhead,
+			"How many files past the ones on screen the unified review prepares while it rests, so scrolling into "
+				+ "them builds nothing mid-scroll. 0 prepares a file only as it nears the screen.",
+			["review files ahead", "review preload", "review scroll stutter", "preload review files",
+				"review scroll stalls"],
+			DefaultReviewFilesAhead, 0, MaxReviewFilesAhead, "files"));
 	}
 
 	/// <summary>
@@ -379,6 +390,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("reviewComments", store.RequireBool(ReviewComments));
 		writer.WriteBoolean("reviewHints", store.RequireBool(ReviewHints));
 		writer.WriteBoolean("reviewStepSettled", store.RequireBool(ReviewStepSettled));
+		writer.WriteNumber("reviewFilesAhead", store.RequireInt(ReviewFilesAhead));
 		writer.WriteEndObject();
 	}
 

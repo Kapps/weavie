@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { JSHandle, Page } from "@playwright/test";
 import type { FakeStep } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
@@ -33,6 +33,12 @@ const ENTERS = 5;
 const FILE_MOUNT = { reads: 48, deferred: 26 };
 const FILES_DOWN = 4;
 const FILES_BACK = 3;
+// A rest mounts the files ahead, so the notches that carry the review from its first file into its third build
+// no editor: measured 29 reads (+0 deferred) for the whole scroll.
+const RESTED_NOTCHES = 100;
+const RESTED_SCROLL = { reads: 35, deferred: 0 };
+// A jump builds its own files at once; the files ahead come after a rest, well past this.
+const JUMP_BURST_MS = 150;
 // Per keystroke, measured 14 reads (+0 deferred) in the multi-file review and 14 (+2) in the PR review, where the
 // tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+15).
 const REVIEW_KEY = { reads: 17, deferred: 0 };
@@ -96,22 +102,13 @@ function expectWithin(sample: RenderSample, steps: number, budget: Budget): void
   expect(sample.deferred, report).toBeLessThanOrEqual(steps * budget.deferred);
 }
 
-// Counts the Monaco editors created until the returned function is called; each review file mounts one as it
-// scrolls into view.
-async function countCreatedEditors(page: Page): Promise<() => Promise<number>> {
-  const count = await page.evaluateHandle(() => {
-    let created = 0;
-    const subscription = window.__WEAVIE_MONACO__!.editor.onDidCreateEditor(() => {
-      created += 1;
-    });
-    return {
-      stop: () => {
-        subscription.dispose();
-        return created;
-      },
-    };
+// When each Monaco editor from now on was created; a review file mounts one as it scrolls into view.
+function createdEditors(page: Page): Promise<JSHandle<number[]>> {
+  return page.evaluateHandle(() => {
+    const times: number[] = [];
+    window.__WEAVIE_MONACO__!.editor.onDidCreateEditor(() => times.push(performance.now()));
+    return times;
   });
-  return () => count.evaluate(({ stop }) => stop());
 }
 
 // Types `key` KEYS times on the caret's line: no content widget or zone card may be added or removed. Each key
@@ -176,14 +173,14 @@ test.describe("a decorated multi-file review", () => {
   // Wheels NOTCHES notches of `deltaY`: layout is read only to mount the `files` that arrive, never per frame,
   // and nothing already shown is rebuilt or restyled.
   async function expectScrollWithin(page: Page, deltaY: number, files: number): Promise<void> {
-    const created = await countCreatedEditors(page);
+    const created = await createdEditors(page);
     const sample = await measureRender(page, NOTCHES, FILES * FILE_MOUNT.reads, async () => {
       await page.mouse.wheel(0, deltaY);
       await frames(page, 1);
     });
     const report = describeSample(sample);
     // An editor built twice for one file would otherwise raise its own budget.
-    expect(await created(), report).toBe(files);
+    expect(await created.jsonValue(), report).toHaveLength(files);
     expectWithin(sample, files, FILE_MOUNT);
     // A renamed bundle would drive the count to zero, passing while measuring nothing.
     expect(sample.reads, `the probe must still see Weavie's frames\n${report}`).toBeGreaterThan(0);
@@ -193,15 +190,93 @@ test.describe("a decorated multi-file review", () => {
     expect(sample.restyles, report).toBe(0);
   }
 
-  test("scrolling reads layout only to mount each file, down and back up @perf", async ({
+  async function pointer(page: Page): Promise<[number, number]> {
+    const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
+    return [bounds.x + bounds.width / 2, bounds.y + bounds.height / 2];
+  }
+
+  async function hoverReview(page: Page): Promise<void> {
+    await page.mouse.move(...(await pointer(page)));
+    await settle(page);
+  }
+
+  test.describe("with no files mounted ahead", () => {
+    test.use({ reviewFilesAhead: 0 });
+
+    test("scrolling reads layout only to mount each file, down and back up @perf", async ({
+      page,
+    }) => {
+      await hoverReview(page);
+      await expectScrollWithin(page, 120, FILES_DOWN);
+      await settle(page);
+      await expectScrollWithin(page, -120, FILES_BACK);
+    });
+  });
+
+  test("scrolling into the files a rest mounted builds no editor @perf", async ({ page }) => {
+    await hoverReview(page);
+    const created = await createdEditors(page);
+    const sample = await measureRender(page, RESTED_NOTCHES, RESTED_SCROLL.reads, async () => {
+      await page.mouse.wheel(0, 120);
+      await frames(page, 1);
+    });
+    const report = describeSample(sample);
+    // The file under the pointer is past the overscan the review started with.
+    const reached = await page.evaluate(
+      ([x, y]) => {
+        const file = document
+          .elementFromPoint(x!, y!)
+          ?.closest<HTMLElement>(".unified-review-file");
+        return file?.dataset.index;
+      },
+      await pointer(page),
+    );
+    expect(reached, report).toBe("2");
+    expectWithin(sample, 1, RESTED_SCROLL);
+    expect(await created.jsonValue(), report).toHaveLength(0);
+    expect(sample.added + sample.removed, report).toBe(0);
+    expect(sample.restyles, report).toBe(0);
+  });
+
+  // A file above the viewport growing moves the review. Far enough that the old position would sit files away,
+  // the rested files must all stay mounted: no file enters or leaves, and no editor is built.
+  test("a file far above growing at rest mounts and unmounts nothing @perf", async ({ page }) => {
+    await page.locator(".unified-review-tree-row", { hasText: names[5]! }).click();
+    await settle(page);
+    const mounted = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".unified-review-file")]
+          .map((file) => file.dataset.index)
+          .join(","),
+      );
+    const before = await mounted();
+    expect(before.split(","), before).toContain("2");
+    const created = await createdEditors(page);
+    await page.evaluate((name) => {
+      const model = window
+        .__WEAVIE_MONACO__!.editor.getModels()
+        .find((candidate) => candidate.uri.path.endsWith(`/${name}`))!;
+      const lines = Array.from({ length: 400 }, (_, index) => `export const grown${index} = 0;`);
+      model.applyEdits([
+        { range: model.getFullModelRange().collapseToStart(), text: `${lines.join("\n")}\n` },
+      ]);
+    }, names[2]!);
+    await settle(page);
+    expect(await mounted()).toBe(before);
+    expect(await created.jsonValue()).toHaveLength(0);
+  });
+
+  // Load only widens the gaps between editors, so a slow machine cannot fail the first assertion.
+  test("a jump from rest builds only the files at hand, then the files ahead @perf", async ({
     page,
   }) => {
-    const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await settle(page);
-    await expectScrollWithin(page, 120, FILES_DOWN);
-    await settle(page);
-    await expectScrollWithin(page, -120, FILES_BACK);
+    await hoverReview(page);
+    const created = await createdEditors(page);
+    await page.locator(".unified-review-tree-row", { hasText: names[8]! }).click();
+    // The file jumped to and one either side, then two more each side as the review rests.
+    await expect.poll(() => created.evaluate((times) => times.length)).toBe(7);
+    const times = await created.jsonValue();
+    expect(times.filter((time) => time - times[0]! < JUMP_BURST_MS).length).toBeLessThanOrEqual(3);
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {

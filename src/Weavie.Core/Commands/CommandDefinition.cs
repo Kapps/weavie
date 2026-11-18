@@ -135,7 +135,7 @@ public sealed record CommandDefinition {
 	/// <summary>Human- and Claude-facing description (longer than <see cref="Title"/>).</summary>
 	public string Description { get; init; } = string.Empty;
 
-	/// <summary>Natural-language hints that help Claude map intent onto this id (e.g. "reopen terminal").</summary>
+	/// <summary>Other phrasings of the action (e.g. "reopen terminal"), matched by palette search and reported by <c>describeCommand</c>.</summary>
 	public IReadOnlyList<string> Aliases { get; init; } = [];
 
 	/// <summary>Default keybinding(s); a user keybinding can override or unbind them.</summary>

@@ -110,7 +110,8 @@ Weavie layer that mirrors the existing settings/layout registries.
 
 Declared in code, exactly mirroring `SettingDefinition` / `PaneDefinition`. The registry is the
 single source of truth for what exists, where it runs, its default keybinding(s), palette
-visibility, `when` guard, and the docs/aliases Claude uses to map natural language.
+visibility, `when` guard, and the title Claude maps natural language onto, with the description and
+aliases `describeCommand` adds.
 
 ```csharp
 namespace Weavie.Core.Commands;
@@ -140,7 +141,7 @@ public sealed record CommandDefinition {
     public string ExecutionLane { get; }                       // FIFO consistency lane; defaults to Id
     public string? Category { get; init; }                    // palette grouping ("View", "Terminal", "Diff")
     public string Description { get; init; } = "";            // → MCP describeCommand; longer than Title
-    public IReadOnlyList<string> Aliases { get; init; } = []; // NL hints for Claude ("reopen terminal", "restart shell")
+    public IReadOnlyList<string> Aliases { get; init; } = []; // other phrasings ("reopen terminal"): palette search + describeCommand
 
     // Default binding(s). Use the tinykeys "$mod" token = Cmd on macOS, Ctrl on Win/Linux, so one
     // string is cross-platform. Multiple defaults allowed; a user binding can override or unbind.
@@ -396,8 +397,9 @@ const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSett
 
 ```jsonc
 // listCommands entry
-{ "id": "weavie.pane.focusByIndex", "title": "Focus Pane", "category": "View",
-  "keys": ["$mod+1", "$mod+2"], "args": ["index"] }
+{ "id": "weavie.pane.focusByIndex", "title": "Focus Pane by Number", "category": "View",
+  "keys": ["ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7", "ctrl+8", "ctrl+9"],
+  "args": ["index"] }
 ```
 
 ## The omnibar command palette
@@ -462,7 +464,7 @@ Weavie.Core/
     IGlobalHotkeyRegistrar.cs // per-OS seam: Apply(global hotkeys) + Pressed; GlobalHotkey record
     GlobalHotkeyService.cs  // app-scoped: resolved global bindings → registrar; press → dispatcher
   Mcp/
-    McpServer.cs            // + listCommands / runCommand (CommandToolEntries, registry server)
+    McpServer.cs            // + listCommands / describeCommand / runCommand (CommandToolEntries, registry server)
 
 src/Weavie.Win/Hosting/
   WindowsGlobalHotkeys.cs   // RegisterHotKey + WM_HOTKEY on a message-only window

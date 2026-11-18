@@ -313,13 +313,13 @@ public sealed class SettingsStore : IDisposable {
 		return new Subscription(() => SettingChanged -= Filtered);
 	}
 
-	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
-	public string BuildCatalogJson() => BuildCatalog(workspaceRoot: null);
+	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, aliases, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
+	public string BuildIndexJson() => BuildIndex(workspaceRoot: null);
 
-	/// <summary>As <see cref="BuildCatalogJson()"/>, resolving <see cref="SettingScope.Workspace"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
-	public string BuildCatalogJson(string workspaceRoot) => BuildCatalog(workspaceRoot);
+	/// <summary>As <see cref="BuildIndexJson()"/>, resolving <see cref="SettingScope.Workspace"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
+	public string BuildIndexJson(string workspaceRoot) => BuildIndex(workspaceRoot);
 
-	private string BuildCatalog(string? workspaceRoot) {
+	private string BuildIndex(string? workspaceRoot) {
 		lock (_gate) {
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
@@ -372,7 +372,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// The listSettings index omits what getSetting adds: description, scope, aliases, default, and apply.
+	// The listSettings index omits what getSetting adds: description, scope, default, and apply.
 	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot, bool detailed) {
 		var (value, source) = ResolveLocked(definition, workspaceRoot);
 
@@ -386,14 +386,14 @@ public sealed class SettingsStore : IDisposable {
 					? definition.Description
 					: $"{definition.Description} Changing it clears {string.Join(", ", definition.Resets)}.");
 			writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
-			writer.WriteStartArray("aliases");
-			foreach (string alias in definition.Aliases) {
-				writer.WriteStringValue(alias);
-			}
-
-			writer.WriteEndArray();
 		}
 
+		writer.WriteStartArray("aliases");
+		foreach (string alias in definition.Aliases) {
+			writer.WriteStringValue(alias);
+		}
+
+		writer.WriteEndArray();
 		writer.WritePropertyName("value");
 		WriteTypedValue(writer, value);
 		writer.WriteString("source", SourceName(source));

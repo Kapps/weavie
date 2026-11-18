@@ -521,7 +521,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
 		string root = _settingsWorkspaceRoot;
-		string json = root.Length > 0 ? settings.BuildCatalogJson(root) : settings.BuildCatalogJson();
+		string json = root.Length > 0 ? settings.BuildIndexJson(root) : settings.BuildIndexJson();
 		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
 

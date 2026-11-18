@@ -13,8 +13,8 @@ namespace Weavie.Core.Tests;
 public sealed class McpCommandToolsTests : IDisposable {
 	private const string Token = "0123456789abcdef0123456789abcdef";
 
-	// An agent must read a whole index in one tool result; Claude Code rejects one near 100,000 characters.
-	private const int IndexBudget = 40_000;
+	/// <summary>An agent reads a whole index in one tool result; Claude Code rejects one near 100,000 characters.</summary>
+	internal const int IndexBudget = 40_000;
 
 	private readonly TempDirectory _dir = new("weavie-mcp-command-tests");
 	private readonly SettingsStore _settings;
@@ -35,7 +35,8 @@ public sealed class McpCommandToolsTests : IDisposable {
 
 	[Fact]
 	public async Task ListCommands_IndexesEveryCommandWithinTheReadBudget() {
-		string text = ToolText(await CallAsync("listCommands", "{}"));
+		using var response = await CallAsync("listCommands", "{}");
+		string text = ToolText(response);
 		using var index = JsonDocument.Parse(text);
 		var rows = index.RootElement.GetProperty("commands").EnumerateArray().ToList();
 
@@ -46,16 +47,19 @@ public sealed class McpCommandToolsTests : IDisposable {
 		Assert.Equal("Session", newSession.GetProperty("category").GetString());
 		Assert.Contains("branch", newSession.GetProperty("args").EnumerateArray().Select(arg => arg.GetString()));
 		Assert.False(newSession.TryGetProperty("description", out _));
-		Assert.False(newSession.TryGetProperty("keys", out _));
 		var palette = rows.Single(row => row.GetProperty("id").GetString() == CoreCommands.FocusOmnibarCommands);
 		Assert.NotEmpty(palette.GetProperty("keys").EnumerateArray());
-		Assert.False(palette.TryGetProperty("args", out _));
+		Assert.All(rows, row => {
+			foreach (string list in new[] { "keys", "args" }) {
+				Assert.True(!row.TryGetProperty(list, out var values) || values.GetArrayLength() > 0, list);
+			}
+		});
 	}
 
 	[Fact]
 	public async Task DescribeCommand_ReturnsDescriptionAndArgumentSchema() {
-		using var command = JsonDocument.Parse(
-			ToolText(await CallAsync("describeCommand", $$"""{"id":"{{SessionCommands.NewSession}}"}""")));
+		using var response = await CallAsync("describeCommand", $$"""{"id":"{{SessionCommands.NewSession}}"}""");
+		using var command = JsonDocument.Parse(ToolText(response));
 
 		Assert.Contains("'branch' is required", command.RootElement.GetProperty("description").GetString());
 		Assert.NotEmpty(command.RootElement.GetProperty("aliases").EnumerateArray());
@@ -70,29 +74,6 @@ public sealed class McpCommandToolsTests : IDisposable {
 		Assert.Contains("Unknown command 'weavie.nope'", ToolText(response));
 	}
 
-	[Fact]
-	public async Task ListSettings_IndexesEverySettingWithinTheReadBudget() {
-		string text = ToolText(await CallAsync("listSettings", "{}"));
-		using var index = JsonDocument.Parse(text);
-		var rows = index.RootElement.GetProperty("settings").EnumerateArray().ToList();
-
-		Assert.Equal(CoreSettings.CreateRegistry().Definitions.Count, rows.Count);
-		Assert.InRange(text.Length, 1, IndexBudget);
-		var mode = rows.Single(row => row.GetProperty("key").GetString() == "theme.mode");
-		Assert.Equal(
-			["key", "type", "value", "source", "allowedValues"],
-			mode.EnumerateObject().Select(property => property.Name));
-	}
-
-	[Fact]
-	public async Task GetSetting_ReturnsWhatTheIndexOmits() {
-		using var setting = JsonDocument.Parse(ToolText(await CallAsync("getSetting", """{"key":"theme.mode"}""")));
-
-		foreach (string name in new[] { "description", "scope", "aliases", "default", "apply" }) {
-			Assert.True(setting.RootElement.TryGetProperty(name, out _), name);
-		}
-	}
-
 	private async Task<JsonDocument> CallAsync(string tool, string arguments) {
 		using var client = new HttpClient();
 		using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{_port}/mcp") {
@@ -104,9 +85,6 @@ public sealed class McpCommandToolsTests : IDisposable {
 		return await TestMcp.ReadResponseAsync(response);
 	}
 
-	private static string ToolText(JsonDocument response) {
-		using (response) {
-			return response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
-		}
-	}
+	private static string ToolText(JsonDocument response) =>
+		response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 }

@@ -495,13 +495,14 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, "theme = \"light\"\n");
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
-		using var index = JsonDocument.Parse(store.BuildCatalogJson());
+		using var index = JsonDocument.Parse(store.BuildIndexJson());
 		using var full = JsonDocument.Parse(store.BuildGetJson("theme"));
 		foreach (var entry in new[] { index.RootElement.GetProperty("settings")[0], full.RootElement }) {
 			Assert.Equal("theme", entry.GetProperty("key").GetString());
 			Assert.Equal("string", entry.GetProperty("type").GetString());
 			Assert.Equal("light", entry.GetProperty("value").GetString());
 			Assert.Equal("userFile", entry.GetProperty("source").GetString());
+			Assert.Equal("colors", entry.GetProperty("aliases")[0].GetString());
 			Assert.Equal(new[] { "dark", "light" }, entry.GetProperty("allowedValues").EnumerateArray().Select(e => e.GetString()!).ToArray());
 		}
 

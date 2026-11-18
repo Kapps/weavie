@@ -456,12 +456,13 @@ payload into that `text` field, and `setSetting`/`clearSetting` return a human-r
 ### `listSettings`
 
 No input. Returns the live index — what Claude reads to map natural language to an exact key and to
-answer "what is set": per setting the key, type, current value, source, and (when closed-set) allowed
-values. An agent reads a tool result whole, so a test holds the built-in index under 40,000 characters.
+answer "what is set": per setting the key, type, aliases, current value, source, and (when closed-set)
+allowed values. An agent reads a tool result whole, so a test holds the built-in index under 40,000 characters.
 
 ```json
 { "settings": [
-  { "key": "terminal.shell", "type": "string", "value": "nu", "source": "userFile" }
+  { "key": "terminal.shell", "type": "string", "aliases": ["shell", "my shell", "terminal shell"],
+    "value": "nu", "source": "userFile" }
 ] }
 ```
 
@@ -498,7 +499,7 @@ is malformed, like `setSetting`.
 
 ### Worked flow: *"set my weavie shell to nushell"*
 
-1. Claude calls `listSettings`, sees `terminal.shell`.
+1. Claude calls `listSettings`, sees `terminal.shell` (aliases include "shell").
 2. Claude resolves "nushell" → `nu` and calls `setSetting { key: "terminal.shell", value: "nu" }`.
 3. Store validates `nu` is resolvable, writes `~/.weavie/settings.toml`, raises the change →
    the host reopens the shell pane.

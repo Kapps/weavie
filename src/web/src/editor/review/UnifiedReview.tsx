@@ -143,7 +143,7 @@ export function UnifiedReview(props: {
     return path === undefined ? index : `${sessionKey()}\0${path}`;
   };
   const mountWindow = createMountWindow({
-    keyAt: itemKey,
+    keyAt: (index) => untrack(() => itemKey(index)),
     rendered: () => untrack(() => rows().length > 0),
   });
   const rows = () => virtualizer.getVirtualItems();

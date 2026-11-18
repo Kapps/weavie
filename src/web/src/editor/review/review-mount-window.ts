@@ -11,6 +11,9 @@ const STEP_MS = 150;
 // Files past the reach that stay mounted through a scroll, so crossing a file unmounts nothing mid-gesture.
 const RETAINED = 2;
 
+const indexes = ([from, to]: Span): number[] =>
+  Array.from({ length: to - from + 1 }, (_, index) => from + index);
+
 const around = (range: Range, extra: number): Span => [
   Math.max(0, range.startIndex - range.overscan - extra),
   Math.min(range.count - 1, range.endIndex + range.overscan + extra),
@@ -84,8 +87,7 @@ export function createMountWindow(page: MountedPage): {
   let keys = new Set<unknown>();
   const carried = (range: Range): Span | undefined => {
     if (!page.rendered()) return undefined;
-    const [low, high] = around(range, reach() + RETAINED);
-    const held = Array.from({ length: high - low + 1 }, (_, index) => low + index).filter((index) =>
+    const held = indexes(around(range, reach() + RETAINED)).filter((index) =>
       keys.has(page.keyAt(index)),
     );
     return held.length === 0 ? undefined : [held[0]!, held.at(-1)!];
@@ -101,7 +103,7 @@ export function createMountWindow(page: MountedPage): {
         const { span, fresh } = mountedSpan(range, level, reach(), carried(range));
         // The rest was earned by files that are gone, so it starts over for these.
         if (fresh && level > 0) queueMicrotask(rest);
-        const files = Array.from({ length: span[1] - span[0] + 1 }, (_, index) => span[0] + index);
+        const files = indexes(span);
         keys = new Set(files.map(page.keyAt));
         return files;
       };

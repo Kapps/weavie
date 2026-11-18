@@ -58,7 +58,7 @@ describe("createMountWindow", () => {
     options.reviewFilesAhead = 2;
   });
 
-  // A review of twenty files showing file `at`.
+  // A review of twenty files; `mount(at)` shows file `at`.
   function review() {
     let files = Array.from({ length: 20 }, (_, index) => `file${index}`);
     let shown = false;

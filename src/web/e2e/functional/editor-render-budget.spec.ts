@@ -238,6 +238,34 @@ test.describe("a decorated multi-file review", () => {
     expect(sample.restyles, report).toBe(0);
   });
 
+  // A file above the viewport growing moves the review. Far enough that the old position would sit files away,
+  // the rested files must all stay mounted: no file enters or leaves, and no editor is built.
+  test("a file far above growing at rest mounts and unmounts nothing @perf", async ({ page }) => {
+    await page.locator(".unified-review-tree-row", { hasText: names[5]! }).click();
+    await settle(page);
+    const mounted = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>(".unified-review-file")]
+          .map((file) => file.dataset.index)
+          .join(","),
+      );
+    const before = await mounted();
+    expect(before.split(","), before).toContain("2");
+    const created = await createdEditors(page);
+    await page.evaluate((name) => {
+      const model = window
+        .__WEAVIE_MONACO__!.editor.getModels()
+        .find((candidate) => candidate.uri.path.endsWith(`/${name}`))!;
+      const lines = Array.from({ length: 400 }, (_, index) => `export const grown${index} = 0;`);
+      model.applyEdits([
+        { range: model.getFullModelRange().collapseToStart(), text: `${lines.join("\n")}\n` },
+      ]);
+    }, names[2]!);
+    await settle(page);
+    expect(await mounted()).toBe(before);
+    expect(await created.jsonValue()).toHaveLength(0);
+  });
+
   // Load only widens the gaps between editors, so a slow machine cannot fail the first assertion.
   test("a jump from rest builds only the files at hand, then the files ahead @perf", async ({
     page,

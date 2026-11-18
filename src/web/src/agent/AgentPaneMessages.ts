@@ -87,13 +87,13 @@ export function projectAgentTranscript(
       continue;
     }
 
+    // Work after the user speaks or the turn ends is a group of its own.
+    if (isUserInput(message) || message.type === "turn-completed") segments.boundary();
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
       if (startsTurn) {
         durable.turnStart = true;
       }
-      // Work after the user speaks or the agent stops is a group of its own.
-      if (isUserInput(message) || durable.final) segments.boundary();
       entries.push(durable);
       if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;

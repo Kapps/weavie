@@ -825,7 +825,7 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["Working", "Permission", "Agent"]);
   });
 
-  it("keeps work in one group below its latest progress note until the user speaks or the agent stops", () => {
+  it("keeps work in one group below its latest note until the user speaks or the turn ends", () => {
     const note = (itemId: string): AgentPaneUpdate => ({
       type: "item-completed",
       providerId: "acp",
@@ -850,7 +850,10 @@ describe("toAgentTranscript", () => {
       note("Building"),
       command("build"),
       command("test"),
-      { ...note("Done"), final: true },
+      { ...note("Stopped"), final: true },
+      command("publish"),
+      note("Done"),
+      { type: "turn-completed", providerId: "acp", turnId: "turn", status: "end_turn" },
       command("late"),
       { type: "user-steer", providerId: "acp", turnId: "turn", text: "Also lint" },
       command("lint"),
@@ -860,7 +863,8 @@ describe("toAgentTranscript", () => {
       "Build it",
       "Answer",
       "Building",
-      "ran 3 commands",
+      "Stopped",
+      "ran 4 commands",
       "Done",
       "ran 1 command",
       "Also lint",

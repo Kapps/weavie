@@ -118,7 +118,7 @@ test("earlier updates fold away while live work stays visible and tool failures 
   await expect(settled).toHaveCount(0);
 });
 
-test("replies the agent stopped on stay visible while the work between them folds into the one group of earlier updates", async ({
+test("replies the agent stopped on stay visible while the work of the turn folds into the one group of earlier updates", async ({
   page,
   weavie,
 }) => {
@@ -143,17 +143,17 @@ test("replies the agent stopped on stay visible while the work between them fold
     "Everything is published.",
   ];
   await expect(replies).toContainText(stops);
-  await expect(earlier).toHaveText("Earlier updates · 4");
+  await expect(earlier).toHaveText("Earlier updates · 2");
 
   // A background job wakes it after the turn completed.
   await writeFile(join(workspace, "release-replies-late"), "");
   const shown = [...stops, "The late job finished."];
   await expect(replies).toContainText(shown);
-  await expect(earlier).toHaveText("Earlier updates · 5");
+  await expect(earlier).toHaveText("Earlier updates · 3");
 
   await page.reload();
   await expect(replies).toContainText(shown);
-  await expect(earlier).toHaveText("Earlier updates · 5");
+  await expect(earlier).toHaveText("Earlier updates · 3");
   await earlier.click();
   await expect(replies.filter({ hasText: "Checks pass; reading the review next." })).toBeVisible();
 });

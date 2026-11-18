@@ -294,12 +294,12 @@ it("keeps every reply the agent stopped on visible in one group of earlier updat
     send(tool("check", "completed"), reply("woke", "Checks pass, reading the review"));
     expect(shown()).toEqual([
       "Reading the settings",
-      2,
+      1,
       "Nothing is overridden",
       "Checks pass, reading the review",
     ]);
     send(tool("review", "completed"), reply("publish", "Publishing"), tool("push", "completed"));
-    expect(shown()).toEqual(["Reading the settings", 3, "Nothing is overridden", "Publishing"]);
+    expect(shown()).toEqual(["Reading the settings", 2, "Nothing is overridden", "Publishing"]);
     // The agent stopped after the tool, so the message before it is marked late.
     send(final("publish", "Publishing"), final("done", "Published"));
     send({ ...base, type: "turn-completed", status: "end_turn" });
@@ -307,7 +307,7 @@ it("keeps every reply the agent stopped on visible in one group of earlier updat
     send(tool("late", "completed"), final("late-reply", "The late job finished"));
     expect(shown()).toEqual([
       "Reading the settings",
-      5,
+      3,
       "Nothing is overridden",
       "Publishing",
       "Published",

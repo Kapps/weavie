@@ -522,6 +522,7 @@ test.describe("session-addressed WebSocket transport", () => {
       editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
       terminal: { family: "monospace", size: 13, weight: "normal" },
       interface: "Verdana, sans-serif",
+      interfaceSize: 15,
       prose: "Georgia, serif",
     });
 
@@ -907,6 +908,9 @@ test.describe("session-addressed WebSocket transport", () => {
         host.publishHost("settings", "fonts", {
           editor: { family: "monospace", size: 19, weight: "normal" },
           terminal: { family: "monospace", size: 19, weight: "normal" },
+          interface: "sans-serif",
+          interfaceSize: 13,
+          prose: "sans-serif",
         });
       });
       const remoteCheckpoint = remote.checkpoint();

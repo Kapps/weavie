@@ -2,11 +2,12 @@
 // cadence both surfaces repaint at. Shared by the file-review editor and the unified review's per-file editors
 // so a diff reads identically wherever it is shown.
 
+import { interfaceLine } from "../../fonts";
 import { monaco } from "../monaco-setup";
 import type { DiffMarkers } from "./diff-markers";
 
-// Height of the "New file" band above a wholly-new file's first line; its 20px tag centres in it (diff.css).
-const NEW_FILE_BADGE_HEIGHT = 24;
+// Height of the "New file" band above a wholly-new file's first line; its tag, a line + 4px, centres in it (diff.css).
+const newFileBadgeHeight = (): number => interfaceLine() + 8;
 
 /**
  * Repaint debounce, so typing into a file under review doesn't recompute the diff and re-lay-out its zones on
@@ -25,7 +26,7 @@ export function addDiffZones(
     ids.push(
       accessor.addZone({
         afterLineNumber: 0,
-        heightInPx: NEW_FILE_BADGE_HEIGHT,
+        heightInPx: newFileBadgeHeight(),
         domNode: buildNewFileBadge(),
       }),
     );

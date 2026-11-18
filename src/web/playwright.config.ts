@@ -59,6 +59,7 @@ export default defineConfig({
         "agent-pane-render-budget.spec.ts",
         "agent-scroll-smoothness.spec.ts",
         "agent-scroll-streaming.spec.ts",
+        "agent-side-conversation.spec.ts",
         "bridge.spec.ts",
         "headless-host.spec.ts",
         "host-startup.spec.ts",

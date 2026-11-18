@@ -44,13 +44,20 @@
 .session-inbox-surface.open .session-inbox {
   display: flex;
   flex: 1 1 auto;
+  gap: 14px;
   width: 100%;
+  padding: 20px;
   overflow-y: auto;
 }
 
+/* Centred on the header's title and subtitle lines, inside the dialog's 20px padding. */
 .session-inbox-close {
   position: absolute;
-  top: 16px;
+  top: calc(
+    20px +
+    (var(--font-chrome-display-line) + var(--font-chrome-line) - var(--icon-button-size)) /
+    2
+  );
   right: 16px;
   z-index: 11;
   color: var(--dim);
@@ -104,24 +111,26 @@
 }
 
 .session-inbox-actions {
-  gap: 8px;
+  gap: 12px;
 }
 
 /* Room above each card for the half of its title tag outside it. */
 .session-inbox-action {
   /* The column shared by the refresh buttons and the send button. */
   --session-action-w: 64px;
-  margin-top: 10px;
+  margin-top: var(--card-tag-rise);
 }
 
 .session-inbox-action:focus-within {
   border-color: var(--accent);
 }
 
+/* Midway between the two cards' borders: the rise of the tag below it is matched above it. */
 .session-inbox-divider {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: var(--card-tag-rise);
 }
 
 .session-inbox-divider::before,
@@ -158,7 +167,7 @@
 .session-inbox-open {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: auto minmax(0, 1fr) fit-content(35%);
+  grid-template-columns: auto minmax(0, 1fr) fit-content(40%);
   align-content: center;
   align-items: baseline;
   column-gap: 10px;

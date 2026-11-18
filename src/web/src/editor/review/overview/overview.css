@@ -63,6 +63,7 @@
 }
 
 .session-overview-byline {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -72,10 +73,20 @@
   font: var(--font-chrome-body);
 }
 
+/* The panel opens under the byline from its left edge, wherever the wrapping row leaves the button. */
+.session-overview-byline .finish-review {
+  position: static;
+}
+
+.session-overview-byline .finish-review-panel {
+  right: auto;
+  left: 0;
+}
+
 .session-overview-byline .weavie-pr-avatar {
   align-self: center;
-  width: 16px;
-  height: 16px;
+  width: var(--font-chrome-line);
+  height: var(--font-chrome-line);
 }
 
 .session-overview-author {
@@ -229,8 +240,8 @@ button.session-overview-row:not(:disabled) {
 
 .session-overview-row .weavie-pr-avatar {
   align-self: center;
-  width: 18px;
-  height: 18px;
+  width: var(--font-chrome-line);
+  height: var(--font-chrome-line);
 }
 
 .session-overview-row-text {

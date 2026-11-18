@@ -1,8 +1,8 @@
 import type { Page } from "@playwright/test";
 
 // Load-independent render guards: counts of what a code path DOES (forced-layout reads from Weavie's bundles,
-// content widgets and zone cards added or removed), never how long it took, so a slow machine only delays
-// a run and a regression fails with the offending call site or widget named.
+// content widgets and zone cards added or removed, stylesheet changes), never how long it took, so a slow
+// machine only delays a run and a regression fails with the offending call site, widget or stylesheet named.
 
 /** What one probed window did. */
 export interface RenderSample {
@@ -15,10 +15,14 @@ export interface RenderSample {
   /** Nodes attached to and detached from Monaco's content-widget containers and the zone-card layer. */
   added: number;
   removed: number;
+  /** Stylesheet changes that restyle the document: style nodes attached, detached or rewritten, rules inserted or deleted. */
+  restyles: number;
   /** Read sites (`file:line:col apis  …source…`) and widget ids (`+id`/`-id`), most frequent first. */
   sites: [string, number][];
   deferredSites: [string, number][];
   widgets: [string, number][];
+  /** Stylesheet changes by kind (`+style`, `-style`, `~style`, `insertRule`…). */
+  styles: [string, number][];
 }
 
 // https://gist.github.com/paulirish/5d52fb081b3570c81e3a — everything that can force a synchronous layout.
@@ -123,13 +127,19 @@ export async function measureRender(
     const sites: Sites = new Map();
     const deferredSites: Sites = new Map();
     const widgets = new Map<string, number>();
+    const styles = new Map<string, number>();
     const state = {
       frames: 0,
       reads: 0,
       deferred: 0,
       added: 0,
       removed: 0,
+      restyles: 0,
       running: true,
+    };
+    const restyle = (kind: string): void => {
+      state.restyles += 1;
+      styles.set(kind, (styles.get(kind) ?? 0) + 1);
     };
     const phase = window as unknown as { __deferredDepth?: number };
     if (phase.__deferredDepth === undefined)
@@ -153,7 +163,7 @@ export async function measureRender(
       into.set(key, entry);
     };
     const restore: (() => void)[] = [];
-    const patch = (target: object, name: string): void => {
+    const patch = (target: object, name: string, count: (name: string) => void): void => {
       let holder: object | null = target;
       while (holder !== null && !Object.hasOwn(holder, name))
         holder = Object.getPrototypeOf(holder);
@@ -162,7 +172,7 @@ export async function measureRender(
       if (holder === null || descriptor === undefined) return;
       const counted = (original: (...args: unknown[]) => unknown) =>
         function (this: unknown, ...args: unknown[]) {
-          note(name);
+          count(name);
           return original.apply(this, args);
         };
       const { get, set, value } = descriptor;
@@ -177,10 +187,34 @@ export async function measureRender(
     for (const [owner, names] of Object.entries(forcing)) {
       const scope = window as unknown as Record<string, { prototype: object } | undefined>;
       const target = owner === "window" ? window : scope[owner]?.prototype;
-      if (target !== undefined) for (const name of names) patch(target, name);
+      if (target !== undefined) for (const name of names) patch(target, name, note);
     }
+    for (const name of ["insertRule", "deleteRule", "replaceSync"])
+      patch(CSSStyleSheet.prototype, name, restyle);
+    const sheets = "style, link[rel~=stylesheet]";
     const tally = (records: MutationRecord[]): void => {
       for (const record of records) {
+        // A sheet is rewritten through its text node, or by replacing that node.
+        const owner = record.type === "characterData" ? record.target.parentNode : record.target;
+        if (owner?.nodeName.toLowerCase() === "style") restyle("~style");
+        if (record.type === "characterData") continue;
+        for (const [sign, nodes] of [
+          ["+", record.addedNodes],
+          ["-", record.removedNodes],
+        ] as const) {
+          for (const node of nodes) {
+            if (!(node instanceof Element)) continue;
+            for (const sheet of [node, ...node.querySelectorAll(sheets)]) {
+              if (!sheet.matches(sheets)) continue;
+              const name =
+                sheet.getAttribute("href")?.split("/").pop() ||
+                sheet.id ||
+                sheet.getAttribute("class") ||
+                (sheet.textContent ?? "").trim().slice(0, 60);
+              restyle(`${sign}style ${name.replace(/\d+/g, "#")}`);
+            }
+          }
+        }
         const container = record.target as Element;
         const layers = ".contentWidgets, .overflowingContentWidgets, .weavie-zone-cards-clip";
         if (!container.matches?.(layers)) continue;
@@ -199,7 +233,7 @@ export async function measureRender(
       }
     };
     const observer = new MutationObserver(tally);
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document, { childList: true, subtree: true, characterData: true });
     const tick = (): void => {
       if (!state.running) return;
       state.frames += 1;
@@ -246,9 +280,11 @@ export async function measureRender(
           deferred: state.deferred,
           added: state.added,
           removed: state.removed,
+          restyles: state.restyles,
           sites: await describe(sites),
           deferredSites: await describe(deferredSites),
           widgets: [...widgets].sort((a, b) => b[1] - a[1]),
+          styles: [...styles].sort((a, b) => b[1] - a[1]),
         };
       },
     };
@@ -278,10 +314,11 @@ export function describeSample(sample: RenderSample): string {
     entries.map(([site, count]) => `  ${String(count).padStart(5)}  ${site}`).join("\n") ||
     "  (none)";
   return [
-    `${sample.reads} Weavie forced-layout reads (+${sample.deferred} deferred), ${sample.added} widgets/cards added, ${sample.removed} removed, ${sample.frames} frames.`,
+    `${sample.reads} Weavie forced-layout reads (+${sample.deferred} deferred), ${sample.added} widgets/cards added, ${sample.removed} removed, ${sample.restyles} stylesheet changes, ${sample.frames} frames.`,
     `Top read sites:\n${lines(sample.sites)}`,
     `Top deferred read sites:\n${lines(sample.deferredSites)}`,
     `Widget and card churn:\n${lines(sample.widgets)}`,
+    `Stylesheet changes:\n${lines(sample.styles)}`,
   ].join("\n");
 }
 

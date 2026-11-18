@@ -44,10 +44,15 @@
   --font-chrome-hero-size: 36px;
   --font-chrome-display-size: 20px;
   --font-chrome-lead-size: 16px;
-  --font-chrome-size: 12px; /* all interface text */
-  --font-chrome-badge-size: 11px; /* key hints, counts, badges, session names */
-  --font-chrome-line: 16px; /* every single-line chrome role */
-  --font-chrome-line-wrap: 18px; /* wrapping body text; the inherited default */
+  --font-chrome-size: var(
+    --interface-font-size
+  ); /* all interface text; the interface.font.size setting */
+  /* key hints, counts, badges, session names */
+  --font-chrome-badge-size: calc(var(--font-chrome-size) - 1px);
+  /* every single-line chrome role; fonts.ts derives it from the size */
+  --font-chrome-line: var(--interface-font-line);
+  /* wrapping body text; the inherited default */
+  --font-chrome-line-wrap: calc(var(--font-chrome-line) + 2px);
   --font-chrome-display-line: 24px;
   --font-chrome-hero-line: 40px;
   --font-label-tracking: 0.06em;
@@ -91,20 +96,25 @@
     var(--font-prose-weight) var(--font-prose-size) / var(--font-prose-line)
     var(--font-prose-family);
 
-  --row-pad-y: 5px; /* 16 + 2×5 = 26 */
-  --row-pad-y-compact: 4px; /* 24 */
+  --row-pad-y: 5px; /* a row is its line + 2×5: 28 at 13px text */
+  --row-pad-y-compact: 4px; /* 26 */
   --row-pad-x: 8px;
   --row-gap: 8px;
-  --control-height: 24px;
-  --control-height-lg: 28px;
-  --control-height-cell: 36px; /* dialog and card action cells */
+  /* Controls are a chrome line plus their padding: 26, 32 and 38 at 13px text. */
+  --control-height: calc(var(--font-chrome-line) + 8px);
+  --control-height-lg: calc(var(--font-chrome-line) + 14px);
+  /* dialog and card action cells */
+  --control-height-cell: calc(var(--font-chrome-line) + 20px);
   --control-height-xl: 40px; /* landing surfaces */
   --control-radius: 0px;
   --shadow-modal: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
   --touch-target: 44px;
-  --icon-size-sm: 12px;
-  --icon-size: 14px;
-  --icon-button-size: 20px;
+  /* Even like the line, so an icon centres in it on whole pixels. */
+  --icon-size-sm: calc(var(--font-chrome-line) - 4px);
+  --icon-size: calc(var(--font-chrome-line) - 2px);
+  --icon-button-size: calc(var(--font-chrome-line) + 4px);
+  /* the half of a card's title tag above the card */
+  --card-tag-rise: calc(var(--font-chrome-line) / 2 + 2px);
 
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme

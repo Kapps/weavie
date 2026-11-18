@@ -185,10 +185,12 @@
   font: var(--font-chrome-body);
   flex: 0 0 auto;
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 2px 12px;
   padding: 6px 12px;
   color: var(--dim);
   border-top: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .search-hints kbd {

@@ -18,21 +18,26 @@ import { appliedEdit } from "../harness/review";
 
 // Render budgets for the review editor under every line decoration at once — keep/revert rows, review hint
 // pills, PR threads, blame on every line — asserted as counts per input, never as time. Run: pnpm e2e:perf.
+// Typing is measured with the file filling the pane: the counts grow with the lines on screen.
 const FILES = 12;
 const LINES = 120;
 const STRIDE = 30;
 const NOTCHES = 160;
 const KEYS = 20;
 const ENTERS = 5;
-// Budgets sit 20-50% over the measured counts; one read per visible row per frame adds thousands. `deferred` is
-// reads from debounced and observer callbacks, which only settle-paced steps make deterministic.
-// Scrolling measured 1.01 reads per notch, all from mounting sections and their rows.
-const READS_PER_NOTCH = 1.5;
-// Per keystroke, measured 11 reads (+89 deferred) in the multi-file review and 14 (+84) in the PR review, where
-// the tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+206).
-const REVIEW_KEY = { reads: 14, deferred: 110 };
-const PR_KEY = { reads: 18, deferred: 105 };
-const ENTER = { reads: 28, deferred: 260 };
+// Budgets sit 20% over the measured counts; one read per visible row per frame adds thousands. `deferred` is
+// reads from debounced and observer callbacks.
+
+// Scrolling reads layout only to mount a file: the notches bring 4 files in at 40 reads (+21 deferred) each, and
+// 3 on the way back at 38 (+15).
+const FILE_MOUNT = { reads: 48, deferred: 26 };
+const FILES_DOWN = 4;
+const FILES_BACK = 3;
+// Per keystroke, measured 14 reads (+0 deferred) in the multi-file review and 14 (+2) in the PR review, where the
+// tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+15).
+const REVIEW_KEY = { reads: 17, deferred: 0 };
+const PR_KEY = { reads: 17, deferred: 3 };
+const ENTER = { reads: 27, deferred: 18 };
 
 const base = Array.from({ length: LINES }, (_, index) => `export const value${index} = ${index};`);
 // Per 30 lines: a changed line plus an added one, and three deleted lines — eight hunks a file.
@@ -91,10 +96,28 @@ function expectWithin(sample: RenderSample, steps: number, budget: Budget): void
   expect(sample.deferred, report).toBeLessThanOrEqual(steps * budget.deferred);
 }
 
+// Counts the Monaco editors created until the returned function is called; each review file mounts one as it
+// scrolls into view.
+async function countCreatedEditors(page: Page): Promise<() => Promise<number>> {
+  const count = await page.evaluateHandle(() => {
+    let created = 0;
+    const subscription = window.__WEAVIE_MONACO__!.editor.onDidCreateEditor(() => {
+      created += 1;
+    });
+    return {
+      stop: () => {
+        subscription.dispose();
+        return created;
+      },
+    };
+  });
+  return () => count.evaluate(({ stop }) => stop());
+}
+
 // Types `key` KEYS times on the caret's line: no content widget or zone card may be added or removed. Each key
 // also refocuses the window, which refreshes PR comments, so the minute's refresh tick landing mid-run adds nothing
 // new: the host publishes only changed comments (Refresh_PublishesOnlyWhenTheCommentsChanged).
-async function expectTypingWithin(page: Page, key: string, perKey: Budget): Promise<void> {
+async function expectTypingWithin(page: Page, key: string, perKey: Budget): Promise<RenderSample> {
   const sample = await measureRender(page, KEYS, KEYS * perKey.reads, async () => {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.keyboard.type(key);
@@ -108,6 +131,7 @@ async function expectTypingWithin(page: Page, key: string, perKey: Budget): Prom
     editor.getModel()!.getLineContent(editor.getPosition()!.lineNumber),
   );
   expect(line, "every key must reach the buffer").toMatch(new RegExp(`${key}{${KEYS}}$`));
+  return sample;
 }
 
 test.describe("a decorated multi-file review", () => {
@@ -135,9 +159,11 @@ test.describe("a decorated multi-file review", () => {
     await expect(page.locator(".unified-review-file .weavie-blame").first()).toBeVisible();
   });
 
-  // Focuses the first file (clicking its first added line's left edge, clear of the hint pill) and puts the caret
-  // at the end of added line `line`, in a hunk with keep/revert and a hint.
+  // Brings the first file to the top of the pane from the file list, focuses it (clicking clear of the hint
+  // pill) and puts the caret at the end of added line `line`, in a hunk with keep/revert and a hint.
   async function caretAt(page: Page, line: number): Promise<void> {
+    await page.locator(".unified-review-tree-row", { hasText: names[0]! }).click();
+    await settle(page);
     const section = page.locator(".unified-review-file").first();
     await section.locator(".view-line", { hasText: "added0" }).click({ position: { x: 2, y: 2 } });
     await (await focusedEditor(page)).evaluate((editor, lineNumber) => {
@@ -147,26 +173,41 @@ test.describe("a decorated multi-file review", () => {
     await settle(page);
   }
 
-  test("scrolling reads no layout per frame and removes no widget @perf", async ({ page }) => {
-    const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await settle(page);
-    const sample = await measureRender(page, NOTCHES, NOTCHES * READS_PER_NOTCH, async () => {
-      await page.mouse.wheel(0, 120);
+  // Wheels NOTCHES notches of `deltaY`: layout is read only to mount the `files` that arrive, never per frame,
+  // and nothing already shown is rebuilt or restyled.
+  async function expectScrollWithin(page: Page, deltaY: number, files: number): Promise<void> {
+    const created = await countCreatedEditors(page);
+    const sample = await measureRender(page, NOTCHES, FILES * FILE_MOUNT.reads, async () => {
+      await page.mouse.wheel(0, deltaY);
       await frames(page, 1);
     });
     const report = describeSample(sample);
+    // An editor built twice for one file would otherwise raise its own budget.
+    expect(await created(), report).toBe(files);
+    expectWithin(sample, files, FILE_MOUNT);
     // A renamed bundle would drive the count to zero, passing while measuring nothing.
     expect(sample.reads, `the probe must still see Weavie's frames\n${report}`).toBeGreaterThan(0);
-    expect(sample.reads, report).toBeLessThanOrEqual(NOTCHES * READS_PER_NOTCH);
-    // Rows are added once as their editors mount; nothing already shown is rebuilt.
+    // Rows are added once as their editors mount.
     expect(sample.added, `the probe must still see widgets mount\n${report}`).toBeGreaterThan(0);
     expect(sample.removed, report).toBe(0);
+    expect(sample.restyles, report).toBe(0);
+  }
+
+  test("scrolling reads layout only to mount each file, down and back up @perf", async ({
+    page,
+  }) => {
+    const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await settle(page);
+    await expectScrollWithin(page, 120, FILES_DOWN);
+    await settle(page);
+    await expectScrollWithin(page, -120, FILES_BACK);
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {
     await caretAt(page, addedLines[0]!);
-    await expectTypingWithin(page, "x", REVIEW_KEY);
+    const sample = await expectTypingWithin(page, "x", REVIEW_KEY);
+    expect(sample.restyles, describeSample(sample)).toBe(0);
   });
 
   // In the last hunk, so a re-add of every row (a dozen) dwarfs the few rows an Enter really moves.
@@ -193,12 +234,15 @@ test.describe("a decorated multi-file review", () => {
     const report = describeSample(sample);
     expect(sample.added, report).toBeLessThanOrEqual(moves);
     expect(sample.removed, report).toBeLessThanOrEqual(moves);
+    expect(sample.restyles, report).toBe(0);
   });
 });
 
 test.describe("a pull request review with threads", () => {
   test.use({ prScenario: true, fakeScript: { steps: [blameEveryLine] } });
 
+  // Stylesheet changes are not held to zero here: the hidden session's terminals drop WebGL on a timer, and the
+  // renderer they fall back to adds its own style nodes.
   test("typing beside a PR thread re-adds no widget @perf", async ({ page }) => {
     await openCommentedFile(page);
     await page.locator(".monaco-editor .view-line", { hasText: "const message" }).first().click();

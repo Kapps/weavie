@@ -28,7 +28,6 @@ vi.mock("./monaco-setup", () => ({
     },
     editor: {
       TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 1 },
-      EditorOption: { wrappingInfo: 1 },
     },
   },
 }));
@@ -37,13 +36,14 @@ import { notify } from "../notify/notify";
 import type { monaco } from "./monaco-setup";
 import { createSpellCheck } from "./spell-check";
 
-function fixture(text: string, start: number, end: number) {
+function fixture(text: string) {
   vi.useFakeTimers();
   bridge.request.mockReset();
   tokenization.load.mockReset().mockResolvedValue([]);
   const set = vi.fn();
   const clear = vi.fn();
   let version = 1;
+  let visible = true;
   const handlers: Array<(event: unknown) => void> = [];
   const subscribe = (handler: (event: unknown) => void) => {
     handlers.push(handler);
@@ -54,18 +54,12 @@ function fixture(text: string, start: number, end: number) {
     getVersionId: () => version,
     isDisposed: () => false,
     getLanguageId: () => "plaintext",
-    getLineMaxColumn: () => text.length + 1,
-    getValueInRange: (range: monaco.IRange) =>
-      text.slice(range.startColumn - 1, range.endColumn - 1),
+    getLineContent: () => text,
   };
   const editor = {
     createDecorationsCollection: () => ({ set, clear }),
     getModel: () => model,
-    getOption: () => ({ wrappingColumn: 80 }),
-    getLayoutInfo: () => ({}),
-    getVisibleRanges: () => [
-      { startLineNumber: 1, endLineNumber: 1, startColumn: start, endColumn: end },
-    ],
+    getVisibleRanges: () => (visible ? [{ startLineNumber: 1, endLineNumber: 1 }] : []),
     onDidChangeModel: subscribe,
     onDidChangeModelContent: subscribe,
     onDidChangeModelLanguage: subscribe,
@@ -82,7 +76,7 @@ function fixture(text: string, start: number, end: number) {
     tokenize: () => handlers[3]!(undefined),
     switchModel: () => handlers[0]!(undefined),
     emptyViewport: () => {
-      end = start;
+      visible = false;
     },
     edit: () => {
       version++;
@@ -94,7 +88,7 @@ function fixture(text: string, start: number, end: number) {
 afterEach(() => vi.useRealTimers());
 
 it("rejects obsolete responses after editing and disposal even when transport completes them", async () => {
-  const { spelling, set, edit } = fixture("teh", 1, 4);
+  const { spelling, set, edit } = fixture("teh");
   let resolveOld: (value: unknown) => void = () => {};
   bridge.request.mockImplementationOnce(
     () =>
@@ -125,19 +119,18 @@ it("rejects obsolete responses after editing and disposal even when transport co
   expect(set).not.toHaveBeenCalled();
 });
 
-it("sends fully visible words without scanning offscreen portions of a wrapped line", async () => {
-  const text = `${"before ".repeat(10000)}edge visible edge ${"after ".repeat(10000)}`;
-  const { spelling } = fixture(text, 70002, 70016);
+it("sends a visible line whole", async () => {
+  const { spelling } = fixture("teh word");
   bridge.request.mockResolvedValue([]);
   await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request.mock.calls[0]![1]).toEqual({
-    spans: [{ line: 1, offset: 70004, text: " visible ", identifier: false }],
+    spans: [{ line: 1, offset: 0, text: "teh word", identifier: false }],
   });
   spelling.dispose();
 });
 
 it("does not send a check for a model edited while its grammar was loading", async () => {
-  const { spelling, edit, set } = fixture("teh", 1, 4);
+  const { spelling, edit, set } = fixture("teh");
   let ready: (value: []) => void = () => {};
   tokenization.load.mockImplementationOnce(
     () =>
@@ -155,15 +148,15 @@ it("does not send a check for a model edited while its grammar was loading", asy
   spelling.dispose();
 });
 
-it("does not check the offscreen remainder of a long unbroken token", async () => {
-  const { spelling } = fixture("a".repeat(1000000), 40001, 40101);
+it("does not check a line over 1,000 characters", async () => {
+  const { spelling } = fixture("word ".repeat(201));
   await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request).not.toHaveBeenCalled();
   spelling.dispose();
 });
 
 it("retains markers during scroll and token refreshes and replaces them after 100ms idle", async () => {
-  const { spelling, set, clear, scroll, tokenize } = fixture("teh", 1, 4);
+  const { spelling, set, clear, scroll, tokenize } = fixture("teh");
   bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
   await vi.advanceTimersByTimeAsync(99);
   expect(bridge.request).not.toHaveBeenCalled();
@@ -184,7 +177,7 @@ it("retains markers during scroll and token refreshes and replaces them after 10
 });
 
 it("clears retained markers for an empty viewport and on model changes", async () => {
-  const { spelling, set, scroll, emptyViewport, switchModel } = fixture("teh", 1, 4);
+  const { spelling, set, scroll, emptyViewport, switchModel } = fixture("teh");
   bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
   await vi.advanceTimersByTimeAsync(100);
   emptyViewport();
@@ -199,7 +192,7 @@ it("clears retained markers for an empty viewport and on model changes", async (
 });
 
 it("keeps markers without an error when the language server cancels its token request", async () => {
-  const { spelling, set, scroll } = fixture("teh", 1, 4);
+  const { spelling, set, scroll } = fixture("teh");
   bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
   await vi.advanceTimersByTimeAsync(100);
   set.mockClear();

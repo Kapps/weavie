@@ -25,7 +25,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 
 	private string _lastLocation = DefaultLocation;
 	private (string BackendId, string Slot)? _selected;
-	private bool _panelPinned;
+	private bool _panelPinned = true;
 	private int _panelWidth = DefaultPanelWidth;
 	private int _fullscreenWidth = DefaultFullscreenWidth;
 	private bool _parkedCollapsed = true;
@@ -200,7 +200,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		public SelectionEntry? Selected { get; set; }
 
 		[JsonPropertyName("panelPinned")]
-		public bool PanelPinned { get; set; }
+		public bool PanelPinned { get; set; } = true;
 
 		[JsonPropertyName("panelWidth")]
 		public int PanelWidth { get; set; } = DefaultPanelWidth;

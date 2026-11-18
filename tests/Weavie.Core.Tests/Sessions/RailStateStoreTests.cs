@@ -18,7 +18,7 @@ public sealed class RailStateStoreTests {
 
 		Assert.Equal("local", store.LastLocation);
 		Assert.Null(store.Selected);
-		Assert.False(store.PanelPinned);
+		Assert.True(store.PanelPinned);
 		Assert.True(store.ParkedCollapsed);
 	}
 
@@ -37,11 +37,11 @@ public sealed class RailStateStoreTests {
 		int changes = 0;
 		store.Changed += () => changes++;
 
-		store.SetPanelPinned(true);
-		store.SetPanelPinned(true);
+		store.SetPanelPinned(false);
+		store.SetPanelPinned(false);
 
 		Assert.Equal(1, changes);
-		Assert.True(new RailStateStore(fs, StorePath).PanelPinned);
+		Assert.False(new RailStateStore(fs, StorePath).PanelPinned);
 	}
 
 	[Fact]

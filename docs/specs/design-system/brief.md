@@ -90,6 +90,8 @@ its harness) measured:
 
 ## Not doing
 
+> Superseded: `interface.font.size` shipped; see [docs/concepts/design-system.md](../../concepts/design-system.md).
+
 - **`interface.font.size` setting**: chrome has ~72 px heights, 47 fixed icon sizes and heights baked into
   code that would all have to scale; too much work for a knob nobody has asked for.
 - **Spacing scale, corner radii, shadows, derived colour tokens**: large churn for little visible gain.

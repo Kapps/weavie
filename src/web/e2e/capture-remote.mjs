@@ -52,8 +52,8 @@ async function tour(page, localWorkspace, runnerUrl) {
     .waitFor({ state: "detached", timeout: 45_000 })
     .catch(() => {});
   await settle(2500);
-  const before = await page.locator(".session-chip").count();
-  console.log(`[capture] local chips: ${before}`);
+  const before = await page.locator("[data-session-slot]").count();
+  console.log(`[capture] local sessions: ${before}`);
 
   // 2. New Session → choose "Add remote agent…".
   await page.locator(".session-rail-add").click();
@@ -80,13 +80,14 @@ async function tour(page, localWorkspace, runnerUrl) {
   await settle(800);
   await page.locator(".ui-button-primary").click();
 
-  // 5. The remote-badged chip joins the rail; the worktree was created on the runner.
-  await page.locator(".session-chip.remote").first().waitFor({ timeout: 30_000 });
-  await page.waitForFunction((n) => document.querySelectorAll(".session-chip").length > n, before, {
-    timeout: 30_000,
-  });
+  // 5. The remote session joins the list; the worktree was created on the runner.
+  await page.waitForFunction(
+    (n) => document.querySelectorAll("[data-session-slot]").length > n,
+    before,
+    { timeout: 30_000 },
+  );
   console.log(
-    `[capture] chips after remote New Session: ${await page.locator(".session-chip").count()}`,
+    `[capture] sessions after remote New Session: ${await page.locator("[data-session-slot]").count()}`,
   );
   await settle(3500);
 }

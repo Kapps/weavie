@@ -396,8 +396,9 @@ should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAV
 Implemented in `Weavie.Core/Configuration/FontSettings.cs` (registered from `CoreSettings`). Both
 text surfaces — the Monaco editor and the xterm terminal — read their family, size, and weight from
 settings. A single **global** default is inherited by both, and each surface may **override** any
-axis. Two more families style the DOM chrome: the **interface** font (menus, tabs, panels) and the
-**prose** font (agent replies, rendered markdown), which inherits the interface font when empty. All are
+axis. The DOM chrome has its own: the **interface** font and size (menus, tabs, panels; rows, controls and
+icons scale with the size) and the **prose** font (agent replies, rendered markdown), which inherits the
+interface font when empty. All are
 `ApplyMode.Live`: a change re-pushes the resolved fonts to the web app, which
 applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no restart, no PTY reopen.
 
@@ -413,6 +414,7 @@ applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no r
 | `terminal.font.size`   | Int    | `0` → inherit                   | terminal size override (0, or 6–72)      |
 | `terminal.font.weight` | String | `inherit`                       | terminal weight override                 |
 | `interface.font.family`| String | bundled Sora stack              | interface (chrome) family                |
+| `interface.font.size`  | Int    | `13`                            | interface text size in px (10–18)        |
 | `prose.font.family`    | String | `""` → interface font          | agent replies + rendered markdown family |
 
 An override left at its **inherit sentinel** — empty family, `0` size, `"inherit"` weight — falls
@@ -421,14 +423,15 @@ carries `AllowedValues` (the CSS keywords + numeric scale) so it maps 1:1 onto M
 and xterm's `FontWeight`; the override `weight` adds `inherit` to that set.
 
 **Host → web plumbing.** `FontSettings.BuildJson` resolves the editor + terminal fonts to
-`{ editor: {family,size,weight}, terminal: {…}, interface, prose }`. The host injects it as `window.__WEAVIE_FONTS__`
+`{ editor: {family,size,weight}, terminal: {…}, interface, interfaceSize, prose }`. The host injects it as `window.__WEAVIE_FONTS__`
 before navigation (no default-font flash on mount) and, subscribing to every font key, re-pushes it as
 a `{ type: "fonts", … }` bridge message on any change. The web `fonts.ts` reads the injected global at
 editor/terminal creation and applies live pushes via `onFontsChanged`; it also publishes the
-`--interface-font-family` / `--prose-font-family` CSS vars behind the `--font-chrome-family` /
-`--font-prose-family` typography roles.
+`--interface-font-family` / `--interface-font-size` / `--interface-font-line` / `--prose-font-family` CSS vars
+behind the `--font-chrome-family` / `--font-chrome-size` / `--font-chrome-line` / `--font-prose-family`
+typography roles.
 
-Chrome text sizes are fixed px role tokens; only the content and prose roles follow `font.size` /
+Chrome text follows `interface.font.size`; the content and prose roles follow `font.size` /
 `editor.font.size`. See the [design system concept](../concepts/design-system.md).
 
 The three-segment keys (`editor.font.size`) required lifting the TOML key writer's previous

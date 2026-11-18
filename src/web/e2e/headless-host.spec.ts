@@ -51,7 +51,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     await expect.poll(() => page.evaluate("window.__WEAVIE_BRIDGE_WS__")).toBe("auto");
 
     // The catalog can render only after connection.hello crossed into C# and its response crossed back.
-    await expect(page.locator(".session-chip").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("[data-session-slot]").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
   });
 });

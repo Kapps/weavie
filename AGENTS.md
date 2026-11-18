@@ -110,7 +110,7 @@ load it only when you need it.
   or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. A
   stage can run on a role (`planner`) the user fills with a model per provider, so workflows name no model. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
   [docs/specs/workflows.md](docs/specs/workflows.md).
-- **Design system** — fixed-px chrome type roles, content and prose roles that follow the editor font, and
+- **Design system** — chrome type roles sized by `interface.font.size`, content and prose roles that follow the editor font, and
   layered primitives (row, button, field, section label, key hint, icon box, square card, `ModalShell`) that make
   alignment and height automatic; a Biome plugin rejects raw typography. See
   [docs/concepts/design-system.md](docs/concepts/design-system.md).
@@ -196,8 +196,8 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
 
 ## Code standards
 
-- **Type comes from roles, never from values.** Chrome is fixed px in two sizes, 12 and the 11px badge role
-  (key hints, counts, session names): `font: var(--font-chrome-body | -body-wrap | -badge | -mono |
+- **Type comes from roles, never from values.** Chrome has two sizes, `interface.font.size` (13px by default)
+  and a badge role 1px smaller (key hints, counts, session names): `font: var(--font-chrome-body | -body-wrap | -badge | -mono |
   -display)`, with `-hero` and `-lead` for landing surfaces only. Content (editor, terminal,
   transcript, composer text) uses `var(--font-content)`, small content text `--font-content-secondary-size`,
   and rendered documents `var(--font-prose)`; only these follow the editor font. Controls, dialog inputs and
@@ -271,7 +271,8 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   warning to make a problem disappear. Ask before any build-config, enforcement, or philosophy call.
 - **Per-frame and per-keystroke code runs `pnpm e2e:perf` before pushing.** A change under `src/web/src/editor`,
   or to anything running per scroll frame or keystroke, must pass the render budgets
-  (`e2e/functional/editor-render-budget.spec.ts`): forced-layout reads and content-widget churn, counted per input.
+  (`e2e/functional/editor-render-budget.spec.ts`): forced-layout reads, content-widget churn and stylesheet
+  changes, counted per keystroke and per file scrolled into view.
 - **Run the formatter before calling a change done.** Web/TS: `biome check --write` (Biome,
   `lineWidth: 100`); .NET: `dotnet format`. Both are CI gates — hand-fixing wrap after the fact, or a
   red check, means it wasn't run.

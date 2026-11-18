@@ -154,26 +154,27 @@
   overflow-x: clip;
 }
 
-.agent-virtual-row {
+/* One transcript entry and the space around it, in the pane and inside a card alike. */
+.agent-row {
   display: flow-root;
   box-sizing: border-box;
   padding-top: 5px;
 }
 
-.agent-virtual-row-first {
+.agent-row-first {
   padding-top: 0;
 }
 
-.agent-virtual-row-user {
+.agent-row-user {
   padding-top: 9px;
   padding-bottom: 7px;
 }
 
-.agent-virtual-row-user.agent-virtual-row-first {
+.agent-row-user.agent-row-first {
   padding-top: 0;
 }
 
-.agent-virtual-row-assistant-pair {
+.agent-row-assistant-pair {
   padding-top: 10px;
 }
 
@@ -313,22 +314,11 @@
 }
 
 .agent-aside-reply-button {
-  margin: 0 10px 10px;
+  margin: 6px 10px 10px;
 }
 
 .agent-aside-reply {
-  padding: 0 10px 10px;
-}
-
-.agent-aside-reply textarea {
-  font: var(--font-content);
-  box-sizing: border-box;
-  width: 100%;
-  resize: vertical;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 7px 8px;
+  padding: 6px 10px 10px;
 }
 
 .agent-aside-reply-actions {
@@ -569,7 +559,7 @@ a:has(> .agent-path-dir) {
   --card-pad: 18px;
   width: auto;
   max-width: 920px;
-  margin: 22px 12px 12px;
+  margin: calc(12px + var(--card-tag-rise)) 12px 12px;
   padding: var(--card-pad);
   border: 1px solid var(--border);
   background: var(--bar);
@@ -707,8 +697,10 @@ a:has(> .agent-path-dir) {
   display: none;
 }
 
-/* One row for every transcript expander, so chevrons and labels share a column. */
+/* One row for every transcript expander, so chevrons and labels share a column. It shrinks below
+   its text, so a thought's preview ellipsizes in a narrow pane. */
 .agent-disclosure-row {
+  min-width: 0;
   color: var(--dim);
 }
 

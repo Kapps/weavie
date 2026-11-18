@@ -27,9 +27,12 @@ const KEYS = 20;
 const ENTERS = 5;
 // Budgets sit 20% over the measured counts; one read per visible row per frame adds thousands. `deferred` is
 // reads from debounced and observer callbacks.
-// Scrolling reads layout only to mount a file: measured 40 reads (+21 deferred) for each of the 4 files the
-// notches bring in, and 38 (+15) for each of the 3 on the way back.
+
+// Scrolling reads layout only to mount a file: the notches bring 4 files in at 40 reads (+21 deferred) each, and
+// 3 on the way back at 38 (+15).
 const FILE_MOUNT = { reads: 48, deferred: 26 };
+const FILES_DOWN = 4;
+const FILES_BACK = 3;
 // Per keystroke, measured 14 reads (+0 deferred) in the multi-file review and 14 (+2) in the PR review, where the
 // tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+15).
 const REVIEW_KEY = { reads: 17, deferred: 0 };
@@ -156,9 +159,8 @@ test.describe("a decorated multi-file review", () => {
     await expect(page.locator(".unified-review-file .weavie-blame").first()).toBeVisible();
   });
 
-  // Brings the first file to the top of the pane from the file list, focuses it (clicking its first added line's
-  // left edge, clear of the hint pill) and puts the caret at the end of added line `line`, in a hunk with
-  // keep/revert and a hint.
+  // Brings the first file to the top of the pane from the file list, focuses it (clicking clear of the hint
+  // pill) and puts the caret at the end of added line `line`, in a hunk with keep/revert and a hint.
   async function caretAt(page: Page, line: number): Promise<void> {
     await page.locator(".unified-review-tree-row", { hasText: names[0]! }).click();
     await settle(page);
@@ -171,17 +173,17 @@ test.describe("a decorated multi-file review", () => {
     await settle(page);
   }
 
-  // Wheels NOTCHES notches of `deltaY`: layout is read only to mount the files that arrive, never per frame, and
-  // nothing already shown is rebuilt or restyled.
-  async function expectScrollWithin(page: Page, deltaY: number): Promise<void> {
+  // Wheels NOTCHES notches of `deltaY`: layout is read only to mount the `files` that arrive, never per frame,
+  // and nothing already shown is rebuilt or restyled.
+  async function expectScrollWithin(page: Page, deltaY: number, files: number): Promise<void> {
     const created = await countCreatedEditors(page);
     const sample = await measureRender(page, NOTCHES, FILES * FILE_MOUNT.reads, async () => {
       await page.mouse.wheel(0, deltaY);
       await frames(page, 1);
     });
-    const files = await created();
     const report = describeSample(sample);
-    expect(files, `the scroll must bring files into view\n${report}`).toBeGreaterThan(1);
+    // An editor built twice for one file would otherwise raise its own budget.
+    expect(await created(), report).toBe(files);
     expectWithin(sample, files, FILE_MOUNT);
     // A renamed bundle would drive the count to zero, passing while measuring nothing.
     expect(sample.reads, `the probe must still see Weavie's frames\n${report}`).toBeGreaterThan(0);
@@ -197,9 +199,9 @@ test.describe("a decorated multi-file review", () => {
     const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     await settle(page);
-    await expectScrollWithin(page, 120);
+    await expectScrollWithin(page, 120, FILES_DOWN);
     await settle(page);
-    await expectScrollWithin(page, -120);
+    await expectScrollWithin(page, -120, FILES_BACK);
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {

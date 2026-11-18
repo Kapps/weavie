@@ -1,6 +1,6 @@
 import { StandardTokenType } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/encodedTokenAttributes";
 import type { ITokenizationTextModelPart } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/tokenizationTextModelPart";
-import { monaco } from "./monaco-setup";
+import type { monaco } from "./monaco-setup";
 import type { IdentifierRange } from "./spell-tokens";
 
 export interface TokenizedModel extends monaco.editor.ITextModel {
@@ -20,62 +20,20 @@ export interface Misspelling {
   word: string;
 }
 
-// Longer than hand-written code: only such a line (minified, data) is clipped to the columns on screen. Finding
-// them hit-tests the line, which forces a layout, so shorter lines are checked whole.
-const CLIPPED_LINE_LENGTH = 1000;
+// A longer line is minified code or data and is not checked, so a checked line is always sent whole: clipping
+// one to the columns on screen would mean hit-testing it, which forces a layout on every edit and scroll.
+const LINE_LIMIT = 1000;
 
 export function visibleSpellRanges(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: TokenizedModel,
 ): SpellSpan[] {
   const spans: SpellSpan[] = [];
-  const unwrapped = editor.getOption(monaco.editor.EditorOption.wrappingInfo).wrappingColumn === -1;
-  const layout = editor.getLayoutInfo();
-  let bounds: DOMRect | undefined;
   for (const range of editor.getVisibleRanges()) {
     for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
-      const limit = model.getLineMaxColumn(line) - 1;
-      let start = line === range.startLineNumber ? range.startColumn - 1 : 0;
-      let end = line === range.endLineNumber ? range.endColumn - 1 : limit;
-      if (unwrapped && limit > CLIPPED_LINE_LENGTH) {
-        const row = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
-        bounds ??= editor.getDomNode()?.getBoundingClientRect();
-        if (bounds === undefined || row === null) continue;
-        const y = bounds.top + Math.max(0, Math.min(layout.height - 1, row.top + row.height / 2));
-        const left =
-          row.left >= layout.contentLeft
-            ? { lineNumber: line, column: 1 }
-            : editor.getTargetAtClientPoint(bounds.left + layout.contentLeft + 1, y)?.position;
-        const right = editor.getTargetAtClientPoint(
-          bounds.left +
-            layout.contentLeft +
-            layout.contentWidth -
-            layout.verticalScrollbarWidth -
-            1,
-          y,
-        )?.position;
-        if (left?.lineNumber !== line || right?.lineNumber !== line) continue;
-        start = Math.max(start, left.column - 1);
-        end = Math.min(end, right.column - 1);
-      }
-      const contextStart = Math.max(0, start - 1);
-      const text = model.getValueInRange(
-        new monaco.Range(line, contextStart + 1, line, Math.min(limit, end + 1) + 1),
-      );
-      // A word cut by the viewport is checked when visible in full; never scan an offscreen long token.
-      if (start > 0 && !/\s/.test(text.charAt(start - contextStart - 1))) {
-        while (start < end && !/\s/.test(text.charAt(start - contextStart))) start++;
-      }
-      if (end < limit && !/\s/.test(text.charAt(end - contextStart))) {
-        while (end > start && !/\s/.test(text.charAt(end - contextStart - 1))) end--;
-      }
-      if (start < end) {
-        spans.push({
-          line,
-          offset: start,
-          text: text.slice(start - contextStart, end - contextStart),
-          identifier: false,
-        });
+      const text = model.getLineContent(line);
+      if (text.length > 0 && text.length <= LINE_LIMIT) {
+        spans.push({ line, offset: 0, text, identifier: false });
       }
     }
   }

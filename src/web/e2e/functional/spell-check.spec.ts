@@ -223,31 +223,19 @@ test("Markdown checks prose without marking inline code, fences, or links", asyn
   await expect(marks(page)).toHaveText(["prosetypoo"]);
 });
 
-test("horizontal scrolling keeps long-line spelling requests within the viewport", async ({
-  page,
-  weavie,
-}) => {
+test("a line over 1,000 characters is not checked", async ({ page, weavie }) => {
   const requests = spellingRequests(page);
-  const checked = () =>
-    requests
-      .filter((message) => message.name === "check")
-      .map((message) =>
-        (message.payload as { spans: { text: string }[] }).spans.map((span) => span.text).join(""),
-      );
   await page.reload();
   await writeFile(
     join(weavie.workspace, "notes.txt"),
-    `starttypoo ${"correct ".repeat(1_000)}endtypoo\n`,
+    `longtypoo ${"correct ".repeat(1_000)}\nshorttypoo\n`,
   );
   await openFile(page, "notes.txt");
-  await expect(marks(page)).toHaveText(["starttypoo"]);
-  expect(checked().some((text) => text.includes("starttypoo"))).toBe(true);
-  expect(checked().every((text) => !text.includes("endtypoo"))).toBe(true);
-  await clickIntoEditor(page);
-  await page.keyboard.press("End");
-  await expect(marks(page)).toHaveText(["endtypoo"]);
-  expect(checked().some((text) => text.includes("endtypoo"))).toBe(true);
-  expect(Math.max(...checked().map((text) => text.length))).toBeLessThan(200);
+  await expect(marks(page)).toHaveText(["shorttypoo"]);
+  const checked = requests
+    .filter((message) => message.name === "check")
+    .flatMap((message) => (message.payload as { spans: { text: string }[] }).spans);
+  expect(checked.every((span) => !span.text.includes("longtypoo"))).toBe(true);
 });
 
 test("spelling suggestions are requested on demand and saved corrections support undo", async ({

@@ -15,7 +15,7 @@ export interface RenderSample {
   /** Nodes attached to and detached from Monaco's content-widget containers and the zone-card layer. */
   added: number;
   removed: number;
-  /** Stylesheet changes, each restyling the whole document: style nodes attached, detached or edited, rules changed. */
+  /** Stylesheet changes that restyle the document: style nodes attached, detached or rewritten, rules inserted or deleted. */
   restyles: number;
   /** Read sites (`file:line:col apis  …source…`) and widget ids (`+id`/`-id`), most frequent first. */
   sites: [string, number][];
@@ -191,13 +191,13 @@ export async function measureRender(
     }
     for (const name of ["insertRule", "deleteRule", "replaceSync"])
       patch(CSSStyleSheet.prototype, name, restyle);
-    const sheets = "style, link[rel=stylesheet]";
+    const sheets = "style, link[rel~=stylesheet]";
     const tally = (records: MutationRecord[]): void => {
       for (const record of records) {
-        if (record.type === "characterData") {
-          if (record.target.parentNode?.nodeName === "STYLE") restyle("~style");
-          continue;
-        }
+        // A sheet is rewritten through its text node, or by replacing that node.
+        const owner = record.type === "characterData" ? record.target.parentNode : record.target;
+        if (owner?.nodeName.toLowerCase() === "style") restyle("~style");
+        if (record.type === "characterData") continue;
         for (const [sign, nodes] of [
           ["+", record.addedNodes],
           ["-", record.removedNodes],
@@ -209,7 +209,7 @@ export async function measureRender(
               const name =
                 sheet.getAttribute("href")?.split("/").pop() ||
                 sheet.id ||
-                sheet.className ||
+                sheet.getAttribute("class") ||
                 (sheet.textContent ?? "").trim().slice(0, 60);
               restyle(`${sign}style ${name.replace(/\d+/g, "#")}`);
             }

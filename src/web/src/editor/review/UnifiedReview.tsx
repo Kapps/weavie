@@ -1,5 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -141,13 +142,10 @@ export function UnifiedReview(props: {
     const path = files()[index]?.summary().path;
     return path === undefined ? index : `${sessionKey()}\0${path}`;
   };
-  // The rendered rows still showing the file now at their index.
-  const mountWindow = createMountWindow(() =>
-    untrack(() => {
-      const current = rows().filter((row) => row.key === itemKey(row.index));
-      return current.length === 0 ? undefined : [current[0]!.index, current.at(-1)!.index];
-    }),
-  );
+  const mountWindow = createMountWindow({
+    keyAt: itemKey,
+    rendered: () => untrack(() => rows().length > 0),
+  });
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
@@ -180,7 +178,7 @@ export function UnifiedReview(props: {
         settling = false;
         callback(owner.getScrollTop(), false);
       };
-      const unsubscribe = owner.onScroll((userInitiated) => {
+      const scrolled = (userInitiated: boolean): void => {
         mountWindow.scrolled(owner.getScrollTop());
         // A programmatic scroll arriving while the review is still — a saved-position restore, a Find or
         // go-to-line reveal, the scroll-into-view on focus — must let the virtualiser measure a section as it
@@ -196,7 +194,9 @@ export function UnifiedReview(props: {
         if (settling) return;
         settling = true;
         requestAnimationFrame(settle);
-      });
+      };
+      // One batch: the rest ends and the virtualizer takes the new position before the files are recomputed.
+      const unsubscribe = owner.onScroll((userInitiated) => batch(() => scrolled(userInitiated)));
       // The pending frame outlives the subscription, so it has to be stopped too: reporting a settled scroll after
       // teardown would call back into a virtualiser that is already gone.
       return () => {

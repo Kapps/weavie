@@ -38,26 +38,35 @@ export function mountedSpan(
   return { span: [Math.min(from, kept[0]), Math.max(to, kept[1])], fresh: false };
 }
 
+/** The review's files as the mount window needs them. */
+export interface MountedPage {
+  /** The key of the file at `index`. */
+  keyAt(index: number): unknown;
+  /** Whether any file is on the page; a hidden review has none. */
+  rendered(): boolean;
+}
+
 /**
  * Mounts the files ahead while a review rests: up to `editor.reviewFilesAhead` past its overscan, kept through the
- * next scroll, so scrolling into a neighbouring file builds no editor. `rendered` is the span of files on the page.
+ * next scroll, so scrolling into a neighbouring file builds no editor.
  */
-export function createMountWindow(rendered: () => Span | undefined): {
+export function createMountWindow(page: MountedPage): {
   /** The virtualizer's range extractor. */
   extractor: Accessor<(range: Range) => number[]>;
-  /** Reports the scroll position. Call before the virtualizer hears of it, so its range sees the rest ended. */
+  /** Reports the scroll position, in one batch with the virtualizer hearing of it. */
   scrolled(position: number): void;
 } {
   const [reach, setReach] = createSignal(currentEditorOptions().reviewFilesAhead);
   const [rested, setRested] = createSignal(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
   const step = (): void => {
     if (setRested((level) => level + 1) < reach()) timer = setTimeout(step, STEP_MS);
   };
   const rest = (): void => {
     clearTimeout(timer);
     setRested(0);
-    if (reach() > 0) timer = setTimeout(step, REST_MS);
+    if (!disposed && reach() > 0) timer = setTimeout(step, REST_MS);
   };
   onCleanup(
     onEditorOptionsChanged((options) => {
@@ -65,18 +74,36 @@ export function createMountWindow(rendered: () => Span | undefined): {
       rest();
     }),
   );
-  onCleanup(() => clearTimeout(timer));
+  onCleanup(() => {
+    disposed = true;
+    clearTimeout(timer);
+  });
   rest();
   let position: number | undefined;
+  // The files last mounted, by key: a file keeps its editor when the list shifts it to another index.
+  let keys = new Set<unknown>();
+  const carried = (range: Range): Span | undefined => {
+    if (!page.rendered()) return undefined;
+    const [low, high] = around(range, reach() + RETAINED);
+    const held = Array.from({ length: high - low + 1 }, (_, index) => low + index).filter((index) =>
+      keys.has(page.keyAt(index)),
+    );
+    return held.length === 0 ? undefined : [held[0]!, held.at(-1)!];
+  };
   return {
     extractor: () => {
-      const level = Math.min(rested(), reach());
-      const limit = reach();
+      // A new extractor per level, so the virtualizer recomputes its files.
+      rested();
+      reach();
       return (range) => {
-        const { span, fresh } = mountedSpan(range, level, limit, rendered());
+        // Read as the range is computed: a scroll reported in the same batch has already ended the rest.
+        const level = Math.min(rested(), reach());
+        const { span, fresh } = mountedSpan(range, level, reach(), carried(range));
         // The rest was earned by files that are gone, so it starts over for these.
         if (fresh && level > 0) queueMicrotask(rest);
-        return Array.from({ length: span[1] - span[0] + 1 }, (_, index) => span[0] + index);
+        const files = Array.from({ length: span[1] - span[0] + 1 }, (_, index) => span[0] + index);
+        keys = new Set(files.map(page.keyAt));
+        return files;
       };
     },
     scrolled: (top) => {

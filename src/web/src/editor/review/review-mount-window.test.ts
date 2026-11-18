@@ -14,7 +14,7 @@ vi.mock("../../editor-options", () => ({
   },
 }));
 
-import { createMountWindow, mountedSpan, type Span } from "./review-mount-window";
+import { createMountWindow, mountedSpan } from "./review-mount-window";
 
 const visible = (startIndex: number, endIndex: number): Range => ({
   startIndex,
@@ -58,20 +58,31 @@ describe("createMountWindow", () => {
     options.reviewFilesAhead = 2;
   });
 
-  // A review showing file `at`, whose page holds whatever the last extraction mounted.
+  // A review of twenty files showing file `at`.
   function review() {
-    let rendered: Span | undefined;
+    let files = Array.from({ length: 20 }, (_, index) => `file${index}`);
+    let shown = false;
     return createRoot((dispose) => {
-      const window = createMountWindow(() => rendered);
+      const window = createMountWindow({
+        keyAt: (index) => files[index],
+        rendered: () => shown,
+      });
       const mount = (at: number): number[] => {
-        const files = window.extractor()(visible(at, at));
-        rendered = [files[0]!, files.at(-1)!];
-        return files;
+        const mounted = window.extractor()(visible(at, at));
+        shown = true;
+        return mounted;
       };
-      const hide = (): void => {
-        rendered = undefined;
+      return {
+        dispose,
+        mount,
+        hide: (): void => {
+          shown = false;
+        },
+        replace: (next: (files: string[]) => string[]): void => {
+          files = next(files);
+        },
+        scrolled: window.scrolled,
       };
-      return { dispose, mount, hide, scrolled: window.scrolled };
     });
   }
 
@@ -138,6 +149,41 @@ describe("createMountWindow", () => {
     vi.advanceTimersByTime(200);
     expect(page.mount(5)).toEqual([3, 4, 5, 6, 7]);
     page.dispose();
+  });
+
+  it("mounts only the overscan of a replaced list once, then rests on it", async () => {
+    const page = review();
+    page.mount(5);
+    vi.advanceTimersByTime(350);
+    page.mount(5);
+    page.replace((files) => files.map((file) => `other/${file}`));
+    expect(page.mount(5)).toEqual([4, 5, 6]);
+    await Promise.resolve();
+    vi.advanceTimersByTime(350);
+    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    page.dispose();
+  });
+
+  it("carries the mounted files over when the list shifts them to other indexes", () => {
+    const page = review();
+    page.mount(5);
+    vi.advanceTimersByTime(350);
+    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    page.replace((files) => files.slice(1));
+    page.scrolled(100);
+    expect(page.mount(4)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    page.dispose();
+  });
+
+  it("does not rest again once disposed", async () => {
+    const page = review();
+    page.mount(5);
+    vi.advanceTimersByTime(350);
+    page.hide();
+    page.mount(5);
+    page.dispose();
+    await Promise.resolve();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("follows the setting live, and mounts nothing ahead at 0", () => {

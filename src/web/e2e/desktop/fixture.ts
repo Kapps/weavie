@@ -20,6 +20,7 @@ export const test = base.extend<{
       inference: "disabled",
       automaticInference: false,
       setupCompleted: true,
+      reviewFilesAhead: 2,
     });
     const logPath = info.outputPath("desktop.log");
     const log = createWriteStream(logPath);

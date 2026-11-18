@@ -33,6 +33,10 @@ const ENTERS = 5;
 const FILE_MOUNT = { reads: 48, deferred: 26 };
 const FILES_DOWN = 4;
 const FILES_BACK = 3;
+// A rest mounts the files ahead, so the notches that carry the review from its first file into its third build
+// no editor: measured 29 reads (+0 deferred) for the whole scroll.
+const RESTED_NOTCHES = 100;
+const RESTED_SCROLL = { reads: 35, deferred: 0 };
 // Per keystroke, measured 14 reads (+0 deferred) in the multi-file review and 14 (+2) in the PR review, where the
 // tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+15).
 const REVIEW_KEY = { reads: 17, deferred: 0 };
@@ -193,15 +197,52 @@ test.describe("a decorated multi-file review", () => {
     expect(sample.restyles, report).toBe(0);
   }
 
-  test("scrolling reads layout only to mount each file, down and back up @perf", async ({
-    page,
-  }) => {
+  async function pointer(page: Page): Promise<[number, number]> {
     const bounds = (await page.locator(".unified-review-diffs").boundingBox())!;
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    return [bounds.x + bounds.width / 2, bounds.y + bounds.height / 2];
+  }
+
+  async function hoverReview(page: Page): Promise<void> {
+    await page.mouse.move(...(await pointer(page)));
     await settle(page);
-    await expectScrollWithin(page, 120, FILES_DOWN);
-    await settle(page);
-    await expectScrollWithin(page, -120, FILES_BACK);
+  }
+
+  test.describe("with no files mounted ahead", () => {
+    test.use({ reviewFilesAhead: 0 });
+
+    test("scrolling reads layout only to mount each file, down and back up @perf", async ({
+      page,
+    }) => {
+      await hoverReview(page);
+      await expectScrollWithin(page, 120, FILES_DOWN);
+      await settle(page);
+      await expectScrollWithin(page, -120, FILES_BACK);
+    });
+  });
+
+  test("scrolling into the files a rest mounted builds no editor @perf", async ({ page }) => {
+    await hoverReview(page);
+    const created = await countCreatedEditors(page);
+    const sample = await measureRender(page, RESTED_NOTCHES, RESTED_SCROLL.reads, async () => {
+      await page.mouse.wheel(0, 120);
+      await frames(page, 1);
+    });
+    const report = describeSample(sample);
+    // The file under the pointer is past the overscan the review started with.
+    const reached = await page.evaluate(
+      ([x, y]) => {
+        const file = document
+          .elementFromPoint(x!, y!)
+          ?.closest<HTMLElement>(".unified-review-file");
+        return file?.dataset.index;
+      },
+      await pointer(page),
+    );
+    expect(reached, report).toBe("2");
+    expectWithin(sample, 1, RESTED_SCROLL);
+    expect(await created(), report).toBe(0);
+    expect(sample.added + sample.removed, report).toBe(0);
+    expect(sample.restyles, report).toBe(0);
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {

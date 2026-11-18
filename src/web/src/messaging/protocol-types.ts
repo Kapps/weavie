@@ -393,6 +393,8 @@ export interface EditorOptionsSpec {
   reviewComments: boolean;
   reviewHints: boolean;
   reviewStepSettled: boolean;
+  /** Files past the ones on screen the unified review mounts while it rests. */
+  reviewFilesAhead: number;
   spellCheck: boolean;
 }
 

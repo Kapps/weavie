@@ -19,6 +19,8 @@ type WeavieOptions = {
   // False boots with first-run setup pending, so Getting Started opens over the workspace.
   setupCompleted: boolean;
   markdownView: "preview" | "source";
+  /** Files past the ones on screen a resting review mounts; 0 for specs that assert which files are mounted. */
+  reviewFilesAhead: number;
   dismissInferenceOffer: boolean;
   dismissStartupTip: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
@@ -92,6 +94,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
   automaticInference: [false, { option: true }],
   setupCompleted: [true, { option: true }],
   markdownView: ["source", { option: true }],
+  reviewFilesAhead: [2, { option: true }],
   dismissInferenceOffer: [true, { option: true }],
   dismissStartupTip: [true, { option: true }],
   preNavigate: [null, { option: true }],
@@ -107,6 +110,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         automaticInference,
         setupCompleted,
         markdownView,
+        reviewFilesAhead,
         dismissInferenceOffer,
         dismissStartupTip,
         preNavigate,
@@ -140,6 +144,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         automaticInference,
         setupCompleted,
         markdownView,
+        reviewFilesAhead,
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });

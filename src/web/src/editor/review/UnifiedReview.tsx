@@ -26,6 +26,7 @@ import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { estimatedEditorHeight } from "./review-context";
 import { keepFold } from "./review-fold";
 import { reviewHistoryHandlers } from "./review-history-handlers";
+import { createMountWindow } from "./review-mount-window";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type {
   LineSpan,
@@ -135,6 +136,7 @@ export function UnifiedReview(props: {
     if (owner.getScrollTop() > previous) owner.shift(height - previous, virtualizer.getTotalSize());
     else sizeVirtualList(virtualizer.getTotalSize());
   };
+  const mountWindow = createMountWindow(scroll, () => props.overview().files);
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
@@ -216,6 +218,9 @@ export function UnifiedReview(props: {
         : entry.borderBoxSize[0]!.blockSize,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
+    get rangeExtractor() {
+      return mountWindow();
+    },
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 

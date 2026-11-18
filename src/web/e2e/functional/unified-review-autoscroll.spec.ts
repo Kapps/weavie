@@ -14,6 +14,8 @@ const content = Array.from(
 ).join("\n");
 
 test.use({
+  // These journeys unmount a file by scrolling one file away.
+  reviewFilesAhead: 0,
   fakeScript: {
     steps: [
       ...paths.flatMap((path) => appliedEdit(path, content)),

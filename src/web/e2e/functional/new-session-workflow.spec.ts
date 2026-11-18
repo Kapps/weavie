@@ -180,8 +180,12 @@ test("session controls align with inset icons that preserve native input on desk
 }) => {
   await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
+  // Equal grid tracks land one layout unit (1/64px) apart when their space doesn't divide evenly, as at 910.
+  const sameTrack = (left: number, right: number): void =>
+    expect(Math.abs(left - right)).toBeLessThanOrEqual(1 / 64);
   for (const viewport of [
     { width: 1280, height: 800 },
+    { width: 910, height: 800 },
     { width: 390, height: 844 },
     { width: 320, height: 844 },
   ]) {
@@ -247,7 +251,7 @@ test("session controls align with inset icons that preserve native input on desk
       expect(footer[0].x).toBe(geometry.fields[0].x);
       expect(new Set(footer.map((control) => control.y)).size).toBe(1);
       expect(new Set(footer.map((control) => control.height)).size).toBe(1);
-      expect(footer[0].width).toBe(footer[1].width);
+      sameTrack(footer[0].width, footer[1].width);
       expect(footer[0].x + footer[0].width).toBeLessThan(footer[1].x);
       expect(footer[1].x + footer[1].width).toBeLessThan(footer[2].x);
     }
@@ -258,7 +262,7 @@ test("session controls align with inset icons that preserve native input on desk
       expect(repo.height).toBe(location.height);
       if (viewport.width > 760) {
         expect(repo.y).toBe(location.y);
-        expect(repo.width).toBe(location.width);
+        sameTrack(repo.width, location.width);
         expect(repo.x).toBeGreaterThan(agent.x + agent.width);
         expect(repo.x + repo.width).toBeLessThan(action.x);
       } else {

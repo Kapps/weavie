@@ -187,11 +187,12 @@ public sealed partial class HostCore {
 
 	private bool IsWorkspaceCheckout(string worktreePath) => PathIdentity.Equals(worktreePath, HomeFolder);
 
-	/// <summary>The worktree session of <paramref name="repo"/> on <paramref name="branch"/>, loaded or dormant.</summary>
-	private SessionSlot? WorktreeSlotFor(Repo repo, string branch) =>
-		_sessions?.Slots.FirstOrDefault(slot => slot.Repo == repo
-			&& !PathIdentity.Equals(slot.WorktreePath, repo.Root)
-			&& string.Equals(slot.Label, branch, StringComparison.Ordinal));
+	/// <summary>The session on the worktree git has <paramref name="branch"/> checked out in, loaded or dormant.</summary>
+	private async Task<SessionSlot?> SlotOnBranchAsync(Repo repo, string branch, CancellationToken ct) =>
+		(await new GitService().ListWorktreesAsync(repo.Root, ct).ConfigureAwait(false))
+			.FirstOrDefault(worktree => string.Equals(worktree.Branch, branch, StringComparison.Ordinal)) is { } worktree
+			? _sessions?.Find(SessionSlot.IdFor(worktree.Path))
+			: null;
 
 	/// <summary>A typed repo path made absolute: relative to the session it was typed in, else to the home folder.</summary>
 	private string RepoPath(string repo, SessionSlot? source) =>
@@ -663,11 +664,16 @@ public sealed partial class HostCore {
 			if (sourceAddress is not null && (source = await CurrentSourceAsync(sourceAddress, ct).ConfigureAwait(false)) is null) {
 				return SourceGone();
 			}
+			// Nothing stands in for an unnamed repo: a start from no session has to name one.
+			if (string.IsNullOrWhiteSpace(request.Repo) && source is null) {
+				return CommandResult.Failure("A session started from no session needs its 'repo'.");
+			}
+
 			Repo repo;
 			try {
-				repo = string.IsNullOrWhiteSpace(request.Repo)
-					? source?.Repo ?? Home
-					: await RepoForAsync(RepoPath(request.Repo, source), ct).ConfigureAwait(false);
+				repo = source is not null && string.IsNullOrWhiteSpace(request.Repo)
+					? source.Repo
+					: await RepoForAsync(RepoPath(request.Repo!, source), ct).ConfigureAwait(false);
 			} catch (GitException ex) {
 				return CommandResult.Failure(ex.Message);
 			}
@@ -1177,27 +1183,14 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
 		}
 
-		// Already a live/dormant Weavie session for this branch? Switch to it.
-		if (WorktreeSlotFor(start.Repo, branch) is { } existingSlot) {
-			if (ExistingSessionInputError(start.Input) is { } error) {
-				return error;
-			}
-			return await LoadExistingAsync(existingSlot, branch, ct).ConfigureAwait(false);
-		}
-
-		// The branch checked out in the repo's own checkout can't be attached to a second worktree (git refuses), so
-		// load the session already attached to that checkout.
+		// A branch is checked out in one worktree at most (git refuses a second), so a session already on it is
+		// switched to: the repo's own checkout included.
 		try {
-			string? workspaceBranch = await new GitService().GetCurrentBranchAsync(start.Repo.Root, ct).ConfigureAwait(false);
-			var workspaceSlot = _sessions?.Find(SessionSlot.IdFor(start.Repo.Root));
-			if (string.Equals(workspaceBranch, branch, StringComparison.Ordinal) && workspaceSlot is not null) {
-				if (ExistingSessionInputError(start.Input) is { } error) {
-					return error;
-				}
-				return await LoadExistingAsync(workspaceSlot, branch, ct).ConfigureAwait(false);
+			if (await SlotOnBranchAsync(start.Repo, branch, ct).ConfigureAwait(false) is { } holder) {
+				return ExistingSessionInputError(start.Input) ?? await LoadExistingAsync(holder, branch, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
-			return CommandResult.Failure($"Couldn't read the current branch: {ex.Message}");
+			return CommandResult.Failure($"Couldn't read where '{branch}' is checked out: {ex.Message}");
 		}
 
 		// Only run setup on a freshly-created worktree; a branch Weavie already tracks reuses its existing one.

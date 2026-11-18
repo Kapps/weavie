@@ -959,11 +959,15 @@ export default function App(): JSX.Element {
       });
   };
 
+  // The same number can be open in two repos at once, so the spinner belongs to the session too.
+  const openPrToastKey = (session: ClientSession, number: number): string =>
+    `open-pr:${session.address.slot}:${number}`;
+
   const openPullRequestIn = (
     session: ClientSession,
     target: { number: number; owner: string; repo: string },
   ): void => {
-    const toastKey = `open-pr:${target.number}`;
+    const toastKey = openPrToastKey(session, target.number);
     const backendId = session.connection.id;
     const commit = beginClientSelection();
     void session
@@ -1153,9 +1157,12 @@ export default function App(): JSX.Element {
   } | null>(null);
   // Interactive delete (rail menu / cloud panel / palette): no args targets the selected session. Classify the
   // OWNING backend's worktree (weavie.session.delete with classify) to open the dialog at the right escalation.
-  const promptDeleteSession = async (args: unknown): Promise<void> => {
+  const promptDeleteSession = async (
+    args: unknown,
+    { session }: { session: ClientSession | null },
+  ): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
-    const active = sessions().find((s) => s.active);
+    const active = sessions().find((s) => s.owner === session);
     const id = a?.id ?? active?.id;
     const backendId = a?.backendId ?? active?.backendId ?? "local";
     if (id === undefined) {
@@ -1832,9 +1839,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.showSessions, openSessions),
       registerCommand(CommandIds.manageAcpAgents, () => openAcpRegistry(activeBackendId())),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
-      registerCommand(CommandIds.openPr, () => {
-        setOpenPrOwner(selectedSession());
-        return selectedSession() !== null;
+      registerCommand(CommandIds.openPr, (_args, { session }) => {
+        setOpenPrOwner(session);
+        return session !== null;
       }),
       registerCommand(CommandIds.openCurrentPr, () => {
         const pullRequest = currentPullRequest();
@@ -2170,7 +2177,11 @@ export default function App(): JSX.Element {
               setLastLocation(session.connection.id);
               // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
               // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
-              addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
+              addToast(
+                "busy",
+                `Opening PR #${target.number}…`,
+                openPrToastKey(session, target.number),
+              );
               // The host resolves the PR's branch refs by number, then checks it out in that session's repo.
               openPullRequestIn(session, target);
             }}
@@ -2248,12 +2259,7 @@ export default function App(): JSX.Element {
           Files
         </button>
       </Show>
-      <Suggestions
-        items={suggestions()}
-        onDismiss={(id, forever) =>
-          selectedSession()?.feature("suggestions").publish("dismiss", { id, forever })
-        }
-      />
+      <Suggestions cards={suggestions()} />
       <ThemePicker />
       <GettingStartedModal />
       <Show when={updateRestarting()}>

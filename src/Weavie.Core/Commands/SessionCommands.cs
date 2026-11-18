@@ -108,7 +108,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
-			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'repo' is a path to the repository "
+			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'repo' is the folder of the repository "
 				+ "to create it in, any repository on this machine; omitted, it is the invoking session's repository. 'base' is 'main' (the repository's "
 				+ "default branch; the default) or 'source' (the invoking session's HEAD, same repository only). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "

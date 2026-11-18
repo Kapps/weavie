@@ -21,7 +21,7 @@ import {
   defaultAgentProvider,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import { defaultRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
+import { chosenRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
 import { backendRepos, type RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
@@ -77,19 +77,22 @@ export function SessionInbox(props: {
   const repos = createMemo(() => backendRepos(backendId()), [], {
     equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
   });
-  const repoDefault = (): string =>
-    defaultRepo(
-      sourceRepo(),
+  // What the list shows is what is sent: a repo that left the list is never named behind another's label.
+  const chosen = createMemo(() =>
+    chosenRepo(
+      [repoPick(), sourceRepo()],
       repos().map((option) => option.repo),
-    );
-  const typingRepo = (): boolean => repoPick() === OTHER_REPO;
-  const namedRepo = (): string | null =>
-    sentRepo(typingRepo() ? repoPath() : (repoPick() ?? repoDefault()));
-  const repo = createMemo(namedRepo);
+    ),
+  );
+  const typingRepo = (): boolean => chosen() === OTHER_REPO;
+  const repo = createMemo(() => sentRepo(typingRepo() ? repoPath() : chosen()));
   // A start names its repo: "Other…" with no path names none.
-  const repoNamed = (): boolean => !typingRepo() || repo() !== null;
-  // "From current session" branches inside that session's own repo; null when it can't.
-  const source = (): ClientSession | null => (repo() === sourceRepo() ? owner() : null);
+  const repoNamed = (): boolean => repo() !== null;
+  // "From current session" branches inside that session's own repo, while that session is still on the rail.
+  const source = (): ClientSession | null =>
+    repo() === sourceRepo() && props.sessions.some((session) => session.owner === owner())
+      ? owner()
+      : null;
   const resetRepo = (): void => {
     clearTimeout(repoTyped);
     setRepoPick(null);
@@ -253,6 +256,7 @@ export function SessionInbox(props: {
         <select
           class="ui-field"
           aria-label={locationLabel}
+          disabled={submitting() !== null}
           value={backendId()}
           onChange={(event) => selectBackend(event.currentTarget.value)}
         >
@@ -267,7 +271,7 @@ export function SessionInbox(props: {
         <select
           class="ui-field"
           aria-label={providerLabel}
-          disabled={savingProvider()}
+          disabled={savingProvider() || submitting() !== null}
           onChange={(event) => selectProvider(event.currentTarget.value)}
         >
           <For each={agentProviders(backendId())}>
@@ -289,15 +293,12 @@ export function SessionInbox(props: {
         <select
           class="session-repo ui-field"
           aria-label={repoLabel}
+          disabled={submitting() !== null}
           onChange={(event) => pickRepo(event.currentTarget)}
         >
           <For each={repos()}>
             {(option) => (
-              <option
-                value={option.repo}
-                selected={option.repo === (repoPick() ?? repoDefault())}
-                title={option.repo}
-              >
+              <option value={option.repo} selected={option.repo === chosen()} title={option.repo}>
                 {option.label}
               </option>
             )}
@@ -313,6 +314,7 @@ export function SessionInbox(props: {
             class="session-repo-path ui-field ui-field-mono"
             type="text"
             aria-label="Repository path"
+            disabled={submitting() !== null}
             placeholder="Path to a repository"
             autocapitalize="none"
             autocomplete="off"

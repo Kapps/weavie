@@ -1,7 +1,7 @@
 import { For, type JSX } from "solid-js";
-import type { Suggestion, SuggestionAction } from "../bridge";
+import type { ClientSession, Suggestion, SuggestionAction } from "../bridge";
 import { keyHint } from "../commands/key-hint";
-import { runCommandWithFeedback } from "../commands/registry";
+import { runCommandInSessionWithFeedback } from "../commands/registry";
 
 // A RunCommand button's label with its command's effective shortcut appended ("Yes (Ctrl+…)"); an unbound or
 // non-command action shows just the label.
@@ -13,24 +13,30 @@ function actionLabel(action: SuggestionAction): string {
 }
 
 // A bottom-right stack of dismissible suggestion cards: contextual nudges (e.g. configure a worktree setup
-// command). Distinct from the top-center transient toasts — these persist until acted on or dismissed.
+// command). Distinct from the top-center transient toasts — these persist until acted on or dismissed. A card's
+// action and its dismissal go to the session the cards were shown for, since the same card exists per repo.
 export function Suggestions(props: {
-  items: Suggestion[];
-  onDismiss: (id: string, forever: boolean) => void;
+  cards: { session: ClientSession | null; items: Suggestion[] };
 }): JSX.Element {
   const onAction = (suggestion: Suggestion, action: SuggestionAction): void => {
+    const session = props.cards.session;
+    if (session === null) {
+      return;
+    }
+    const dismiss = (forever: boolean): void =>
+      session.feature("suggestions").publish("dismiss", { id: suggestion.id, forever });
     if (action.kind === "RunCommand" && action.commandId !== undefined) {
       const args = action.argsJson === undefined ? undefined : JSON.parse(action.argsJson);
-      void runCommandWithFeedback(action.commandId, args);
+      void runCommandInSessionWithFeedback(session, action.commandId, args);
       // Taking the offer is engagement: snooze the card (a fresh run re-offers if nothing came of it).
-      props.onDismiss(suggestion.id, false);
+      dismiss(false);
     } else {
-      props.onDismiss(suggestion.id, action.kind === "DismissForever");
+      dismiss(action.kind === "DismissForever");
     }
   };
   return (
     <div class="suggestions">
-      <For each={props.items}>
+      <For each={props.cards.items}>
         {(suggestion) => (
           <div class="suggestion" role="note">
             <div class="suggestion-title">{suggestion.title}</div>

@@ -91,6 +91,23 @@ public sealed partial class HostCoreMultiRepoTests {
 	}
 
 	[Fact]
+	public async Task OpeningABranchGoesToTheWorktreeGitHasItOnNotToALabel() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		var first = host.Session(InfraEntry(host, "deploy").GetProperty("id").GetString()!);
+		// The session's agent moves its worktree to another branch; its label still says "deploy".
+		TempGitRepo.Run(first.WorkspaceRoot, "switch", "--quiet", "-c", "rollout");
+
+		Assert.True((await host.CreateSessionAsync(
+			new NewSessionRequest { Branch = "deploy", Repo = InfraOf(host.RepoRoot), Existing = true })).Ok);
+
+		var onDeploy = Assert.Single(host.SessionCatalog, entry =>
+			entry.GetProperty("repoLabel").GetString() == "infra"
+			&& TempGitRepo.Run(entry.GetProperty("worktree").GetString()!, "branch", "--show-current").Trim() == "deploy");
+		Assert.NotEqual(first.SlotId, onDeploy.GetProperty("id").GetString());
+	}
+
+	[Fact]
 	public async Task ReposSharingAFolderNameAreLabelledByTheirParentToo() {
 		await using var host = await TestHost.StartAsync(home =>
 			TempGitRepo.InitCommitted(Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(home)!, "nested", "repo")).FullName));

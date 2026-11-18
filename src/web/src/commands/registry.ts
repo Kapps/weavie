@@ -563,6 +563,17 @@ export async function runCommandWithFeedback(id: string, args?: unknown): Promis
   return result;
 }
 
+/** Dispatches as `session`, whichever session is selected, and surfaces its outcome. */
+export async function runCommandInSessionWithFeedback(
+  session: ClientSession,
+  id: string,
+  args?: unknown,
+): Promise<CommandResult> {
+  const result = await captureCommandRunnerFor(session, new Map())(id, args);
+  reportCommandResult(result);
+  return result;
+}
+
 /** Dispatches from one backend's catalog and surfaces its outcome. */
 export async function runCommandFromCatalogWithFeedback(
   backendId: string,

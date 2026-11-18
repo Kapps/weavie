@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -82,12 +84,15 @@ public sealed partial class HostCore {
 				$"PR #{request.Number} has an unexpected branch name ('{headRef}').");
 		}
 
+		bool opensNewSession;
 		try {
 			var git = new GitService();
 			if (!await git.BranchExistsAsync(source.Repo.Root, headRef, ct).ConfigureAwait(false)) {
 				await git.FetchCommitAsync(source.Repo.Root, "origin", pullRequest.HeadSha, ct).ConfigureAwait(false);
 				await git.CreateBranchAsync(source.Repo.Root, headRef, pullRequest.HeadSha, ct).ConfigureAwait(false);
 			}
+
+			opensNewSession = await SlotOnBranchAsync(source.Repo, headRef, ct).ConfigureAwait(false) is null;
 		} catch (GitException ex) {
 			return CommandResult.Failure(
 				$"Couldn't fetch PR #{request.Number} ('{headRef}'): {ex.Message}");
@@ -99,7 +104,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,
-				Prompt = WorktreeSlotFor(source.Repo, headRef) is null && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
+				Prompt = opensNewSession && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},
@@ -108,7 +113,9 @@ public sealed partial class HostCore {
 			return created;
 		}
 
-		if (WorktreeSlotFor(source.Repo, headRef)?.Session is not { } target) {
+		// The session the open answered with is the one reviewed, whatever its label says.
+		var opened = JsonSerializer.Deserialize(created.DataJson ?? "null", WireJson.Default.SessionActivation);
+		if (opened is null || _sessions?.Find(opened.Id)?.Session is not { } target) {
 			return CommandResult.Failure(
 				$"Opened PR #{request.Number}, but its session failed to load.");
 		}

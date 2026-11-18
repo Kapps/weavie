@@ -19,7 +19,7 @@ public sealed record NewSessionRequest {
 	/// <summary>The required branch (and worktree) name.</summary>
 	public string? Branch { get; init; }
 
-	/// <summary>A path inside the repository the session is created in; <c>null</c> means the invoking session's repository.</summary>
+	/// <summary>The folder of the repository (or of one of its worktrees) the session is created in; <c>null</c> means the invoking session's repository.</summary>
 	public string? Repo { get; init; }
 
 	/// <summary>The base to branch from: <c>"main"</c> (the repository's default branch) or <c>"source"</c> (the invoking session's HEAD); <c>null</c> means main. Ignored when <see cref="Existing"/> is set.</summary>

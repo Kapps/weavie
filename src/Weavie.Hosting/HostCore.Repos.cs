@@ -104,31 +104,34 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>The root of the repository containing <paramref name="path"/>: the home folder for the home repo.</summary>
+	/// <summary>The root of the repository whose folder, or worktree, <paramref name="path"/> is: the home folder for the home repo.</summary>
 	private async Task<string> RepoRootAsync(string path, CancellationToken ct) {
 		if (_repos.TryGetValue(WorkspaceId.ForPath(path), out var known)) {
 			return known.Root;
 		}
 
 		var git = new GitService();
-		string root = await MainWorktreeAsync(git, path, ct).ConfigureAwait(false);
+		var (toplevel, root) = await LocateAsync(git, path, ct).ConfigureAwait(false);
+		// A folder inside a repo doesn't name it: a typed "infra" must not mean the repo that has an infra/ folder.
+		if (!PathIdentity.Equals(toplevel, path)) {
+			throw new GitException($"'{path}' is a folder inside the repository at '{toplevel}'; name that folder.");
+		}
+
 		return Home.Worktrees is not null
-			&& PathIdentity.Equals(root, _homeMainWorktree ??= await MainWorktreeAsync(git, Home.Root, ct).ConfigureAwait(false))
+			&& PathIdentity.Equals(root, _homeMainWorktree ??= (await LocateAsync(git, Home.Root, ct).ConfigureAwait(false)).Main)
 				? Home.Root
 				: root;
 	}
 
-	// git lists a repository's main worktree first, asked from any of its worktrees.
-	private static async Task<string> MainWorktreeAsync(GitService git, string path, CancellationToken ct) {
+	// Where a folder sits in its repository: its own checkout's top folder, and the main worktree git lists first.
+	private static async Task<(string Toplevel, string Main)> LocateAsync(GitService git, string path, CancellationToken ct) {
 		if (!Directory.Exists(path)) {
 			throw new GitException($"'{path}' doesn't exist.");
 		}
 
-		if (await git.FindToplevelAsync(path, ct).ConfigureAwait(false) is null) {
-			throw new GitException($"'{path}' isn't in a git repository.");
-		}
-
-		return (await git.ListWorktreesAsync(path, ct).ConfigureAwait(false))[0].Path;
+		string toplevel = await git.FindToplevelAsync(path, ct).ConfigureAwait(false)
+			?? throw new GitException($"'{path}' isn't in a git repository.");
+		return (toplevel, (await git.ListWorktreesAsync(path, ct).ConfigureAwait(false))[0].Path);
 	}
 
 	/// <summary>Runs the repo's setup command in the background, once its auto-config has written one.</summary>

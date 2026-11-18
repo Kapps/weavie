@@ -54,15 +54,17 @@ worktree is still on disk, stays in the store for a later start and is named in 
 - The home folder keeps one always-present session. When it is a repository, its existing worktrees are listed
   as dormant sessions.
 - Any other repo shows only the sessions created in this workspace.
-- `weavie.session.new` takes `repo`, a path to any repository on the host (relative to the invoking session's
-  worktree, `~` allowed), defaulting to the invoking session's repo. An agent asked to "create a session for the
+- `weavie.session.new` takes `repo`, the folder of any repository on the host or of one of its worktrees
+  (relative to the invoking session's worktree, `~` allowed), defaulting to the invoking session's repo. A folder
+  inside a repository names none, and a start from no session has to name its repo. An agent asked to "create a session for the
   infra changes" passes the infra path. The new-session composer lists the workspace's repos, preselecting the
   selected session's, and takes a typed path for any other; it always sends the repo it shows.
 - A repo joins the workspace once a session's worktree exists in it and leaves with its last session, so a
   refused start configures nothing.
 - Fork, Open PR, and `base: "source"` stay in the source session's repo.
 - A slot's id is the digest of its worktree path, so two repos with the same branch name are two sessions with
-  two addresses. A session is found by `(repo, branch)`, never by treating the id as a branch.
+  two addresses. The session on a branch is the one on the worktree git has that branch checked out in, never
+  a match on an id or a label.
 - Chips show a repo label only when the workspace's sessions span more than one repo, and then every chip does.
 
 ## Across sessions

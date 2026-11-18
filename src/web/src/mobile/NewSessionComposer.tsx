@@ -239,6 +239,7 @@ export function NewSessionComposer(props: {
           <select
             class="ui-field"
             aria-label="Branch starting point"
+            disabled={props.busy}
             value={props.base}
             onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
           >

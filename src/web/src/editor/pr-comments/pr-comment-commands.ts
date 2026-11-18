@@ -1,5 +1,5 @@
 import { createEffect, createRoot } from "solid-js";
-import { selectedSession } from "../../bridge";
+import { type ClientSession, selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -21,8 +21,7 @@ function trackReviewContext(): () => void {
   });
 }
 
-const finish = (kind: "open" | "discard"): boolean => {
-  const session = selectedSession();
+const finish = (kind: "open" | "discard", session: ClientSession | null): boolean => {
   if (session === null) return false;
   void requestFinishReview(session, kind);
   return true;
@@ -35,8 +34,8 @@ export function registerPrCommentCommands(): () => void {
     registerCommand(CommandIds.prSubmitComment, () => actOnFocusedComposer("submit")),
     registerCommand(CommandIds.prPostCommentNow, () => actOnFocusedComposer("alternate")),
     registerCommand(CommandIds.prCancelComment, () => actOnFocusedComposer("cancel")),
-    registerCommand(CommandIds.prFinishReview, () => finish("open")),
-    registerCommand(CommandIds.prDiscardReview, () => finish("discard")),
+    registerCommand(CommandIds.prFinishReview, (_args, { session }) => finish("open", session)),
+    registerCommand(CommandIds.prDiscardReview, (_args, { session }) => finish("discard", session)),
     trackReviewContext(),
     editorContexts.onChange((connection) =>
       setContext("prCommentable", connection.prComments.commentable()),

@@ -104,7 +104,9 @@ public sealed partial class HostCore {
 			}
 
 			Join(repo);
-			return DormantSlot(item, repo, item.Label, item.WorktreePath);
+			// Its label is the branch git has there now, as the home repo's are.
+			string label = await new GitService().GetCurrentBranchAsync(item.WorktreePath).ConfigureAwait(false) ?? item.Label;
+			return DormantSlot(item, repo, label, item.WorktreePath);
 		} catch (GitException ex) {
 			_unrestoredSessions.Add(item);
 			_sessionStartupNotices.Add(

@@ -66,6 +66,7 @@ public sealed class HostCoreSessionRestoreTests {
 			new {
 				id = SessionCommands.NewSession,
 				args = new {
+					repo = host.RepoRoot,
 					branch = "branch-a",
 					@base = "main",
 					existing = true,

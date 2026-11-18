@@ -212,6 +212,13 @@ public sealed partial class HostCoreMultiRepoTests {
 		var plain = await host.CreateSessionAsync(
 			new NewSessionRequest { Branch = "deploy", Repo = Path.GetTempPath(), Base = "main" });
 		Assert.Contains("isn't in a git repository", plain.Error);
+		// A folder inside a repo names none, so "infra" can't come to mean the repo that has an infra/ folder.
+		var inside = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "deploy",
+			Repo = Directory.CreateDirectory(Path.Combine(InfraOf(host.RepoRoot), "modules")).FullName,
+			Base = "main",
+		});
+		Assert.Contains("is a folder inside the repository", inside.Error);
 	}
 
 	[Fact]

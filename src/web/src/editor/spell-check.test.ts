@@ -37,7 +37,29 @@ import { notify } from "../notify/notify";
 import type { monaco } from "./monaco-setup";
 import { createSpellCheck } from "./spell-check";
 
-function fixture(text: string, start: number, end: number) {
+const fixture = (text: string, start: number, end: number) => editorFixture(text, start, end, {});
+
+// An editor without wrapping whose right edge hit-tests to column 51.
+function unwrappedFixture(text: string) {
+  const hitTest = {
+    getDomNode: vi.fn(() => ({ getBoundingClientRect: () => ({ top: 0, left: 0 }) })),
+    getTargetAtClientPoint: vi.fn(() => ({ position: { lineNumber: 1, column: 51 } })),
+  };
+  const editor = editorFixture(text, 1, text.length + 1, {
+    ...hitTest,
+    getOption: () => ({ wrappingColumn: -1 }),
+    getLayoutInfo: () => ({
+      contentWidth: 800,
+      contentLeft: 50,
+      height: 400,
+      verticalScrollbarWidth: 10,
+    }),
+    getScrolledVisiblePosition: () => ({ top: 0, left: 50, height: 20 }),
+  });
+  return { ...editor, ...hitTest };
+}
+
+function editorFixture(text: string, start: number, end: number, overrides: object) {
   vi.useFakeTimers();
   bridge.request.mockReset();
   tokenization.load.mockReset().mockResolvedValue([]);
@@ -72,6 +94,7 @@ function fixture(text: string, start: number, end: number) {
     onDidChangeModelTokens: subscribe,
     onDidScrollChange: subscribe,
     onDidLayoutChange: subscribe,
+    ...overrides,
   };
   const spelling = createSpellCheck(editor as unknown as monaco.editor.IStandaloneCodeEditor);
   return {
@@ -159,6 +182,29 @@ it("does not check the offscreen remainder of a long unbroken token", async () =
   const { spelling } = fixture("a".repeat(1000000), 40001, 40101);
   await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request).not.toHaveBeenCalled();
+  spelling.dispose();
+});
+
+it("checks an unwrapped line of ordinary length whole, without hit-testing it", async () => {
+  const { spelling, getDomNode, getTargetAtClientPoint } = unwrappedFixture("teh word");
+  bridge.request.mockResolvedValue([]);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(bridge.request.mock.calls[0]![1]).toEqual({
+    spans: [{ line: 1, offset: 0, text: "teh word", identifier: false }],
+  });
+  expect(getDomNode).not.toHaveBeenCalled();
+  expect(getTargetAtClientPoint).not.toHaveBeenCalled();
+  spelling.dispose();
+});
+
+it("clips an unwrapped line too long to check whole to its visible words", async () => {
+  const { spelling, getTargetAtClientPoint } = unwrappedFixture("word ".repeat(400));
+  bridge.request.mockResolvedValue([]);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(bridge.request.mock.calls[0]![1]).toEqual({
+    spans: [{ line: 1, offset: 0, text: "word ".repeat(10), identifier: false }],
+  });
+  expect(getTargetAtClientPoint).toHaveBeenCalledTimes(1);
   spelling.dispose();
 });
 

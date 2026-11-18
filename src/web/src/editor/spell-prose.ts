@@ -20,21 +20,26 @@ export interface Misspelling {
   word: string;
 }
 
+// Longer than hand-written code: only such a line (minified, data) is clipped to the columns on screen. Finding
+// them hit-tests the line, which forces a layout, so shorter lines are checked whole.
+const CLIPPED_LINE_LENGTH = 1000;
+
 export function visibleSpellRanges(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: TokenizedModel,
 ): SpellSpan[] {
   const spans: SpellSpan[] = [];
   const unwrapped = editor.getOption(monaco.editor.EditorOption.wrappingInfo).wrappingColumn === -1;
-  const bounds = unwrapped ? editor.getDomNode()?.getBoundingClientRect() : undefined;
   const layout = editor.getLayoutInfo();
+  let bounds: DOMRect | undefined;
   for (const range of editor.getVisibleRanges()) {
     for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
       const limit = model.getLineMaxColumn(line) - 1;
       let start = line === range.startLineNumber ? range.startColumn - 1 : 0;
       let end = line === range.endLineNumber ? range.endColumn - 1 : limit;
-      if (unwrapped) {
+      if (unwrapped && limit > CLIPPED_LINE_LENGTH) {
         const row = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
+        bounds ??= editor.getDomNode()?.getBoundingClientRect();
         if (bounds === undefined || row === null) continue;
         const y = bounds.top + Math.max(0, Math.min(layout.height - 1, row.top + row.height / 2));
         const left =

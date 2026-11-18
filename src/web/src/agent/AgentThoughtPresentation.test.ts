@@ -103,26 +103,26 @@ it.each<ThoughtDisplay>([
   expect(entries().filter((entry) => entry.kind === "thought")).toHaveLength(2);
 });
 
-it("keeps the tools around a thought in one group, live and from history", () => {
+it("keeps the tools around a thought in one group below it, live and from history", () => {
   const { model, send, load, entries } = fixture();
   const rows = [start, tool("first"), thought("between", "Checking"), tool("second")];
   send(...rows);
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought"]);
-  expect(entries()[0]!.detailCount).toBe(2);
+  expect(entries().map((entry) => entry.kind)).toEqual(["thought", "activity"]);
+  expect(entries()[1]!.detailCount).toBe(2);
   const project = vi.spyOn(projection, "projectAgentTranscript");
   send({ ...tool("second"), type: "item-completed", status: "completed" }, tool("third"));
   expect(project).not.toHaveBeenCalled();
-  expect(entries()[0]!.detailCount).toBe(3);
+  expect(entries()[1]!.detailCount).toBe(3);
   expect(model.activityStep("third")!.status).toBe("running");
   load(rows);
-  expect(entries().map((entry) => entry.kind)).toEqual(["activity", "thought"]);
-  send(reply("Update"), tool("fourth"));
-  expect(entries().map((entry) => entry.kind)).toEqual([
-    "activity",
-    "thought",
-    "message",
-    "activity",
-  ]);
+  expect(entries().map((entry) => entry.kind)).toEqual(["thought", "activity"]);
+  // A step that arrives alone still moves its group below the reply before it.
+  send(reply("Update"));
+  send(tool("fourth"));
+  const live = entries().map((entry) => entry.kind);
+  expect(live).toEqual(["thought", "message", "activity"]);
+  load([...rows, reply("Update"), tool("fourth")]);
+  expect(entries().map((entry) => entry.kind)).toEqual(live);
 });
 
 it("restores both display choices from history without losing text or disclosure state", () => {

@@ -22,7 +22,6 @@ test("subagents group outside the transcript and remain selectable after complet
   await expect(group).toContainText("1 running");
   await expect(surface.locator(".agent-transcript [data-agent-subagent]")).toHaveCount(0);
   await expect(group.locator("[data-background-item]")).toHaveCount(0);
-  await surface.getByRole("button", { name: /Earlier updates/ }).click();
   const working = surface.locator(".agent-entry-activity");
   await expect(working).toHaveCount(1);
   await working.locator("summary").click();

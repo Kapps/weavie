@@ -4,6 +4,14 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
+test.use({
+  fakeScript: {
+    steps: [
+      { op: "mcp", tool: "setSetting", args: { key: "agent.progressDisplay", value: "latest" } },
+    ],
+  },
+});
+
 test("earlier updates fold away while live work stays visible and tool failures stay in history", async ({
   page,
   weavie,
@@ -15,9 +23,9 @@ test("earlier updates fold away while live work stays visible and tool failures 
   await submitAcpDraft(surface, "activity-progress");
   const activities = surface.locator(".agent-entry-activity");
   const earlier = surface.getByRole("button", { name: /Earlier updates/ });
-  const firstUpdate = surface.locator(".agent-entry-message", { hasText: "Update 1:" });
+  const foldedUpdate = surface.locator(".agent-entry-message", { hasText: "Update 2:" });
   await expect(earlier).toHaveAttribute("aria-expanded", "false");
-  await expect(firstUpdate).toHaveCount(0);
+  await expect(foldedUpdate).toHaveCount(0);
   await expect(activities).toHaveCount(1);
   await expect(surface).toContainText("Checking the final verification result.");
   await expect(activities.last().locator("summary").first()).toContainText(
@@ -25,7 +33,7 @@ test("earlier updates fold away while live work stays visible and tool failures 
   );
   await earlier.press("Enter");
   await expect(earlier).toHaveAttribute("aria-expanded", "true");
-  await expect(activities).toHaveCount(7);
+  await expect(activities).toHaveCount(1);
   await expect(activities.locator(".agent-entry-head")).toHaveCount(0);
   await expect(activities.locator("details[open]")).toHaveCount(0);
   const rows = await activities.evaluateAll((elements) =>
@@ -64,21 +72,21 @@ test("earlier updates fold away while live work stays visible and tool failures 
   expect(narrow.overflow).toBe("ellipsis");
   await surface.locator(".pane-fullscreen").click();
   await earlier.click();
-  await expect(firstUpdate).toHaveCount(0);
+  await expect(foldedUpdate).toHaveCount(0);
   await expect(activities).toHaveCount(1);
 
   await writeFile(join(workspace, "release-activity-progress"), "");
-  const failed = activities.last();
+  const settled = activities.last();
+  const failed = settled.locator(".agent-activity-step", { hasText: "Verify application" });
   await expect(surface.locator(".agent-entry-result")).toContainText(
     "The verification needs attention",
   );
   await expect(activities).toHaveCount(0);
   await earlier.click();
-  await expect(failed).not.toHaveClass(/agent-tone-error/);
-  await expect(failed.locator("summary").first()).toHaveText("searched 1 time");
-  await failed.locator("summary").first().focus();
+  await expect(settled).not.toHaveClass(/agent-tone-error/);
+  await expect(settled.locator("summary").first()).toHaveText("searched 7 times");
+  await settled.locator("summary").first().focus();
   await page.keyboard.press("Enter");
-  await expect(failed.locator(".agent-activity-step")).toContainText("Verify application");
   await expect(failed.locator(".agent-step-status")).toHaveText("failed");
   await failed.locator(".agent-tool-output-details > summary").press("Enter");
   await expect(failed.locator(".agent-tool-output")).toContainText(
@@ -88,11 +96,11 @@ test("earlier updates fold away while live work stays visible and tool failures 
   await page.reload();
   await surface.locator(".pane-fullscreen").click();
   await expect(earlier).toHaveAttribute("aria-expanded", "false");
-  await expect(firstUpdate).toHaveCount(0);
+  await expect(foldedUpdate).toHaveCount(0);
   await expect(activities).toHaveCount(0);
   await earlier.click();
-  await expect(failed.locator("summary").first()).toHaveText("searched 1 time");
-  await failed.locator("summary").first().click();
+  await expect(settled.locator("summary").first()).toHaveText("searched 7 times");
+  await settled.locator("summary").first().click();
   await failed.locator(".agent-tool-output-details > summary").click();
   await expect(failed.locator(".agent-tool-output")).toContainText(
     "Verification output: one assertion needs attention.",
@@ -103,14 +111,14 @@ test("earlier updates fold away while live work stays visible and tool failures 
   await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
   await expect(earlier).toHaveCount(0);
   await surface.locator(".agent-body").press("Home");
-  await expect(firstUpdate).toBeInViewport();
+  await expect(foldedUpdate).toBeInViewport();
   await submitAcpDraft(surface, 'mcp:setSetting:{"key":"agent.progressDisplay","value":"latest"}');
   await expect(earlier).toHaveAttribute("aria-expanded", "false");
-  await expect(firstUpdate).toHaveCount(0);
-  await expect(failed).toHaveCount(0);
+  await expect(foldedUpdate).toHaveCount(0);
+  await expect(settled).toHaveCount(0);
 });
 
-test("replies the agent stopped on stay visible while later work joins the one group of earlier updates", async ({
+test("replies the agent stopped on stay visible while the work between them folds into the one group of earlier updates", async ({
   page,
   weavie,
 }) => {
@@ -120,34 +128,34 @@ test("replies the agent stopped on stay visible while later work joins the one g
   await submitAcpDraft(surface, "replies-claude");
   const earlier = surface.getByRole("button", { name: /Earlier updates/ });
   const replies = surface.locator(".agent-entry-message.agent-tone-assistant");
+  const first = "Reading the settings first.";
   const answer = "Nothing is overridden, and the checks are running.";
-  await expect(replies).toContainText([answer]);
-  await expect(earlier).toHaveText("Earlier updates · 2");
+  await expect(replies).toContainText([first, answer]);
+  await expect(earlier).toHaveText("Earlier updates · 1");
 
   // The agent is woken inside the open turn, then stops three more times.
   await writeFile(join(workspace, "release-replies-wake"), "");
   const stops = [
+    first,
     answer,
     "The review is clean.",
     "Publishing the change.",
     "Everything is published.",
   ];
   await expect(replies).toContainText(stops);
-  await expect(earlier).toHaveText("Earlier updates · 6");
+  await expect(earlier).toHaveText("Earlier updates · 4");
 
   // A background job wakes it after the turn completed.
   await writeFile(join(workspace, "release-replies-late"), "");
   const shown = [...stops, "The late job finished."];
   await expect(replies).toContainText(shown);
-  await expect(earlier).toHaveText("Earlier updates · 7");
+  await expect(earlier).toHaveText("Earlier updates · 5");
 
   await page.reload();
   await expect(replies).toContainText(shown);
-  await expect(earlier).toHaveText("Earlier updates · 7");
+  await expect(earlier).toHaveText("Earlier updates · 5");
   await earlier.click();
-  for (const note of ["Reading the settings first.", "Checks pass; reading the review next."]) {
-    await expect(replies.filter({ hasText: note })).toBeVisible();
-  }
+  await expect(replies.filter({ hasText: "Checks pass; reading the review next." })).toBeVisible();
 });
 
 for (const side of [false, true]) {
@@ -161,13 +169,13 @@ for (const side of [false, true]) {
     await writeFile(join(workspace, "hold-activity-progress"), "");
     await submitAcpDraft(surface, `${side ? "/btw " : ""}activity-progress-long`);
     const conversation = side ? surface.locator(".agent-aside") : surface;
-    const earlier = conversation.getByRole("button", { name: "Earlier updates · 48" });
+    const earlier = conversation.getByRole("button", { name: "Earlier updates · 23" });
     await expect(earlier).toBeInViewport();
     await earlier.click();
     await expect(earlier).toHaveAttribute("aria-expanded", "true");
     await expect(earlier).toBeInViewport();
     await expect(
-      conversation.locator(".agent-entry-message", { hasText: "Update 1:" }),
+      conversation.locator(".agent-entry-message", { hasText: "Update 2:" }),
     ).toBeInViewport();
     await earlier.click();
     await expect(earlier).toHaveAttribute("aria-expanded", "false");

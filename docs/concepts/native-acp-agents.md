@@ -202,8 +202,9 @@ sessions show the context circle alone until it exposes structured data.
 ### Replies
 
 An agent message the agent stopped on is a reply; one it wrote before going on to more work is a progress note.
-The conversation marks a reply `Final` on its completed row, and the pane keeps every final message visible
-while the rest of a turn folds into its one "Earlier updates" disclosure. Three things mark a stop:
+The conversation marks a reply `Final` on its completed row. The pane shows every agent message; with
+`agent.progressDisplay` `latest` it keeps the first message after a user message, the latest one and every
+final one, and folds the rest of a turn into its one "Earlier updates" disclosure. Three things mark a stop:
 
 - The end of a prompt turn and the start of the next, for every agent: the last agent message before each is
   final.

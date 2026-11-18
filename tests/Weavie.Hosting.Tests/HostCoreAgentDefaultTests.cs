@@ -24,7 +24,7 @@ public sealed class HostCoreAgentDefaultTests {
 	[Fact]
 	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
 		await using var host = await TestHost.StartAsync();
-		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"latest\"}", host.Core.BuildBootstrap());
+		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"all\"}", host.Core.BuildBootstrap());
 		host.Bridge.Clear();
 
 		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));
@@ -49,11 +49,11 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task ProgressDisplay_IsLatestByDefaultAndRepushesEachValidatedChoice() {
+	public async Task ProgressDisplay_IsAllByDefaultAndRepushesEachValidatedChoice() {
 		await using var host = await TestHost.StartAsync();
 		var defaults = await host.HostRequestAsync<JsonElement>("agentDefaults", "get", new { });
-		Assert.Equal("latest", defaults.GetProperty("progressDisplay").GetString());
-		foreach (string mode in new[] { "all", "latest" }) {
+		Assert.Equal("all", defaults.GetProperty("progressDisplay").GetString());
+		foreach (string mode in new[] { "latest", "all" }) {
 			host.Bridge.Clear();
 			host.Settings.Set(AgentSettings.ProgressDisplay, JsonSerializer.SerializeToElement(mode));
 			var push = host.Bridge.LastEvent("settings", "agent-defaults");

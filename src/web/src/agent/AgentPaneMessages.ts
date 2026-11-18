@@ -57,7 +57,6 @@ export function projectAgentTranscript(
     const card = cards.get(message);
     if (card?.kind === "subagent") continue;
     if (card !== undefined) {
-      segments.boundary();
       entries.push(card);
       sequence += 1;
       continue;
@@ -83,10 +82,7 @@ export function projectAgentTranscript(
 
     const shown = blocks.take(message, sequence);
     if (shown !== null) {
-      for (const block of shown) {
-        segments.boundary();
-        entries.push(block);
-      }
+      entries.push(...shown);
       sequence += 1;
       continue;
     }
@@ -96,8 +92,8 @@ export function projectAgentTranscript(
       if (startsTurn) {
         durable.turnStart = true;
       }
-      // A thought sits below the work around it; tools on either side stay one group.
-      if (durable.kind !== "thought") segments.boundary();
+      // Work after the user speaks or the agent stops is a group of its own.
+      if (isUserInput(message) || durable.final) segments.boundary();
       entries.push(durable);
       if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -110,9 +106,13 @@ export function projectAgentTranscript(
       continue;
     }
 
-    const count = segments.groups.size;
     const segment = segments.add(message, activeTurn);
-    if (segments.groups.size !== count) entries.push(segment.entry);
+    // A new step puts its group after every entry that preceded the step.
+    if (segment.projection.starts(message) && entries.at(-1) !== segment.entry) {
+      const at = entries.lastIndexOf(segment.entry);
+      if (at >= 0) entries.splice(at, 1);
+      entries.push(segment.entry);
+    }
     segments.upsert(segment, message);
   }
 

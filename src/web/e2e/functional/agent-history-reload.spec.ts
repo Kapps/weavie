@@ -171,7 +171,6 @@ test("restored tool output is fetched only when expanded", async ({ page }) => {
   const composer = page.locator("[data-agent-composer] textarea");
   await composer.fill("tool-content");
   await composer.press("Enter");
-  await transcript.getByRole("button", { name: /Earlier updates/ }).click();
   const activity = transcript.locator(".agent-entry-activity").last();
   await expect(activity).toBeVisible();
 
@@ -187,7 +186,6 @@ test("restored tool output is fetched only when expanded", async ({ page }) => {
   expect(restored).toContain("Rich tool content");
   expect(restored).not.toContain("tool text");
 
-  await transcript.getByRole("button", { name: /Earlier updates/ }).click();
   await activity.locator("summary").first().click();
   const step = activity.locator(".agent-activity-step", { hasText: "Rich tool content" });
   await step.getByText("show output", { exact: true }).click();

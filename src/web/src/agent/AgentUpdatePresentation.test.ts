@@ -42,7 +42,7 @@ function fixture() {
   return { model, send, entries, setDisplay };
 }
 
-it("folds narration and completed work while retaining the latest reply and pending work", () =>
+it("folds narration and completed work while retaining the answer, the latest reply and pending work", () =>
   createRoot((dispose) => {
     const { model, send, entries, setDisplay } = fixture();
     send(
@@ -66,9 +66,9 @@ it("folds narration and completed work while retaining the latest reply and pend
       entries()
         .filter((entry) => entry.tone === "assistant")
         .map((entry) => entry.text),
-    ).toEqual(["Checking"]);
+    ).toEqual(["Inspecting", "Checking"]);
     const group = entries().find((entry) => entry.kind === "updates")!;
-    expect(group.detailCount).toBe(4);
+    expect(group.detailCount).toBe(1);
     expect(
       entries()
         .filter((entry) => entry.kind === "activity")
@@ -102,7 +102,7 @@ it("folds narration and completed work while retaining the latest reply and pend
     const final = model.transcript();
     expect(final.entries[final.latestResultIndex!]!.text).toBe("Done");
     expect(final.sectionLabels.get(final.entries[final.latestResultIndex!]!.id)).toBe("Results");
-    expect(final.entries.find((entry) => entry.kind === "updates")!.detailCount).toBe(7);
+    expect(final.entries.find((entry) => entry.kind === "updates")!.detailCount).toBe(4);
     dispose();
   }));
 
@@ -288,20 +288,26 @@ it("keeps every reply the agent stopped on visible in one group of earlier updat
       tool("read", "completed"),
       final("answer", "Nothing is overridden"),
     );
-    expect(shown()).toEqual([2, "Nothing is overridden"]);
+    expect(shown()).toEqual(["Reading the settings", 1, "Nothing is overridden"]);
     const group = entries().find((entry) => entry.kind === "updates")!;
 
     send(tool("check", "completed"), reply("woke", "Checks pass, reading the review"));
-    expect(shown()).toEqual([3, "Nothing is overridden", "Checks pass, reading the review"]);
+    expect(shown()).toEqual([
+      "Reading the settings",
+      2,
+      "Nothing is overridden",
+      "Checks pass, reading the review",
+    ]);
     send(tool("review", "completed"), reply("publish", "Publishing"), tool("push", "completed"));
-    expect(shown()).toEqual([6, "Nothing is overridden", "Publishing"]);
+    expect(shown()).toEqual(["Reading the settings", 3, "Nothing is overridden", "Publishing"]);
     // The agent stopped after the tool, so the message before it is marked late.
     send(final("publish", "Publishing"), final("done", "Published"));
     send({ ...base, type: "turn-completed", status: "end_turn" });
     // A wake-up after the turn carries its turn id and joins its group.
     send(tool("late", "completed"), final("late-reply", "The late job finished"));
     expect(shown()).toEqual([
-      7,
+      "Reading the settings",
+      5,
       "Nothing is overridden",
       "Publishing",
       "Published",

@@ -85,9 +85,9 @@ settles straight to Waiting; only the item list sent to the pane is coalesced.
   (`weavie.agent.openCard`); selecting a task opens its tab. Every running row has a Stop icon, greyed out with the reason as its tooltip
   when the work cannot be stopped on its own: a subagent, or a task the agent does not mark stoppable. Pending
   permissions and questions remain visible while the roster is collapsed. Nested agents keep their parent label.
-  Spawn announcements leave no transcript row, so surrounding work groups together. Thoughts
-  likewise do not split work; replies do. A turn the agent started without a prompt is
-  listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`): otherwise it has nothing to
+  Spawn announcements leave no transcript row. Work is one group placed after the entry its latest step
+  followed; only a user message or a reply the agent stopped on starts another. A turn the agent started
+  without a prompt is listed while it runs, and after only if it failed (`AgentBackgroundItem.Listed`): otherwise it has nothing to
   open or stop, and an agent refreshing on a timer would leave one behind per tick until the next prompt.
 - **Workflow card** — a Claude workflow (`taskType` `workflow`; Claude reports `showInTranscript: false` for
   workflows) journals an item `task:<id>` from spawn to its final state, joined live with the task's usage and

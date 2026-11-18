@@ -240,7 +240,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 		Assert.Equal("web", focus.GetProperty("runsIn").GetString());
 		Assert.Equal("backend", focus.GetProperty("owner").GetString());
 
-		// A Core command reports runsIn "core" (not the web default) so listCommands routes it correctly.
+		// A Core command reports runsIn "core" (not the web default) so the web routes it to the host.
 		var reopen = commands.Single(c => c.GetProperty("id").GetString() == "weavie.terminal.reopen");
 		Assert.Equal("core", reopen.GetProperty("runsIn").GetString());
 		Assert.Empty(reopen.GetProperty("keys").EnumerateArray()); // no default bindings

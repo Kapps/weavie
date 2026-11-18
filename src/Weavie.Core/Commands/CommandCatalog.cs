@@ -1,11 +1,11 @@
-using System.Text;
 using System.Text.Json;
+using Weavie.Core.Json;
 
 namespace Weavie.Core.Commands;
 
 /// <summary>
 /// Serializes the command catalog and resolved keybindings to JSON — the one source for the MCP
-/// <c>listCommands</c> tool, the web injection, and the live <c>commands</c> push.
+/// <c>listCommands</c>/<c>describeCommand</c> tools, the web injection, and the live <c>commands</c> push.
 /// </summary>
 public static class CommandCatalog {
 	/// <summary>
@@ -18,61 +18,108 @@ public static class CommandCatalog {
 		ArgumentNullException.ThrowIfNull(definitions);
 		ArgumentNullException.ThrowIfNull(bindings);
 
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
+		return JsonWrite.ToText(writer => {
 			writer.WriteStartArray();
+			foreach (var definition in definitions) {
+				WriteCommand(writer, definition, bindings);
+			}
+
+			writer.WriteEndArray();
+		});
+	}
+
+	/// <summary>Builds one command's full entry, as it appears in <see cref="BuildCommandsArrayJson"/>.</summary>
+	public static string BuildCommandJson(CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings) {
+		ArgumentNullException.ThrowIfNull(definition);
+		ArgumentNullException.ThrowIfNull(bindings);
+
+		return JsonWrite.ToText(writer => WriteCommand(writer, definition, bindings));
+	}
+
+	/// <summary>
+	/// Builds the <c>listCommands</c> index: per command its id, title, category, bound keys, and argument
+	/// names — enough to pick a command, with the rest left to <see cref="BuildCommandJson"/>.
+	/// </summary>
+	public static string BuildCommandIndexJson(
+		IReadOnlyList<CommandDefinition> definitions,
+		IReadOnlyList<ResolvedKeybinding> bindings) {
+		ArgumentNullException.ThrowIfNull(definitions);
+		ArgumentNullException.ThrowIfNull(bindings);
+
+		return JsonWrite.Object(writer => {
+			writer.WriteStartArray("commands");
 			foreach (var definition in definitions) {
 				writer.WriteStartObject();
 				writer.WriteString("id", definition.Id);
 				writer.WriteString("title", definition.Title);
-				writer.WriteString("runsIn", definition.RunsIn == CommandLocation.Web ? "web" : "core");
-				writer.WriteString("owner", definition.Owner == CommandOwner.Client ? "client" : "backend");
-				writer.WriteString("executionLane", definition.ExecutionLane);
-				writer.WriteString("scope", definition.Scope == CommandScope.Host ? "host" : "session");
 				if (definition.Category is not null) {
 					writer.WriteString("category", definition.Category);
 				}
 
-				writer.WriteString("description", definition.Description);
-				writer.WriteStartArray("aliases");
-				foreach (string alias in definition.Aliases) {
-					writer.WriteStringValue(alias);
-				}
-
-				writer.WriteEndArray();
-				writer.WriteBoolean("showInPalette", definition.ShowInPalette);
-				if (definition.When is not null) {
-					writer.WriteString("when", definition.When);
+				string[] keys = [.. KeysOf(definition, bindings)];
+				if (keys.Length > 0) {
+					WriteStrings(writer, "keys", keys);
 				}
 
 				if (definition.ArgsSchemaJson is not null) {
-					writer.WritePropertyName("argsSchema");
-					writer.WriteRawValue(definition.ArgsSchemaJson);
+					using var schema = JsonDocument.Parse(definition.ArgsSchemaJson);
+					WriteStrings(writer, "args", schema.RootElement.EnumerateObject().Select(arg => arg.Name));
 				}
 
-				writer.WriteStartArray("keys");
-				foreach (var binding in bindings) {
-					if (string.Equals(binding.Command, definition.Id, StringComparison.Ordinal)) {
-						writer.WriteStringValue(binding.Key);
-					}
-				}
-
-				writer.WriteEndArray();
 				writer.WriteEndObject();
 			}
 
 			writer.WriteEndArray();
+		});
+	}
+
+	private static void WriteCommand(
+		Utf8JsonWriter writer, CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings) {
+		writer.WriteStartObject();
+		writer.WriteString("id", definition.Id);
+		writer.WriteString("title", definition.Title);
+		writer.WriteString("runsIn", definition.RunsIn == CommandLocation.Web ? "web" : "core");
+		writer.WriteString("owner", definition.Owner == CommandOwner.Client ? "client" : "backend");
+		writer.WriteString("executionLane", definition.ExecutionLane);
+		writer.WriteString("scope", definition.Scope == CommandScope.Host ? "host" : "session");
+		if (definition.Category is not null) {
+			writer.WriteString("category", definition.Category);
 		}
 
-		return Encoding.UTF8.GetString(stream.ToArray());
+		writer.WriteString("description", definition.Description);
+		WriteStrings(writer, "aliases", definition.Aliases);
+		writer.WriteBoolean("showInPalette", definition.ShowInPalette);
+		if (definition.When is not null) {
+			writer.WriteString("when", definition.When);
+		}
+
+		if (definition.ArgsSchemaJson is not null) {
+			writer.WritePropertyName("argsSchema");
+			writer.WriteRawValue(definition.ArgsSchemaJson);
+		}
+
+		WriteStrings(writer, "keys", KeysOf(definition, bindings));
+		writer.WriteEndObject();
+	}
+
+	private static IEnumerable<string> KeysOf(CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings) =>
+		bindings.Where(binding => string.Equals(binding.Command, definition.Id, StringComparison.Ordinal))
+			.Select(binding => binding.Key);
+
+	private static void WriteStrings(Utf8JsonWriter writer, string name, IEnumerable<string> values) {
+		writer.WriteStartArray(name);
+		foreach (string value in values) {
+			writer.WriteStringValue(value);
+		}
+
+		writer.WriteEndArray();
 	}
 
 	/// <summary>Builds the flat keybindings array the web resolves keydowns against.</summary>
 	public static string BuildKeybindingsArrayJson(IReadOnlyList<ResolvedKeybinding> bindings) {
 		ArgumentNullException.ThrowIfNull(bindings);
 
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
+		return JsonWrite.ToText(writer => {
 			writer.WriteStartArray();
 			foreach (var binding in bindings) {
 				writer.WriteStartObject();
@@ -101,8 +148,6 @@ public static class CommandCatalog {
 			}
 
 			writer.WriteEndArray();
-		}
-
-		return Encoding.UTF8.GetString(stream.ToArray());
+		});
 	}
 }

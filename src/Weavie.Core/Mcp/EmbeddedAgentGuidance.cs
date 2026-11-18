@@ -46,7 +46,9 @@ public static class EmbeddedAgentGuidance {
 		asks what is currently set (e.g. "do I have any theme overrides", "what's my font size", "what theme
 		am I on") or asks you to change Weavie's themes/settings/layout or run a command, use the
 		`mcp__weavie__*` tools. Discover the exact id/key with the matching list tool first (listSettings,
-		listThemes, listCommands) rather than guessing.
+		listThemes, listCommands) rather than guessing. listSettings and listCommands are indexes: read one
+		setting's description with getSetting, and one command's description and argument schema with
+		describeCommand before you run a command that takes arguments.
 
 		Do NOT answer "what is currently set" by reading Weavie's config files on disk - e.g. files under
 		`~/.weavie/` such as `theme-overrides.json`, `~/.claude.json`, or `~/.codex/config.toml`. Those are only

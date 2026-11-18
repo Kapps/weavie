@@ -26,12 +26,12 @@ MCP tools *on the registry server*. There are three kinds.
 
 - **Settings** *(being built now)* — declared configuration values, each with a type, default,
   human-readable description, aliases, and validation. Surfaced as `listSettings` / `getSetting` /
-  `setSetting`, which lets the user say *"set my weavie shell to nushell."* The registry's
-  descriptions and aliases are what let Claude map natural language onto the exact setting key.
+  `setSetting`, which lets the user say *"set my weavie shell to nushell."* `listSettings` is an index of
+  keys, aliases, and values Claude maps natural language onto; `getSetting` adds one setting's description.
   Concrete design: [docs/specs/settings.md](../specs/settings.md).
 - **Commands** *(implemented: Core + Windows + macOS hosts + web)* — named actions Weavie can perform (e.g. "reopen the
   terminal", "open the diff panel", "split the editor"). Registered the same way and surfaced as
-  invokable MCP tools (`listCommands`/`runCommand`), so the user can ask Claude to run them — and the
+  invokable MCP tools (`listCommands`/`describeCommand`/`runCommand`), so the user can ask Claude to run them — and the
   same declaration drives keybindings and the omnibar command palette. Design:
   [docs/specs/commands.md](../specs/commands.md).
 - **Prompts** *(implemented)* — bundled instruction prompts (`McpPromptCatalog`: report a Weavie bug,
@@ -50,7 +50,8 @@ flowchart LR
 ```
 
 One declaration drives everything downstream: the MCP tool schema, validation, defaults, and the
-descriptions/aliases Claude uses for natural-language mapping. Why a registry rather than
+names Claude maps natural language onto (setting keys and aliases, command titles), with each
+entry's description one call away. Why a registry rather than
 hand-written MCP tools per capability:
 
 - **Single source of truth.** A capability is declared once; the MCP surface is generated from the
@@ -67,7 +68,7 @@ hand-written MCP tools per capability:
   connects to the registry server via `--mcp-config` and calls `mcp__weavie__setSetting` to change the
   shell against the running app (see the settings spec).
 - Commands registry — [implemented](../specs/commands.md) (Core + Windows + macOS hosts + web). Registers
-  onto the same registry server (`listCommands`/`runCommand`); the one declaration also drives keybindings
+  onto the same registry server (`listCommands`/`describeCommand`/`runCommand`); the one declaration also drives keybindings
   (`~/.weavie/keybindings.json`) + the omnibar command palette.
 - Agent consultation — [implemented](../specs/agent-consultation.md). `listAgents`/`consultAgent` let the
   embedded agent resolve another configured agent or model by name and run one read-only consult turn with it.

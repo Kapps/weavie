@@ -455,15 +455,14 @@ payload into that `text` field, and `setSetting`/`clearSetting` return a human-r
 
 ### `listSettings`
 
-No input. Returns the live catalog — what Claude reads to map natural language to an exact key, so it
-carries descriptions, aliases, current value, source, default, and (when closed-set) allowed values:
+No input. Returns the live index — what Claude reads to map natural language to an exact key and to
+answer "what is set": per setting the key, type, aliases, current value, source, and (when closed-set)
+allowed values. An agent reads a tool result whole, so a test holds the built-in index under 40,000 characters.
 
 ```json
 { "settings": [
-  { "key": "terminal.shell", "type": "string",
-    "description": "Shell for the plain terminal pane",
-    "aliases": ["shell", "my shell", "terminal shell"],
-    "value": "nu", "source": "userFile", "default": "pwsh", "apply": "reopensTerminal" }
+  { "key": "terminal.shell", "type": "string", "aliases": ["shell", "my shell", "terminal shell"],
+    "value": "nu", "source": "userFile" }
 ] }
 ```
 
@@ -472,7 +471,15 @@ carries descriptions, aliases, current value, source, default, and (when closed-
 
 ### `getSetting`
 
-Input `{ "key": "terminal.shell" }` → the resolved value and where it came from (`source`).
+Input `{ "key": "terminal.shell" }` → that setting's full entry: the index row plus what the index
+omits.
+
+```json
+{ "key": "terminal.shell", "type": "string",
+  "description": "Shell for the plain terminal pane", "scope": "user",
+  "aliases": ["shell", "my shell", "terminal shell"],
+  "value": "nu", "source": "userFile", "default": "pwsh", "apply": "reopensTerminal" }
+```
 
 ### `setSetting`
 

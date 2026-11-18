@@ -135,7 +135,7 @@ public sealed record CommandDefinition {
 	/// <summary>Human- and Claude-facing description (longer than <see cref="Title"/>).</summary>
 	public string Description { get; init; } = string.Empty;
 
-	/// <summary>Natural-language hints that help Claude map intent onto this id (e.g. "reopen terminal").</summary>
+	/// <summary>Other phrasings of the action (e.g. "reopen terminal"), matched by palette search and reported by <c>describeCommand</c>.</summary>
 	public IReadOnlyList<string> Aliases { get; init; } = [];
 
 	/// <summary>Default keybinding(s); a user keybinding can override or unbind them.</summary>
@@ -155,7 +155,7 @@ public sealed record CommandDefinition {
 
 	/// <summary>
 	/// Optional raw-JSON Schema for the command's <c>args</c> (the <c>properties</c> map), surfaced in
-	/// <c>listCommands</c> so Claude knows the shape. Informational; coercion is lenient.
+	/// <c>describeCommand</c> so Claude knows the shape. Informational; coercion is lenient.
 	/// </summary>
 	public string? ArgsSchemaJson { get; init; }
 }

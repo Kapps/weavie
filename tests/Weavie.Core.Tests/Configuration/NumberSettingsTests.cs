@@ -24,9 +24,8 @@ public sealed class NumberSettingsTests : IDisposable {
 		Assert.Equal(expected, Assert.Single(changes).NewValue);
 		using var reloaded = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 		Assert.Equal(expected, reloaded.RequireNumber(WorkflowSettings.DecisionConfidence));
-		using var catalog = JsonDocument.Parse(reloaded.BuildCatalogJson());
-		var setting = catalog.RootElement.GetProperty("settings").EnumerateArray()
-			.Single(s => s.GetProperty("key").GetString() == WorkflowSettings.DecisionConfidence);
+		using var entry = JsonDocument.Parse(reloaded.BuildGetJson(WorkflowSettings.DecisionConfidence));
+		var setting = entry.RootElement;
 		Assert.Equal("number", setting.GetProperty("type").GetString());
 		Assert.Equal(expected, setting.GetProperty("value").GetDouble());
 		Assert.Equal(0.8, setting.GetProperty("default").GetDouble());

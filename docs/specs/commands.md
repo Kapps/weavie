@@ -110,7 +110,8 @@ Weavie layer that mirrors the existing settings/layout registries.
 
 Declared in code, exactly mirroring `SettingDefinition` / `PaneDefinition`. The registry is the
 single source of truth for what exists, where it runs, its default keybinding(s), palette
-visibility, `when` guard, and the docs/aliases Claude uses to map natural language.
+visibility, `when` guard, and the title Claude maps natural language onto, with the description and
+aliases `describeCommand` adds.
 
 ```csharp
 namespace Weavie.Core.Commands;
@@ -139,8 +140,8 @@ public sealed record CommandDefinition {
     public CommandScope Scope { get; init; }                   // Session (default) | Host
     public string ExecutionLane { get; }                       // FIFO consistency lane; defaults to Id
     public string? Category { get; init; }                    // palette grouping ("View", "Terminal", "Diff")
-    public string Description { get; init; } = "";            // → MCP listCommands; longer than Title
-    public IReadOnlyList<string> Aliases { get; init; } = []; // NL hints for Claude ("reopen terminal", "restart shell")
+    public string Description { get; init; } = "";            // → MCP describeCommand; longer than Title
+    public IReadOnlyList<string> Aliases { get; init; } = []; // other phrasings ("reopen terminal"): palette search + describeCommand
 
     // Default binding(s). Use the tinykeys "$mod" token = Cmd on macOS, Ctrl on Win/Linux, so one
     // string is cross-platform. Multiple defaults allowed; a user binding can override or unbind.
@@ -374,15 +375,20 @@ gets the first claim while the editor is focused, then the unguarded session bin
 when there is no editor tab to step to. (Tab/index nav uses literal `ctrl` so it stays `Ctrl` on macOS —
 `$mod` there is `Cmd`, which owns `Cmd+Tab`.)
 
-## MCP tools (`listCommands` / `runCommand`)
+## MCP tools (`listCommands` / `describeCommand` / `runCommand`)
 
-Two tools on `McpServer`, advertised on the **registry server only** (like the settings + layout
+Three tools on `McpServer`, advertised on the **registry server only** (like the settings + layout
 tools — the IDE server's list is filtered before it reaches the model). Added as a `CommandToolEntries`
 const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSetting`.
 
-- **`listCommands`** — no input. Returns the catalog Claude reads to map NL → exact id: per command
-  the `id`, `title`, `category`, `description`, `aliases`, and **current resolved keybinding(s)** (so
-  Claude can say "that's bound to Ctrl+1"). Description instructs Claude to call this first.
+- **`listCommands`** — no input. Returns the index Claude reads to map NL → exact id: per command
+  the `id`, `title`, `category`, the **current resolved keybinding(s)** as `keys` when bound (so Claude
+  can say "that's bound to Ctrl+1"), and the argument names as `args` when it takes any. Description
+  instructs Claude to call this first. It is an index because an agent reads a tool result whole: Claude
+  Code rejects a result near 100,000 characters, so a test holds the built-in index under 40,000.
+- **`describeCommand`** — input `{ "id": "weavie.session.new" }`. Returns that command's full entry —
+  the object the web catalog carries, adding `description`, `aliases`, and `argsSchema` — and errors on
+  an unknown id like `runCommand`. Claude calls it before running a command the index shows with `args`.
 - **`runCommand`** — input `{ "id": "weavie.terminal.reopen", "args"?: { … } }`. Validates the id
   against the registry (unknown → error with near-match suggestions, like `setSetting`); coerces
   `args` against the command's `ArgsSchema` (lenient scalar coercion at the MCP boundary, since the
@@ -391,9 +397,9 @@ const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSett
 
 ```jsonc
 // listCommands entry
-{ "id": "weavie.terminal.reopen", "title": "Reopen Terminal",
-  "category": "Terminal", "description": "Restart a shell terminal tab.",
-  "aliases": ["reopen terminal", "restart shell"], "keybindings": [] }
+{ "id": "weavie.pane.focusByIndex", "title": "Focus Pane by Number", "category": "View",
+  "keys": ["ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7", "ctrl+8", "ctrl+9"],
+  "args": ["index"] }
 ```
 
 ## The omnibar command palette
@@ -458,7 +464,7 @@ Weavie.Core/
     IGlobalHotkeyRegistrar.cs // per-OS seam: Apply(global hotkeys) + Pressed; GlobalHotkey record
     GlobalHotkeyService.cs  // app-scoped: resolved global bindings → registrar; press → dispatcher
   Mcp/
-    McpServer.cs            // + listCommands / runCommand (CommandToolEntries, registry server)
+    McpServer.cs            // + listCommands / describeCommand / runCommand (CommandToolEntries, registry server)
 
 src/Weavie.Win/Hosting/
   WindowsGlobalHotkeys.cs   // RegisterHotKey + WM_HOTKEY on a message-only window
@@ -498,7 +504,7 @@ the `McpServer` (the way they already hand it the `SettingsStore` / `LayoutStore
    chords still pass through to the terminal/editor.
 4. **Palette** — wire the `Omnibar.tsx` `>` mode to the catalog; dispatch on Enter; show resolved
    keys. Verify running a Web and a Core command from the palette.
-5. **MCP tools** — `listCommands`/`runCommand` on `McpServer` (registry server). Verify end-to-end
+5. **MCP tools** — `listCommands`/`describeCommand`/`runCommand` on `McpServer` (registry server). Verify end-to-end
    by asking the embedded Claude to reopen the terminal and to toggle the diff layout (exercising
    both `Core` and `Web` dispatch, including the bound-view `commands.run` round-trip).
 

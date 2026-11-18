@@ -37,7 +37,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task ListSettings_ReturnsCatalogWithTerminalShell() {
+	public async Task ListSettings_IndexesEverySettingWithinTheReadBudget() {
 		using var store = NewStore();
 		await using var server = NewServer(store);
 		int port = server.Start();
@@ -48,8 +48,13 @@ public sealed class McpSettingsToolsTests : IDisposable {
 
 		string? text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
 		using var catalog = JsonDocument.Parse(text!);
-		var keys = catalog.RootElement.GetProperty("settings")
-			.EnumerateArray().Select(s => s.GetProperty("key").GetString()).ToList();
+		var rows = catalog.RootElement.GetProperty("settings").EnumerateArray().ToList();
+		var keys = rows.Select(s => s.GetProperty("key").GetString()).ToList();
+		Assert.Equal(CoreSettings.CreateRegistry().Definitions.Count, rows.Count);
+		Assert.InRange(text!.Length, 1, McpCommandToolsTests.IndexBudget);
+		Assert.Equal(
+			["key", "type", "aliases", "value", "source", "allowedValues"],
+			rows.Single(s => s.GetProperty("key").GetString() == "theme.mode").EnumerateObject().Select(p => p.Name));
 		Assert.Contains("terminal.shell", keys);
 		Assert.Contains("workspace", keys);
 		Assert.Contains("claude.path", keys);

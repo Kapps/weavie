@@ -8,6 +8,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
@@ -136,7 +137,17 @@ export function UnifiedReview(props: {
     if (owner.getScrollTop() > previous) owner.shift(height - previous, virtualizer.getTotalSize());
     else sizeVirtualList(virtualizer.getTotalSize());
   };
-  const mountWindow = createMountWindow(scroll, () => props.overview().files);
+  const itemKey = (index: number): string | number => {
+    const path = files()[index]?.summary().path;
+    return path === undefined ? index : `${sessionKey()}\0${path}`;
+  };
+  // The rendered rows still showing the file now at their index.
+  const mountWindow = createMountWindow(() =>
+    untrack(() => {
+      const current = rows().filter((row) => row.key === itemKey(row.index));
+      return current.length === 0 ? undefined : [current[0]!.index, current.at(-1)!.index];
+    }),
+  );
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
@@ -147,10 +158,7 @@ export function UnifiedReview(props: {
       const file = files()[index];
       return file === undefined ? 120 : estimatedFileSize(file);
     },
-    getItemKey: (index) => {
-      const path = files()[index]?.summary().path;
-      return path === undefined ? index : `${sessionKey()}\0${path}`;
-    },
+    getItemKey: itemKey,
     getScrollElement: () => scroll()?.viewport ?? null,
     // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
     // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
@@ -173,6 +181,7 @@ export function UnifiedReview(props: {
         callback(owner.getScrollTop(), false);
       };
       const unsubscribe = owner.onScroll((userInitiated) => {
+        mountWindow.scrolled(owner.getScrollTop());
         // A programmatic scroll arriving while the review is still — a saved-position restore, a Find or
         // go-to-line reveal, the scroll-into-view on focus — must let the virtualiser measure a section as it
         // mounts, or it lands against an estimate. One arriving mid-gesture belongs to that gesture: the
@@ -219,7 +228,7 @@ export function UnifiedReview(props: {
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
     get rangeExtractor() {
-      return mountWindow();
+      return mountWindow.extractor();
     },
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));

@@ -422,11 +422,15 @@ stylesheet changes and the restyle is confined to the new subtree, so nothing re
 the work has to move off the gesture.
 
 `review-mount-window.ts` is the virtualizer's range extractor. The overscan of one file is always mounted. Once the
-review has held still for 200 ms it mounts one more file on each side, and another every 150 ms, up to
-`editor.reviewFilesAhead` (default 2, 0 to 6). A scroll keeps what is mounted, and two files past that reach, so
-crossing into a neighbouring file builds and removes nothing; the next rest prunes back to the reach. Every scroll
-restarts the rest, a navigation included, so a jump mounts only its overscan. Nothing is deferred or withheld,
-which is what broke navigation in the three deferrals above.
+scroll position has held for 200 ms it mounts one more file on each side, and another 150 ms later, up to
+`editor.reviewFilesAhead` (default 2, 0 to 6). A step takes about 350 ms when a file mounted above the viewport
+corrects the scroll position, because that moves it. A scroll keeps what is mounted, and two files past that reach,
+so crossing into a neighbouring file builds and removes nothing; the next rest prunes back to the reach.
+
+The rest only extends files already rendered around the visible ones. Where none carries over (a jump, a new file
+list, a hidden tab shown again) only the overscan mounts and the rest starts over, so none of those builds more
+editors at once than before. Nothing is deferred or withheld, which is what broke navigation in the three deferrals
+above.
 
 Measured in headless WebKit on a loaded build server, so the figures are relative: 900 notches in bursts of 45 with
 0.85 s pauses, the setting at 0 and at 2 alternating on one build.

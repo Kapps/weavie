@@ -37,6 +37,8 @@ const FILES_BACK = 3;
 // no editor: measured 29 reads (+0 deferred) for the whole scroll.
 const RESTED_NOTCHES = 100;
 const RESTED_SCROLL = { reads: 35, deferred: 0 };
+// The shortest wait between a rest's steps.
+const REST_STEP_MS = 150;
 // Per keystroke, measured 14 reads (+0 deferred) in the multi-file review and 14 (+2) in the PR review, where the
 // tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+15).
 const REVIEW_KEY = { reads: 17, deferred: 0 };
@@ -243,6 +245,23 @@ test.describe("a decorated multi-file review", () => {
     expect(await created(), report).toBe(0);
     expect(sample.added + sample.removed, report).toBe(0);
     expect(sample.restyles, report).toBe(0);
+  });
+
+  // Load only widens the gaps between editors, so a slow machine cannot fail the first assertion.
+  test("a jump from rest builds only the files at hand, then the files ahead @perf", async ({
+    page,
+  }) => {
+    await hoverReview(page);
+    const created = await page.evaluateHandle(() => {
+      const times: number[] = [];
+      window.__WEAVIE_MONACO__!.editor.onDidCreateEditor(() => times.push(performance.now()));
+      return times;
+    });
+    await page.locator(".unified-review-tree-row", { hasText: names[8]! }).click();
+    // The file jumped to and one either side, then two more each side as the review rests.
+    await expect.poll(() => created.evaluate((times) => times.length)).toBe(7);
+    const times = await created.jsonValue();
+    expect(times.filter((time) => time - times[0]! < REST_STEP_MS).length).toBeLessThanOrEqual(3);
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {

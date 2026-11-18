@@ -1,14 +1,6 @@
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import type { Range } from "@tanstack/solid-virtual";
+import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
-import type { ReviewScroll } from "./review-scroll";
-
-/** The files on screen, as the virtualizer hands them to its range extractor. */
-export interface VisibleRange {
-  startIndex: number;
-  endIndex: number;
-  overscan: number;
-  count: number;
-}
 
 /** The first and last mounted file. */
 export type Span = readonly [number, number];
@@ -19,83 +11,78 @@ const STEP_MS = 150;
 // Files past the reach that stay mounted through a scroll, so crossing a file unmounts nothing mid-gesture.
 const RETAINED = 2;
 
+const around = (range: Range, extra: number): Span => [
+  Math.max(0, range.startIndex - range.overscan - extra),
+  Math.min(range.count - 1, range.endIndex + range.overscan + extra),
+];
+
 /**
- * The files to mount around `range`: its overscan, `rested` more on each side, and whatever is `mounted` within
- * `reach` (plus {@link RETAINED} until the review has rested to its full reach).
+ * The files to mount around `range`. Those `mounted` within `reach` stay (and {@link RETAINED} more until the
+ * review has rested to its full reach), with `rested` more on each side. `fresh` when none of them carries over
+ * (a jump, a new file list, a tab shown again): then only the overscan mounts, whatever the rest.
  */
 export function mountedSpan(
-  range: VisibleRange,
+  range: Range,
   rested: number,
   reach: number,
   mounted: Span | undefined,
-): Span {
-  const around = (extra: number): Span => [
-    Math.max(0, range.startIndex - range.overscan - extra),
-    Math.min(range.count - 1, range.endIndex + range.overscan + extra),
-  ];
-  const [from, to] = around(rested);
-  if (mounted === undefined) return [from, to];
-  const [low, high] = around(reach + (rested === reach ? 0 : RETAINED));
+): { span: Span; fresh: boolean } {
+  const overscan = around(range, 0);
+  if (mounted === undefined) return { span: overscan, fresh: true };
+  const [low, high] = around(range, reach + (rested === reach ? 0 : RETAINED));
   const kept: Span = [Math.max(mounted[0], low), Math.min(mounted[1], high)];
-  // A jump leaves the old files apart from the new ones; keeping them would mount every file between.
-  if (kept[0] > to + 1 || kept[1] < from - 1) return [from, to];
-  return [Math.min(from, kept[0]), Math.max(to, kept[1])];
+  // Files apart from the overscan would mount every file between.
+  if (kept[0] > overscan[1] + 1 || kept[1] < overscan[0] - 1)
+    return { span: overscan, fresh: true };
+  const [from, to] = around(range, rested);
+  return { span: [Math.min(from, kept[0]), Math.max(to, kept[1])], fresh: false };
 }
 
 /**
- * Reports how long `owner` has rested: 0 on every scroll, then one more level per step up to `limit`. Any scroll
- * counts, a navigation included, so a jump mounts only its overscan as a wheel does. Returns its disposal.
+ * Mounts the files ahead while a review rests: up to `editor.reviewFilesAhead` past its overscan, kept through the
+ * next scroll, so scrolling into a neighbouring file builds no editor. `rendered` is the span of files on the page.
  */
-export function watchRest(
-  owner: Pick<ReviewScroll, "onScroll">,
-  limit: number,
-  report: (level: number) => void,
-): () => void {
-  let timer: ReturnType<typeof setTimeout>;
+export function createMountWindow(rendered: () => Span | undefined): {
+  /** The virtualizer's range extractor. */
+  extractor: Accessor<(range: Range) => number[]>;
+  /** Reports the scroll position. Call before the virtualizer hears of it, so its range sees the rest ended. */
+  scrolled(position: number): void;
+} {
+  const [reach, setReach] = createSignal(currentEditorOptions().reviewFilesAhead);
+  const [rested, setRested] = createSignal(0);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const step = (): void => {
+    if (setRested((level) => level + 1) < reach()) timer = setTimeout(step, STEP_MS);
+  };
   const rest = (): void => {
     clearTimeout(timer);
-    let level = 0;
-    report(level);
-    const step = (): void => {
-      report(++level);
-      if (level < limit) timer = setTimeout(step, STEP_MS);
-    };
-    timer = setTimeout(step, REST_MS);
-  };
-  const off = owner.onScroll(rest);
-  rest();
-  return () => {
-    off();
-    clearTimeout(timer);
-  };
-}
-
-/**
- * The review virtualizer's range extractor. A review that rests mounts up to `editor.reviewFilesAhead` files past
- * its overscan and keeps them through the next scroll, so scrolling into a neighbouring file builds no editor.
- * Replacing `files` starts the rest over, so a new file list mounts only its overscan at first.
- */
-export function createMountWindow(
-  scroll: Accessor<ReviewScroll | undefined>,
-  files: Accessor<unknown>,
-): Accessor<(range: VisibleRange) => number[]> {
-  const [reach, setReach] = createSignal(currentEditorOptions().reviewFilesAhead);
-  onCleanup(onEditorOptionsChanged((options) => setReach(options.reviewFilesAhead)));
-  const [rested, setRested] = createSignal(0);
-  createEffect(() => {
-    const owner = scroll();
-    const limit = reach();
-    files();
     setRested(0);
-    if (owner !== undefined && limit > 0) onCleanup(watchRest(owner, limit, setRested));
-  });
-  let mounted: Span | undefined;
-  return () => {
-    const level = rested();
-    const limit = reach();
-    return (range) => {
-      mounted = mountedSpan(range, level, limit, mounted);
-      return Array.from({ length: mounted[1] - mounted[0] + 1 }, (_, index) => mounted![0] + index);
-    };
+    if (reach() > 0) timer = setTimeout(step, REST_MS);
+  };
+  onCleanup(
+    onEditorOptionsChanged((options) => {
+      setReach(options.reviewFilesAhead);
+      rest();
+    }),
+  );
+  onCleanup(() => clearTimeout(timer));
+  rest();
+  let position: number | undefined;
+  return {
+    extractor: () => {
+      const level = Math.min(rested(), reach());
+      const limit = reach();
+      return (range) => {
+        const { span, fresh } = mountedSpan(range, level, limit, rendered());
+        // The rest was earned by files that are gone, so it starts over for these.
+        if (fresh && level > 0) queueMicrotask(rest);
+        return Array.from({ length: span[1] - span[0] + 1 }, (_, index) => span[0] + index);
+      };
+    },
+    scrolled: (top) => {
+      if (top === position) return;
+      position = top;
+      rest();
+    },
   };
 }

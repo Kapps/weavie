@@ -218,6 +218,11 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     join(weavieRoot, "settings.toml"),
     `[editor]\nmarkdownView = "${options.markdownView}"\n${options.setupCompleted ? "[gettingStarted]\ncompleted = true\n" : ""}`,
   );
+  // Journeys find sessions by their rail chips, so the host starts with the session panel unpinned.
+  await writeFile(
+    join(weavieRoot, "rail-state.json"),
+    JSON.stringify({ version: 2, panelPinned: false }),
+  );
   await writeFile(
     join(weavieRoot, "acp", "custom.json"),
     JSON.stringify({

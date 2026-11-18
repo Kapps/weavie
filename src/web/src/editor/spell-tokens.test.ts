@@ -113,10 +113,10 @@ it("reuses metadata across viewport changes and invalidates on edits and provide
   expect(
     await f.source.read(
       f.model,
-      [{ line: 2, offset: 5, text: "xxxx", identifier: false }],
+      [{ line: 2, offset: 0, text: "x".repeat(80), identifier: false }],
       f.signal,
     ),
-  ).toEqual([{ line: 2, startIndex: 5, endIndex: 9 }]);
+  ).toEqual([{ line: 2, startIndex: 3, endIndex: 9 }]);
   expect(f.provide).toHaveBeenCalledTimes(1);
   f.content.fire();
   await f.source.read(f.model, f.ranges, f.signal);

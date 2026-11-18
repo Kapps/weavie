@@ -7,7 +7,7 @@ import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge
 // Registered at module load, before main.tsx sends `ready`.
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
-const [panelPinnedSig, setPanelPinnedSig] = createSignal(false);
+const [panelPinnedSig, setPanelPinnedSig] = createSignal(true);
 const [panelWidthSig, setPanelWidthSig] = createSignal(300);
 const [parkedCollapsedSig, setParkedCollapsedSig] = createSignal(true);
 const [fullscreenWidthSig, setFullscreenWidthSig] = createSignal(1200);

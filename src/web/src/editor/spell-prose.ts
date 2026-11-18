@@ -46,12 +46,8 @@ export function spellingSpans(
   identifiers: IdentifierRange[],
 ): SpellSpan[] {
   const spans: SpellSpan[] = [];
-  for (const range of ranges) {
-    const { line, offset: start, text } = range;
-    const end = start + text.length;
+  for (const { line, text } of ranges) {
     const append = (from: number, to: number, identifier: boolean): void => {
-      from = Math.max(start, from);
-      to = Math.min(end, to);
       if (from >= to) return;
       const previous = spans.at(-1);
       if (
@@ -60,27 +56,26 @@ export function spellingSpans(
         previous?.line === line &&
         previous.offset + previous.text.length === from
       ) {
-        previous.text += text.slice(from - start, to - start);
+        previous.text += text.slice(from, to);
       } else {
         spans.push({
           line,
           offset: from,
-          text: text.slice(from - start, to - start),
+          text: text.slice(from, to),
           identifier,
         });
       }
     };
     if (model.getLanguageId() === "plaintext") {
-      append(start, end, false);
+      append(0, text.length, false);
       continue;
     }
     if (!model.tokenization.hasAccurateTokensForLine(line)) {
       continue;
     }
     const tokens = model.tokenization.getLineTokens(line);
-    for (let token = tokens.findTokenIndexAtOffset(start); token < tokens.getCount(); token++) {
+    for (let token = 0; token < tokens.getCount(); token++) {
       const offset = tokens.getStartOffset(token);
-      if (offset >= end) break;
       const type = tokens.getStandardTokenType(token);
       if (
         model.getLanguageId() === "markdown"

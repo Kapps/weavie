@@ -170,24 +170,11 @@ export function createSpellingTokens(changed: () => void) {
       if (ranges.length === 0) return [];
       const tokens = await currentTokens.read(ranges);
       signal.throwIfAborted();
-      const visible = new Map<number, SpellSpan[]>();
-      for (const range of ranges) {
-        const line = visible.get(range.line) ?? [];
-        line.push(range);
-        visible.set(range.line, line);
-      }
+      const visible = new Set(ranges.map((range) => range.line));
       const unique = new Map<string, IdentifierRange>();
       for (const token of tokens) {
-        for (const range of visible.get(token.line) ?? []) {
-          const startIndex = Math.max(range.offset, token.startIndex);
-          const endIndex = Math.min(range.offset + range.text.length, token.endIndex);
-          if (startIndex < endIndex) {
-            unique.set(`${token.line}:${startIndex}:${endIndex}`, {
-              line: token.line,
-              startIndex,
-              endIndex,
-            });
-          }
+        if (visible.has(token.line)) {
+          unique.set(`${token.line}:${token.startIndex}:${token.endIndex}`, token);
         }
       }
       return [...unique.values()].sort(

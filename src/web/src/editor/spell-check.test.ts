@@ -55,8 +55,6 @@ function fixture(text: string) {
     isDisposed: () => false,
     getLanguageId: () => "plaintext",
     getLineContent: () => text,
-    getValueInRange: (range: monaco.IRange) =>
-      text.slice(range.startColumn - 1, range.endColumn - 1),
   };
   const editor = {
     createDecorationsCollection: () => ({ set, clear }),

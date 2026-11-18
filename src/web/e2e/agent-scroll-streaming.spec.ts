@@ -59,12 +59,12 @@ async function readAway(pane: AgentPane): Promise<{ id: string; top: number }> {
 async function visibleActivity(body: Locator): Promise<Locator> {
   const entryId = await body.evaluate((element) => {
     const viewport = element.getBoundingClientRect();
-    const summary = [...element.querySelectorAll(".agent-activity-details > summary")].find(
-      (summary) => {
-        const bounds = summary.getBoundingClientRect();
-        return bounds.top > viewport.top && bounds.bottom < viewport.bottom;
-      },
-    );
+    const summary = [
+      ...element.querySelectorAll(".agent-entry-activity > .agent-row-disclosure > summary"),
+    ].find((summary) => {
+      const bounds = summary.getBoundingClientRect();
+      return bounds.top > viewport.top && bounds.bottom < viewport.bottom;
+    });
     return summary?.closest("[data-transcript-entry]")?.getAttribute("data-transcript-entry");
   });
   expect(entryId).toBeTruthy();
@@ -410,14 +410,14 @@ test("expanding details while reading keeps the toggled header still", async ({
 }) => {
   const pane = await openPane(openPanes, "details");
   const { body } = pane;
-  const summaries = body.locator(".agent-activity-details > summary");
+  const summaries = body.locator(".agent-entry-activity > .agent-row-disclosure > summary");
   // While following, a toggle changes nothing about following.
   await summaries.last().click();
   await expect(jumpToLatest(page)).toHaveCount(0);
   await summaries.last().click();
   await readAway(pane);
   const entry = await visibleActivity(body);
-  const summary = entry.locator(".agent-activity-details > summary");
+  const summary = entry.locator(".agent-entry-activity > .agent-row-disclosure > summary");
   await expect(summary).toBeInViewport();
   const before = await summary.evaluate((element) => element.getBoundingClientRect().top);
   await summary.click();
@@ -590,7 +590,7 @@ test.describe("touch on iOS", () => {
     });
     await readAway(pane);
     const entry = await visibleActivity(body);
-    await entry.locator(".agent-activity-details > summary").click();
+    await entry.locator(".agent-entry-activity > .agent-row-disclosure > summary").click();
     await expect(entry.locator(".agent-activity-step")).toHaveCount(1);
     const position = await scrollTop(body);
     await body.press("Home");
@@ -600,7 +600,10 @@ test.describe("touch on iOS", () => {
     await body.evaluate((element, position) => {
       element.scrollTop = position;
     }, position);
-    await expect(entry.locator(".agent-activity-details")).toHaveAttribute("open", "");
+    await expect(entry.locator(".agent-entry-activity > .agent-row-disclosure")).toHaveAttribute(
+      "open",
+      "",
+    );
     await expect(entry.locator(".agent-activity-step")).toHaveCount(1);
     await entry.getByText("show output", { exact: true }).click();
     await expect(entry.locator(".agent-tool-output")).toContainText("matched");

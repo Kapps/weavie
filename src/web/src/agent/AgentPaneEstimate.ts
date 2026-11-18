@@ -9,6 +9,8 @@ const proseColumns = 96;
 export const AGENT_IMAGE_HEIGHT = 240;
 const proseLineHeight = 27;
 const monoLineHeight = 18;
+/** One expander row under the gap between transcript rows. */
+const expanderRowHeight = 31;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
 
 // Called for every unmeasured row on each measurement pass, so the per-entry result is memoized.
@@ -16,8 +18,12 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   if (entry === undefined) {
     return 48;
   }
-  if (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen) return 29;
-  if (entry.kind === "activity" || entry.kind === "updates") return 24;
+  if (
+    entry.kind === "activity" ||
+    entry.kind === "updates" ||
+    (entry.kind === "thought" && entry.thoughtCollapsed && !entry.thoughtOpen)
+  )
+    return expanderRowHeight;
   if (entry.block !== undefined)
     return entry.block.kind === "chart" ? chartHeight : tableHeightEstimate;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;

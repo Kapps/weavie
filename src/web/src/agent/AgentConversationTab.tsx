@@ -31,7 +31,6 @@ export default function AgentConversationTab(props: {
             {(subagent) => <SubagentHeader card={card()} subagent={subagent()} />}
           </Show>
           <NestedTranscript
-            currentThought={card().currentThought ?? null}
             pendingOnly={false}
             entries={card().asideEntries ?? []}
             expandedDetails={expanded()}

@@ -21,7 +21,7 @@ const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
   replyStartOffset: 0.5,
   progressDisplay: "latest",
-  thoughtDisplay: "current",
+  thoughtDisplay: "collapsed",
   providers: [
     {
       id: "claude",

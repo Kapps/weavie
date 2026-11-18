@@ -827,7 +827,7 @@ test.describe("session-addressed WebSocket transport", () => {
           message.feature === "connection" &&
           message.name === "hello"
         ) {
-          (message.payload as HostHello).agentDefaults.thoughtDisplay = "collapsed";
+          (message.payload as HostHello).agentDefaults.thoughtDisplay = "all";
           socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
         } else socket.send(data);
       });
@@ -841,12 +841,10 @@ test.describe("session-addressed WebSocket transport", () => {
       await remote.waitUntilConnected();
       await page.locator(".session-chip.remote").click();
       const thought = page.locator(".agent-entry-thought");
-      await expect(thought.locator("summary")).toContainText(
+      await expect(thought.locator(".agent-markdown")).toContainText(
         "Remote thought restored before selection",
       );
-      await expect(thought.locator("details[open]")).toHaveCount(0);
-      await thought.locator("summary").click();
-      await expect(thought.locator(".agent-markdown")).toBeVisible();
+      await expect(thought.locator("summary")).toHaveCount(0);
 
       host.publishHost("remoteAgents", "changed", { agents: [] });
       await expect(page.locator(".session-chip.remote")).toHaveCount(0);

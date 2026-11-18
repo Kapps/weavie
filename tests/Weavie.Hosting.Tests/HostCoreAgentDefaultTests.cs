@@ -24,7 +24,7 @@ public sealed class HostCoreAgentDefaultTests {
 	[Fact]
 	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
 		await using var host = await TestHost.StartAsync();
-		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"current\",\"progressDisplay\":\"latest\"}", host.Core.BuildBootstrap());
+		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"latest\"}", host.Core.BuildBootstrap());
 		host.Bridge.Clear();
 
 		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));
@@ -34,11 +34,11 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task ThoughtDisplay_IsCurrentByDefaultAndRepushesEachValidatedChoice() {
+	public async Task ThoughtDisplay_IsCollapsedByDefaultAndRepushesEachValidatedChoice() {
 		await using var host = await TestHost.StartAsync();
 		var defaults = await host.HostRequestAsync<JsonElement>("agentDefaults", "get", new { });
-		Assert.Equal("current", defaults.GetProperty("thoughtDisplay").GetString());
-		foreach (string mode in new[] { "all", "collapsed", "current" }) {
+		Assert.Equal("collapsed", defaults.GetProperty("thoughtDisplay").GetString());
+		foreach (string mode in new[] { "all", "collapsed" }) {
 			host.Bridge.Clear();
 			host.Settings.Set(AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement(mode));
 			var push = host.Bridge.LastEvent("settings", "agent-defaults");

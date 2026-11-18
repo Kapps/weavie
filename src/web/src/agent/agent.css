@@ -538,11 +538,6 @@ a:has(> .agent-path-dir) {
   border-left-color: var(--accent);
 }
 
-.agent-entry-updates,
-.agent-entry-activity {
-  padding: 0 8px;
-}
-
 .agent-entry-request {
   border-left-color: var(--warn);
   background: color-mix(in srgb, var(--warn) 12%, var(--bar));
@@ -677,25 +672,43 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-disclosure {
+  min-width: 0;
   margin-top: 3px;
   color: var(--dim);
 }
 
 .agent-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-disclosure > summary:not(.agent-disclosure-row) {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
-  cursor: pointer;
-  list-style: none;
+}
+
+.agent-row-disclosure {
+  margin: 0;
 }
 
 .agent-disclosure > summary::-webkit-details-marker {
   display: none;
 }
 
-.agent-disclosure-icon > svg,
-.agent-updates-toggle .ui-icon > svg {
+/* One row for every transcript expander, so chevrons and labels share a column. It shrinks below
+   its text, so a thought's preview ellipsizes in a narrow pane. */
+.agent-disclosure-row {
+  min-width: 0;
+  color: var(--dim);
+}
+
+.agent-disclosure-row:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.agent-disclosure-icon > svg {
   transition: transform 120ms ease-out;
 }
 
@@ -704,42 +717,16 @@ a:has(> .agent-path-dir) {
   transform: rotate(90deg);
 }
 
-.agent-entry-thought {
-  padding: 0 8px;
+/* The body's text starts under the row's label; its rule runs down from the chevron. */
+.agent-disclosure-body {
+  margin: 3px var(--row-pad-x) 6px calc(var(--row-pad-x) + var(--icon-size) / 2);
+  padding-left: calc(var(--icon-size) / 2 + var(--row-gap) - 1px);
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  overflow-wrap: anywhere;
 }
 
-.agent-current-thought {
-  flex: 0 0 auto;
-  min-width: 0;
-  color: var(--dim);
-  padding-inline: 12px;
-  cursor: default;
-}
-
-.agent-current-thought-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-thought {
-  margin: 0;
-  min-width: 0;
-}
-
-.agent-thought > summary {
-  display: flex;
-  color: var(--dim);
-}
-
-/* Narrower than its text, so the preview ellipsizes in a narrow pane. */
-.agent-thought-row {
-  min-width: 0;
-}
-
-.agent-thought-row:hover {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
+.agent-entry-thought > .agent-markdown {
+  padding: 0 var(--row-pad-x);
 }
 
 .agent-thought-label {
@@ -752,36 +739,6 @@ a:has(> .agent-path-dir) {
   text-overflow: ellipsis;
 }
 
-.agent-updates-toggle,
-.agent-activity-details > summary {
-  --row-pad-x: 0px;
-  gap: var(--row-gap);
-}
-
-.agent-updates-toggle {
-  color: var(--dim);
-}
-
-.agent-updates-toggle[aria-expanded="true"] .ui-icon > svg {
-  transform: rotate(90deg);
-}
-
-.agent-thought-body {
-  padding: 4px 8px 8px;
-  overflow-wrap: anywhere;
-}
-
-.agent-activity-details {
-  margin: 0;
-  min-width: 0;
-}
-
-.agent-activity-details > summary {
-  display: flex;
-  align-items: baseline;
-  color: var(--dim);
-}
-
 .agent-activity-summary {
   min-width: 0;
   overflow: hidden;
@@ -792,9 +749,6 @@ a:has(> .agent-path-dir) {
 .agent-activity-list {
   display: grid;
   gap: 2px;
-  margin-top: 3px;
-  padding-left: 10px;
-  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .agent-activity-step {
@@ -822,7 +776,6 @@ a:has(> .agent-path-dir) {
 
 .agent-tool-output-details {
   grid-column: 2 / -1;
-  min-width: 0;
 }
 
 .agent-tool-output,
@@ -984,8 +937,7 @@ a:has(> .agent-path-dir) {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-card-content,
-  .agent-disclosure-icon > svg,
-  .agent-updates-toggle .ui-icon > svg {
+  .agent-disclosure-icon > svg {
     transition: none;
   }
 

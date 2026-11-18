@@ -524,7 +524,7 @@ test.describe("ACP composer", () => {
     }
 
     const activity = page.locator(".agent-entry-activity", { hasText: "2 reads" });
-    await activity.locator(".agent-activity-details > summary").click();
+    await activity.locator(":scope > .agent-row-disclosure > summary").click();
     const step = activity.locator(".agent-activity-step").first();
     await step.getByText("show output", { exact: true }).click();
     const geometry = await step.evaluate((element) => {
@@ -572,7 +572,7 @@ test.describe("ACP composer", () => {
     );
 
     const activity = page.locator(".agent-entry-activity", { hasText: "ran 1 command" });
-    await activity.locator(".agent-activity-details > summary").click();
+    await activity.locator(":scope > .agent-row-disclosure > summary").click();
     const step = activity.locator(".agent-activity-step");
     await expect(
       step.getByText("command pnpm test --reporter verbose", { exact: true }),
@@ -654,7 +654,7 @@ test.describe("ACP composer", () => {
     );
 
     const activity = page.locator(".agent-entry-activity");
-    await activity.locator(".agent-activity-details > summary").click();
+    await activity.locator(":scope > .agent-row-disclosure > summary").click();
     const read = activity.locator(".agent-activity-step", { hasText: "read src/App.tsx" });
     const write = activity.locator(".agent-activity-step", { hasText: "edit src/App.tsx" });
     await expect(read.locator(".agent-tool-output")).toHaveCount(0);
@@ -684,7 +684,7 @@ test.describe("ACP composer", () => {
     );
 
     const activity = page.locator(".agent-entry-activity");
-    await activity.locator(".agent-activity-details > summary").click();
+    await activity.locator(":scope > .agent-row-disclosure > summary").click();
     const step = activity.locator(".agent-activity-step");
     await expect(step.locator(".agent-tool-output")).toHaveCount(0);
     await step.getByText("show output", { exact: true }).click();

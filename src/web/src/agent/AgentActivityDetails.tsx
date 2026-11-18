@@ -9,7 +9,7 @@ import {
   Switch,
 } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
-import { Disclosure } from "./AgentDisclosure";
+import { RowDisclosure } from "./AgentDisclosure";
 import { EditLocationActions } from "./AgentPaneEditActions";
 import { deferredToolOutput } from "./AgentPaneHistoryAccumulator";
 import { AgentLinkedText } from "./AgentPaneLinks";
@@ -33,9 +33,7 @@ export function ActivityDetails(props: {
     return next;
   });
   return (
-    <Disclosure
-      class="agent-activity-details"
-      summaryClass="ui-row ui-row-compact"
+    <RowDisclosure
       label={
         <span class="agent-activity-summary" title={props.entry.summary ?? undefined}>
           {props.entry.summary ?? props.entry.label}
@@ -70,7 +68,7 @@ export function ActivityDetails(props: {
           )}
         </ForEachId>
       </div>
-    </Disclosure>
+    </RowDisclosure>
   );
 }
 

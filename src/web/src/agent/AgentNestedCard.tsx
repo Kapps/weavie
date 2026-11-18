@@ -1,6 +1,5 @@
 import { createMemo, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { AgentCurrentThought } from "./AgentCurrentThought";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "./AgentPendingRequests";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
@@ -10,7 +9,6 @@ import { transcriptRowClasses } from "./transcript-row";
 
 /** A nested conversation's transcript inside a BTW or subagent card. */
 export function NestedTranscript(props: {
-  currentThought: string | null;
   entries: readonly AgentTranscriptEntry[];
   pendingOnly: boolean;
   expandedDetails: ReadonlySet<string>;
@@ -51,9 +49,6 @@ export function NestedTranscript(props: {
           </CollapsibleCardContent>
         )}
       </ForEachId>
-      <CollapsibleCardContent collapsed={props.pendingOnly}>
-        <AgentCurrentThought text={props.currentThought} />
-      </CollapsibleCardContent>
     </div>
   );
 }

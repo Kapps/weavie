@@ -146,10 +146,10 @@ describe("HostConnection session ownership", () => {
     expect(seen).toEqual(["all"]);
     host.connection.transportDropped();
     const next = hello("host-two", [entry("primary", address("primary", "two"))]);
-    next.agentDefaults.thoughtDisplay = "current";
+    next.agentDefaults.thoughtDisplay = "collapsed";
     host.setHello(next);
     await host.connection.connect();
-    expect(seen).toEqual(["all", "current"]);
+    expect(seen).toEqual(["all", "collapsed"]);
     expect(host.errors).toEqual([]);
   });
 

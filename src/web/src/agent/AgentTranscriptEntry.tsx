@@ -1,4 +1,4 @@
-import { ChevronRight, RotateCcw } from "lucide-solid";
+import { RotateCcw } from "lucide-solid";
 import { createUniqueId, type JSX, Match, Show, Switch } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
@@ -11,7 +11,7 @@ import { AsideEntry } from "./AgentAsideEntry";
 import { AgentBlockAddedEntry } from "./AgentBlockAddedEntry";
 import { AgentBlockEntry } from "./AgentBlockEntry";
 import { AgentDashboardEntry } from "./AgentDashboardEntry";
-import { Disclosure } from "./AgentDisclosure";
+import { DISCLOSURE_ROW, Disclosure, DisclosureIcon } from "./AgentDisclosure";
 import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -45,13 +45,11 @@ export function TranscriptEntry(props: {
       <article class="agent-entry agent-entry-updates">
         <button
           type="button"
-          class="ui-row ui-row-compact agent-updates-toggle"
+          class={`${DISCLOSURE_ROW} agent-updates-toggle`}
           aria-expanded={props.entry.updatesOpen}
           onClick={() => props.onUpdatesToggle(props.entry.id, !props.entry.updatesOpen)}
         >
-          <span class="ui-icon">
-            <ChevronRight aria-hidden="true" />
-          </span>
+          <DisclosureIcon />
           Earlier updates · {props.entry.detailCount}
         </button>
       </article>

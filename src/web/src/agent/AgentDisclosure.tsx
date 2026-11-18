@@ -29,6 +29,29 @@ export function Disclosure(props: {
   );
 }
 
+/** The row every transcript expander shows, whether it opens a body or reveals folded entries. */
+export const DISCLOSURE_ROW = "agent-disclosure-row ui-row ui-row-compact";
+
+/** A transcript row that opens a body inset under its label: Thinking and Working. */
+export function RowDisclosure(props: {
+  children: JSX.Element;
+  label: JSX.Element;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+}): JSX.Element {
+  return (
+    <Disclosure
+      class="agent-row-disclosure"
+      summaryClass={DISCLOSURE_ROW}
+      label={props.label}
+      open={props.open}
+      onToggle={props.onToggle}
+    >
+      <div class="agent-disclosure-body">{props.children}</div>
+    </Disclosure>
+  );
+}
+
 export function DisclosureIcon(): JSX.Element {
   return (
     <span class="ui-icon agent-disclosure-icon">

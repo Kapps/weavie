@@ -112,9 +112,6 @@ export class AgentConversationProjection {
       get subagent() {
         return view.card()?.subagent;
       },
-      get currentThought() {
-        return view.transcript().currentThought;
-      },
       get asideEntries() {
         return view.transcript().entries;
       },
@@ -149,7 +146,7 @@ export class AgentConversationProjection {
     this.request = pendingRequest(rows);
     const project = (messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
       if (!changedState && this.upsert(changes)) return [];
-      const projection = projectAgentTranscript(messages, cards, this.thoughtDisplay());
+      const projection = projectAgentTranscript(messages, cards);
       this.segments = projection.segments;
       const presented = presentThoughts(projection.entries, this.thoughtDisplay(), this.expanded);
       const turnStartId = latestAgentTurnStartId(presented);
@@ -174,7 +171,6 @@ export class AgentConversationProjection {
           agentTurnStartId: turnStartId,
           agentTurnStartIndex:
             turnStartId === null ? null : (this.entryIndexes.get(turnStartId) ?? null),
-          currentThought: this.thoughtDisplay() === "current" ? projection.currentThought : null,
           entries: ordered.entries,
           entryIndexes: this.entryIndexes,
           cardIndexes: cardIndexes(ordered.entries),
@@ -205,9 +201,7 @@ export class AgentConversationProjection {
       ? snapshot.pendingRowIndexes.map((index) => snapshot.entries[index]!)
       : snapshot.entries;
     this.estimatedHeight =
-      76 +
-      (snapshot.currentThought !== null && !card?.asideCollapsed ? 24 : 0) +
-      entries.reduce((height, entry) => height + estimateEntrySize(entry), 0);
+      76 + entries.reduce((height, entry) => height + estimateEntrySize(entry), 0);
   }
 
   childResized(id: string, delta: number): void {

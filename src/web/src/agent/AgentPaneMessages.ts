@@ -13,11 +13,9 @@ import {
   requestResolutions,
 } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import type { ThoughtDisplay } from "./AgentThoughtPresentation";
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
-  currentThought: string | null;
   segments: AgentActivitySegments;
   entries: AgentTranscriptEntry[];
 }
@@ -25,7 +23,6 @@ export interface AgentTranscriptProjection {
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
   cards: ReadonlyMap<AgentPaneUpdate, AgentTranscriptEntry>,
-  thoughtDisplay: ThoughtDisplay,
 ): AgentTranscriptProjection {
   const resolved = requestResolutions(messages);
   const reportedTurnErrors = new Set<string>();
@@ -42,7 +39,6 @@ export function projectAgentTranscript(
   const knownTurns = new Set<string>();
   const blocks = new AgentPaneBlocks();
   let activeTurn = "startup";
-  let currentThought: string | null = null;
   let previousWasUserInput = false;
   let sequence = 0;
   let previousThreadId: string | null | undefined;
@@ -66,14 +62,6 @@ export function projectAgentTranscript(
       sequence += 1;
       continue;
     }
-    if (
-      message.type === "turn-started" ||
-      message.type === "turn-completed" ||
-      message.type === "side-conversation-closed" ||
-      message.type === "side-conversation-failed" ||
-      (isUserInput(message) && !message.sender && message.status !== "attached")
-    )
-      currentThought = null;
     const turnKey: string | null =
       hasPreviousTurn && message.threadId === previousThreadId && message.turnId === previousTurnId
         ? previousTurnKey
@@ -105,14 +93,11 @@ export function projectAgentTranscript(
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
-      if (durable.kind === "thought") {
-        currentThought = durable.text;
-        if (thoughtDisplay === "current") continue;
-      }
       if (startsTurn) {
         durable.turnStart = true;
       }
-      segments.boundary();
+      // A thought sits below the work around it; tools on either side stay one group.
+      if (durable.kind !== "thought") segments.boundary();
       entries.push(durable);
       if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -135,7 +120,7 @@ export function projectAgentTranscript(
     Object.assign(entry, projection.summary(), { detailCount: projection.count });
   }
 
-  return { currentThought, segments, entries: collapseEditLocations(entries) };
+  return { segments, entries: collapseEditLocations(entries) };
 }
 
 function durableEntry(

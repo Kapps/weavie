@@ -82,7 +82,7 @@ export interface AgentDefaults {
   defaultProvider: string;
   /** Where a reply read from its start rests: a fraction of the agent pane's height below its top. */
   replyStartOffset: number;
-  thoughtDisplay: "all" | "current" | "collapsed";
+  thoughtDisplay: "collapsed" | "all";
   progressDisplay: "latest" | "all";
   /** Whether highlighting reply text attaches it to the next prompt. */
   providers: AgentProviderInfo[];

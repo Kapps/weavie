@@ -6,14 +6,6 @@ import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
-test.use({
-  fakeScript: {
-    steps: [
-      { op: "mcp", tool: "setSetting", args: { key: "agent.thoughtDisplay", value: "current" } },
-    ],
-  },
-});
-
 async function signal(workspace: string, name: string): Promise<void> {
   await writeFile(join(sessionWorktrees(workspace)[0]!, name), "");
 }

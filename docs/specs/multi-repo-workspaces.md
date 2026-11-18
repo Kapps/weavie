@@ -40,6 +40,11 @@ branch listing and naming, the default-branch fetch, the worktree setup command,
 default workflow all resolve from the session's repo. A plain home folder is a repo without a worktree manager,
 so a worktree session there is refused by name.
 
+On the page, a repo is reached only through a session. A surface that outlives one step (Open Pull Request,
+the Sessions composer, Diff Against) is opened for a `ClientSession` and sends every request to that session or
+names its repo in the request; nothing resolves a session or a repo from the selection at request time, because
+the selection can change while the surface is open.
+
 The repo of a worktree is git's answer (`git worktree list` from that worktree), never a stored copy. Restoring
 a workspace asks it for each saved session outside the home repo. A saved session git can't answer for, whose
 worktree is still on disk, stays in the store for a later start and is named in a startup notice.

@@ -1,5 +1,10 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
+import {
+  type ClientSession,
+  type PullRequestInfo,
+  requestPullRequests,
+  resolvePullRequest,
+} from "../bridge";
 import { createListNavigation } from "../list-navigation";
 import { ModalShell, PromptButton } from "./ModalShell";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
@@ -9,11 +14,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 // The live preview of a typed #N / pasted URL: resolving, the resolved PR, or not-found.
 type Preview = "loading" | "notfound" | PullRequestInfo;
 
-// Open Pull Request: type to search the repo's PRs (forge-side, so it scales past the default list), or paste a
-// URL / type #123 to open one directly by number. Enter opens, ↑/↓ move, Esc cancels. See docs/specs/open-pr.md.
+// Open Pull Request: type to search the PRs of one session's repo (forge-side, so it scales past the default
+// list), or paste a URL / type #123 to open one directly by number. Every lookup and the open go to the session
+// the prompt was opened for, whichever session is selected by then. See docs/specs/open-pr.md.
 export function OpenPrPrompt(props: {
-  backendId: string;
-  onOpen: (target: OpenPrTarget, backendId: string) => void;
+  session: ClientSession;
+  onOpen: (target: OpenPrTarget) => void;
   onCancel: () => void;
 }): JSX.Element {
   const [results, setResults] = createSignal<PullRequestInfo[]>([]);
@@ -36,7 +42,7 @@ export function OpenPrPrompt(props: {
     setPreview("loading");
     const mine = ++resolveSeq;
     const timer = setTimeout(() => {
-      void resolvePullRequest(props.backendId, ref).then((pr) => {
+      void resolvePullRequest(props.session, ref).then((pr) => {
         if (mine === resolveSeq) {
           setPreview(pr ?? "notfound");
         }
@@ -58,7 +64,7 @@ export function OpenPrPrompt(props: {
     setLoading(true);
     const mine = ++seq;
     const timer = setTimeout(() => {
-      void requestPullRequests(props.backendId, q.trim()).then((list) => {
+      void requestPullRequests(props.session, q.trim()).then((list) => {
         if (mine === seq) {
           setResults(list);
           setLoading(false);
@@ -70,7 +76,7 @@ export function OpenPrPrompt(props: {
 
   const openTarget = (target: OpenPrTarget | undefined): void => {
     if (target !== undefined) {
-      props.onOpen(target, props.backendId);
+      props.onOpen(target);
     }
   };
   const targetOf = (pr: PullRequestInfo | undefined): OpenPrTarget | undefined =>

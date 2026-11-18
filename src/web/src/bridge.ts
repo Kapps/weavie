@@ -475,11 +475,6 @@ function receiveRaw(backendId: string, raw: string): void {
   hostConnection(backendId)?.receive(envelope);
 }
 
-function selectedForBackend(backendId: string): ClientSession | undefined {
-  const active = selected();
-  return active?.connection.id === backendId ? active : undefined;
-}
-
 export async function invokeCommandInSession(
   source: ClientSession,
   id: string,
@@ -626,14 +621,6 @@ export interface RoleSuggestion {
   error: string | null;
 }
 
-/** The session a new one branches from: the selected session for a "source" base, otherwise none. */
-export function launchSource(
-  backendId: string,
-  base: "source" | "main",
-): ClientSession | undefined {
-  return base === "source" ? selectedForBackend(backendId) : undefined;
-}
-
 function requestSessionCreation<T>(
   backendId: string,
   name: string,
@@ -703,21 +690,20 @@ export function requestDiffRefs(
   return session.feature("files").request("refs", {});
 }
 
-export function requestPullRequests(backendId: string, query: string): Promise<PullRequestInfo[]> {
-  const session = selectedForBackend(backendId);
-  return session === undefined
-    ? Promise.reject(new Error("No live session is available."))
-    : session.feature("pullRequests").request("list", { query });
+/** The open pull requests of `session`'s repo matching `query`. */
+export function requestPullRequests(
+  session: ClientSession,
+  query: string,
+): Promise<PullRequestInfo[]> {
+  return session.feature("pullRequests").request("list", { query });
 }
 
+/** The pull request `target` names in `session`'s repo, or null. */
 export function resolvePullRequest(
-  backendId: string,
+  session: ClientSession,
   target: { number: number; owner: string; repo: string },
 ): Promise<PullRequestInfo | null> {
-  const session = selectedForBackend(backendId);
-  return session === undefined
-    ? Promise.reject(new Error("No live session is available."))
-    : session.feature("pullRequests").request("resolve", target);
+  return session.feature("pullRequests").request("resolve", target);
 }
 
 export function sessionResourceUrl(session: ClientSession, resource: string): URL {

@@ -9,7 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
-import { type LaunchOrigin, launchSource, type RolePick } from "../bridge";
+import type { ClientSession, LaunchOrigin, RolePick } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -45,8 +45,8 @@ export function NewSessionComposer(props: {
   /** The repo the session is created in; null for the host's choice. */
   repo: string | null;
   base: "source" | "main";
-  /** Whether the session can branch from the selected one. */
-  sourceAvailable: boolean;
+  /** The session "From current session" branches from; null when there is none in the chosen repo. */
+  source: ClientSession | null;
   /** Whether the destination names a repo: false while a path is still to be typed. */
   repoNamed: boolean;
   providerId: string;
@@ -75,7 +75,7 @@ export function NewSessionComposer(props: {
   let promptInput!: HTMLTextAreaElement;
   // The branch name and the workflows resolve where creation does.
   const origin = createMemo<LaunchOrigin>(() => ({
-    sourceId: launchSource(props.backendId, props.base)?.address.slot ?? null,
+    sourceId: props.base === "source" ? (props.source?.address.slot ?? null) : null,
     repo: props.repo,
   }));
 
@@ -243,7 +243,7 @@ export function NewSessionComposer(props: {
             onChange={(event) => props.onBase(event.currentTarget.value as "source" | "main")}
           >
             <option value="main">From main branch</option>
-            <option value="source" disabled={!props.sourceAvailable}>
+            <option value="source" disabled={props.source === null}>
               From current session
             </option>
           </select>

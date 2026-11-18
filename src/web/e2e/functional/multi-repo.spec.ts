@@ -80,15 +80,29 @@ test("a session in a second repo joins the rail, labelled by repo until it is de
       "Other…",
     ]);
     await expect(repository).toHaveValue(infra);
-    await page.keyboard.press("Escape");
+
+    // "From current session" branches from the session the composer was opened from, in that session's repo.
+    await inbox.getByRole("combobox", { name: "Branch starting point" }).selectOption("source");
+    await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("e2e/rollout");
+    await inbox.getByRole("button", { name: "Start", exact: true }).click();
     await expect(inbox).toBeHidden();
+    await expect(
+      page.locator('.session-chip.active[title^="infra / e2e/rollout —"]'),
+    ).toBeVisible();
+    const parent = execFileSync("git", ["config", "--get-regexp", "^branch\\.e2e/rollout\\."], {
+      cwd: infra,
+      encoding: "utf8",
+    });
+    expect(parent).toContain("e2e/deploy");
   });
 
-  await test.step("deleting it leaves one repo and no labels", async () => {
-    await chips.nth(1).click({ button: "right" });
-    await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
-    await page.locator(".confirm-dialog .confirm-btn-danger").click();
-    await expect(chips).toHaveCount(1);
+  await test.step("deleting the other repo's sessions leaves one repo and no labels", async () => {
+    for (const remaining of [2, 1]) {
+      await chips.nth(remaining).click({ button: "right" });
+      await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+      await page.locator(".confirm-dialog .confirm-btn-danger").click();
+      await expect(chips).toHaveCount(remaining);
+    }
     await expect(repoLabels).toHaveCount(0);
   });
 });

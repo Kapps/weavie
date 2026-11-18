@@ -42,7 +42,6 @@ import {
   invokeSessionCommandOnBackend,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
-  launchSource,
   type RolePick,
   registerViewFeature,
   selectedSession,
@@ -577,7 +576,8 @@ export default function App(): JSX.Element {
 
   // Desktop opens the shared Sessions surface as a modal; compact mode keeps it as native navigation.
   const [sessionsModalOpen, setSessionsModalOpen] = createSignal(false);
-  const [openPrOpen, setOpenPrOpen] = createSignal(false);
+  // The session Open Pull Request was invoked for: its repo is the one searched and opened in.
+  const [openPrOwner, setOpenPrOwner] = createSignal<ClientSession | null>(null);
   const [diffAgainstOwner, setDiffAgainstOwner] = createSignal<ClientSession | null>(null);
   const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
   const visibleBuildMismatch = createMemo(() =>
@@ -927,8 +927,10 @@ export default function App(): JSX.Element {
     );
   };
 
+  // A "source" base branches from `source`, the session the composer was opened from.
   const createSessionAt = (
     backendId: string,
+    source: ClientSession | null,
     args: {
       repo: string | null;
       branch?: string;
@@ -941,8 +943,10 @@ export default function App(): JSX.Element {
       agentProviderId: string;
     },
   ): Promise<boolean> => {
-    const source = args.existing ? undefined : launchSource(backendId, args.base)?.address;
-    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, { ...args, source })
+    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, {
+      ...args,
+      source: args.base === "source" && !args.existing ? source?.address : undefined,
+    })
       .then((result) => {
         if (!result.ok) {
           throw new Error(result.error ?? "The session could not be created.");
@@ -955,17 +959,12 @@ export default function App(): JSX.Element {
       });
   };
 
-  const openPullRequestAt = (
-    backendId: string,
+  const openPullRequestIn = (
+    session: ClientSession,
     target: { number: number; owner: string; repo: string },
   ): void => {
     const toastKey = `open-pr:${target.number}`;
-    const selected = selectedSession();
-    const session = selected?.connection.id === backendId ? selected : undefined;
-    if (session === undefined) {
-      addToast("error", `No live session is available on ${backendLabel(backendId)}.`, toastKey);
-      return;
-    }
+    const backendId = session.connection.id;
     const commit = beginClientSelection();
     void session
       .feature("pullRequests")
@@ -1833,7 +1832,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.showSessions, openSessions),
       registerCommand(CommandIds.manageAcpAgents, () => openAcpRegistry(activeBackendId())),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
-      registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
+      registerCommand(CommandIds.openPr, () => {
+        setOpenPrOwner(selectedSession());
+        return selectedSession() !== null;
+      }),
       registerCommand(CommandIds.openCurrentPr, () => {
         const pullRequest = currentPullRequest();
         if (pullRequest === null) {
@@ -2061,14 +2063,14 @@ export default function App(): JSX.Element {
           sessions={sessions()}
           initialBackendId={defaultLocation()}
           onOpen={(session) => openFromInbox(() => openSession(session))}
-          onCreate={(resolveSeed, backendId, providerId, repo) =>
+          onCreate={(resolveSeed, backendId, providerId, repo, source) =>
             openFromInbox(async () => {
               const seed = await resolveSeed();
               if (seed === null) {
                 return false;
               }
               setLastLocation(backendId);
-              return createSessionAt(backendId, {
+              return createSessionAt(backendId, source, {
                 repo,
                 branch: seed.branch,
                 base: seed.base,
@@ -2159,20 +2161,22 @@ export default function App(): JSX.Element {
           onResume={resumeToast}
         />
       </div>
-      <Show when={openPrOpen()}>
-        <OpenPrPrompt
-          backendId={defaultLocation()}
-          onOpen={(target, location) => {
-            setOpenPrOpen(false);
-            setLastLocation(location);
-            // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
-            // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
-            addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
-            // The host resolves the PR's branch refs by number, then checks it out on that backend.
-            openPullRequestAt(location, target);
-          }}
-          onCancel={() => setOpenPrOpen(false)}
-        />
+      <Show when={openPrOwner()} keyed>
+        {(session) => (
+          <OpenPrPrompt
+            session={session}
+            onOpen={(target) => {
+              setOpenPrOwner(null);
+              setLastLocation(session.connection.id);
+              // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
+              // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
+              addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
+              // The host resolves the PR's branch refs by number, then checks it out in that session's repo.
+              openPullRequestIn(session, target);
+            }}
+            onCancel={() => setOpenPrOwner(null)}
+          />
+        )}
       </Show>
       <Show when={diffAgainstOwner()} keyed>
         {(session) => (

@@ -1,6 +1,21 @@
 import { ArrowUp, Bot, FolderGit2, GitBranch, Laptop } from "lucide-solid";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
+import {
+  backendPhase,
+  type ClientSession,
+  connectedBackends,
+  requestBranches,
+  selectedSession,
+} from "../bridge";
 import {
   agentProviders,
   defaultAgentProvider,
@@ -31,6 +46,7 @@ export function SessionInbox(props: {
     backendId: string,
     providerId: string,
     repo: string | null,
+    source: ClientSession | null,
   ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
 }): JSX.Element {
@@ -52,10 +68,11 @@ export function SessionInbox(props: {
   let providerChosen = false;
   let repoTyped: ReturnType<typeof setTimeout> | undefined;
 
-  const sourceRepo = (): string | undefined => {
-    const source = selectedSession();
-    return source?.connection.id === backendId() ? source.repo : undefined;
-  };
+  // The session Sessions was opened from. "From current session" branches from it and its repo is preselected,
+  // whichever session is selected by the time a request goes out.
+  const [owner, setOwner] = createSignal<ClientSession | null>(null);
+  const sourceRepo = (): string | undefined =>
+    owner()?.connection.id === backendId() ? owner()?.repo : undefined;
   // The same list is the same value, so its options aren't rebuilt each time the session list is pushed.
   const repos = createMemo(() => backendRepos(backendId()), [], {
     equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
@@ -68,12 +85,11 @@ export function SessionInbox(props: {
   const typingRepo = (): boolean => repoPick() === OTHER_REPO;
   const namedRepo = (): string | null =>
     sentRepo(typingRepo() ? repoPath() : (repoPick() ?? repoDefault()));
-  // Held while Sessions is closed, so switching sessions behind it re-asks nothing about a lingering draft.
-  const repo = createMemo<string | null>((held) => (props.active ? namedRepo() : held), null);
+  const repo = createMemo(namedRepo);
   // A start names its repo: "Other…" with no path names none.
-  const repoNamed = (): boolean => !typingRepo() || namedRepo() !== null;
-  // "From current session" branches inside that session's own repo.
-  const sourceAvailable = (): boolean => repo() === sourceRepo();
+  const repoNamed = (): boolean => !typingRepo() || repo() !== null;
+  // "From current session" branches inside that session's own repo; null when it can't.
+  const source = (): ClientSession | null => (repo() === sourceRepo() ? owner() : null);
   const resetRepo = (): void => {
     clearTimeout(repoTyped);
     setRepoPick(null);
@@ -141,6 +157,7 @@ export function SessionInbox(props: {
     const active = props.active;
     const initialBackendId = props.initialBackendId;
     if (active && (!wasActive || initialBackendId !== previousBackendId)) {
+      setOwner(untrack(selectedSession));
       selectBackend(initialBackendId);
       // A base or repo pick is never carried into the next open.
       setBase("main");
@@ -158,7 +175,7 @@ export function SessionInbox(props: {
   });
 
   createEffect(() => {
-    if (!sourceAvailable()) {
+    if (source() === null) {
       setBase("main");
     }
   });
@@ -195,7 +212,7 @@ export function SessionInbox(props: {
 
   const startNew = async (seed: () => Promise<NewSessionSeed | null>): Promise<boolean> => {
     setSubmitting("new");
-    const created = await props.onCreate(seed, backendId(), providerId(), repo());
+    const created = await props.onCreate(seed, backendId(), providerId(), repo(), source());
     setSubmitting(null);
     return created;
   };
@@ -218,6 +235,7 @@ export function SessionInbox(props: {
         backendId(),
         providerId(),
         repo(),
+        null,
       )
     ) {
       setExistingBranch("");
@@ -352,7 +370,7 @@ export function SessionInbox(props: {
             backendId={backendId()}
             repo={repo()}
             base={base()}
-            sourceAvailable={sourceAvailable()}
+            source={source()}
             repoNamed={repoNamed()}
             providerId={providerId()}
             providerAvailable={agentProviders(backendId()).some(

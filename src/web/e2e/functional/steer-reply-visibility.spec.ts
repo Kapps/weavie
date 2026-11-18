@@ -51,7 +51,12 @@ test("all and collapsed retain complete thought history with ordinary prose typo
   await expect(thoughts.last().locator("pre")).toContainText("y".repeat(240));
   await page.reload();
   await expect(surface.locator(".agent-entry-result").last()).toContainText("setSetting:");
-  await expect(thoughts.locator("details")).toHaveCount(2);
+  // The reloaded pane is short enough to scroll the first thought out of the rendered rows.
+  await surface.locator(".agent-transcript-scroller").hover();
+  await expect(async () => {
+    await page.mouse.wheel(0, -2000);
+    await expect(thoughts.locator("details")).toHaveCount(2, { timeout: 500 });
+  }).toPass();
 });
 
 for (const mode of ["all", "collapsed"]) {

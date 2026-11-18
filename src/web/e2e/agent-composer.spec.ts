@@ -461,6 +461,7 @@ test.describe("ACP composer", () => {
       editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
       terminal: { family: "monospace", size: 13, weight: "normal" },
       interface: "Verdana, sans-serif",
+      interfaceSize: 15,
       prose: "Georgia, serif",
     });
 
@@ -479,12 +480,20 @@ test.describe("ACP composer", () => {
         code: await styles(".agent-markdown code"),
         composer: await styles("[data-agent-composer] textarea"),
         chromeFamily: (await styles(".agent-status-line")).family,
+        chromeSize: (await styles(".agent-status-line")).size,
+        chromeLine: await page
+          .locator(".agent-status-line")
+          .first()
+          .evaluate((element) => getComputedStyle(element).lineHeight),
       }))
       .toEqual({
         prose: { family: "Georgia, serif", size: "21px", weight: "400" },
         code: { family: '"Courier New", monospace', size: "21px", weight: "700" },
         composer: { family: '"Courier New", monospace', size: "21px", weight: "700" },
         chromeFamily: "Verdana, sans-serif",
+        // Interface text takes its size from the setting, on a line a third taller rounded up to an even pixel.
+        chromeSize: "15px",
+        chromeLine: "20px",
       });
   });
 

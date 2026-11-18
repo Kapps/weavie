@@ -208,7 +208,7 @@
     position: relative;
     width: fit-content;
     max-width: calc(100% - 2 * (16px - var(--card-pad)));
-    margin: calc(-10px - var(--card-pad)) 0 0 calc(16px - var(--card-pad));
+    margin: calc(-1 * var(--card-tag-rise) - var(--card-pad)) 0 0 calc(16px - var(--card-pad));
     padding: 2px 8px;
     background: var(--bg);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 22%, var(--bar));
@@ -217,9 +217,9 @@
 
   /* The dimmed, blurred layer behind a modal surface. */
   .ui-scrim {
-    background: rgba(0, 0, 0, 0.7);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.6);
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
   }
 
   .ui-kbd {
@@ -267,6 +267,24 @@
     font: var(--font-chrome-body);
   }
 
+  /* A flat well with a drawn chevron on every engine; WebKit otherwise paints the system's own button. */
+  select.ui-field {
+    appearance: none;
+    padding-right: 26px;
+    background-image:
+      linear-gradient(45deg, transparent 38%, currentColor 38% 62%, transparent 62%),
+      linear-gradient(135deg, transparent 38%, currentColor 38% 62%, transparent 62%);
+    background-position:
+      right calc(8px + var(--icon-size) / 2) center,
+      right calc(8px + var(--icon-size) / 4) center;
+    background-size: calc(var(--icon-size) / 4) calc(var(--icon-size) / 4);
+    background-repeat: no-repeat;
+  }
+
+  select.ui-field:disabled {
+    opacity: 0.45;
+  }
+
   .ui-field::placeholder {
     color: var(--dim);
   }
@@ -278,6 +296,14 @@
 
   .ui-field-mono {
     font: var(--font-chrome-mono);
+  }
+
+  /* A multi-line field of content text, as tall as its rows. */
+  .ui-field-content {
+    height: auto;
+    padding: 7px 8px;
+    font: var(--font-content);
+    resize: vertical;
   }
 
   /* A count between previous/next arrows ("‹ 1 / 4 ›"): the count carries the baseline, the arrows centre on it. */

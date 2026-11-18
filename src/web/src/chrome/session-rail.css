@@ -1,13 +1,14 @@
 /* The left session rail (SessionRail.tsx): each session as a status dot over its name, the parked toggle, the cloud button, and "+".
    Its slot holds a strip in the body row's flow, so the panes start to its right; expanded, the rail overlays them from there. */
 .session-rail-slot {
+  /* Wide enough for a seven-letter word of the session name at the badge size. */
+  --chip-face: calc(4.25 * var(--font-chrome-badge-size));
+  --chip-inset: 6px;
   position: relative;
   flex: 0 0 auto;
-  width: 56px;
+  width: calc(var(--chip-face) + 2 * var(--chip-inset) + 1px);
 }
 .session-rail {
-  --chip-face: 43px;
-  --chip-inset: 6px;
   position: absolute;
   top: 0;
   bottom: 0;

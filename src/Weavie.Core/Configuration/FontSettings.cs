@@ -4,7 +4,7 @@ using Weavie.Core.Json;
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Typography settings: the interface and prose (agent replies, rendered markdown) families, and family/size/weight
+/// Typography settings: the interface family and size, the prose (agent replies, rendered markdown) family, and family/size/weight
 /// for the Monaco editor and xterm terminal. A global
 /// <c>font.*</c> default is inherited by both; each surface may override any axis via <c>editor.font.*</c> /
 /// <c>terminal.font.*</c>, with an "inherit" sentinel (empty family/weight, <c>0</c> size) falling through.
@@ -41,6 +41,9 @@ public static class FontSettings {
 	/// <summary>Interface (chrome) font family: menus, tabs, panels, labels.</summary>
 	public const string InterfaceFamily = "interface.font.family";
 
+	/// <summary>Interface (chrome) text size in CSS px; rows, controls and icons scale with it.</summary>
+	public const string InterfaceSize = "interface.font.size";
+
 	/// <summary>Prose font family (agent replies, rendered markdown); empty inherits <see cref="InterfaceFamily"/>.</summary>
 	public const string ProseFamily = "prose.font.family";
 
@@ -52,7 +55,7 @@ public static class FontSettings {
 		GlobalFamily, GlobalSize, GlobalWeight,
 		EditorFamily, EditorSize, EditorWeight,
 		TerminalFamily, TerminalSize, TerminalWeight,
-		InterfaceFamily, ProseFamily,
+		InterfaceFamily, InterfaceSize, ProseFamily,
 	];
 
 	// Cross-platform monospace stack, ending in generic monospace so it never silently fails.
@@ -73,8 +76,11 @@ public static class FontSettings {
 	/// <summary>The default global font size (px), and the value the "reset font size" command restores.</summary>
 	public const long DefaultSize = 16;
 	private const string DefaultWeight = "normal";
+	private const long DefaultInterfaceSize = 13;
 	private const long MinSize = 6;
 	private const long MaxSize = 72;
+	private const long MinInterfaceSize = 10;
+	private const long MaxInterfaceSize = 18;
 
 	/// <summary>Clamps a font size to the allowed range, so the zoom commands stop at the bounds (never an error).</summary>
 	public static long ClampSize(long size) => Math.Clamp(size, MinSize, MaxSize);
@@ -134,6 +140,17 @@ public static class FontSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = InterfaceSize,
+			Kind = SettingKind.Int,
+			Description = "Text size in pixels for the interface: menus, tabs, panels, and labels. Rows, buttons, "
+				+ "fields, and icons scale with it.",
+			Aliases = ["interface font size", "ui font size", "ui size", "interface scale", "chrome font size"],
+			Apply = ApplyMode.Live,
+			Default = DefaultInterfaceSize,
+			Validate = ValidateInterfaceSize,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = ProseFamily,
 			Kind = SettingKind.String,
 			Description = "Font family for agent replies and rendered markdown (a CSS font-family stack); "
@@ -161,7 +178,8 @@ public static class FontSettings {
 		FirstNonEmpty(store.RequireString(ProseFamily)) ?? ResolveInterfaceFamily(store);
 
 	/// <summary>
-	/// Serializes the resolved editor + terminal fonts and the interface + prose families for bootstrap injection or a settings feature event.
+	/// Serializes the resolved editor + terminal fonts, the interface family and size, and the prose family for bootstrap
+	/// injection or a settings feature event.
 	/// </summary>
 	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
@@ -171,6 +189,7 @@ public static class FontSettings {
 			WriteFont(writer, "editor", editor);
 			WriteFont(writer, "terminal", terminal);
 			writer.WriteString("interface", ResolveInterfaceFamily(store));
+			writer.WriteNumber("interfaceSize", store.RequireInt(InterfaceSize));
 			writer.WriteString("prose", ResolveProseFamily(store));
 		});
 	}
@@ -223,9 +242,15 @@ public static class FontSettings {
 	}
 
 	private static ValidationResult ValidateSize(object? value) =>
-		value is long size && size is >= MinSize and <= MaxSize
+		ValidateRange(value, MinSize, MaxSize, "font size");
+
+	private static ValidationResult ValidateRange(object? value, long min, long max, string name) =>
+		value is long size && size >= min && size <= max
 			? ValidationResult.Success
-			: ValidationResult.Failure($"font size must be between {MinSize} and {MaxSize} pixels.");
+			: ValidationResult.Failure($"{name} must be between {min} and {max} pixels.");
+
+	private static ValidationResult ValidateInterfaceSize(object? value) =>
+		ValidateRange(value, MinInterfaceSize, MaxInterfaceSize, "interface font size");
 
 	private static ValidationResult ValidateOverrideSize(object? value) =>
 		value is long size && (size == 0 || size is >= MinSize and <= MaxSize)

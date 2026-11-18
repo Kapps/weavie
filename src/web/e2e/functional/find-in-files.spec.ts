@@ -245,15 +245,15 @@ test("code results follow editor typography while search chrome stays compact", 
   expect(initialResult.size).toBe(initialEditor.size);
   expect(initialResult.weight).toBe(initialEditor.weight);
   expect((await typography(metadata)).size).toBeCloseTo(initialEditor.size * 0.8125, 4);
-  expect((await typography(input)).size).toBe(12);
-  expect((await typography(hint)).size).toBe(12);
+  expect((await typography(input)).size).toBe(13);
+  expect((await typography(hint)).size).toBe(13);
 
   await page.keyboard.press("ControlOrMeta+=");
   await expect.poll(async () => (await typography(preview)).size).toBe(initialEditor.size + 1);
   await expect
     .poll(async () => (await typography(metadata)).size)
     .toBeCloseTo((initialEditor.size + 1) * 0.8125, 4);
-  expect((await typography(input)).size).toBe(12);
+  expect((await typography(input)).size).toBe(13);
 
   await page.keyboard.press("ControlOrMeta+0");
 });

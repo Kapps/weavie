@@ -53,6 +53,7 @@ export function AgentAsideReply(props: {
       </Show>
       <textarea
         ref={textarea}
+        class="ui-field ui-field-content"
         data-agent-paste-target
         aria-label="Reply to BTW"
         title={`Paste text or images${keyHint(CommandIds.agentPaste)}`}

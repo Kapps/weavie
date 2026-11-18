@@ -47,6 +47,11 @@ public sealed record WindowChrome(
 	/// <summary>A browser page: the bar with menus, and no window to move or buttons to draw.</summary>
 	public static WindowChrome Browser { get; } = new(true, CaptionMode.None, false, null, WindowControls.None, default);
 
+	/// <summary>A frameless window (Windows): the page draws menus, buttons and edge handles; the web engine owns the caption.</summary>
+	public static WindowChrome Frameless { get; } = new(
+		true, CaptionMode.Region, true, null,
+		new WindowControls([], [WindowControl.Minimize, WindowControl.MaximizeToggle, WindowControl.Close]), default);
+
 	/// <summary>A window whose OS title bar stays: the page draws no bar of its own.</summary>
 	public static WindowChrome NativeFrame { get; } = new(false, CaptionMode.None, false, null, WindowControls.None, default);
 }

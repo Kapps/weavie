@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { once } from "node:events";
-import { createServer } from "node:http";
 import { expect } from "@playwright/test";
-import { test } from "./fixture";
+import { localServer, test } from "./fixture";
 
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
@@ -45,7 +43,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     if (location.pathname === '/preview') document.body.insertAdjacentHTML('beforeend', '<iframe sandbox="allow-scripts" src="/opaque"></iframe>');
     addEventListener('message', () => { window.open('/top'); report('/ack/interactive'); });
   `;
-  const server = createServer((req, res) => {
+  const { origin, close } = await localServer((req, res) => {
     const url = new URL(req.url!, "http://localhost");
     res.setHeader("Access-Control-Allow-Origin", "*");
     if (url.pathname === "/done" && url.searchParams.get("nonce") === nonce)
@@ -76,9 +74,6 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       `<h1>Untrusted preview</h1><input placeholder="Preview still works"><script>${attack(origin)}</script>`,
     );
   });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
     expect((await fetch(`${origin}/app-frame?target=https://example.com/index.html`)).status).toBe(
       400,
@@ -137,7 +132,6 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       ]),
     );
   } finally {
-    server.closeAllConnections();
-    server.close();
+    close();
   }
 });

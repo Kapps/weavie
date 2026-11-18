@@ -276,54 +276,58 @@ const [chrome, setChrome] = createSignal<WeavieWindowChrome | null>(
 export const windowChrome = chrome;
 ```
 
-`caption-press.ts` (new) is the only place a press becomes a message:
+`caption-press.ts` (new) is the only place a press becomes a message. It installs once per page (the app and
+the welcome screen), like middle-click autoscroll, so neither bar wires handlers or needs a lint suppression:
 
 ```ts
 // Fires only when the pressed element itself is marked, so a button, input or menu can never start a drag.
 function isCaption(e: MouseEvent): boolean {
-  return windowChrome()?.caption === "press" && (e.target as Element).hasAttribute("data-caption");
+  return windowChrome()?.caption === "press" && e.target instanceof Element && e.target.hasAttribute("data-caption");
 }
-export function onCaptionMouseDown(e: MouseEvent): void {
-  if (!isCaption(e)) return;
-  e.preventDefault();          // keeps focus where it was, as a native title bar does
-  e.stopPropagation();         // a middle press must not start autoscroll
-  localHost()?.feature("window").publish("captionPress", { button: e.button, count: e.detail });
-}
-export function onCaptionContextMenu(e: MouseEvent): void {
-  if (isCaption(e)) e.preventDefault();
+export function installCaptionPress(): () => void {
+  // document, capture phase: mousedown -> preventDefault (focus stays put) + publish captionPress
+  //                          contextmenu -> preventDefault on caption space (the host's window menu owns it)
 }
 ```
 
+- A middle press on the bar never autoscrolls: autoscroll starts only on a scrollable surface, and the bar
+  has none. The browser spec checks it.
+- `.tb-icon > *` has `pointer-events: none`, so a press on the logo is a press on its caption box.
+
 `WindowControls.tsx` (new) renders one side's buttons from a `WindowControlAction[]`, reusing the `.tb-ctl`
-rules. Extracted from `TitleBar.tsx:51-82` so the welcome strip shares it.
+rules, and publishes `window.control` through `localWindowFeature()` (`window-state.ts`), the one lookup of
+the local host's `window` feature. Button names come from `window-control-label.ts`, which the specs share.
 
 `TitleBar.tsx` renders any description:
 
 ```tsx
-<div class="titlebar" data-caption classList={{ blurred: !props.focused }}
-     style={barStyle(chrome)} onMouseDown={onCaptionMouseDown} onContextMenu={onCaptionContextMenu}>
-  <WindowControls actions={chrome.controls.start} maximized={props.maximized} />
-  <div class="tb-left" data-caption>
+<div class="titlebar" data-caption classList={{ blurred: !props.focused, windowed: chrome.caption !== "none" }}
+     style={{ ...barStyle(chrome), "--titlebar-left": left, "--titlebar-right": right }}>
+  <div class="tb-left" data-caption ref={measure}>
+    <WindowControls actions={chrome.controls.start} maximized={props.maximized} />
     <Show when={chrome.menus}><span class="tb-icon" data-caption>…</span><Menu /></Show>
   </div>
   <div class="tb-center" data-caption><Omnibar … /></div>
-  <div class="tb-controls" data-caption>
+  <div class="tb-controls" data-caption ref={measure}>
     <Show when={build()}><span class="tb-build" data-caption>…</span></Show>
     <WindowControls actions={chrome.controls.end} maximized={props.maximized} />
   </div>
 </div>
 ```
 
-- `.titlebar` is a three-column grid, `minmax(max-content, 1fr) minmax(0, 576px) minmax(max-content, 1fr)`:
-  equal sides centre the omnibar in the window on every host, and a narrow window shrinks the omnibar
-  before either side. Start buttons live inside `.tb-left`.
+- `.titlebar` is a three-column grid whose omnibar column is
+  `min(omnibar + 16px, max(100% − 2 × wider side, --omnibar-min-width), 100% − both sides)`, and whose left
+  column places it as centred as the sides allow. A `ResizeObserver` measures each side's content
+  (`--titlebar-left`, `--titlebar-right`; the sides hug it with `justify-self`). So the omnibar is centred
+  while that leaves it 320px, then keeps 320px and slides off the wider side, then narrows between the sides;
+  the bar never needs more than both sides together. `--omnibar-width` (560px) is the omnibar's own width.
 - `barStyle` sets `--titlebar-h` when `barHeight` is non-null and `--titlebar-inset-start` / `-end` from
-  `inset`, which pad `.tb-left` and `.tb-controls` so the omnibar stays centred in the window, not in the
+  `inset`, which pad `.tb-left` and `.tb-controls`, so the omnibar is centred in the window, not in the
   space beside the traffic lights. `.titlebar` reads `height: var(--titlebar-h, 38px)`.
-- The Windows `app-region` rules stay as they are; the other engines ignore the property.
-- `.tb-controls` keeps `app-region: no-drag` only on the buttons, so the build number drags on Windows as
-  it does elsewhere. Check this against Windows behaviour before changing it; if it differs, leave Windows
-  as is.
+- The Windows `app-region` rules stay as they are; the other engines ignore the property. `.tb-ctl` and
+  `.tb-build` are `no-drag`, so on Windows the build number keeps its tooltip as before.
+- In the compact (narrow) layout a `windowed` bar stays a bar: without an OS title bar its buttons and caption
+  have nowhere else to go. Only the omnibar folds into the compact overlay.
 
 `App.tsx`: `CUSTOM_TITLEBAR`, `MAC_TITLEBAR`, `LINUX_TITLEBAR` and `HAS_TITLEBAR` collapse to
 `windowChrome() !== null`; `ResizeFrame` mounts on `chrome.resizeHandles`; the `NativeTitleBar` mount goes.
@@ -364,39 +368,43 @@ legacy controller is used because WebKit claims the pointer sequence, which woul
 controller on the window.
 
 ```
-CaptionGesture                                   // pure; owns no GTK handles
-  NativePress(button)        -> pressed = button; held = true; armed = false
-  NativeRelease()            -> held = false; armed = false   // pressed stays claimable
-  NativeMotion(pastThreshold)-> armed && held && pastThreshold ? (armed = false, Move) : None
+CaptionGesture (Weavie.Core.Shell)               // pure, shared with macOS; DOM button numbers
+  NativePress(button)        -> pressed = button; held = true
+  NativeRelease()            -> held = false                  // pressed stays claimable
   PagePress(button, count):
       pressed != button      -> None             // no unclaimed press of that button
-      pressed = 0                                // a report claims its press once
-      primary, count >= 2    -> DoubleClick
-      primary                -> armed = held; None
+      pressed = null                             // a report claims its press once
+      primary, count == 2    -> DoubleClick      // a third click is a plain press, not a second double
+      primary                -> held ? Drag : None
       middle                 -> MiddleClick
       secondary              -> SecondaryClick
 
 host:
-  button press    -> keep gdk_event_ref(event); gesture.NativePress(button)
-  button release  -> unref; gesture.NativeRelease()
-  motion          -> gesture.NativeMotion(gtk_drag_check_threshold(window, press.xy, now.xy))
+  button press    -> keep gdk_event_ref(event) until the next press; gesture.NativePress(gdkButton - 1)
+  button release  -> gesture.NativeRelease(); dragArmed = false
+  Drag            -> dragArmed = true
+  motion          -> dragArmed && gtk_drag_check_threshold(window, press.xy, now.xy)
+                       -> dragArmed = false; gdk_toplevel_begin_move(surface, device, 1, x, y, time)
   never returns true: WebKit still receives every event
 
-  Move            -> gdk_toplevel_begin_move(surface, device, button, x, y, time)
   DoubleClick     -> Perform(setting("gtk-titlebar-double-click"))
   MiddleClick     -> Perform(setting("gtk-titlebar-middle-click"))
   SecondaryClick  -> Perform(setting("gtk-titlebar-right-click"))
 
-Perform(action):                                 // the cases GtkWindowHandle implements
+Perform(action):
   "none"                 -> nothing
-  "toggle-maximize*"     -> ToggleMaximize()
+  "toggle-maximize*"     -> ToggleMaximize()     // GTK 4 can't maximize one axis
   "minimize"             -> gtk_window_minimize
   "lower"                -> gdk_toplevel_lower(surface)
   "menu"                 -> gdk_toplevel_show_window_menu(surface, pressEvent)
 ```
 
-- When `PagePress` arms a press whose pointer is already past the threshold, the next motion event starts
-  the move; no separate check is needed.
+- Saved geometry is `gtk_window_get_default_size`: GTK keeps it current through user resizes and it is the
+  measure `gtk_window_set_default_size` restores with. The widget size leaves out the client-side border,
+  so saving it shrank the window 10px per relaunch on X11 without a compositor.
+
+- When the report arrives after the pointer is already past the threshold, the next motion event starts the
+  move; no separate check is needed.
 - `surface` is `gtk_native_get_surface(_window)`. Settings are read through `g_object_get_property` with a
   `GValue`, not the variadic `g_object_get`.
 - `LinuxPlatform(bridge, recents, ILinuxWindow window, notifications)`: `ILinuxWindow` is
@@ -428,12 +436,11 @@ Measure(window) -> (BarHeight, ChromeInset):
 DoubleClickAction() -> Zoom | Minimize | None      // NSUserDefaults "AppleActionOnDoubleClick"
 ```
 
-`WeavieWebView : WKWebView` (new) records the press under the same pairing rule as Linux:
+`WeavieWebView : WKWebView` (new) owns a `CaptionGesture` and the latest primary mouse-down:
 
 ```
-MouseDown(e)  -> press = e; Held = true; base.MouseDown(e)
-MouseUp(e)    -> Held = false; base.MouseUp(e)        // press stays claimable
-TakePress()   -> returns press once, then null
+MouseDown(e)  -> LastPress = e; Caption.NativePress(primary); base.MouseDown(e)
+MouseUp(e)    -> Caption.NativeRelease(); base.MouseUp(e)
 AcceptsFirstMouse(e) -> e is inside the top CaptionHeight points of the view, else base
 ```
 
@@ -441,12 +448,11 @@ AcceptsFirstMouse(e) -> e is inside the top CaptionHeight points of the view, el
 
 ```
 Chrome = new(Menus: false, Caption: Press, ResizeHandles: false, BarHeight, Controls: none, Inset)
-ChromeChanged on fullscreen will-enter and did-exit
+ChromeChanged on fullscreen will-enter and will-exit
 
-PressCaption(press):
-  press.Button != primary || (e = _webView.TakePress()) is null -> return
-  press.Count >= 2 -> Zoom / Miniaturize / nothing, per DoubleClickAction()
-  else if _webView.Held -> Window.PerformWindowDrag(e)
+PressCaption(press): switch _webView.Caption.PagePress(press)
+  Drag        -> Window.PerformWindowDrag(_webView.LastPress)
+  DoubleClick -> Zoom / Miniaturize / nothing, per DoubleClickAction()
 ```
 
 - AppKit's drag loop does nothing until the pointer moves, so macOS needs no threshold of its own.
@@ -478,9 +484,10 @@ PressCaption(press):
 | Layer | Where | Covers |
 | --- | --- | --- |
 | Core unit | `tests/Weavie.Core.Tests/Shell/ShellTests.cs` | config script carries `chrome`; enum names on the wire; default members throw |
-| Hosting | `tests/Weavie.Hosting.Tests` with `TestHost` | `control`, `resize`, `captionPress` reach the window; `ChromeChanged` publishes `chrome`; hello pushes it |
+| Hosting | `tests/Weavie.Hosting.Tests` with `TestHost` | `control`, `resize`, `captionPress` reach the window; `ChromeChanged` publishes `chrome`, and nothing is pushed at hello |
 | Hosting | `WelcomeControllerTests.cs` | welcome config carries `chrome`; welcome routes `control` and `captionPress` |
-| Linux unit | `tests/Weavie.Linux.Tests` | `DecorationLayout.Parse`; `CaptionGesture` transitions, including late report, button mismatch, arm-then-motion, double-click |
+| Core unit | `tests/Weavie.Core.Tests/Shell/CaptionGestureTests.cs` | the pairing rule both hosts use: late report, release, claim once, button mismatch, double and triple click |
+| Linux unit | `tests/Weavie.Linux.Tests` | `DecorationLayout.Parse` |
 | macOS | `tests/Weavie.Mac.Tests/Main.cs` | `MacWindowChrome.Apply` then `Measure` on a real `NSWindow`: inset is positive, bar is taller than a plain title bar, the zoom button lies inside the bar |
 | Browser e2e | `src/web/e2e/functional`, mock host | one test per row of the description table: menus present or absent, control order and side, inset padding, no bar when `chrome` is absent; a pushed `chrome` re-renders; a marked element sends `captionPress`, a button inside the bar does not |
 | Real app | `src/web/e2e/desktop/window-chrome.spec.ts` | per system, the driver script reports the page's `chrome`, the bar's rectangle, the drawn controls, and `outerHeight - innerHeight`; the spec asserts the row for that system and attaches a screenshot |
@@ -506,13 +513,13 @@ PressCaption(press):
 | `src/Weavie.Core/CoreJson.cs` | `ShellConfigWire` shape |
 | `src/Weavie.Hosting/IHostPlatform.cs` | `TitleBar` removed; `Window` required |
 | `src/Weavie.Hosting/WindowFeature.cs` | new |
-| `src/Weavie.Hosting/HostCore.cs`, `HostCore.Messages.cs` | use `WindowFeature`; drop `_shell`; push chrome at hello |
+| `src/Weavie.Hosting/HostCore.cs`, `HostCore.Messages.cs` | use `WindowFeature`; drop `_shell` |
 | `src/Weavie.Hosting/Messaging/WireJson.cs` | `WindowChrome`, request payloads, `WelcomeConfigWire` |
 | `src/Weavie.Hosting/Web/WelcomeController.cs` | `WelcomeHost`; `WindowFeature`; config carries `chrome` |
 | `src/Weavie.Headless/HeadlessPlatform.cs` | `FixedShellWindow(WindowChrome.Browser)` |
 | `src/Weavie.Linux/WorkspaceHost.cs`, `.Welcome.cs` | hidden title bar; pass the window to core and welcome |
 | `src/Weavie.Linux/WorkspaceHost.Chrome.cs` | new: `IShellWindow`, recorder, actions |
-| `src/Weavie.Linux/Hosting/CaptionGesture.cs`, `DecorationLayout.cs` | new, pure |
+| `src/Weavie.Core/Shell/CaptionGesture.cs`, `src/Weavie.Linux/Hosting/DecorationLayout.cs` | new, pure |
 | `src/Weavie.Linux/Hosting/LinuxPlatform.cs` | window required; constructor regrouped |
 | `src/Weavie.Linux/Native/Gtk.cs`, `Gdk.cs`, `GLib.cs`, `Callbacks.cs` | bindings: titlebar, minimize, unmaximize, close, settings, legacy controller, event accessors, toplevel move / menu / lower, `GValue` |
 | `src/Weavie.Mac/WorkspaceWindow.cs`, `.Platform.cs` | `WeavieWebView`; apply chrome; fullscreen observers; `Window` is this |
@@ -522,7 +529,7 @@ PressCaption(press):
 | `src/Weavie.Win/WorkspaceWindow.cs`, `.Platform.cs` | `Chrome`, `ChromeChanged`; `TitleBar` removed |
 | `src/web/src/types/global.d.ts` | config types |
 | `src/web/src/chrome/window-state.ts` | `windowChrome` |
-| `src/web/src/chrome/caption-press.ts`, `WindowControls.tsx` | new |
+| `src/web/src/chrome/caption-press.ts`, `WindowControls.tsx`, `window-control-label.ts` | new |
 | `src/web/src/chrome/TitleBar.tsx`, `titlebar.css` | data-driven bar; `--titlebar-h`; native-strip rules deleted |
 | `src/web/src/chrome/NativeTitleBar.tsx` | deleted after the hand test |
 | `src/web/src/mobile/mobile-commands.css` | native-strip selectors deleted |
@@ -531,7 +538,6 @@ PressCaption(press):
 | `src/web/e2e/…` | two `titleBar` fixtures updated; layout tests; `desktop/window-chrome.spec.ts` |
 | `tests/…` | as in the testing table; `TestHost`, `ShellTests` updated |
 | `.github/workflows/ci.yml` | capture and input tools for the Linux desktop job |
-| `docs/concepts/architecture-overview.md` and any doc naming the title-bar modes | describe the chrome description |
 
 ## Risks
 
@@ -543,9 +549,9 @@ PressCaption(press):
 | The compact toolbar takes clicks meant for the page | Step 1. Alternative: no toolbar, `barHeight` null, and the traffic lights centred by setting their frames on layout and fullscreen change (decision 2's other branch) |
 | A late report meets the *next* press of the same button | Needs a second press within the round-trip time. Accepted; the button check narrows it |
 | Starting a move hides the release from the page | The page keeps no pressed state for the bar, and `preventDefault` stops selection and focus changes |
-| Middle press on the bar starts autoscroll | The caption handler stops propagation; covered by a browser test |
+| Middle press on the bar starts autoscroll | Autoscroll needs a scrollable surface and the bar has none; covered by a browser test |
 | `AppleActionOnDoubleClick` gains a value Weavie does not know | Zooms, the unset default. Named in the code where the preference is read |
-| Saved window size drifts under client-side decorations | Hand test relaunches twice and compares; the real-app spec reports the size on each launch |
+| Saved window size drifts under client-side decorations | Saved from GTK's default size; the real-app spec closes to welcome, reopens, and asserts the size held |
 | Square top corners on Linux | Decision 3 |
 | Desktop has no window menu | Nothing shown; stated in error handling |
 | Chrome changes while the page is still loading (fullscreen entered mid-load) | The page keeps its boot chrome until the next change: on macOS a traffic-light gap in fullscreen until exit. Cosmetic and rare; a push at hello would put every page connect over its message budget |

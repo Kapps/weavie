@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -29,11 +28,6 @@ export const test = base.extend<{ openPanes: OpenPanes }>({
   openPanes: async ({ page }, use) => {
     const hosts: MockHost[] = [];
     await use(async (transcripts) => {
-      if (!existsSync(join(distDir, "index.html"))) {
-        throw new Error(
-          `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-        );
-      }
       const sessions = Object.keys(transcripts).map((name) => mockSession(name, name, "acp"));
       const host = await MockHost.start({ distDir, sessions });
       hosts.push(host);

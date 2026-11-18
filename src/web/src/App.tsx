@@ -53,6 +53,7 @@ import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
 import { ChoicePicker } from "./chrome/ChoicePicker";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { CredentialPrompt } from "./chrome/CredentialPrompt";
+import { installCaptionPress } from "./chrome/caption-press";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
@@ -1929,6 +1930,7 @@ export default function App(): JSX.Element {
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
     const offAutoscroll = installMiddleClickAutoscroll();
+    const offCaptionPress = installCaptionPress();
     const offNativeApplicationMenu = installNativeApplicationMenu();
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
@@ -1982,6 +1984,7 @@ export default function App(): JSX.Element {
       offClipboardTrimming();
       offDoubleShift();
       offAutoscroll();
+      offCaptionPress();
       offNativeApplicationMenu();
       for (const off of offCommands) {
         off();

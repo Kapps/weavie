@@ -33,6 +33,9 @@ internal static partial class Gtk {
 	internal static partial void gtk_window_set_default_size(IntPtr window, int width, int height);
 
 	[LibraryImport(Lib)]
+	internal static partial void gtk_window_get_default_size(IntPtr window, out int width, out int height);
+
+	[LibraryImport(Lib)]
 	internal static partial void gtk_window_maximize(IntPtr window);
 
 	[LibraryImport(Lib)]

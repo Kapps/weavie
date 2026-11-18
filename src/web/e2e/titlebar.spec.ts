@@ -1,76 +1,18 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page } from "@playwright/test";
+import { windowControlLabel } from "../src/chrome/window-control-label";
 import { test } from "./harness/network-fixtures";
+import { CHROME, installShell } from "./harness/window-chrome";
 import { type MessageEnvelope, MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
+const labels = (actions: WindowControlAction[]): string[] =>
+  actions.map((action) => windowControlLabel(action, false));
 
-type Chrome = WeavieWindowChrome;
-
-// One description per host the bar serves.
-const CHROME: Record<string, Chrome> = {
-  windows: {
-    menus: true,
-    caption: "region",
-    resizeHandles: true,
-    barHeight: null,
-    controls: { start: [], end: ["minimize", "maximize-toggle", "close"] },
-    inset: { start: 0, end: 0 },
-  },
-  linux: {
-    menus: true,
-    caption: "press",
-    resizeHandles: false,
-    barHeight: null,
-    controls: { start: ["close", "minimize"], end: ["maximize-toggle"] },
-    inset: { start: 0, end: 0 },
-  },
-  mac: {
-    menus: false,
-    caption: "press",
-    resizeHandles: false,
-    barHeight: 44,
-    controls: { start: [], end: [] },
-    inset: { start: 78, end: 0 },
-  },
-  browser: {
-    menus: true,
-    caption: "none",
-    resizeHandles: false,
-    barHeight: null,
-    controls: { start: [], end: [] },
-    inset: { start: 0, end: 0 },
-  },
-};
-
-const LABELS: Record<string, string> = {
-  minimize: "Minimize",
-  "maximize-toggle": "Maximize",
-  close: "Close",
-};
-
-async function openApp(page: Page, chrome: Chrome | null): Promise<MockHost> {
-  if (chrome !== null) {
-    await page.addInitScript((injected) => {
-      window.__WEAVIE_SHELL__ = {
-        platform: "linux",
-        chrome: injected,
-        workspaceLabel: "titlebar-test",
-        recents: [],
-        buildNumber: "test",
-      };
-    }, chrome);
-  }
+async function openApp(page: Page, chrome: WeavieWindowChrome | null): Promise<MockHost> {
+  if (chrome !== null) await installShell(page, "linux", chrome);
   const host = await MockHost.start({ distDir, sessions: [mockSession("main", "main", "acp")] });
   await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
   await host.waitUntilConnected();
@@ -102,8 +44,8 @@ for (const [name, chrome] of Object.entries(CHROME)) {
       const end = await page
         .locator(".titlebar .tb-controls > .tb-ctl")
         .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
-      expect(start).toEqual(chrome.controls.start.map((action) => LABELS[action]));
-      expect(end).toEqual(chrome.controls.end.map((action) => LABELS[action]));
+      expect(start).toEqual(labels(chrome.controls.start));
+      expect(end).toEqual(labels(chrome.controls.end));
       const box = await bar.boundingBox();
       expect(box?.height).toBe(chrome.barHeight ?? 38);
       expect(
@@ -160,6 +102,8 @@ test("presses on empty bar space go to the host, controls and the search box do 
 
     await badge.click();
     await badge.click({ button: "middle" });
+    // A middle press on the bar is the window's, never the page's autoscroll.
+    await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
     await badge.dblclick();
     await page.locator(".tb-omnibar").click();
     await page.locator(".titlebar .tb-ctl[aria-label='Close']").click();
@@ -218,3 +162,60 @@ test("the welcome screen draws a caption strip only when its window has no title
     await host.close();
   }
 });
+
+test("a narrow desktop window keeps its window buttons and caption", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 800 });
+  const host = await openApp(page, CHROME.linux);
+  try {
+    await expect(page.locator(".tb-left > .tb-ctl")).toHaveCount(2);
+    for (const button of await page.locator(".titlebar .tb-ctl").all()) {
+      await expect(button).toBeVisible();
+    }
+    const bar = await page.locator(".titlebar").boundingBox();
+    expect(bar?.height).toBe(38);
+  } finally {
+    await host.close();
+  }
+});
+
+test("a narrow browser page folds its bar into the compact layout", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 800 });
+  const host = await openApp(page, CHROME.browser);
+  try {
+    await expect(page.locator(".app")).toBeVisible();
+    await expect(page.locator(".tb-left")).toBeHidden();
+  } finally {
+    await host.close();
+  }
+});
+
+// Wide windows centre the omnibar; narrower ones keep it usable, then fit it between the sides, and never push
+// the bar's ends out of the window.
+for (const name of ["linux", "linuxLeft", "windows", "mac"] as const) {
+  test(`the ${name} bar fits every window width`, async ({ page }) => {
+    const host = await openApp(page, CHROME[name]);
+    try {
+      for (const width of [500, 720, 800, 1000, 1280]) {
+        await page.setViewportSize({ width, height: 800 });
+        await expect
+          .poll(() =>
+            page.locator(".titlebar .tb-ctl, .tb-build").evaluateAll(
+              (items, width) =>
+                items.every((item) => {
+                  const box = item.getBoundingClientRect();
+                  return box.left >= 0 && box.right <= width;
+                }),
+              width,
+            ),
+          )
+          .toBe(true);
+        if (width > 760) {
+          const omnibar = await page.locator(".tb-omnibar").boundingBox();
+          expect(omnibar?.width, `omnibar at ${width}px`).toBeGreaterThanOrEqual(300);
+        }
+      }
+    } finally {
+      await host.close();
+    }
+  });
+}

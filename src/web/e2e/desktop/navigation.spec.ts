@@ -1,9 +1,7 @@
-import { once } from "node:events";
 import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { type WebSocket, WebSocketServer } from "ws";
-import { test } from "./fixture";
+import { localServer, test } from "./fixture";
 
 test.use({ desktopDocument: "bridge" });
 
@@ -11,7 +9,7 @@ for (const destination of ["foreign", "redirect"]) {
   test(`native policy cancels ${destination} top navigation`, async ({ desktop }, info) => {
     const connected = Promise.withResolvers<WebSocket>();
     const complete = Promise.withResolvers<string>();
-    const server = createServer((req, res) => {
+    const { server, origin, close } = await localServer((req, res) => {
       const url = new URL(req.url!, "http://localhost");
       if (url.pathname === "/done") complete.resolve(url.searchParams.get("result")!);
       if (url.pathname === "/redirect")
@@ -26,9 +24,6 @@ for (const destination of ["foreign", "redirect"]) {
       socket.on("error", (error) => complete.resolve(String(error)));
       connected.resolve(socket);
     });
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
-    const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     try {
       const app = await desktop(
         (workspace) => `
@@ -76,8 +71,7 @@ for (const destination of ["foreign", "redirect"]) {
     } finally {
       for (const socket of sockets.clients) socket.terminate();
       sockets.close();
-      server.closeAllConnections();
-      server.close();
+      close();
     }
   });
 }

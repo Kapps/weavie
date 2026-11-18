@@ -1,7 +1,7 @@
 import { ArrowRight, FolderClosed, FolderOpen, Sparkles } from "lucide-solid";
 import { createSignal, For, type JSX, Show } from "solid-js";
-import { hostConnection, LOCAL_BACKEND_ID } from "../bridge";
 import { WeavieIcon } from "../chrome/WeavieIcon";
+import { localWindowFeature } from "../chrome/window-state";
 import { GettingStarted } from "../getting-started/GettingStarted";
 
 // The empty-state screen: app mark + wordmark, Getting Started until setup is done, then an Open Folder action and
@@ -12,14 +12,9 @@ export function Welcome(): JSX.Element {
   const [settingUp, setSettingUp] = createSignal(
     window.__WEAVIE_WELCOME__?.setupCompleted === false,
   );
-  const openFolder = (): void =>
-    hostConnection(LOCAL_BACKEND_ID)
-      ?.host.feature("window")
-      .publish("menu", { action: "open-folder" });
+  const openFolder = (): void => localWindowFeature()?.publish("menu", { action: "open-folder" });
   const openRecent = (path: string): void =>
-    hostConnection(LOCAL_BACKEND_ID)
-      ?.host.feature("window")
-      .publish("menu", { action: "open-recent", path });
+    localWindowFeature()?.publish("menu", { action: "open-recent", path });
 
   return (
     <div class="welcome">

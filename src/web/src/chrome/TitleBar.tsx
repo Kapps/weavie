@@ -1,14 +1,12 @@
-import { type JSX, Show } from "solid-js";
+import { createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { SymbolActions } from "../symbols/symbol-match";
-import { onCaptionContextMenu, onCaptionMouseDown } from "./caption-press";
 import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
 import { WeavieIcon } from "./WeavieIcon";
 import { WindowControls } from "./WindowControls";
 
-// The window's title bar on every host, drawn from the host's chrome description: menus, omnibar, build
-// badge, and whichever window buttons the page draws. The omnibar is centred in the window. Empty bar space is marked `data-caption`; on Windows
-// CSS `app-region` makes it the caption, elsewhere a press there goes to the host (caption-press.ts).
+// The window's title bar on every host, drawn from its chrome description; empty space is `data-caption`
+// (caption-press.ts), and the omnibar is placed from the sides' measured widths (titlebar.css).
 export function TitleBar(props: {
   chrome: WeavieWindowChrome;
   maximized: boolean;
@@ -24,18 +22,34 @@ export function TitleBar(props: {
   const shell = window.__WEAVIE_SHELL__;
   const label = (): string => shell?.workspaceLabel ?? "weavie";
   const build = (): string => shell?.buildNumber ?? "";
+  let left: HTMLElement | undefined;
+  let right: HTMLElement | undefined;
+  const [sides, setSides] = createSignal({ left: 0, right: 0 });
+  // The grid places the omnibar from each side's content width (titlebar.css).
+  const observer = new ResizeObserver(() =>
+    setSides({ left: left?.offsetWidth ?? 0, right: right?.offsetWidth ?? 0 }),
+  );
+  onCleanup(() => observer.disconnect());
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: window dragging is pointer-only; the OS owns its keyboard path.
     <div
       class="titlebar"
-      classList={{ blurred: !props.focused }}
-      style={barStyle(props.chrome)}
+      classList={{ blurred: !props.focused, windowed: props.chrome.caption !== "none" }}
+      style={{
+        ...barStyle(props.chrome),
+        "--titlebar-left": `${sides().left}px`,
+        "--titlebar-right": `${sides().right}px`,
+      }}
       data-caption
-      onMouseDown={onCaptionMouseDown}
-      onContextMenu={onCaptionContextMenu}
     >
-      <div class="tb-left" data-caption>
+      <div
+        class="tb-left"
+        data-caption
+        ref={(el) => {
+          left = el;
+          observer.observe(el);
+        }}
+      >
         <WindowControls actions={props.chrome.controls.start} maximized={props.maximized} />
         <Show when={props.chrome.menus}>
           <span class="tb-icon" aria-hidden="true" data-caption>
@@ -58,7 +72,14 @@ export function TitleBar(props: {
         />
       </div>
 
-      <div class="tb-controls" data-caption>
+      <div
+        class="tb-controls"
+        data-caption
+        ref={(el) => {
+          right = el;
+          observer.observe(el);
+        }}
+      >
         <Show when={build()}>
           <span class="tb-build" title={`Weavie ${build()}`} data-caption>
             {build()}

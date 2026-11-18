@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
@@ -8,12 +7,6 @@ import { test } from "./harness/network-fixtures";
 import { MOCK_AGENT_DEFAULTS, MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(`built app not found at ${distDir}; run \`pnpm run build\` first`);
-  }
-});
 
 test.describe("native in-process bridge contract", () => {
   let host: MockHost;

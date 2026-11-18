@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -279,9 +279,6 @@ const catalog = {
 };
 
 test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(`built app not found at ${distDir}; run \`pnpm run build\` first`);
-  }
   mkdirSync(shotsDir, { recursive: true });
 });
 

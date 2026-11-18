@@ -5,11 +5,11 @@ using Weavie.Linux.Native;
 
 namespace Weavie.Linux;
 
-// The window's own title bar: client-side decorations with no visible GTK header, so the page's bar is the only
-// one. The page draws the desktop's button layout and reports caption presses; the press is paired with the native
-// one recorded here and run as the desktop's title-bar gesture.
+// Client-side decorations with no visible GTK header, so the page's bar is the window's only title bar; a
+// caption press it reports is paired with the native press recorded here and run as the desktop's gesture.
 internal sealed partial class WorkspaceHost {
 	private readonly CaptionGesture _caption = new();
+	private bool _dragArmed;
 	private IntPtr _lastPress;
 	private double _pressX;
 	private double _pressY;
@@ -33,6 +33,9 @@ internal sealed partial class WorkspaceHost {
 
 	void IShellWindow.PressCaption(CaptionPress press) {
 		switch (_caption.PagePress(press)) {
+			case CaptionAction.Drag:
+				_dragArmed = true;
+				break;
 			case CaptionAction.DoubleClick:
 				Perform(Setting("gtk-titlebar-double-click"));
 				break;
@@ -83,15 +86,19 @@ internal sealed partial class WorkspaceHost {
 
 				_lastPress = Gdk.gdk_event_ref(gdkEvent);
 				_ = Gdk.gdk_event_get_position(gdkEvent, out _pressX, out _pressY);
-				_caption.NativePress(Gdk.gdk_button_event_get_button(gdkEvent));
+				// GDK numbers buttons 1 (primary), 2 (middle), 3 (secondary); the page's DOM numbers start at 0.
+				_caption.NativePress((int)Gdk.gdk_button_event_get_button(gdkEvent) - 1);
+				_dragArmed = false;
 				break;
 			case Gdk.ButtonRelease:
 				_caption.NativeRelease();
+				_dragArmed = false;
 				break;
-			case Gdk.MotionNotify:
+			// The move waits for the drag threshold, as GTK's own title bar does, so a double-click stays possible.
+			case Gdk.MotionNotify when _dragArmed:
 				_ = Gdk.gdk_event_get_position(gdkEvent, out double x, out double y);
-				bool past = Gtk.gtk_drag_check_threshold(_window, (int)_pressX, (int)_pressY, (int)x, (int)y);
-				if (_caption.NativeMotion(past) == CaptionAction.Move) {
+				if (Gtk.gtk_drag_check_threshold(_window, (int)_pressX, (int)_pressY, (int)x, (int)y)) {
+					_dragArmed = false;
 					Gdk.gdk_toplevel_begin_move(
 						Surface(), Gdk.gdk_event_get_device(_lastPress), 1, _pressX, _pressY, Gdk.gdk_event_get_time(gdkEvent));
 				}
@@ -102,10 +109,10 @@ internal sealed partial class WorkspaceHost {
 		return 0;
 	}
 
-	// The actions GTK's own title bar runs for the desktop's gtk-titlebar-* settings; anything else does nothing.
+	// The desktop's gtk-titlebar-* actions. GTK 4 can't maximize one axis, so those variants toggle maximize.
 	private void Perform(string? action) {
 		switch (action) {
-			case "toggle-maximize":
+			case "toggle-maximize" or "toggle-maximize-horizontally" or "toggle-maximize-vertically":
 				ToggleMaximize();
 				break;
 			case "minimize":

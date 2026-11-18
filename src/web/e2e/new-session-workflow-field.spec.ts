@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page } from "@playwright/test";
@@ -83,14 +82,6 @@ function roleControls(model: string) {
     error: null,
   };
 }
-
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
 
 async function openSessions(page: Page, host: MockHost): Promise<void> {
   host.setSessions([mockSession("main", "main", "acp")]);

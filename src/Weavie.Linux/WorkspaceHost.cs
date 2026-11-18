@@ -245,23 +245,17 @@ internal sealed partial class WorkspaceHost : IWebSurface, ILinuxWindow {
 	}
 
 	/// <summary>
-	/// Snapshots the current geometry. A maximized or hidden window is not reporting the bounds to restore to
-	/// — hidden it reports nothing at all — so the last ones it did report stand.
+	/// Snapshots the current geometry. GTK's default size is the unmaximized size, kept current through user resizes,
+	/// in the measure <see cref="ApplyGeometry"/> restores with; the widget size leaves out the client-side border.
 	/// </summary>
 	private LayoutGeometry CaptureWindowState() {
-		bool maximized = Gtk.gtk_window_is_maximized(_window);
-		int width = Gtk.gtk_widget_get_width(_window);
-		int height = Gtk.gtk_widget_get_height(_window);
-		if ((maximized || width == 0 || height == 0) && _core!.SavedWindow is { } prior) {
-			return prior with { Maximized = maximized };
-		}
-
+		Gtk.gtk_window_get_default_size(_window, out int width, out int height);
 		return new LayoutGeometry {
 			X = 0,
 			Y = 0,
 			Width = width,
 			Height = height,
-			Maximized = maximized,
+			Maximized = Gtk.gtk_window_is_maximized(_window),
 		};
 	}
 }

@@ -1,16 +1,29 @@
 /* The window's title bar, menu dropdowns, and window buttons (TitleBar / WindowControls / Menu). */
 
-/* ── Title bar ───────────────────────────────────────────────────────────────────────────────────
-   Drawn from the host's chrome description: icon + menus, a center omnibar, the build badge, and the
-   page-drawn window buttons. On Windows `app-region: drag` makes the background the caption (WebView2);
-   other engines ignore it and the host handles presses on `data-caption` space. The host may set the
-   height (`--titlebar-h`, macOS's title bar) and inline padding (room for its own buttons). */
-/* Equal side columns keep the omnibar centred in the window; when space runs out the omnibar narrows
-   before either side gives up its content. */
+/* Title bar: the omnibar is centred while that leaves it `--omnibar-min-width`, then slides off the wider side,
+   then narrows between the sides (measured by TitleBar). On Windows `app-region` is the caption. */
 .titlebar {
+  --omnibar-width: 560px;
+  --omnibar-min-width: 320px;
+  --titlebar-center: max(
+    0px,
+    min(
+      calc(var(--omnibar-width) + 16px),
+      max(
+        calc(100% - 2 * max(var(--titlebar-left), var(--titlebar-right))),
+        var(--omnibar-min-width)
+      ),
+      calc(100% - var(--titlebar-left) - var(--titlebar-right))
+    )
+  );
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) minmax(0, 576px) minmax(max-content, 1fr);
+  grid-template-columns:
+    min(
+      max(var(--titlebar-left), calc((100% - var(--titlebar-center)) / 2)),
+      calc(100% - var(--titlebar-center) - var(--titlebar-right))
+    )
+    var(--titlebar-center) minmax(0, 1fr);
   align-items: center;
   box-sizing: border-box;
   height: var(--titlebar-h, 38px);
@@ -23,6 +36,11 @@
 
 .titlebar.blurred {
   color: var(--dim);
+}
+
+/* A press on the logo is a press on its caption box. */
+.tb-icon > * {
+  pointer-events: none;
 }
 
 .tb-icon {
@@ -43,7 +61,9 @@
   align-items: center;
 }
 
+/* The sides hug their content (TitleBar measures them); the rest of each column is the bar's caption. */
 .tb-left {
+  justify-self: start;
   align-self: stretch;
   gap: 2px;
   padding-inline-start: calc(8px + var(--titlebar-inset-start, 0px));
@@ -59,15 +79,18 @@
 }
 
 .tb-controls {
+  justify-self: end;
   /* Stretch to the bar height so the buttons fill it (height: 100%) rather than a hardcoded px height. */
   align-self: stretch;
-  justify-content: flex-end;
   padding-inline-end: var(--titlebar-inset-end, 0px);
 }
 
 /* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular
    numerals keep it from jittering; the full version sits in its tooltip. */
 .tb-build {
+  /* WebView2 gives a drag region no mouse events, so on Windows the badge stays out of it for its tooltip. */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
   font: var(--font-chrome-body);
   font-variant-numeric: tabular-nums;
   padding: 0 10px;

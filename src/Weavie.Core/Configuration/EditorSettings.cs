@@ -171,7 +171,7 @@ public static class EditorSettings {
 			Owner = SettingOwner.Device,
 			Default = "en",
 			Apply = ApplyMode.Live,
-			Description = "Spelling dictionary. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; a regional dictionary or another language downloads the first time a machine checks spelling with it. Run weavie.spell.setLocale without arguments to list locale codes.",
+			Description = "Spelling dictionary. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; a regional dictionary or another language downloads the first time a machine checks spelling with it. Set it with setSetting; weavie.spell.setLocale without arguments lists locale codes.",
 			Aliases = ["spelling language", "spelling locale", "dictionary language"],
 			Validate = value => value is string locale && SpellLanguages.IsLocaleCode(locale)
 				? ValidationResult.Success

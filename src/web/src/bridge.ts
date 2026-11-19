@@ -2,7 +2,13 @@ import { createSignal } from "solid-js";
 import type { CommandResult } from "./commands/types";
 import { basename } from "./editor/fs-path";
 import { ChunkedMessageReceiver } from "./messaging/chunked-message";
-import { type ClientSession, HostConnection, type HostHello } from "./messaging/host-connection";
+import {
+  type ClientSession,
+  type HomeHello,
+  HostConnection,
+  type HostHello,
+  homeHello,
+} from "./messaging/host-connection";
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type {
@@ -59,7 +65,7 @@ const installedHostFeatures = new Map<
 const [backendList, setBackendList] = createSignal<BackendInfo[]>([]);
 const [selected, setSelected] = createSignal<ClientSession | null>(null);
 const [resourceBases, setResourceBases] = createSignal<Record<string, string>>({});
-type SelectionLocation = NonNullable<HostHello["rail"]["selected"]>;
+type SelectionLocation = NonNullable<HomeHello["rail"]["selected"]>;
 const [preferredSelection, setPreferredSelection] = createSignal<SelectionLocation | null>(null);
 const [localSelectionReady, setLocalSelectionReady] = createSignal(false);
 let selectionChosenBeforeRestore = false;
@@ -300,7 +306,7 @@ function rememberSelection(session: ClientSession): void {
 
 function restoreSelection(hello: HostHello): void {
   if (!selectionChosenBeforeRestore) {
-    setPreferredSelection(hello.rail.selected);
+    setPreferredSelection(homeHello(hello).rail.selected);
   }
   setLocalSelectionReady(true);
   reconcileSessions();

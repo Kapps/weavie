@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Commands;
@@ -520,8 +521,12 @@ internal partial class MessageBus : IAsyncDisposable {
 		}
 
 		if (dispatch is not null) {
-			Received?.Invoke(peer, envelope);
-			admitted!.SetResult();
+			try {
+				Received?.Invoke(peer, envelope);
+			} finally {
+				admitted!.SetResult();
+			}
+
 			return dispatch;
 		}
 
@@ -545,6 +550,11 @@ internal partial class MessageBus : IAsyncDisposable {
 
 		return Task.CompletedTask;
 	}
+
+	/// <summary>The connected pages that have sent this bus a message.</summary>
+	internal ICollection<MessagePeer> Peers => _peers.Values;
+
+	internal bool TryGetPeer(WebPeer peer, [NotNullWhen(true)] out MessagePeer? owner) => _peers.TryGetValue(peer, out owner);
 
 	internal MessagePeer Peer(WebPeer peer) =>
 		_peers.GetOrAdd(peer, candidate => new MessagePeer(this, candidate));

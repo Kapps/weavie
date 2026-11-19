@@ -22,6 +22,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	// The device setting groups: each is a page global before navigation, a field of the hello's device settings,
 	// and a "settings" push when one of its keys changes.
 	private readonly DeviceGroup[] _deviceGroups;
+	private readonly DeviceGroup _themeGroup;
 
 	public GlobalHostFeatures(HostMessageBus host, HostServices services, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(host);
@@ -33,7 +34,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		var settings = services.Settings;
 		_deviceGroups = [
 			new("fonts", "__WEAVIE_FONTS__", FontSettings.Keys, () => FontSettings.BuildJson(settings)),
-			new("theme", "__WEAVIE_THEME__", ThemeSettings.Keys, () => ThemeJson.Build(settings, services.ThemeOverrides, log)),
+			_themeGroup = new("theme", "__WEAVIE_THEME__", ThemeSettings.Keys, () => ThemeJson.Build(settings, services.ThemeOverrides, log)),
 			new("editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.Keys, () => EditorSettings.BuildJson(settings)),
 			new("notifications", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.Keys, () => NotificationSettings.BuildJson(settings)),
 			new("agentDisplay", "__WEAVIE_AGENT_DISPLAY__", AgentSettings.DisplayKeys, () => AgentSettings.BuildDisplayJson(settings)),
@@ -179,7 +180,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 	private void OnThemeOverridesChanged(string themeId) {
 		if (ThemeSettings.IsSelectedThemeId(_services.Settings, themeId)) {
-			PushDeviceGroups(group => group.Name == "theme");
+			PushDeviceGroups(group => group == _themeGroup);
 		}
 	}
 

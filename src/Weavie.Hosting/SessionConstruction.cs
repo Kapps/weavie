@@ -33,8 +33,8 @@ internal sealed record SessionServices {
 
 	public required HostRuntimeInfo Runtime { get; init; }
 
-	/// <summary>The name of the machine the sessions run on, as the settings tools report it.</summary>
-	public required string MachineName { get; init; }
+	/// <summary>The settings tools over this machine's store.</summary>
+	public required SettingsTools SettingsTools { get; init; }
 
 	public required SessionWorkflowServices Workflow { get; init; }
 }

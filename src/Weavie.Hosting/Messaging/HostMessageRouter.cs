@@ -4,7 +4,7 @@ using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
-internal sealed class HostMessageRouter : IAsyncDisposable {
+internal sealed partial class HostMessageRouter : IAsyncDisposable {
 	private readonly IWebTransportHub _transport;
 	private readonly SessionMessageRouter _sessions;
 	private readonly MessageOperationRegistry _operations;
@@ -32,9 +32,6 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	}
 
 	public HostMessageBus Host { get; }
-
-	/// <summary>The home each connected page named; a disconnecting page leaves it before its requests settle.</summary>
-	internal PageHomes Homes { get; } = new();
 
 	internal DiagnosticWorker Diagnostics { get; }
 
@@ -122,7 +119,6 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	}
 
 	public void Disconnect(WebPeer peer) {
-		Homes.Disconnected(peer);
 		lock (_viewLifecycle) {
 			_views.Disconnect(peer);
 			Host.Disconnect(peer);

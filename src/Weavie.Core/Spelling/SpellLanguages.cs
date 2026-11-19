@@ -10,20 +10,21 @@ namespace Weavie.Core.Spelling;
 /// <summary>Versioned Hunspell dictionaries, downloaded under a cache root the first time a locale is asked for.</summary>
 public sealed partial class SpellLanguages(string cacheRoot, HttpClient http) : IDisposable {
 	/// <summary>What a locale code looks like, for the surfaces that reject one.</summary>
-	public const string LocaleCodeHint = "Use a locale code such as en-US, en-GB, fr, or de. Run Set Spelling Locale without arguments to list available codes.";
+	public const string LocaleCodeHint = "Use a locale code such as en-US, en-GB, fr, or de. Run Set Spelling Locale without arguments to list available codes, then set editor.spellCheckLocale.";
 
 	private const string Revision = "8cfea406b505e4d7df52d5a19bce525df98c54ab";
 	private readonly string _cache = Path.Combine(cacheRoot, "dictionaries", Revision);
 	private readonly CancellationTokenSource _lifetime = new();
 	private readonly Lock _gate = new();
-	private readonly Dictionary<string, Task<SpellVocabulary>> _installs = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, Task<SpellVocabulary>> _vocabularies = new(StringComparer.Ordinal);
 
 	/// <summary>Whether <paramref name="locale"/> has the shape of a dictionary locale code.</summary>
 	public static bool IsLocaleCode(string locale) => LocaleCode().IsMatch(locale);
 
 	/// <summary>
 	/// The dictionary for <paramref name="locale"/>, installing it when this machine doesn't have it. Callers for
-	/// one locale share one install, which outlives any single caller's cancellation.
+	/// one locale share one install, which outlives any single caller's cancellation; a failed download is tried
+	/// again by the next caller, and a locale with no dictionary stays refused.
 	/// </summary>
 	public async Task<SpellVocabulary> ForAsync(string locale, CancellationToken ct) {
 		if (locale == "en") return SpellVocabulary.English.Value;
@@ -31,17 +32,17 @@ public sealed partial class SpellLanguages(string cacheRoot, HttpClient http) : 
 		string path = Path.Combine(_cache, locale);
 		Task<SpellVocabulary> install;
 		lock (_gate) {
-			if (!_installs.TryGetValue(locale, out install!)) {
+			if (!_vocabularies.TryGetValue(locale, out install!)) {
 				var lifetime = _lifetime.Token;
 				install = Task.Run(() => Directory.Exists(path) ? Task.FromResult(Load(path, locale)) : DownloadAsync(locale, path, lifetime), lifetime);
-				_installs[locale] = install;
+				_vocabularies[locale] = install;
 			}
 		}
 		try {
 			return await install.WaitAsync(ct).ConfigureAwait(false);
-		} catch when (install.IsFaulted || install.IsCanceled) {
+		} catch (Exception failure) when (failure is not ArgumentException && (install.IsFaulted || install.IsCanceled)) {
 			lock (_gate) {
-				if (_installs.GetValueOrDefault(locale) == install) _installs.Remove(locale);
+				if (_vocabularies.GetValueOrDefault(locale) == install) _vocabularies.Remove(locale);
 			}
 			throw;
 		}

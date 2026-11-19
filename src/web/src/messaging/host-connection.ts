@@ -31,12 +31,8 @@ export interface DeviceIdentity {
   name: string;
 }
 
-export interface HostHello {
-  device: DeviceIdentity;
-  hostIncarnation: string;
-  buildNumber: string;
-  sessions: SessionCatalogEntry[];
-  layout: unknown;
+/** A host's snapshot for the pages it serves: its remote agents, chrome state and device setting groups by name. */
+export interface HomeHello {
   remoteAgents: { name: string; url: string; token: string }[];
   rail: {
     lastLocation: string;
@@ -58,11 +54,26 @@ export interface HostHello {
     recentTerms: string[];
   };
   reviewOverview: { collapsed: string[] };
+  deviceSettings: Record<string, unknown>;
+}
+
+/** The home snapshot of a hello from the host that serves this page. */
+export function homeHello(hello: HostHello): HomeHello {
+  if (hello.home === null) throw new Error("This host does not serve the page.");
+  return hello.home;
+}
+
+export interface HostHello {
+  device: DeviceIdentity;
+  hostIncarnation: string;
+  buildNumber: string;
+  sessions: SessionCatalogEntry[];
+  layout: unknown;
+  /** What only a page this host serves is sent; null on a host the page merely visits. */
+  home: HomeHello | null;
   repos: RepoState[];
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
-  /** The host's device setting groups by name; a page applies only its home's. */
-  deviceSettings: Record<string, unknown>;
   commandUsage: CommandUsageSnapshot;
   commandCatalog: {
     commands: CommandInfo[];

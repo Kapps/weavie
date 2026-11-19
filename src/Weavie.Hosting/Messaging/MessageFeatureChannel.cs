@@ -180,6 +180,9 @@ internal sealed class MessagePeer {
 	/// <summary>The transport peer, the same on every bus the page talks to.</summary>
 	internal WebPeer Transport { get; }
 
+	/// <summary>The home the page named in its hello on the host bus; unset until that hello.</summary>
+	internal PageHome? Home { get; set; }
+
 	/// <summary>False from the moment the page disconnects, before any disconnect handler runs.</summary>
 	internal bool IsConnected => Volatile.Read(ref _connected);
 

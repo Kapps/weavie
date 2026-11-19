@@ -19,13 +19,13 @@ public sealed record McpCapabilities {
 	public required SettingsStore Settings { get; init; }
 
 	/// <summary>
-	/// The workspace whose overlay holds workspace-scoped settings: the one every reader resolves them against, not
-	/// the session's own worktree.
+	/// The repo whose overlay holds repo settings: the one every reader resolves them against, not the session's
+	/// own worktree.
 	/// </summary>
 	public required string SettingsWorkspaceRoot { get; init; }
 
-	/// <summary>The name of the machine this server's sessions run on, as the settings tools report it.</summary>
-	public required string MachineName { get; init; }
+	/// <summary>The settings tools over the store of the machine this server's sessions run on.</summary>
+	public required SettingsTools SettingsTools { get; init; }
 
 	/// <summary>The device settings of the device the session belongs to.</summary>
 	public required IDeviceSettings DeviceSettings { get; init; }

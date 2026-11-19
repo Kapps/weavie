@@ -49,6 +49,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SettingsStore _settings;
 	private readonly DeviceIdentity _device;
 	private readonly SettingsTools _settingsTools;
+	private readonly TimeSpan _operationDeadline;
 	private readonly CommandRegistry _commandRegistry;
 	private readonly CommandDispatcher _clientCommands;
 	private readonly SuggestionRegistry _suggestionRegistry;
@@ -165,12 +166,14 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_settings = services.Settings;
 		_device = services.Device;
 		_settingsTools = new SettingsTools(_settings, _device.Name);
-		_userDictionary = new(Path.Combine(Path.GetDirectoryName(_settings.FilePath)!, "dictionary.txt"), confined: false, watch: true);
+		string settingsDirectory = Path.GetDirectoryName(_settings.FilePath)!;
+		_userDictionary = new(Path.Combine(settingsDirectory, "dictionary.txt"), confined: false, watch: true);
 		_userDictionary.Changed += InvalidateSpelling;
-		_spellLanguages = new(Path.GetDirectoryName(_settings.FilePath)!, _spellingHttp);
+		_spellLanguages = new(settingsDirectory, _spellingHttp);
 		var messagePolicy = new MessageExecutionPolicy(
 			TimeSpan.FromSeconds(2),
 			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
+		_operationDeadline = messagePolicy.Deadline;
 		_messages = new HostMessageRouter(_bridge, _ui, Log, messagePolicy, TimeProvider.System);
 		_messageIngress = new MessageIngress(
 			_ui,

@@ -116,8 +116,8 @@ test.describe("session-addressed WebSocket transport", () => {
           message.name === "hello"
         ) {
           const hello = message.payload as HostHello;
-          hello.remoteAgents = [{ name: "devbox", url: remote.url, token: "runner-token" }];
-          hello.rail.selected = { backendId: "remote:devbox", slot: remoteSession.id };
+          hello.home!.remoteAgents = [{ name: "devbox", url: remote.url, token: "runner-token" }];
+          hello.home!.rail.selected = { backendId: "remote:devbox", slot: remoteSession.id };
           socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
         } else socket.send(data);
       });

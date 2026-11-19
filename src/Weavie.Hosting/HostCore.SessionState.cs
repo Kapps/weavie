@@ -120,7 +120,7 @@ public sealed partial class HostCore {
 
 	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
 		Label = label,
-		Device = NewDevice(item.Device),
+		Device = NewDevice(null),
 		Repo = repo,
 		WorktreePath = worktreePath,
 		AgentProviderId = item.AgentProviderId,

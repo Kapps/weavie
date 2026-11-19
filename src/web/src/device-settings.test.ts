@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 const home = vi.hoisted(() => ({
-  hello: (_hello: { deviceSettings: Record<string, unknown> }): void => {},
+  hello: (_hello: { home: { deviceSettings: Record<string, unknown> } }): void => {},
   push: new Map<string, (value: unknown) => void>(),
 }));
 
@@ -32,11 +32,11 @@ it("starts injected, then follows the home's pushes and the changes a hello repo
   fonts.onChanged((value) => seen.push(value.size));
   expect(fonts.current()).toEqual({ size: 13 });
 
-  home.hello({ deviceSettings: { fonts: { size: 13 } } });
+  home.hello({ home: { deviceSettings: { fonts: { size: 13 } } } });
   expect(seen).toEqual([]);
 
   home.push.get("fonts")?.({ size: 15 });
-  home.hello({ deviceSettings: { fonts: { size: 17 } } });
+  home.hello({ home: { deviceSettings: { fonts: { size: 17 } } } });
   expect(seen).toEqual([15, 17]);
   expect(fonts.current()).toEqual({ size: 17 });
 });

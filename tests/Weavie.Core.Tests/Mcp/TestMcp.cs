@@ -77,7 +77,7 @@ internal static class TestMcp {
 			ExposeIdeTools = false,
 			Settings = settings,
 			SettingsWorkspaceRoot = settingsWorkspaceRoot,
-			MachineName = "test-machine",
+			SettingsTools = new SettingsTools(settings, "test-machine"),
 			DeviceSettings = new SettingsTools(settings, "test-device"),
 			Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			Editor = new EditorStore(),

@@ -2,6 +2,7 @@
 // agent display). The page's home host owns them; no other host's values reach these.
 
 import { hostInjected, registerHomeFeature } from "./bridge";
+import { homeHello } from "./messaging/host-connection";
 
 /** One device setting group, live. */
 export interface DeviceSetting<T> {
@@ -32,7 +33,7 @@ export function deviceSetting<T>(
   registerHomeFeature((connection) => {
     // A hello repeats what the page holds unless a change was pushed while it was disconnected.
     const offHello = connection.onInitializing((hello) => {
-      const value = hello.deviceSettings[name] as T;
+      const value = homeHello(hello).deviceSettings[name] as T;
       if (JSON.stringify(value) !== JSON.stringify(current)) {
         apply(value);
       }

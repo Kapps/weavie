@@ -45,7 +45,7 @@ internal static class TestSessions {
 				AgentConsultation = AgentConsultation.None,
 				PtyLauncher = launcher,
 				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-				MachineName = "test-machine",
+				SettingsTools = new SettingsTools(settings, "test-machine"),
 				Workflow = new() {
 					Roles = new WorkflowRoleStore(files, dir.Combine("workflow-roles.json")),
 					DocumentsDirectory = id => dir.Combine("documents", id),

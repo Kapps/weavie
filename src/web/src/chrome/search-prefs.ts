@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { hostConnection, LOCAL_BACKEND_ID, registerHomeFeature } from "../bridge";
+import { homeHello } from "../messaging/host-connection";
 import type { SearchOptions } from "./search-model";
 
 // The find-in-files panel's persisted UI state (match options, include/exclude globs, recent search terms),
@@ -37,7 +38,7 @@ function applyState(state: SearchState): void {
 }
 
 registerHomeFeature((connection) => {
-  const offHello = connection.onHello((hello) => applyState(hello.search));
+  const offHello = connection.onHello((hello) => applyState(homeHello(hello).search));
   const offState = connection.host.feature("search").on<SearchState>("state", applyState);
   return () => {
     offHello();

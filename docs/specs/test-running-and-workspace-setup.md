@@ -43,8 +43,8 @@ symbol conventions. The mapping from symbol to "this is a test named X" is a reg
 One `Workspace`-scoped key, `test.profile` (String kind holding a JSON array, `Validate` =
 `TestProfile.TryParse`). This feature lands the **workspace settings layer** the settings spec
 reserves: `<workspaceRoot>/.weavie/settings.toml`, resolution env > workspace > user > default.
-`SettingDefinition` gains `SettingScope Scope` (default `User`); `setSetting` routes writes by scope
-with an unchanged tool signature. `worktree.setupCommand` migrates to `Workspace` scope (reads still
+`SettingDefinition` declares `SettingOwner Owner`; `setSetting` routes writes by owner
+with an unchanged tool signature. `worktree.setupCommand` is a repo setting (reads still
 fall through to the user file).
 
 Each rule carries its own match *and* run knowledge, so multi-language repos are just multiple rules
@@ -197,7 +197,7 @@ flowchart LR
 
 ## Build order
 
-1. **Workspace settings layer** — `SettingScope`, workspace file load/watch/write routing; unit tests
+1. **Workspace settings layer** — `SettingOwner.Repo`, workspace file load/watch/write routing; unit tests
    mirror `SettingsStoreTests` (precedence, scoped writes, malformed file → last-good).
 2. **Test profile in Core** — `TestSettings`, `TestProfile.TryParse`, `TestCommandComposer` (+ quoting
    incl. injection attempts in `${name}`). Pure unit-tested.

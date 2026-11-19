@@ -46,7 +46,7 @@ public sealed class HostCoreDeviceSettingsTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var reply = await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Equal("Set on laptop.", reply.Text);
 		var (page, request) = Assert.Single(Asked(host));
@@ -59,7 +59,7 @@ public sealed class HostCoreDeviceSettingsTests {
 	public async Task ASessionNoPageHasClaimed_ChangesThisHostsOwnFile() {
 		await using var host = await TestHost.StartAsync();
 
-		var reply = await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 
 		Assert.False(reply.IsError);
 		Assert.Equal(15L, host.Settings.Resolve("editor.font.size").Value);
@@ -73,7 +73,7 @@ public sealed class HostCoreDeviceSettingsTests {
 		Type(host, Visitor, host.WorkspaceSession);
 		Type(host, new WebPeer(TestHost.TestPageId), host.WorkspaceSession);
 
-		await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Empty(Asked(host));
 		Assert.Equal(15L, host.Settings.Resolve("editor.font.size").Value);
@@ -89,13 +89,13 @@ public sealed class HostCoreDeviceSettingsTests {
 		host.DrainMessages();
 
 		var gone = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None));
 		Assert.StartsWith("laptop isn't connected", gone.Message, StringComparison.Ordinal);
 		Assert.Equal(SettingSource.Default, host.Settings.Resolve("editor.font.size").Source);
 
 		var returned = new WebPeer("visitor-reconnected");
 		ConnectFromLaptop(host, returned);
-		await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 		Assert.Equal(returned, Assert.Single(Asked(host)).Page);
 	}
 
@@ -107,7 +107,7 @@ public sealed class HostCoreDeviceSettingsTests {
 		Type(host, Visitor, host.WorkspaceSession);
 		Type(host, new WebPeer("reconnecting"), host.WorkspaceSession);
 
-		await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Equal(Visitor, Assert.Single(Asked(host)).Page);
 	}
@@ -122,7 +122,7 @@ public sealed class HostCoreDeviceSettingsTests {
 		Type(host, Visitor, host.WorkspaceSession);
 
 		var failed = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None));
 
 		Assert.Equal("laptop couldn't answer: The Weavie host is not connected.", failed.Message);
 	}
@@ -138,12 +138,40 @@ public sealed class HostCoreDeviceSettingsTests {
 	}
 
 	[Fact]
+	public async Task APageThatLeavesMidRequest_FailsItAsDisconnected() {
+		await using var host = await TestHost.StartAsync();
+		ConnectFromLaptop(host, Visitor);
+		Type(host, Visitor, host.WorkspaceSession);
+
+		var pending = host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
+		host.Bridge.Disconnect(Visitor);
+		host.DrainMessages();
+
+		var gone = await Assert.ThrowsAsync<DeviceUnavailableException>(() => pending);
+		Assert.StartsWith("laptop disconnected before it answered", gone.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task WithTwoPagesFromOneHome_TheOneThatClaimedTheSessionIsAsked() {
+		await using var host = await TestHost.StartAsync();
+		AnswerFromLaptop(host);
+		var second = new WebPeer("second-window");
+		ConnectFromLaptop(host, Visitor);
+		ConnectFromLaptop(host, second);
+		Type(host, second, host.WorkspaceSession);
+
+		await host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
+
+		Assert.Equal(second, Assert.Single(Asked(host)).Page);
+	}
+
+	[Fact]
 	public async Task APageThatNeverAnswers_FailsTheRequestAtTheOperationDeadline() {
 		await using var host = await TestHost.StartAsync();
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var pending = host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		var pending = host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None);
 		host.Time.Advance(TimeSpan.FromSeconds(MessageSettings.DefaultOperationDeadlineSeconds));
 
 		var silent = await Assert.ThrowsAsync<DeviceUnavailableException>(() => pending);
@@ -159,7 +187,7 @@ public sealed class HostCoreDeviceSettingsTests {
 		await host.RestartAsync();
 
 		var gone = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceSettingsForTest.RequestAsync(SetFontSize, CancellationToken.None));
 		Assert.StartsWith("laptop isn't connected", gone.Message, StringComparison.Ordinal);
 	}
 

@@ -37,8 +37,8 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession : IAsyncDisposable {
 	private readonly CapabilityRegistryHost _registry;
 
-	/// <summary>The device settings of the device this session belongs to.</summary>
-	internal IDeviceSettings DeviceSettings { get; }
+	/// <summary>Test seam for the device settings of the device this session belongs to.</summary>
+	internal IDeviceSettings DeviceSettingsForTest { get; }
 
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
@@ -83,6 +83,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(paths);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentNullException.ThrowIfNull(owner);
+		DeviceSettingsForTest = owner.DeviceSettings;
 		var settings = services.Settings;
 		string workspaceRoot = paths.WorkspaceRoot;
 
@@ -213,8 +214,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 				ExposeIdeTools = exposeRegistryIdeTools,
 				Settings = settings,
 				SettingsWorkspaceRoot = Repo.Root,
-				MachineName = services.MachineName,
-				DeviceSettings = DeviceSettings = owner.DeviceSettings,
+				SettingsTools = services.SettingsTools,
+				DeviceSettings = owner.DeviceSettings,
 				Layout = services.Layout,
 				Editor = Editor,
 				Commands = Commands,

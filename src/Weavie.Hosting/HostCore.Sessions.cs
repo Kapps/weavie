@@ -7,6 +7,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
+using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
@@ -112,7 +113,7 @@ public sealed partial class HostCore {
 		RegisterCredentialHandlers(session);
 		RegisterDecisionProviderHandler(session);
 		session.Commands.RegisterHandler(CoreCommands.ResetCommandLearning, (_, _) => Task.FromResult(ResetCommandLearning()));
-		Weavie.Core.Inference.InferenceCommands.RegisterHandlers(session.Commands, _settings);
+		InferenceCommands.RegisterHandlers(session.Commands, _settings);
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
@@ -507,7 +508,7 @@ public sealed partial class HostCore {
 		AgentConsultation = _agentConsultation,
 		PtyLauncher = _platform.PtyLauncher,
 		Runtime = _runtime,
-		MachineName = _settingsTools.HostName,
+		SettingsTools = _settingsTools,
 		Workflow = new() {
 			Roles = _workflowRoles,
 			DocumentsDirectory = _workflowDocuments.ForRun,
@@ -1251,7 +1252,7 @@ public sealed partial class HostCore {
 			SessionSlot? slot = null;
 			try {
 				IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
-				slot = new SessionSlot {
+				var created = new SessionSlot {
 					Label = branch,
 					Device = NewDevice(start.Device),
 					Repo = start.Repo,
@@ -1261,7 +1262,8 @@ public sealed partial class HostCore {
 					EditorSession = EditorSession.Empty,
 					ShellTerminals = shellTerminals,
 				};
-				slot.Session = CreateSession(slot);
+				created.Session = CreateSession(created);
+				slot = created;
 				slot.Session.InheritedWorkflowDocuments = start.WorkflowDocumentsDirectory;
 				// The repo has a session now, so it is one of the workspace's; its setup command (e.g. `pnpm install`)
 				// runs in the background, toasting "setting up… → ready/failed".

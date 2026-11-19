@@ -26,8 +26,8 @@ public sealed class SettingsStoreTests : IDisposable {
 		return registry;
 	}
 
-	// A registry with one workspace-scoped and one user-scoped string key, for the per-workspace layer tests.
-	private static SettingsRegistry ScopedRegistry() {
+	// A registry with one repo and one machine string key, for the repo overlay tests.
+	private static SettingsRegistry OwnedRegistry() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition {
 			Key = "t.wsstr",
@@ -499,7 +499,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, "theme = \"light\"\n");
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
-		using var index = JsonDocument.Parse(store.BuildIndexJson());
+		using var index = JsonDocument.Parse(store.BuildIndexJson(workspaceRoot: null, static _ => true));
 		using var full = JsonDocument.Parse(store.BuildGetJson("theme"));
 		foreach (var entry in new[] { index.RootElement.GetProperty("settings")[0], full.RootElement }) {
 			Assert.Equal("theme", entry.GetProperty("key").GetString());
@@ -539,14 +539,14 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
-	public void WorkspaceScope_Resolution_EnvBeatsWorkspaceBeatsUserBeatsDefault() {
+	public void RepoKey_Resolution_EnvBeatsWorkspaceBeatsUserBeatsDefault() {
 		string root = WorkspaceRoot;
 		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
 		File.WriteAllText(FilePath, "t.wsstr = \"from-user\"\n");
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"from-workspace\"\n");
 
 		// Workspace file wins over user file.
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
+		using (var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-workspace", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal("from-workspace", store.RequireString("t.wsstr", root));
@@ -559,7 +559,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// Env wins over everything.
 		using (EnvScope("WEAVIE_T_WSSTR", "from-env"))
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
+		using (var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-env", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.Environment, store.Resolve("t.wsstr", root).Source);
@@ -567,7 +567,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// No workspace value -> user file.
 		File.WriteAllText(WorkspaceFile(root), "");
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
+		using (var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-user", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.UserFile, store.Resolve("t.wsstr", root).Source);
@@ -575,7 +575,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// No workspace, no user -> default.
 		File.WriteAllText(FilePath, "");
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
+		using (var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("ws-default", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.Default, store.Resolve("t.wsstr", root).Source);
@@ -586,7 +586,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Clear_RepoKey_OfARepoWithNoOverlay_KeepsTheMachineFilesValue() {
 		File.WriteAllText(FilePath, "t.wsstr = \"machine-default\"\n");
 		string root = WorkspaceRoot;
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		var result = store.Clear("t.wsstr", root);
 
@@ -596,9 +596,9 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
-	public void Set_WorkspaceScopedKey_WithRoot_WritesWorkspaceFile_NotUserFile() {
+	public void Set_RepoKey_WithRoot_WritesWorkspaceFile_NotUserFile() {
 		string root = WorkspaceRoot;
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		var result = store.Set("t.wsstr", Json("\"repo-value\""), root);
@@ -613,10 +613,10 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
-	public void Set_WorkspaceScopedKey_UsesTheInjectedOverlay_NeverUnderTheRepo() {
+	public void Set_RepoKey_UsesTheInjectedOverlay_NeverUnderTheRepo() {
 		string root = WorkspaceRoot;
 		string overlay = _dir.Combine("out-of-repo", "settings.toml");
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, _ => overlay);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, _ => overlay);
 		store.RegisterWorkspace(root);
 
 		store.Set("t.wsstr", Json("\"out-of-repo\""), root);
@@ -629,9 +629,9 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
-	public void Set_UserScopedKey_WithRoot_WritesUserFile_IgnoringWorkspace() {
+	public void Set_MachineKey_WithRoot_WritesUserFile_IgnoringWorkspace() {
 		string root = WorkspaceRoot;
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		store.Set("t.userstr", Json("\"u\""), root);
@@ -645,7 +645,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		string root = WorkspaceRoot;
 		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"one\"\n");
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
 		store.RegisterWorkspace(root);
 		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
 		store.Subscribe("t.wsstr", c => signal.TrySetResult(c));
@@ -664,7 +664,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = = broken\n[unterminated\n");
 		File.WriteAllText(FilePath, "t.wsstr = \"from-user\"\n");
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		using var store = new SettingsStore(OwnedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		Assert.True(store.IsMalformed);

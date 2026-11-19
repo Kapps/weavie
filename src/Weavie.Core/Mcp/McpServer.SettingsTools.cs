@@ -14,6 +14,11 @@ public sealed partial class McpServer {
 			? given.Clone()
 			: null;
 		var request = new SettingsRequest(operation, args.GetStringOrNull("key"), value);
+		if (operation != "list" && string.IsNullOrEmpty(request.Key)) {
+			await SendToolErrorAsync(responder, idRaw, $"{tool} requires a 'key'.", ct).ConfigureAwait(false);
+			return;
+		}
+
 		var reply = operation == "list"
 			? new SettingsReply(SettingsTools.JoinIndexes(tools.Machine(request, _settingsWorkspaceRoot), await DeviceSettingsAsync(request, ct).ConfigureAwait(false)), IsError: false)
 			: request.Key is { } key && tools.OwnsMachineKey(key)

@@ -173,7 +173,7 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>As <see cref="RequireBool"/>, for a string setting.</summary>
 	public string RequireString(string key) => Resolve(key).Value is string s ? s : throw WrongKind(key, "string");
 
-	/// <summary>Resolves a workspace-scoped string setting, trusting its registered default.</summary>
+	/// <summary>Resolves a repo string setting, trusting its registered default.</summary>
 	public string RequireString(string key, string workspaceRoot) =>
 		Resolve(key, workspaceRoot).Value is string s ? s : throw WrongKind(key, "string");
 
@@ -183,8 +183,8 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>
 	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> to the user file (the
 	/// cross-workspace layer), raising <see cref="SettingChanged"/> for any effective value that changed.
-	/// Workspace-scoped keys written here land in the user file as the shared fallback; route them to a
-	/// workspace with <see cref="Set(string, JsonElement, string)"/>.
+	/// Repo keys written here land in the user file as the shared fallback; route them to a
+	/// repo with <see cref="Set(string, JsonElement, string)"/>.
 	/// </summary>
 	public SetResult Set(string key, JsonElement value) => SetOnLayer(key, value, workspaceRoot: null);
 
@@ -201,7 +201,7 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Removes <paramref name="key"/>'s user-file override, falling back to env/default. The inverse of <see cref="Set(string, JsonElement)"/>.</summary>
 	public ClearResult Clear(string key) => ClearOnLayer(key, workspaceRoot: null);
 
-	/// <summary>As <see cref="Clear(string)"/>, but a workspace-scoped key is cleared from <paramref name="workspaceRoot"/>'s file.</summary>
+	/// <summary>As <see cref="Clear(string)"/>, but a repo key is cleared from <paramref name="workspaceRoot"/>'s file.</summary>
 	public ClearResult Clear(string key, string workspaceRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		return ClearOnLayer(key, workspaceRoot);
@@ -312,10 +312,10 @@ public sealed class SettingsStore : IDisposable {
 		return new Subscription(() => SettingChanged -= Filtered);
 	}
 
-	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, aliases, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
-	public string BuildIndexJson() => BuildIndexJson(workspaceRoot: null, static _ => true);
-
-	/// <summary>As <see cref="BuildIndexJson()"/> for the settings <paramref name="include"/> admits, resolving repo keys against <paramref name="workspaceRoot"/>'s overlay when given.</summary>
+	/// <summary>
+	/// Builds the <c>listSettings</c> index JSON (key, type, owner, aliases, value, source, allowed values) for the
+	/// settings <paramref name="include"/> admits, resolving repo keys against <paramref name="workspaceRoot"/>'s overlay when given.
+	/// </summary>
 	public string BuildIndexJson(string? workspaceRoot, Func<SettingDefinition, bool> include) {
 		ArgumentNullException.ThrowIfNull(include);
 		lock (_gate) {

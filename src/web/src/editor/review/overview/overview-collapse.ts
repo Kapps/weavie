@@ -6,6 +6,7 @@ import {
   registerHomeFeature,
 } from "../../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../../editor-options";
+import { homeHello } from "../../../messaging/host-connection";
 import type { ReviewOverview } from "../review-store";
 
 // Which overview sections are collapsed. `editor.reviewOverviewCollapse` picks the memory: one app-global set kept
@@ -18,7 +19,7 @@ const [global, setGlobal] = createSignal<readonly string[]>([]);
 
 registerHomeFeature((connection) => {
   const offHello = connection.onHello((hello) => {
-    setGlobal(hello.reviewOverview.collapsed);
+    setGlobal(homeHello(hello).reviewOverview.collapsed);
   });
   const offState = connection.host
     .feature("reviewOverview")

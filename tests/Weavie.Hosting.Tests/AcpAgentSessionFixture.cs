@@ -438,7 +438,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				ExposeIdeTools = true,
 				Settings = settings,
 				SettingsWorkspaceRoot = workspace,
-				MachineName = "test-machine",
+				SettingsTools = new SettingsTools(settings, "test-machine"),
 				DeviceSettings = new SettingsTools(settings, "test-device"),
 				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 				Editor = editor,

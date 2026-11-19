@@ -89,7 +89,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_editor = editor;
 		_settings = registry?.Settings;
 		_settingsWorkspaceRoot = registry?.SettingsWorkspaceRoot ?? "";
-		_settingsTools = registry is null ? null : new SettingsTools(registry.Settings, registry.MachineName);
+		_settingsTools = registry?.SettingsTools;
 		_deviceSettings = registry?.DeviceSettings;
 		_layout = registry?.Layout;
 		_commands = registry?.Commands;

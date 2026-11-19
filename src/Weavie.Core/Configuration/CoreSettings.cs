@@ -289,7 +289,6 @@ public static class CoreSettings {
 			Aliases = ["worktree setup", "post-create command", "install deps on new session",
 				"bootstrap worktree", "provision worktree", "worktree install command"],
 			Apply = ApplyMode.NextSession,
-			// Per-workspace: stored out-of-repo in ~/.weavie/workspaces/<id>/settings.toml (reads fall back to the user file).
 			Default = "",
 		});
 
@@ -303,7 +302,6 @@ public static class CoreSettings {
 				+ "a toast, but removal proceeds regardless.",
 			Aliases = ["worktree teardown", "pre-remove command", "cleanup on discard",
 				"worktree cleanup command", "deprovision worktree"],
-			// Per-workspace, like its setupCommand sibling: a teardown command belongs to one repo, not every workspace.
 			Apply = ApplyMode.NextSession,
 			Default = "",
 		});

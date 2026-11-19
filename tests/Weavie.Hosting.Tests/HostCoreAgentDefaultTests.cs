@@ -27,7 +27,7 @@ public sealed class HostCoreAgentDefaultTests {
 		const string defaults = "{\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"all\"}";
 		Assert.Contains($"window.__WEAVIE_AGENT_DISPLAY__ = {defaults};", host.Core.BuildBootstrap());
 		var hello = await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
-		Assert.Equal(defaults, hello.GetProperty("deviceSettings").GetProperty("agentDisplay").GetRawText());
+		Assert.Equal(defaults, hello.GetProperty("home").GetProperty("deviceSettings").GetProperty("agentDisplay").GetRawText());
 		Assert.False(hello.GetProperty("agentDefaults").TryGetProperty("thoughtDisplay", out _));
 
 		(string Key, string Property, object Value)[] changes = [
@@ -44,7 +44,7 @@ public sealed class HostCoreAgentDefaultTests {
 		}
 
 		hello = await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
-		Assert.Equal("all", hello.GetProperty("deviceSettings").GetProperty("agentDisplay").GetProperty("thoughtDisplay").GetString());
+		Assert.Equal("all", hello.GetProperty("home").GetProperty("deviceSettings").GetProperty("agentDisplay").GetProperty("thoughtDisplay").GetString());
 	}
 
 	[Theory]

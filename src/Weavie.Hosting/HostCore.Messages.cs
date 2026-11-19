@@ -22,17 +22,18 @@ public sealed partial class HostCore {
 		connection.HandleOwnedAfterResponse(
 			"hello", MessageActivity.ActionFailed("Connecting to Weavie"), WireJson.Default.HelloRequest, WireJson.Default.HostHello,
 			(request, page, _) => {
-				_messages.Homes.Named(page.Transport, request.Home);
+				page.Home = new PageHome(request.Home);
+				bool home = request.Home is null;
 				return Task.FromResult(new ResponseWithCompletion<HostHello>(
-					BuildHello(home: request.Home is null),
+					BuildHello(home),
 					_ => {
-						// Setup and the startup tip are a device's own, so only a page this host serves is offered them.
-						bool home = request.Home is null;
-						if (home && !_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
-							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
-						} else {
+						// Getting Started covers inference, so the tip and inference offer wait until setup is done.
+						// Setup and the tip are a device's own, so only a page this host serves is offered them.
+						if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
 							if (home) OfferStartupTip();
 							OfferAutomaticInference();
+						} else if (home) {
+							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 						}
 
 						return Task.CompletedTask;
@@ -218,7 +219,7 @@ public sealed partial class HostCore {
 		return message.Id switch {
 			CoreCommands.ResetCommandLearning => ResetCommandLearning(),
 			CoreCommands.EnableAutomaticInference => InferenceCommands.EnableAutomatic(_settings),
-			SessionCommands.NewSession => _messages.Homes.TryGet(page.Transport, out var home)
+			SessionCommands.NewSession => _messages.TryGetHome(page.Transport, out var home)
 				? await NewSessionFromHostAsync(args, home, ct).ConfigureAwait(false)
 				: CommandResult.Failure("This page hasn't connected yet."),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
@@ -331,7 +332,6 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 	}
 
-	// Only a page this host serves reads its device settings, so only that page is sent them.
 	private HostHello BuildHello(bool home) {
 		using var layout = JsonDocument.Parse(LayoutSerialization.SerializeCompact(_layout.Current));
 		var hello = new HostHello(
@@ -340,14 +340,17 @@ public sealed partial class HostCore {
 			BuildNumber,
 			BuildSessionCatalog(),
 			layout.RootElement.Clone(),
-			RemoteAgentSnapshots(),
-			BuildRailSnapshot(),
-			BuildSearchSnapshot(),
-			BuildReviewOverviewSnapshot(),
+			home
+				? new HomeSnapshot(
+					RemoteAgentSnapshots(),
+					BuildRailSnapshot(),
+					BuildSearchSnapshot(),
+					BuildReviewOverviewSnapshot(),
+					ParseJsonElement(_global.DeviceSettingsJson()))
+				: null,
 			RepoStates(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
-			ParseJsonElement(home ? _global.DeviceSettingsJson() : "{}"),
 			BuildCommandUsage(),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
@@ -429,15 +432,19 @@ public sealed partial class HostCore {
 		string BuildNumber,
 		SessionCatalogEntry[] Sessions,
 		JsonElement Layout,
+		HomeSnapshot? Home,
+		RepoState[] Repos,
+		string[] SourceLinkHosts,
+		JsonElement AgentDefaults,
+		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
+
+	/// <summary>What only a page this host serves reads: its remote agents, chrome state and device settings.</summary>
+	internal sealed record HomeSnapshot(
 		RemoteAgentSnapshot[] RemoteAgents,
 		RailSnapshot Rail,
 		SearchSnapshot Search,
 		ReviewOverviewSnapshot ReviewOverview,
-		RepoState[] Repos,
-		string[] SourceLinkHosts,
-		JsonElement AgentDefaults,
-		JsonElement DeviceSettings,
-		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
+		JsonElement DeviceSettings);
 
 	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
 

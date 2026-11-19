@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
-import type { HostHello } from "../src/messaging/host-connection";
+import type { HomeHello, HostHello } from "../src/messaging/host-connection";
 import { test } from "./harness/network-fixtures";
 import { MOCK_AGENT_DEFAULTS, MOCK_DEVICE_SETTINGS, MockHost, mockSession } from "./mock-host";
 
@@ -46,141 +46,147 @@ test.describe("native in-process bridge contract", () => {
       ],
     });
     const settings = { agentDefaults: MOCK_AGENT_DEFAULTS, deviceSettings: MOCK_DEVICE_SETTINGS };
-    await page.addInitScript((defaults: Pick<HostHello, "agentDefaults" | "deviceSettings">) => {
-      window.__WEAVIE_RESOURCE_BASE__ = `${window.location.origin}/weavie-media`;
-      interface Address {
-        slot: string;
-        incarnation: string;
-      }
-      interface Envelope {
-        scope: "host" | "session";
-        session: Address | null;
-        kind: "event" | "request" | "response" | "cancel";
-        requestId: string | null;
-        feature: string;
-        name: string;
-        payload: unknown;
-        error: string | null;
-      }
+    await page.addInitScript(
+      (defaults: Pick<HostHello, "agentDefaults"> & Pick<HomeHello, "deviceSettings">) => {
+        window.__WEAVIE_RESOURCE_BASE__ = `${window.location.origin}/weavie-media`;
+        interface Address {
+          slot: string;
+          incarnation: string;
+        }
+        interface Envelope {
+          scope: "host" | "session";
+          session: Address | null;
+          kind: "event" | "request" | "response" | "cancel";
+          requestId: string | null;
+          feature: string;
+          name: string;
+          payload: unknown;
+          error: string | null;
+        }
 
-      const address = { slot: "cx", incarnation: "cx-incarnation" };
-      const sent: string[] = [];
-      (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
-      const push = (message: Envelope): void => {
-        const raw = JSON.stringify(message);
-        window.__weavieReceive?.(raw);
-      };
-      const event = (
-        scope: "host" | "session",
-        session: Address | null,
-        feature: string,
-        name: string,
-        payload: unknown,
-      ): Envelope => ({
-        scope,
-        session,
-        kind: "event",
-        requestId: null,
-        feature,
-        name,
-        payload,
-        error: null,
-      });
-      const respond = (request: Envelope, payload: unknown): void =>
-        push({
-          ...request,
-          kind: "response",
+        const address = { slot: "cx", incarnation: "cx-incarnation" };
+        const sent: string[] = [];
+        (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
+        const push = (message: Envelope): void => {
+          const raw = JSON.stringify(message);
+          window.__weavieReceive?.(raw);
+        };
+        const event = (
+          scope: "host" | "session",
+          session: Address | null,
+          feature: string,
+          name: string,
+          payload: unknown,
+        ): Envelope => ({
+          scope,
+          session,
+          kind: "event",
+          requestId: null,
+          feature,
+          name,
           payload,
           error: null,
         });
-      const send = (json: string): void => {
-        sent.push(json);
-        let message: Envelope;
-        try {
-          message = JSON.parse(json) as Envelope;
-        } catch {
-          return;
-        }
-        if (
-          message.kind === "request" &&
-          message.scope === "host" &&
-          message.feature === "connection" &&
-          message.name === "hello"
-        ) {
-          respond(message, {
-            device: { id: "native-device", name: "native-host" },
-            hostIncarnation: "native-host",
-            buildNumber: "test",
-            sessions: [
-              {
-                id: "cx",
-                label: "acp",
-                title: "acp",
-                address,
-                loaded: true,
-                providerId: "acp",
-                agentSurface: "structured",
-                agentInputProtocol: 2,
-                status: "idle",
-                lastActiveAt: null,
-                unseen: false,
-                workspaceCheckout: false,
-                reloadRequired: null,
-                external: false,
-                repo: "/workspace",
-                repoLabel: "workspace",
+        const respond = (request: Envelope, payload: unknown): void =>
+          push({
+            ...request,
+            kind: "response",
+            payload,
+            error: null,
+          });
+        const send = (json: string): void => {
+          sent.push(json);
+          let message: Envelope;
+          try {
+            message = JSON.parse(json) as Envelope;
+          } catch {
+            return;
+          }
+          if (
+            message.kind === "request" &&
+            message.scope === "host" &&
+            message.feature === "connection" &&
+            message.name === "hello"
+          ) {
+            respond(message, {
+              device: { id: "native-device", name: "native-host" },
+              hostIncarnation: "native-host",
+              buildNumber: "test",
+              sessions: [
+                {
+                  id: "cx",
+                  label: "acp",
+                  title: "acp",
+                  address,
+                  loaded: true,
+                  providerId: "acp",
+                  agentSurface: "structured",
+                  agentInputProtocol: 2,
+                  status: "idle",
+                  lastActiveAt: null,
+                  unseen: false,
+                  workspaceCheckout: false,
+                  reloadRequired: null,
+                  external: false,
+                  repo: "/workspace",
+                  repoLabel: "workspace",
+                },
+              ],
+              layout: {
+                root: { type: "pane", id: "p_agent", kind: "terminal:claude" },
+                focused: "p_agent",
               },
-            ],
-            layout: {
-              root: { type: "pane", id: "p_agent", kind: "terminal:claude" },
-              focused: "p_agent",
-            },
-            remoteAgents: [],
-            rail: {
-              lastLocation: "local",
-              selected: null,
-              panelPinned: false,
-              panelWidth: 300,
-              parkedCollapsed: true,
-              fullscreenWidth: 1200,
-            },
-            search: {
-              options: {
-                caseSensitive: false,
-                wholeWord: false,
-                regex: false,
-                excludeGitignored: true,
-                include: "",
-                exclude: "",
+              home: {
+                remoteAgents: [],
+                rail: {
+                  lastLocation: "local",
+                  selected: null,
+                  panelPinned: false,
+                  panelWidth: 300,
+                  parkedCollapsed: true,
+                  fullscreenWidth: 1200,
+                },
+                search: {
+                  options: {
+                    caseSensitive: false,
+                    wholeWord: false,
+                    regex: false,
+                    excludeGitignored: true,
+                    include: "",
+                    exclude: "",
+                  },
+                  recentTerms: [],
+                },
+                reviewOverview: { collapsed: [] },
+                deviceSettings: defaults.deviceSettings,
               },
-              recentTerms: [],
-            },
-            reviewOverview: { collapsed: [] },
-            repos: [],
-            sourceLinkHosts: [],
-            ...defaults,
-            commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
-            commandCatalog: { commands: [], keybindings: [] },
-          } satisfies HostHello);
-        } else if (
-          message.kind === "request" &&
-          message.scope === "session" &&
-          message.feature === "lifecycle" &&
-          message.name === "sync"
-        ) {
-          respond(message, { ok: true });
-        }
-      };
+              repos: [],
+              sourceLinkHosts: [],
+              agentDefaults: defaults.agentDefaults,
+              commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
+              commandCatalog: { commands: [], keybindings: [] },
+            } satisfies HostHello);
+          } else if (
+            message.kind === "request" &&
+            message.scope === "session" &&
+            message.feature === "lifecycle" &&
+            message.name === "sync"
+          ) {
+            respond(message, { ok: true });
+          }
+        };
 
-      (window as unknown as { __weavieHostEvent: typeof event }).__weavieHostEvent = (
-        scope,
-        session,
-        feature,
-        name,
-        payload,
-      ) => push(event(scope, session, feature, name, payload));
-      window.__weaviePostMessage = send;
-    }, settings);
+        (window as unknown as { __weavieHostEvent: typeof event }).__weavieHostEvent = (
+          scope,
+          session,
+          feature,
+          name,
+          payload,
+        ) => push(event(scope, session, feature, name, payload));
+        window.__weaviePostMessage = send;
+      },
+      settings,
+    );
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });
 

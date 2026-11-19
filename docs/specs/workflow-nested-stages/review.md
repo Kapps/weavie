@@ -28,15 +28,22 @@ Review of [PR #1287](https://github.com/Kapps/weavie/pull/1287) against [design.
 - W8's three rejected tests are accepted: record ids on a second pass are proven in the engine, the e2e spec answers
   a question from inside a group through the host, and the real-agent probe restored nested forks.
 
-## Second fix pass
+## Second recheck
 
-B5 and W10 are fixed; see the verification record for the head. N11 and N19 stay open: the second pass did not
-touch their code.
+- Head `3af73226` (one fix commit over `68b206ad`). Only that commit was read. The design did not change.
+- Rerun on `3af73226`: `Weavie.Workflows.Tests` 301 passed; `Weavie.Hosting.Tests` filtered to
+  `Acp|Side|Rewind|Btw|Workflow|Aside|DecisionProvider|Steer` 493 passed; `Weavie.Core.Tests` filtered to
+  `Workflow|RegistryMcp` 120 passed. The probes were rebuilt and rerun: `r1.yaml` and `r3.yaml` now report their
+  diagnostics and exit cleanly, and B1, B3, W6, and N1 still report as fixed. e2e was not rerun here. CI on
+  `3af73226` was still running.
+- B5 and W10 held. W10's fix keeps turns taken (`Prompted`) apart from conversations in use (`Opened`), which also
+  removes the "that work is above" line from a group's first own turn. Traced: a fork entered again, a revise turn, a
+  reusing stage that arrives first, and repeated fork entries behave as before.
+- The fix left two nits, N20 and N21.
 
 ## Verdict
 
-One bug (B5) and one warning (W10) are open, both introduced by the fix pass. Open nits: N4, N6, N7, N11, N12, N14 to
-N17, N19.
+No bug or warning is open. Open nits: N4, N6, N7, N11, N12, N14 to N17, N19 to N21.
 
 ## Bugs
 
@@ -86,6 +93,8 @@ N17, N19.
 | N17 | open | `docs/concepts/acp-conversations.md` | The design's file list names it; it is unchanged, and forking from any conversation is not described there. |
 | N18 | rejected | `src/Weavie.Workflows/WorkflowRun.cs:168` | `WorkflowKickoff.Renews` is a conversation reference where the design has a bool. Rejected: a fork's source owner receives its child's kickoff (`SourceAsync`), so it must compare the renewed conversation to its own key (`HostSession.WorkflowConversation.cs:141`); a bool could not say which conversation is renewed. The design's type listing is what is out of date. |
 | N19 | open | `src/Weavie.Workflows/WorkflowTransitions.Tree.cs:108` | With the W7 fix, a question in main from a fork or fresh stage inside a group opens with `ran in its own conversation and completed`; the design's sample for that turn says `completed`. The design sample or the wording changes. |
+| N20 | open | `src/Weavie.Workflows/WorkflowFrame.cs:43`, `docs/specs/workflow-nested-stages/design.md` | The design does not describe `Prompted`: it still says `Continues` is `Opened.Contains(opener)`, that `Opened` means "has taken a turn", and that the host opens anew on `!Continues`, and its saved-run sample has no `prompted`. |
+| N21 | open | `src/Weavie.Hosting/HostSession.WorkflowConversation.cs:153` | `kickoff.Continues \|\|` can no longer be true: the branch runs only when `HasOpened` is false, and a conversation that has taken a turn is always in `Opened`. |
 
 ## Conformant
 

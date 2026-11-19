@@ -119,7 +119,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				new IgnoredPathCache(FindIgnored, TimeProvider.System).IgnoredAmong,
 				reviewPersistence);
 			// Disk may have moved under a restored git review while nothing watched it, so it is listed before it is trusted.
-			if (Changes.Review is not null) ReviewListing.Invalidate();
+			if (Changes.Review is not null) ReviewListing.RequireFull();
 			ReviewHints = new ReviewHintStore(
 				fileSystem,
 				workspaceRoot,

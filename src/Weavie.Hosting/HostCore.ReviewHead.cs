@@ -3,8 +3,8 @@ using Weavie.Core.Review;
 
 namespace Weavie.Hosting;
 
-// Keeps the open git review on its branch and current with git: another branch checked out closes it, and a moved
-// merge-base or a watcher batch the review couldn't account for re-lists it. A git operation under way (a rebase,
+// Keeps the open git review on its branch and current with git: another branch checked out closes it, a moved
+// merge-base re-lists it, and files the watcher saw change join it at its base. A git operation under way (a rebase,
 // bisect, stopped merge, or anything holding the index lock) makes it wait. See docs/specs/review-state.md.
 public sealed partial class HostCore {
 	// A shell edit shows within this; a burst of them re-lists at most this often.
@@ -87,16 +87,22 @@ public sealed partial class HostCore {
 		}
 
 		string mergeBase = head.MergeBase;
-		if (mergeBase == review.MergeBase && !head.Listing.Stale) return;
+		try {
+			// With its base where it was, the review only needs the files the watcher saw change.
+			if (mergeBase == review.MergeBase && !head.Listing.Full) {
+				if (head.Listing.Pending) await JoinAndRefreshReviewAsync(session, session.ReviewListing.TakePending(), ct).ConfigureAwait(false);
+				return;
+			}
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+			Notify(session, "warn", $"Couldn't refresh the review {review.Label}: {ex.Message}");
+			return;
+		}
+
 		if (session.Changes.BeginRelist(review) is not { } request) return;
 		try {
 			// The snapshot's listing state was observed before its merge-base was read, so a HEAD move since voids both.
 			if (await ListReviewAsync(session, review with { MergeBase = mergeBase }, request, head.Listing, ct).ConfigureAwait(false)
-				== Listed.HeadMoved) {
-				// The move may have changed files without moving the merge-base, so the review is listed again either way.
-				session.ReviewListing.Invalidate();
-				session.ReviewHead.RefreshNow();
-			}
+				== Listed.HeadMoved) session.ReviewHead.RefreshNow();
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Notify(session, "warn", $"Couldn't refresh the review {review.Label}: {ex.Message}");
 		} finally {

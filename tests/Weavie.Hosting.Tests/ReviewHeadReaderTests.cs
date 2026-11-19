@@ -12,7 +12,7 @@ public sealed class ReviewHeadReaderTests {
 		string? branch = null;
 		var snapshot = await HostCore.ReadReviewHeadAsync(
 			Review,
-			new ListingState(0, 0, 3, false),
+			new ListingState(0, 0, 3, false, false),
 			_ => Task.FromResult(branch),
 			_ => {
 				branch = "topic";
@@ -21,7 +21,7 @@ public sealed class ReviewHeadReaderTests {
 			_ => Task.FromResult<string?>("new-base"),
 			CancellationToken.None);
 
-		Assert.Equal(new ReviewHeadSnapshot(Review, "topic", "new-base", new ListingState(0, 0, 3, false)), snapshot);
+		Assert.Equal(new ReviewHeadSnapshot(Review, "topic", "new-base", new ListingState(0, 0, 3, false, false)), snapshot);
 	}
 
 	[Theory]
@@ -58,7 +58,7 @@ public sealed class ReviewHeadReaderTests {
 	public async Task AReviewDueForARelist_WaitsWhileAnOperationRewritesTheWorktree(bool stale, string mergeBase) {
 		var snapshot = await HostCore.ReadReviewHeadAsync(
 			Review,
-			new ListingState(0, 0, 0, stale),
+			new ListingState(0, 0, 0, stale, false),
 			_ => Task.FromResult<string?>("topic"),
 			_ => Task.FromResult(GitOperation.Stopped),
 			_ => Task.FromResult<string?>(mergeBase),
@@ -84,7 +84,7 @@ public sealed class ReviewHeadReaderTests {
 	public async Task AHeldIndexLock_LeavesADueReviewWaiting() {
 		var snapshot = await HostCore.ReadReviewHeadAsync(
 			Review,
-			new ListingState(1, 0, 0, true),
+			new ListingState(1, 0, 0, true, false),
 			_ => Task.FromResult<string?>("topic"),
 			_ => Task.FromResult(GitOperation.Locked),
 			_ => Task.FromResult<string?>("old-base"),

@@ -168,15 +168,12 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>Whether every path is held and already shown as it is on disk, so a watcher batch is only an echo.</summary>
-	public bool AccountsFor(IEnumerable<string> paths) {
+	/// <summary>The paths the review doesn't hold or doesn't show as they are on disk; the rest of a watcher batch is an echo.</summary>
+	public IReadOnlyList<string> UnaccountedFor(IEnumerable<string> paths) {
 		ArgumentNullException.ThrowIfNull(paths);
 		lock (_gate) {
-			foreach (string raw in paths) {
-				string path = NormalizePath(raw);
-				if (!_current.ContainsKey(path) || !ShowsDisk(path)) return false;
-			}
-			return true;
+			return [.. paths.Select(NormalizePath).Where(path => !_unjoinable.Contains(path)
+				&& (!_current.ContainsKey(path) || !ShowsDisk(path)))];
 		}
 	}
 

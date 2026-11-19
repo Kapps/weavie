@@ -28,10 +28,10 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	private const int FileEditGit = 0;
 	private const int CommitGit = 9;
 	// With a review open: a file it holds refreshes from disk, one joining reads its before, and a change no fact
-	// reported re-lists the review (resolve its base, then list and read).
+	// reported joins once the review's base is checked unmoved.
 	private const int HeldEditGit = 0;
 	private const int JoiningEditGit = 1;
-	private const int RelistGit = 6;
+	private const int ShellEditGit = 4;
 	// The review's file list, history, and commits, plus one hash-only diff message per file.
 	private const int ReviewMessages = CommittedFiles + 4;
 	private const int PollMessages = 1;
@@ -39,8 +39,7 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	private const int FileEditMessages = 1;
 	private const int CommitMessages = 2;
 	private const int ReviewEditMessages = 5;
-	// The re-listed review's files, history, and one hash-only diff message per file it lists.
-	private const int RelistMessages = UncommittedFiles + 6;
+
 
 	[Fact]
 	public async Task OpeningAReview() {
@@ -124,10 +123,10 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 		await budget.WithinAsync("agent edit, file joining the review", () => AgentEditAsync(host, 50), JoiningEditGit, ReviewEditMessages);
 		await budget.WithinAsync("save, file in the review", () => SaveAsync(host, 1), HeldEditGit, ReviewEditMessages);
 		await budget.WithinAsync("save, file joining the review", () => SaveAsync(host, 51), JoiningEditGit, ReviewEditMessages);
-		await budget.WithinAsync("shell edit, re-listing the review", () => {
+		await budget.WithinAsync("shell edit, joining the review", () => {
 			File.AppendAllText(Path.Combine(host.RepoRoot, FileName(60)), "shell\n");
 			return Task.CompletedTask;
-		}, lastProcess: "cat-file", RelistGit, RelistMessages);
+		}, lastProcess: "cat-file", ShellEditGit, ReviewEditMessages);
 	}
 
 	private static Task AgentEditAsync(TestHost host, int index) {

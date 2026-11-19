@@ -24,7 +24,7 @@ surface, hunks, and actions are in [turn-review.md](turn-review.md); the entry p
 | Mode | Before | Current | Joins |
 |---|---|---|---|
 | Default (no review started) | pre-edit capture | the agent's changes | agent edits |
-| Git review (branch base, PR, `HEAD`, a ref) | git content at the resolved base | disk | agent edits, editor saves, external changes via a re-list |
+| Git review (branch base, PR, `HEAD`, a ref) | git content at the resolved base | disk | agent edits, editor saves, and changes the watcher sees, one file at a time |
 
 A PR review compares the working tree
 with the merge-base of the PR's base branch; list and content come from the same two endpoints.
@@ -35,8 +35,8 @@ with the merge-base of the PR's base branch; list and content come from the same
 stateDiagram-v2
     [*] --> Default
     Default --> Git: start a review
-    Git --> Git: start a review / re-list (replace + carry-over)
-    Git --> Git: known path changed (join one path)
+    Git --> Git: start a review / base moved (replace + carry-over)
+    Git --> Git: a file changed (join that file)
     Git --> Default: close / branch checkout / empty list (scrap)
     Default --> Default: agent edit (capture) / keep the last change (scrap)
 ```
@@ -59,12 +59,17 @@ path. A path the review does not hold yet gets its before from git at the review
 held path only refreshes current from disk, with no git call. A join that lands while a re-list is reading
 git is recorded on that re-list and applied again after it.
 
-### Re-list: anything else
+### Watcher changes and re-lists
+
+A file the watcher saw change that the review doesn't show as it is on disk is queued. The review checks its
+base once for the whole queue: unmoved, the queued files join one by one as above, with one git read for any it
+doesn't hold yet; moved, the review is listed again from git, which settles the queue. A listing from git in full
+happens only when a review starts, its base moves, or a saved review loads after a restart, when nothing watched.
 
 | Trigger | Action |
 |---|---|
-| Watcher invalidation the tracker cannot account for | coalesced re-list |
-| Git metadata change (HEAD, index, refs) | re-resolve; re-list when the base moved or invalidations are pending |
+| Watcher change the review doesn't show | queue the files; join them once the base is checked unmoved |
+| Git metadata change (HEAD, index, refs) | re-resolve; re-list when the base moved |
 | Rebase, `git am`, bisect or conflicted merge stopped mid-way | wait until it finishes |
 | Index lock held | wait; its release (even with no index change) looks again |
 | Branch checkout, or the target no longer exists | close |
@@ -72,9 +77,9 @@ git is recorded on that re-list and applied again after it.
 A path the review can't hold (ignored, outside the worktree) is remembered until the next listing, so its saves
 don't ask git again. Binary files are left out of the listing, as an agent's binary edit is.
 
-A watcher invalidation never joins a path. The watcher also echoes Weavie's own saves and agent edits: an
-invalidation is an echo when the tracker holds the path and disk equals its current, and an echo does
-nothing. A re-list resolves its base when it runs, never from the trigger.
+The watcher also echoes Weavie's own saves and agent edits: a path is an echo when the tracker holds it and
+disk equals its current, and an echo does nothing. The base is resolved when the queue is handled, never from
+the trigger.
 
 ### Keep and revert
 
@@ -97,7 +102,8 @@ review closes keeps the before it captured when it started, so a file it changes
 | Agent edit or save, path held | 0 |
 | Agent edit or save, path not held | 1 |
 | Echoed watcher invalidation | 0 |
-| External change batch | one coalesced re-list |
+| External change batch, base unmoved | 3 to check the base, plus 1 for files not held yet |
+| External change batch, base moved | one listing from git |
 | No review open | 0 |
 
 Keep, Revert and undo reconcile only the paths they act on. Agent tool completion does no per-file work

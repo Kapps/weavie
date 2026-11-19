@@ -188,18 +188,18 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	}
 
 	[Fact]
-	public void AccountsFor_OnlyWhenEveryPathIsHeldAndDiskEqualsCurrent() {
+	public void UnaccountedFor_NamesPathsNotHeldOrNotShownAsOnDisk() {
 		var tracker = Reviewing();
 		_files.WriteAllText(Other, "other\n");
-		Assert.True(tracker.AccountsFor([File]));
-		Assert.False(tracker.AccountsFor([File, Other]));
+		Assert.Empty(tracker.UnaccountedFor([File]));
+		Assert.Equal([Other], tracker.UnaccountedFor([File, Other]));
 
 		_files.WriteAllText(File, "edited\n");
-		Assert.False(tracker.AccountsFor([File]));
+		Assert.Equal([File], tracker.UnaccountedFor([File]));
 		tracker.RefreshReviewPath(Review, File);
-		Assert.True(tracker.AccountsFor([File]));
+		Assert.Empty(tracker.UnaccountedFor([File]));
 		_files.DeleteFile(File);
-		Assert.False(tracker.AccountsFor([File]));
+		Assert.Equal([File], tracker.UnaccountedFor([File]));
 	}
 
 	[Fact]

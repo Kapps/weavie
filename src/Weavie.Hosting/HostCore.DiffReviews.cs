@@ -176,11 +176,7 @@ public sealed partial class HostCore {
 			var joined = await _ui.InvokeAsync(() => Task.FromResult(ReplaceReviewOnUi(session, review, [.. seeds], request)), ct)
 				.ConfigureAwait(false);
 			if (joined is null) return Listed.NotReplaced;
-			if (joined.Count > 0) {
-				_ = session.Background.Run(async stopping => {
-					foreach (string path in joined) await JoinAndRefreshReviewAsync(session, path, stopping).ConfigureAwait(false);
-				});
-			}
+			if (joined.Count > 0) _ = session.Background.Run(stopping => JoinAndRefreshReviewAsync(session, joined, stopping));
 			return Listed.Replaced;
 		} finally {
 			// A failed listing settles what it set out to cover, so a persistent failure isn't retried in a loop.
@@ -220,16 +216,20 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Brings one known path into the open git review: a held path refreshes from disk with no git call, and a new one
-	/// reads its before at the review's base. A review replaced meanwhile is joined instead.
+	/// Brings changed files into the open git review at its base: a held file refreshes from disk with no git call, and
+	/// new ones read their befores in one git call. A review replaced meanwhile is joined instead.
 	/// </summary>
-	private static async Task JoinReviewAsync(HostSession session, string path, CancellationToken ct) {
+	private static async Task JoinReviewAsync(HostSession session, IReadOnlyCollection<string> paths, CancellationToken ct) {
 		var git = new GitService();
-		while (session.Changes.Review is { } review && PathBoundary.Contains(review.Worktree, path)) {
-			if (session.Changes.RefreshReviewPath(review, path)) return;
-			string relative = Path.GetRelativePath(review.Worktree, path).Replace(Path.DirectorySeparatorChar, '/');
-			var before = (await git.ReadFilesAtRefsAsync(review.Worktree, [(review.MergeBase, relative)], ct).ConfigureAwait(false))[0];
-			if (session.Changes.JoinReview(review, path, before.Content, before.Exists)) return;
+		var remaining = paths;
+		while (remaining.Count > 0 && session.Changes.Review is { } review) {
+			string[] unheld = [.. remaining.Where(path => PathBoundary.Contains(review.Worktree, path)
+				&& !session.Changes.RefreshReviewPath(review, path))];
+			if (unheld.Length == 0) return;
+			var befores = await git.ReadFilesAtRefsAsync(review.Worktree, [.. unheld.Select(path =>
+				(review.MergeBase, Path.GetRelativePath(review.Worktree, path).Replace(Path.DirectorySeparatorChar, '/')))], ct)
+				.ConfigureAwait(false);
+			remaining = [.. unheld.Where((path, i) => !session.Changes.JoinReview(review, path, befores[i].Content, befores[i].Exists))];
 		}
 	}
 

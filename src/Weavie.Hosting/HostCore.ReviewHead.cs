@@ -9,8 +9,6 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	// A shell edit shows within this; a burst of them re-lists at most this often.
 	private static readonly TimeSpan ReviewRelistInterval = TimeSpan.FromSeconds(1);
-	// A held index lock is released with no event when its command only read, so it is polled out.
-	private static readonly TimeSpan IndexLockPoll = TimeSpan.FromMilliseconds(250);
 
 	private CoalescedSnapshotMonitor<ReviewHeadSnapshot> AttachReviewHead(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewHeadSnapshot>(
@@ -34,7 +32,12 @@ public sealed partial class HostCore {
 				session.ReviewListing.Observe(),
 				token => git.GetCurrentBranchAsync(review.Worktree, token),
 				token => git.ReadOperationAsync(review.Worktree, token),
-				token => git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", token),
+				// No merge-base closes the review only when its target is gone; any other failure keeps it.
+				async token => await git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", token).ConfigureAwait(false) is { } mergeBase
+					? mergeBase
+					: await git.ResolveCommitAsync(review.Worktree, review.Target, token).ConfigureAwait(false) is null
+						? null
+						: throw new GitException($"'{review.Target}' has no merge-base with HEAD."),
 				ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't follow the review {review.Label}: {ex.Message}");
@@ -49,12 +52,7 @@ public sealed partial class HostCore {
 		Func<CancellationToken, Task<GitOperation>> readOperation,
 		Func<CancellationToken, Task<string?>> readMergeBase,
 		CancellationToken ct) {
-		async Task<bool> Stopped() {
-			GitOperation operation;
-			while ((operation = await readOperation(ct).ConfigureAwait(false)) == GitOperation.Locked)
-				await Task.Delay(IndexLockPoll, ct).ConfigureAwait(false);
-			return operation == GitOperation.Stopped;
-		}
+		async Task<bool> Stopped() => await readOperation(ct).ConfigureAwait(false) != GitOperation.None;
 
 		// The merge-base is read first: HEAD only moves forward, so a branch read after it can't predate it.
 		string? mergeBase = await readMergeBase(ct).ConfigureAwait(false);
@@ -83,7 +81,7 @@ public sealed partial class HostCore {
 					? head.Branch.Length == 0
 						? $"Closed the review {review.Label}: HEAD left '{review.Branch}'."
 						: $"Closed the review {review.Label}: the worktree is now on '{head.Branch}'."
-					: $"Closed the review {review.Label}: '{review.Target}' no longer shares history with HEAD.");
+					: $"Closed the review {review.Label}: '{review.Target}' no longer exists.");
 			});
 			return;
 		}

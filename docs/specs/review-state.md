@@ -66,8 +66,8 @@ git is recorded on that re-list and applied again after it.
 | Watcher invalidation the tracker cannot account for | coalesced re-list |
 | Git metadata change (HEAD, index, refs) | re-resolve; re-list when the base moved or invalidations are pending |
 | Rebase, `git am`, bisect or conflicted merge stopped mid-way | wait until it finishes |
-| Index lock held | poll until it is released (a read-only command releases it with no event) |
-| Branch checkout, or the target no longer shares history with HEAD | close |
+| Index lock held | wait; its release (even with no index change) looks again |
+| Branch checkout, or the target no longer exists | close |
 
 A path the review can't hold (ignored, outside the worktree) is remembered until the next listing, so its saves
 don't ask git again. Binary files are left out of the listing, as an agent's binary edit is.

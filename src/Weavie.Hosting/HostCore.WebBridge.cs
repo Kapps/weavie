@@ -392,7 +392,7 @@ public sealed partial class HostCore {
 		RunReviewAction(
 			session,
 			() => {
-				if (session.Changes.RevertFile(path) == RevertHunkOutcome.GuardMismatch && session.Changes.Review is not null)
+				if (session.Changes.RevertFile(path) == RevertHunkOutcome.Unlisted)
 					Notify(session, "warn", $"{Path.GetFileName(path)} changed since the review listed it; revert once it updates.");
 			},
 			ex => $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");

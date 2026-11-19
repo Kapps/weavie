@@ -25,6 +25,7 @@ public sealed class GitMetadataWatcherTests {
 				if (headMoved) Interlocked.Increment(ref headMoves);
 				Interlocked.Increment(ref invalidations);
 			},
+			() => { },
 			error => throw error);
 
 		File.WriteAllText(Path.Combine(worktree, "file.txt"), "committed\n");

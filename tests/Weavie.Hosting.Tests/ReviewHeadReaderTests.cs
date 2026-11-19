@@ -81,17 +81,15 @@ public sealed class ReviewHeadReaderTests {
 	}
 
 	[Fact]
-	public async Task AHeldIndexLock_IsWaitedOut() {
-		var operations = new Queue<GitOperation>([GitOperation.Locked, GitOperation.Locked, GitOperation.None]);
+	public async Task AHeldIndexLock_LeavesADueReviewWaiting() {
 		var snapshot = await HostCore.ReadReviewHeadAsync(
 			Review,
 			new ListingState(1, 0, 0, true),
 			_ => Task.FromResult<string?>("topic"),
-			_ => Task.FromResult(operations.Dequeue()),
+			_ => Task.FromResult(GitOperation.Locked),
 			_ => Task.FromResult<string?>("old-base"),
 			CancellationToken.None);
 
-		Assert.Empty(operations);
-		Assert.Equal(new ReviewHeadSnapshot(Review, "topic", "old-base", new ListingState(1, 0, 0, true)), snapshot);
+		Assert.Equal(ReviewHeadSnapshot.Waiting, snapshot);
 	}
 }

@@ -22,6 +22,10 @@ public sealed partial class HostCore {
 				commits.RequestRefresh();
 				reviewHead.RefreshNow();
 			},
+			// Weavie's own status reads take the index lock too, so only a review waiting on it looks again.
+			() => {
+				if (reviewHead.Latest == ReviewHeadSnapshot.Waiting) reviewHead.RefreshNow();
+			},
 			error => PostForSession(session, () => {
 				if (!session.EndIfWorkspaceRootIsGone(error.Message)) {
 					Notify(session, "warn", error.Message);

@@ -291,7 +291,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var tracker = Reviewing();
 		_files.WriteAllText(File, "A\nspace\nB\nunseen\n");
 
-		Assert.Equal(RevertHunkOutcome.GuardMismatch, tracker.RevertFile(File));
+		Assert.Equal(RevertHunkOutcome.Unlisted, tracker.RevertFile(File));
 		Assert.True(tracker.RevertAll().WasBlocked);
 		tracker.KeepAll();
 

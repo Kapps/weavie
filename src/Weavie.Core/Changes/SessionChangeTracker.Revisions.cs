@@ -27,7 +27,10 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			// A revision is offered on any selection, so the file may be one the agent never touched. The default review
 			// holds it first so the write is reviewable; a git review joins it once the write is reported.
-			if (!_acceptedAnchor.ContainsKey(path) && _review is null) CaptureBaseline(path);
+			if (!_acceptedAnchor.ContainsKey(path) && _review is null) {
+				CaptureBaseline(path);
+				_toolCapture.Remove(path);
+			}
 			ReconcilePath(path);
 			if (TrySplice(path, range, originalText, SplitLines(replacement)) is not { } spliced) {
 				return ReviseApplyOutcome.GuardMismatch;

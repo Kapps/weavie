@@ -117,6 +117,8 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		if (value is AgentTurnStopped) {
+			// A tool that never completed leaves no capture for a later edit to mistake for its before.
+			lock (_gate) _toolCapture.Clear();
 			return;
 		}
 
@@ -346,7 +348,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			if (!ShownMatchesDisk([path])) return RevertHunkOutcome.GuardMismatch;
+			if (!ShownMatchesDisk([path])) return RevertHunkOutcome.Unlisted;
 			ReconcilePath(path);
 			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;

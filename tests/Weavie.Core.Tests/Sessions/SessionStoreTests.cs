@@ -160,6 +160,9 @@ public sealed class SessionStoreTests {
 		var reloaded = new SessionStore(fs, StorePath);
 		Assert.Equal(["/code/infra"], reloaded.Repos);
 		Assert.True(reloaded.HomeClosed);
+		Assert.True(reloaded.ForgetRepo("/code/infra"));
+		Assert.False(reloaded.ForgetRepo("/code/infra"));
+		Assert.Empty(reloaded.Repos);
 	}
 
 	[Fact]

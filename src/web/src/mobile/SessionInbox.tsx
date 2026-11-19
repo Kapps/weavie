@@ -112,7 +112,7 @@ export function SessionInbox(props: {
     clearTimeout(repoTyped);
     repoTyped = setTimeout(() => setRepoPath(path), 400);
   };
-  // Leaving the field or pressing Enter names the path at once, ahead of the submit Enter also causes.
+  // Leaving the field or pressing Enter names the path at once, ahead of the start Enter also asks for.
   const commitRepo = (path: string): void => {
     clearTimeout(repoTyped);
     setRepoPath(path);
@@ -380,6 +380,7 @@ export function SessionInbox(props: {
             busy={submitting() !== null}
             starting={submitting() === "new"}
             destination={destinationFields("Session location", "Repository", "Agent provider")}
+            onRepoPath={commitRepo}
             onBase={setBase}
             onStart={startNew}
           />

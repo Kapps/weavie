@@ -295,6 +295,9 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("opened"));
 		}
 
+		public Task<CommandResult> ForgetRepoAsync(string? repo, CancellationToken ct = default) =>
+			Task.FromResult(CommandResult.Success("forgot"));
+
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
 			bool stopBackgroundWork,

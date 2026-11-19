@@ -12,8 +12,8 @@ public sealed record SessionStoreSnapshot {
 	public required int ShellRows { get; init; }
 
 	/// <summary>The roots of the repos the workspace has had sessions in.</summary>
-	public IReadOnlyList<string> Repos { get; init; } = [];
+	public required IReadOnlyList<string> Repos { get; init; }
 
 	/// <summary>True once the user deleted the session on the home folder, so it is not offered again.</summary>
-	public bool HomeClosed { get; init; }
+	public required bool HomeClosed { get; init; }
 }

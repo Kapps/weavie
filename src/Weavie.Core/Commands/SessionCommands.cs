@@ -89,6 +89,9 @@ public static class SessionCommands {
 	/// <summary>Opens the session on the workspace's home folder: the way back after that session was deleted.</summary>
 	public const string OpenHomeSession = "weavie.session.openHome";
 
+	/// <summary>Stops offering a repo (arg <c>repo</c>, its path) in the new-session Repository list.</summary>
+	public const string ForgetRepo = "weavie.session.forgetRepo";
+
 	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; a folder Weavie did not make is kept.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
@@ -347,6 +350,23 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = ForgetRepo,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
+			Title = "Forget Repository",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Session",
+			Description = "Stop offering a repository in the new-session Repository list, by 'repo' (its path). The "
+				+ "workspace remembers every repository it has had a session in; one that still has a session here, "
+				+ "and the home folder's, can't be forgotten.",
+			Aliases = ["forget repo", "remove repository from list", "forget repository"],
+			// It needs the path, which only a caller that names one has.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"repo\":{\"type\":\"string\",\"description\":\"Path of the repository to forget\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = UnloadSession,
 			SharedExecutionLane = LifecycleExecutionLane,
 			LanePerSession = true,
@@ -502,6 +522,7 @@ public static class SessionCommands {
 			dispatcher.RegisterHandler(CancelOperation, (argsJson, _) => host.CancelOperationAsync(GetString(argsJson, "id"))),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
 			dispatcher.RegisterHandler(OpenHomeSession, (_, ct) => host.OpenHomeSessionAsync(ct)),
+			dispatcher.RegisterHandler(ForgetRepo, (argsJson, ct) => host.ForgetRepoAsync(GetString(argsJson, "repo"), ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,
 				(argsJson, context, ct) => host.UnloadSessionAsync(

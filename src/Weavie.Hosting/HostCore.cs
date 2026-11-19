@@ -317,8 +317,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(git, isRepo).ConfigureAwait(false);
 		LogStartup("branch resolved");
 
-		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
-		// session on the workspace checkout.
+		// Reconcile checkouts first, then restore per-slot runtime/editor state and the home folder's session.
 		Home = OpenRepo(HomeFolder, git, isRepo);
 		_repos[Home.Id] = Home;
 		_sessions = new SessionManager();

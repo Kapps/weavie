@@ -663,18 +663,63 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
 		Assert.DoesNotContain(homeId, SessionIds(host));
 		Assert.True(Directory.Exists(host.RepoRoot));
-		Assert.Contains(NotificationMessages(host), message => message.EndsWith("was deleted. Its folder was kept.", StringComparison.Ordinal));
+		Assert.Contains($"Session 'main' was deleted. Its folder {host.RepoRoot} was kept.", NotificationMessages(host));
 
 		await host.RestartAsync();
 		Assert.DoesNotContain(homeId, SessionIds(host));
 		Assert.Contains("feature", host.SessionLabels);
 
-		var opened = await host.HostRequestAsync<JsonElement>(
-			"sessions", "invoke", new { id = SessionCommands.OpenHomeSession, args = new { } });
+		var opened = await OpenHomeAsync(host);
 		Assert.True(opened.GetProperty("ok").GetBoolean());
+		Assert.True(opened.GetProperty("data").GetProperty("activateSession").GetBoolean());
 		Assert.True(host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("loaded").GetBoolean());
 
 		await host.RestartAsync();
+		Assert.Contains(homeId, SessionIds(host));
+	}
+
+	private static Task<JsonElement> OpenHomeAsync(TestHost host) => host.HostRequestAsync<JsonElement>(
+		"sessions", "invoke", new { id = SessionCommands.OpenHomeSession, args = new { } });
+
+	// The session deleting itself is torn down after its own reply.
+	[Fact]
+	public async Task TheHomeFolderSessionCanDeleteItself() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+
+		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
+
+		await Wait.UntilAsync(() => !SessionIds(host).Contains(homeId));
+		Assert.Empty(host.SessionCatalog);
+	}
+
+	// A dormant home session keeps its own provider, and is loaded and selected.
+	[Fact]
+	public async Task OpeningTheHomeFolderSessionLoadsTheOneThatIsThere() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectSession(host.SlotId("feature"));
+		Assert.True((await host.UnloadSessionAsync(homeId)).Ok);
+
+		var opened = await OpenHomeAsync(host);
+
+		Assert.Equal(homeId, opened.GetProperty("data").GetProperty("address").GetProperty("slot").GetString());
+		Assert.True(host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("loaded").GetBoolean());
+	}
+
+	// Its branch is checked out in the home folder, which git won't check out a second time.
+	[Fact]
+	public async Task OpeningTheHomeFoldersBranchBringsBackItsDeletedSession() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectSession(host.SlotId("feature"));
+		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
+
+		var opened = await host.CreateSessionAsync(new NewSessionRequest { Branch = "main", Existing = true });
+
+		Assert.True(opened.Ok, opened.Error);
 		Assert.Contains(homeId, SessionIds(host));
 	}
 

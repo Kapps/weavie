@@ -46,9 +46,18 @@ public sealed class SessionSlot {
 	/// <summary>The ordered shell terminal tabs restored when this slot is loaded.</summary>
 	public required IReadOnlyList<string> ShellTerminals { get; set; }
 
+	/// <summary>
+	/// Set when git couldn't place this checkout in a repo at startup: the slot is only listed, and loads nothing
+	/// until a later start finds its repository.
+	/// </summary>
+	public LostRepository? Lost { get; init; }
+
 	/// <summary>True when the slot has a live backend.</summary>
 	public bool Loaded => Session is not null;
 
 	/// <summary>Serializes this slot's lifecycle work (load, unload, delete, recreate) without blocking other slots.</summary>
 	internal SemaphoreSlim Lifecycle { get; } = new(1, 1);
 }
+
+/// <summary>Why git couldn't place a saved session's checkout, and whether the session was loaded when saved.</summary>
+public sealed record LostRepository(string Reason, bool Loaded);

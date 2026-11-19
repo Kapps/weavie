@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Weavie.Core;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
@@ -36,10 +37,37 @@ public sealed partial class HostCore {
 
 	// The home folder's, then by name every repo the workspace has had sessions in that is still on disk.
 	private KnownRepo[] KnownRepos() {
-		string[] roots = [Home.Root, .. _sessionStore.Repos.Where(root => !PathIdentity.Equals(root, Home.Root) && Directory.Exists(root))];
-		return [.. roots.Select(root => new KnownRepo(root, RepoLabel(root, roots)))
+		string[] named = RepoRoots();
+		return [.. _sessionStore.Repos.Where(Directory.Exists).Append(Home.Root).Distinct(PathIdentity.Comparer)
+			.Select(root => new KnownRepo(root, RepoLabel(root, named)))
 			.OrderByDescending(repo => repo.Repo == Home.Root).ThenBy(repo => repo.Label, StringComparer.OrdinalIgnoreCase)];
 	}
+
+	// Every repo a name has to tell apart: the home folder's, the remembered ones, and those of the sessions.
+	private string[] RepoRoots() => [.. (_sessions?.Slots ?? []).Select(slot => slot.Repo.Root)
+		.Concat(_sessionStore.Repos).Append(Home.Root).Distinct(PathIdentity.Comparer)];
+
+	private void PublishKnownRepos() =>
+		_messages.Host.Feature("repos").Publish("known", WireJson.Default.KnownRepoArray, KnownRepos());
+
+	/// <summary>Stops offering <paramref name="repo"/> for new sessions; a repo with a session here is kept.</summary>
+	private Task<CommandResult> ForgetRepoAsync(string? repo, CancellationToken ct) => GatedAsync(_sessionCatalog, () => {
+		if (string.IsNullOrWhiteSpace(repo)) {
+			return Task.FromResult(CommandResult.Failure("Forgetting a repo needs its 'repo' path."));
+		}
+
+		string root = RepoPath(repo, null);
+		if (_repos.ContainsKey(WorkspaceId.ForPath(root))) {
+			return Task.FromResult(CommandResult.Failure($"'{root}' has a session in this workspace, or is its home folder."));
+		}
+		if (!_sessionStore.ForgetRepo(root)) {
+			return Task.FromResult(CommandResult.Failure($"'{root}' isn't a repo this workspace remembers."));
+		}
+
+		PersistSessionState();
+		PublishKnownRepos();
+		return Task.FromResult(CommandResult.Success($"Forgot '{root}'."));
+	}, ct);
 
 	/// <summary>The repos a settings change reaches: the one whose overlay changed, or all for a user-level change.</summary>
 	private IEnumerable<Repo> ReposAffectedBy(SettingChange change) =>
@@ -107,9 +135,9 @@ public sealed partial class HostCore {
 			PushTestProfile(repo);
 			PushRecentFiles(repo);
 			repo.Suggestions.Start();
-			// A plain folder is never offered: only the home folder's session can be on one.
+			// A plain folder holds no worktree session, so it is never offered for a new one.
 			if (repo.Worktrees is not null && _sessionStore.RememberRepo(repo.Root)) {
-				_messages.Host.Feature("repos").Publish("known", WireJson.Default.KnownRepoArray, KnownRepos());
+				PublishKnownRepos();
 			}
 		}
 	}
@@ -135,11 +163,13 @@ public sealed partial class HostCore {
 			throw new GitException($"'{path}' is a folder inside the repository at '{toplevel}'; name that folder.");
 		}
 
-		return Home.Worktrees is not null
-			&& PathIdentity.Equals(root, _homeMainWorktree ??= (await LocateAsync(git, Home.Root, ct).ConfigureAwait(false)).Main)
-				? Home.Root
-				: root;
+		return Home.Worktrees is not null && PathIdentity.Equals(root, await HomeMainWorktreeAsync(git, ct).ConfigureAwait(false))
+			? Home.Root
+			: root;
 	}
+
+	private async Task<string> HomeMainWorktreeAsync(GitService git, CancellationToken ct) =>
+		_homeMainWorktree ??= (await LocateAsync(git, Home.Root, ct).ConfigureAwait(false)).Main;
 
 	// Where a folder sits in its repository: its own checkout's top folder, and the main worktree git lists first.
 	private static async Task<(string Toplevel, string Main)> LocateAsync(GitService git, string path, CancellationToken ct) {

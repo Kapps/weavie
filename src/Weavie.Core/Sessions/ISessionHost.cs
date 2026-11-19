@@ -93,6 +93,9 @@ public interface ISessionHost {
 	/// <summary>Opens the session on the workspace's home folder when there is none, and loads it.</summary>
 	Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct = default);
 
+	/// <summary>Stops offering the repo at <paramref name="repo"/> for new sessions.</summary>
+	Task<CommandResult> ForgetRepoAsync(string? repo, CancellationToken ct = default);
+
 	/// <summary>
 	/// Unloads the invoking session, or the given <paramref name="sessionId"/>, into a dormant chip while keeping its
 	/// worktree. Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.

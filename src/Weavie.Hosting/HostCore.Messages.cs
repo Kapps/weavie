@@ -219,6 +219,7 @@ public sealed partial class HostCore {
 			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.OpenHomeSession => await OpenHomeSessionAsync(ct).ConfigureAwait(false),
+			SessionCommands.ForgetRepo => await ForgetRepoAsync(ReadString(args, "repo"), ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
 				id,

@@ -24,7 +24,8 @@ public sealed partial class HostCore {
 			Unseen = slot.Unseen,
 			WorktreePath = slot.WorktreePath,
 			WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
-			Loaded = slot.Loaded,
+			// A session git couldn't place comes back as it was saved once its repository does.
+			Loaded = slot.Lost?.Loaded ?? slot.Loaded,
 			AgentProviderId = slot.AgentProviderId,
 			EditorSession = slot.EditorSession,
 			ShellTerminals = slot.ShellTerminals,
@@ -46,17 +47,17 @@ public sealed partial class HostCore {
 			foreign.TryGetValue(item.WorktreePath, out var placed);
 			var slot = _sessions.Find(SessionSlot.IdFor(item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
-				_sessions.Add(slot = DormantSlot(item, Home, _workspaceSessionLabel, HomeFolder));
+				_sessions.Add(slot = DormantSlot(item with { WorktreePath = HomeFolder }, Home, _workspaceSessionLabel, null));
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
 			} else if (placed.Repo is { } repo && repo != Home) {
-				_sessions.Add(slot = DormantSlot(item, repo, placed.Label, item.WorktreePath));
+				_sessions.Add(slot = DormantSlot(item, repo, placed.Label, placed.Lost is null ? null : new(placed.Lost, item.Loaded)));
 				if (placed.Lost is null) {
 					Join(repo);
 				} else {
 					_sessionStartupNotices.Add(("warn",
-						$"The session '{item.Label}' can't find its repository: {placed.Lost} It stays unloaded until the "
+						$"The session '{item.Label}' can't find its repository: {placed.Lost} It can't be loaded until the "
 						+ "repository is back; delete the session to drop it."));
 				}
 			}
@@ -67,8 +68,7 @@ public sealed partial class HostCore {
 				slot.Unseen = item.Unseen;
 			}
 
-			// A session git couldn't place has nothing to load from.
-			if (item.Loaded && slot is { } && placed.Lost is null) {
+			if (item.Loaded && slot is { Lost: null }) {
 				toLoad.Add(slot);
 			}
 		}
@@ -92,7 +92,7 @@ public sealed partial class HostCore {
 
 		// A workspace opens with a session on its home folder until the user deletes that session. One with no
 		// available agent provider still opens, with its other sessions and the reason why.
-		if (_sessionStore.HomeClosed) {
+		if (_sessionStore.HomeClosed || _sessions.Slots.Any(IsWorkspaceCheckout)) {
 			return;
 		}
 
@@ -106,13 +106,19 @@ public sealed partial class HostCore {
 	}
 
 	// Where git places each saved session outside the home repo: its repo, opened once however many of its
-	// sessions are saved, and the branch checked out there now. One git can't place stays listed on its own
-	// folder, so it can be deleted, with git's reason.
+	// sessions are saved, and its branch now. One git can't place stays listed on its own folder, with git's reason.
 	private async Task<IReadOnlyDictionary<string, (Repo Repo, string Label, string? Lost)>> PlaceForeignSessionsAsync(
 		IEnumerable<SessionDescriptor> items) {
 		var git = new GitService();
 		var repos = new ConcurrentDictionary<string, Lazy<Task<Repo>>>(PathIdentity.Comparer);
 		var placed = new ConcurrentDictionary<string, (Repo, string, string?)>(PathIdentity.Comparer);
+		try {
+			// Asked once here, not once by each of the sessions placed side by side.
+			await HomeMainWorktreeAsync(git, CancellationToken.None).ConfigureAwait(false);
+		} catch (GitException) {
+			// Each session's own placement reports it.
+		}
+
 		await Parallel.ForEachAsync(
 			items,
 			new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentSessionRestores },
@@ -128,14 +134,15 @@ public sealed partial class HostCore {
 		return placed;
 	}
 
-	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
+	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, LostRepository? lost) => new() {
 		Label = label,
 		Repo = repo,
-		WorktreePath = worktreePath,
+		WorktreePath = item.WorktreePath,
 		AgentProviderId = item.AgentProviderId,
 		Session = null,
 		EditorSession = item.EditorSession,
 		ShellTerminals = item.ShellTerminals,
+		Lost = lost,
 	};
 
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {

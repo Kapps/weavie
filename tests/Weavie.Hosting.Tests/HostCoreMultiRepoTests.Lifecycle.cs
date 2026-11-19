@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 using Xunit;
@@ -22,6 +23,46 @@ public sealed partial class HostCoreMultiRepoTests {
 			InfraEntry(host, "deploy").GetProperty("id").GetString()!, force: false, classify: false)).Ok);
 		await Wait.UntilAsync(() => !host.SessionLabels.Contains("deploy"));
 		Assert.Equal([host.RepoRoot], await HelloReposAsync(host));
+	}
+
+	[Fact]
+	public async Task ARestartRestoresSeveralSessionsOfOneRepoIntoThatOneRepo() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		Assert.True((await CreateInInfraAsync(host, "rollout")).Ok);
+		string infra = InfraOf(host.RepoRoot);
+
+		await host.RestartAsync();
+		Assert.True(InfraEntry(host, "deploy").GetProperty("loaded").GetBoolean());
+		Assert.True(InfraEntry(host, "rollout").GetProperty("loaded").GetBoolean());
+
+		// The repo stays in the workspace while one of its sessions does.
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync(
+			InfraEntry(host, "deploy").GetProperty("id").GetString()!, force: false, classify: false)).Ok);
+		await Wait.UntilAsync(() => !host.SessionLabels.Contains("deploy"));
+		Assert.Equal([infra, host.RepoRoot], (await HelloReposAsync(host)).Order());
+	}
+
+	[Fact]
+	public async Task AForgottenRepoIsNoLongerOfferedAndOneWithASessionIsKept() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		string home = Path.GetFileName(host.RepoRoot);
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		Task<JsonElement> Forget() => host.HostRequestAsync<JsonElement>(
+			"sessions", "invoke", new { id = SessionCommands.ForgetRepo, args = new { repo = InfraOf(host.RepoRoot) } });
+
+		Assert.Contains("has a session in this workspace", (await Forget()).GetProperty("error").GetString());
+
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync(
+			InfraEntry(host, "deploy").GetProperty("id").GetString()!, force: false, classify: false)).Ok);
+		await Wait.UntilAsync(() => !host.SessionLabels.Contains("deploy"));
+		Assert.True((await Forget()).GetProperty("ok").GetBoolean());
+		Assert.Equal([home], await OfferedReposAsync(host));
+
+		await host.RestartAsync();
+		Assert.Equal([home], await OfferedReposAsync(host));
 	}
 
 	[Fact]
@@ -59,11 +100,18 @@ public sealed partial class HostCoreMultiRepoTests {
 		Assert.False(host.CatalogEntry("deploy").GetProperty("loaded").GetBoolean());
 		Assert.True(Toasted(host, "The session 'deploy' can't find its repository"));
 		Assert.False(Toasted(host, "Couldn't restore the session"));
+		var load = await host.HostRequestAsync<JsonElement>("sessions", "invoke", new {
+			id = SessionCommands.LoadSession,
+			args = new { id = host.CatalogEntry("deploy").GetProperty("id").GetString() },
+		});
+		Assert.Contains("can't find its repository, so it can't be loaded", load.GetProperty("error").GetString());
 		// It is still a session, so its workflow documents stay owned.
 		Assert.False(Toasted(host, "automatic cleanup is stopped"));
 
+		// It comes back as it was saved: in its repo, and loaded.
 		await host.RestartAsync(() => Directory.Move(away, infra));
 		Assert.Equal(infra, InfraEntry(host, "deploy").GetProperty("repo").GetString());
+		Assert.True(InfraEntry(host, "deploy").GetProperty("loaded").GetBoolean());
 	}
 
 	[Fact]

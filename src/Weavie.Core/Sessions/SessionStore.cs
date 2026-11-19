@@ -106,6 +106,14 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		}
 	}
 
+	/// <summary>Stops remembering <paramref name="root"/>, persisted by the next <see cref="Save"/>. False when it wasn't remembered.</summary>
+	public bool ForgetRepo(string root) {
+		ArgumentException.ThrowIfNullOrEmpty(root);
+		lock (Gate) {
+			return _repos.RemoveAll(known => PathIdentity.Equals(known, root)) > 0;
+		}
+	}
+
 	/// <summary>
 	/// Records the shell terminal's latest real size in memory, persisted by the next <see cref="Save"/> or
 	/// <see cref="Flush"/> — not written per call, so a window-drag's resize storm doesn't thrash the file.

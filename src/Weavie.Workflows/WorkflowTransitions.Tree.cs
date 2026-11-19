@@ -8,7 +8,11 @@ internal sealed partial class WorkflowTransitions {
 		run = run with { Frame = frame.Id, Stage = stage.Id };
 		if (stage.Context == WorkflowContext.Fork && stage.Reuse is null) {
 			// A fork entered again copies its source again, and the earlier copy's undelivered reports go with it.
-			run = Update(run, frame.Id, f => f with { Opened = [.. f.Opened.Where(o => o != stage.Id)], Owed = Without(f.Owed, stage.Id) });
+			run = Update(run, frame.Id, f => f with {
+				Opened = [.. f.Opened.Where(o => o != stage.Id)],
+				Prompted = [.. f.Prompted.Where(o => o != stage.Id)],
+				Owed = Without(f.Owed, stage.Id),
+			});
 		}
 
 		if (stage.Repeats) {
@@ -184,6 +188,7 @@ internal sealed partial class WorkflowTransitions {
 		Streaks = [],
 		Owed = [],
 		Opened = [],
+		Prompted = [],
 	};
 
 	/// <summary>The innermost record the run is inside.</summary>

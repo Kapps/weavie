@@ -8,10 +8,14 @@ internal static class WorkflowReferences {
 	public static bool IsEntry(WorkflowDefinition definition, WorkflowReference reference) =>
 		EntryNames.Contains(reference.Name) && definition.TryStage(reference.Scope)?.Repeats == true;
 
-	/// <summary>Whether <paramref name="reference"/> reads a repeated stage's output, directly or copied by a stage holding it.</summary>
+	/// <summary>
+	/// Whether <paramref name="reference"/> reads a repeated stage's output, directly or copied by a stage holding it. Only
+	/// a copy from one of the stage's own stages is followed, so the walk always descends the tree and ends.
+	/// </summary>
 	public static bool IsRepeated(WorkflowDefinition definition, WorkflowReference reference) =>
 		!IsEntry(definition, reference) && definition.TryStage(reference.Scope) is { } stage
-		&& (stage.Repeats || stage.Outputs.FirstOrDefault(o => o.Name == reference.Name)?.Source is { } source && IsRepeated(definition, source));
+		&& (stage.Repeats || stage.Outputs.FirstOrDefault(o => o.Name == reference.Name)?.Source is { } source
+			&& stage.Copied(source) is not null && IsRepeated(definition, source));
 
 	/// <summary>The type <paramref name="reference"/> reads, or null when it names nothing; a repeated output has its entries' type.</summary>
 	public static WorkflowValueType? TypeOf(WorkflowDefinition definition, WorkflowReference reference) =>

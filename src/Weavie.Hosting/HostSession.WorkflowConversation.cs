@@ -70,14 +70,15 @@ public sealed partial class HostSession {
 					if (_lease.Visit != visit) {
 						if (_lease.Visit is { } previous) Release(previous);
 						await _session.ReturnMainForChildAsync(visit, stopping.Token).ConfigureAwait(false);
-						if (kickoff.Continues && Live is { } live) {
+						if (_session.Workflow.HasOpened(_description.Key) && Live is { } live) {
 							await live.ApplyControlsAsync(MainMode(live)).WaitAsync(stopping.Token).ConfigureAwait(false);
 						}
 						_lease.Visit = visit;
 						_ = _session.Background.Run(token => ReturnAsync(visit, token));
 					}
 					bool opened = false;
-					if (!kickoff.Continues || Live is null) {
+					// A conversation this pass already uses, even one only opened to be forked, is continued.
+					if (!_session.Workflow.HasOpened(_description.Key) || Live is null) {
 						if (await EnsureAsync(visit, kickoff, stopping.Token).ConfigureAwait(false) is not { } opening) return;
 						opened = opening;
 					}

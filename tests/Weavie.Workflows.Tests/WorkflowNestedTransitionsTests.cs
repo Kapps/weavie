@@ -289,6 +289,39 @@ public sealed class WorkflowNestedTransitionsTests {
 	}
 
 	[Fact]
+	public void AGroupOpenedToBeForkedStillTakesWhatIsOwedToItsSourceOnItsFirstTurn() {
+		var machine = TestWorkflows.Machine(Read("""
+			id: owed
+			description: A fresh check, then a group whose first stage forks it.
+			stages:
+			  - id: check
+			    context: fresh
+			    run: { prompt: Check. }
+			  - id: group
+			    context: fork
+			    stages:
+			      - id: task
+			        context: fork
+			        run: { prompt: Task. }
+			      - id: wrap
+			        run: { prompt: Wrap. }
+			"""));
+		var run = machine.Start(TestWorkflows.Start).Run;
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff!), Json("{}"), "checked").Step.Run;
+		var task = run.Kickoff!;
+		Assert.Contains("Stage \"check\" ran in its own conversation", task.Text);
+		// The host opens the group's conversation to fork it, so the group is in use before it takes a turn.
+		run = WorkflowTransitions.Opened(WorkflowTransitions.Claim(run, task), new(run.Frames[0].Id, "group"));
+		run = machine.Complete(run, Json("{}"), "tasked").Step.Run;
+		var wrap = run.Kickoff!;
+		Assert.Equal((new WorkflowConversationRef(run.Frames[0].Id, "group"), false), (wrap.Conversation, wrap.Continues));
+		Assert.Contains("Stage \"check\" ran in its own conversation", wrap.Text);
+		Assert.Contains("Stage \"task\", inside \"group\" ran in its own conversation", wrap.Text);
+		run = machine.Complete(WorkflowTransitions.Claim(run, wrap), Json("{}"), "wrapped").Step.Run;
+		Assert.Contains("Stage \"check\" ran in its own conversation", run.Frames[0].Owed[""]);
+	}
+
+	[Fact]
 	public void ASecondPassOverARepeatedStageGetsNewRecords() {
 		var machine = TestWorkflows.Machine(Read("""
 			id: again

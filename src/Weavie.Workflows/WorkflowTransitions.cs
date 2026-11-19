@@ -150,12 +150,16 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			PromptImagesSent = run.PromptImagesSent || turn.Conversation is null && turn.CarriesPromptImages,
 		};
 		run = ClearOwed(run, turn.Conversation);
-		return turn.Conversation is { } used && turn.Opens.Length > 0 ? Opened(run, used) : run;
+		return turn.Conversation is { } used && turn.Opens.Length > 0
+			? Update(Opened(run, used), used.Frame, frame => frame with { Prompted = With(frame.Prompted, used.Opener) })
+			: run;
 	}
 
 	/// <summary>The run with conversation <paramref name="conversation"/> in use for this pass of its record.</summary>
 	public static WorkflowRun Opened(WorkflowRun run, WorkflowConversationRef conversation) =>
-		Update(run, conversation.Frame, frame => frame.Opened.Contains(conversation.Opener) ? frame : frame with { Opened = [.. frame.Opened, conversation.Opener] });
+		Update(run, conversation.Frame, frame => frame with { Opened = With(frame.Opened, conversation.Opener) });
+
+	private static IReadOnlyList<string> With(IReadOnlyList<string> list, string item) => list.Contains(item) ? list : [.. list, item];
 
 	private WorkflowStep Enter(WorkflowRun run, WorkflowFrame frame, string target) => Enter(run, frame, target, startsExecution: true);
 
@@ -207,16 +211,28 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 		var conversation = TurnConversation(frame, stage);
 		return turn with {
 			Conversation = conversation,
-			Continues = conversation is not null && run.FrameOf(conversation.Frame)?.Opened.Contains(conversation.Opener) == true,
+			Continues = conversation is not null && Prompted(run, conversation),
 			CarriesPromptImages = (conversation is not null || !run.PromptImagesSent)
 				&& run.Prompt.Images.Count > 0 && (stage.Run!.Prompt ?? stage.Run.Args)?.References.Any(reference => reference.IsPrompt) == true,
 		};
 	}
 
-	// A new fork also carries what is owed to the conversation it copies, which has not taken it yet.
-	private WorkflowStep Send(WorkflowRun run, WorkflowKickoff kickoff) => Send(run, kickoff,
-		kickoff.Conversation is { } conversation && !kickoff.Continues && definition.Stage(conversation.Opener).Context == WorkflowContext.Fork
-			? OwedTo(run, Source(run, conversation)) : "");
+	// A fork's first turn also carries what is owed to the conversations it copies, which have not taken it yet.
+	private WorkflowStep Send(WorkflowRun run, WorkflowKickoff kickoff) =>
+		Send(run, kickoff, kickoff.Conversation is { } conversation && !kickoff.Continues ? Inherited(run, conversation) : "");
+
+	// Up the forks that have taken no turn of this pass, each source's owed reports, outermost first.
+	private string Inherited(WorkflowRun run, WorkflowConversationRef conversation) {
+		string text = "";
+		for (var at = conversation; at is not null
+			&& definition.Stage(at.Opener) is { Context: WorkflowContext.Fork, Reuse: null } && !Prompted(run, at); at = Source(run, at)) {
+			text = Join(OwedTo(run, Source(run, at)), text);
+		}
+		return text;
+	}
+
+	private static bool Prompted(WorkflowRun run, WorkflowConversationRef conversation) =>
+		run.FrameOf(conversation.Frame)?.Prompted.Contains(conversation.Opener) == true;
 
 	// Numbers the turn and prefixes what is owed to its conversation.
 	private static WorkflowStep Send(WorkflowRun run, WorkflowKickoff kickoff, string inherited) {

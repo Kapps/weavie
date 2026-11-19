@@ -54,6 +54,12 @@ public sealed class WorkflowTreeSemanticsTests {
 			    run: { prompt: "{{each.item}}" }
 			"""));
 
+	[Theory]
+	[InlineData("  - id: g\n    stages: [{ id: c, run: { prompt: p } }]\n    outputs: { n: \"{{g.n}}\" }\n  - id: each\n    foreach: \"{{g.n}}\"\n    run: { prompt: p }", "stages[0].outputs.n")]
+	[InlineData("  - id: g\n    stages:\n      - id: h\n        stages: [{ id: c, run: { prompt: p } }]\n        outputs: { m: \"{{g.n}}\" }\n    outputs: { n: \"{{h.m}}\" }\n  - id: each\n    foreach: \"{{g.n}}\"\n    run: { prompt: p }", "stages[0].stages[0].outputs.m")]
+	public void CopiedOutputsThatCopyEachOtherAreReportedNotFollowed(string stages, string path) =>
+		Assert.Contains(Errors(stages), d => d.Path == path && d.Message.Contains("names no output of a stage inside", StringComparison.Ordinal));
+
 	[Fact]
 	public void ReaderAndTreeErrorsAreReportedTogether() {
 		var errors = Errors("  - id: a\n    run: { prompt: p }\n    outputs: { n: number }\n    then: nowhere");

@@ -36,8 +36,11 @@ public sealed record WorkflowFrame {
 	/// <summary>Completed stages' reports owed to a conversation this record owns, by opening stage; empty names main, on the root.</summary>
 	public required Dictionary<string, string> Owed { get; init; }
 
-	/// <summary>The opening stages whose conversation in this record has taken a turn.</summary>
+	/// <summary>The opening stages whose conversation in this record is in use for this pass: opened for a turn or to be forked.</summary>
 	public required IReadOnlyList<string> Opened { get; init; }
+
+	/// <summary>The opening stages whose conversation in this record has taken a turn of this pass.</summary>
+	public required IReadOnlyList<string> Prompted { get; init; }
 
 	/// <summary>Whether this record is one entry of repeated stage <paramref name="stage"/>.</summary>
 	public bool IsEntryOf(string stage) => Entry > 0 && Stage == stage;

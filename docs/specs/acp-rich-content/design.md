@@ -529,6 +529,7 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
   (`agentSelectionCommentFocused`). `weavie.agent.sendSelectionComment` (*Send*, `Enter`) submits the
   comment as its own prompt with the excerpt as its one selection, leaving the composer's draft and
   attachments alone; a refused send lands in the composer as the commented selection beside the reason.
+  Sent from an editor, its reply also shows under the selection ([inline replies](../inline-replies.md)).
   `weavie.agent.addSelectionComment` (*Add to context*, `$mod+Enter`) attaches the excerpt with its
   comment to the next prompt. `Shift+Enter` types a newline, and on a compact shell so does `Enter`.
 - Command `weavie.agent.attachBlock` (*Attach Block to Prompt*, web, unbound) attaches a whole chart or table. The

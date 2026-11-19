@@ -184,6 +184,9 @@ public static partial class CoreCommands {
 	/// <summary>Attaches the focused selection comment with its excerpt to the next prompt; bound to <c>$mod+Enter</c>.</summary>
 	public const string AddAgentSelectionComment = "weavie.agent.addSelectionComment";
 
+	/// <summary>Removes every inline reply from the session's editors (web-handled).</summary>
+	public const string DismissInlineReplies = "weavie.agent.dismissInlineReplies";
+
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
 	public const string AttachAgentBlock = "weavie.agent.attachBlock";
 
@@ -1292,6 +1295,15 @@ public static partial class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter" }],
 			When = "agentSelectionCommentFocused",
 			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DismissInlineReplies,
+			Title = "Dismiss Inline Replies",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Remove every agent reply shown under an editor selection in this session; the replies stay in the agent pane.",
+			Aliases = ["dismiss inline reply", "clear inline replies", "close inline replies", "hide inline replies"],
 		});
 
 		registry.Register(new CommandDefinition {

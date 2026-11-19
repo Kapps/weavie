@@ -188,19 +188,23 @@ const sentSelections = createSessionOwnedMap<
   { owner: ComposerOwner; selection: AgentSelection }
 >();
 
-/** Sends `selection` under `comment` as its own prompt; a refusal attaches both to `owner` beside the reason. */
+/**
+ * Sends `selection` under `comment` as its own prompt and returns its submission id, or null when the session
+ * is gone; a refusal attaches both to `owner` beside the reason.
+ */
 export function sendSelection(
   owner: ComposerOwner,
   selection: AgentSelection,
   comment: string,
-): void {
-  if (!isLive(owner)) return;
+): string | null {
+  if (!isLive(owner)) return null;
   const id = nextId("submission");
   sentSelections.set(owner.session, id, {
     owner,
     selection: commentedSelection(selection, comment),
   });
   publishAgent(owner, "submit", submission(id, comment, null, [selectionAttachment(selection)]));
+  return id;
 }
 
 export interface AgentInvocation {

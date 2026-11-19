@@ -1,0 +1,50 @@
+/* A reply to a prompt sent from a selection (inline-reply-controller.tsx): a zone card under the selection's last
+   line, holding the question and what the agent has said to it. */
+.inline-reply {
+  --card-pad: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  max-height: 50vh;
+  overflow: auto;
+  color: var(--fg);
+  font: var(--font-chrome-body);
+}
+
+.inline-reply-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.inline-reply-question {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-reply-head > .ui-icon-button {
+  align-self: center;
+  color: var(--dim);
+}
+
+.inline-reply-head > .ui-icon-button:hover,
+.inline-reply-head > .ui-icon-button:focus-visible {
+  color: var(--fg);
+}
+
+.inline-reply .agent-markdown {
+  max-width: none;
+}
+
+.inline-reply-status {
+  color: var(--dim);
+}
+
+.inline-reply-error {
+  margin: 0;
+  color: var(--bad);
+}

@@ -7,6 +7,7 @@ import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { connectSelectionActions } from "./editor-selection-actions";
 import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
+import { createInlineReplies } from "./inline-replies/inline-reply-controller";
 import type { TextLocation } from "./nav-history";
 import { createPrComments } from "./pr-comments/pr-comment-controller";
 import { createReviewHints } from "./review-hints/review-hint-controller";
@@ -38,6 +39,7 @@ export function connectTextEditor(options: {
   };
   const unregister = editorContexts.register(connection);
   const offSelectionActions = connectSelectionActions(connection);
+  const offInlineReplies = createInlineReplies(session, editor, model);
   const offRevise = sharedReviseMarks.attach(connection);
   const key = `editor:${editor.getId()}`;
   const offSelection = registerSelectionSource(key, () => {
@@ -89,6 +91,7 @@ export function connectTextEditor(options: {
       unregister();
       offRevise();
       offSelectionActions();
+      offInlineReplies();
       offSelection();
       for (const subscription of subscriptions) subscription.dispose();
       connection.blame.dispose();

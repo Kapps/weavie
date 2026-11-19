@@ -35,6 +35,7 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   reviewComments: true,
   reviewHints: true,
   reviewStepSettled: false,
+  inlineReplies: true,
   reviewFilesAhead: 2,
   spellCheck: true,
 };

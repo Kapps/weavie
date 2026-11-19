@@ -14,12 +14,12 @@ import { render } from "solid-js/web";
 import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
+import { settledContentVersion } from "../content-version";
 import { samePath } from "../fs-path";
 import { hiddenAreas } from "../hidden-areas";
 import { keyedLineEndItems } from "../line-end-lane";
 import { monaco } from "../monaco-setup";
 import type { PrCommentController } from "../pr-comments/pr-comment-controller";
-import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { HintPill, HintPopover } from "./HintPopover";
 import { type PlacedHint, placeHints } from "./hint-anchor";
@@ -84,12 +84,7 @@ export function createReviewHints(
         );
       }
     });
-    const [version, setVersion] = createSignal(0);
-    let recompute: ReturnType<typeof setTimeout> | undefined;
-    const onContent = model.onDidChangeContent(() => {
-      clearTimeout(recompute);
-      recompute = setTimeout(() => setVersion((value) => value + 1), DIFF_RECOMPUTE_DEBOUNCE_MS);
-    });
+    const version = settledContentVersion(model);
     const placed = createMemo((): PlacedHint[] => {
       version();
       const loaded = sources();
@@ -283,9 +278,7 @@ export function createReviewHints(
       placed,
       lineOf,
       dispose: () => {
-        clearTimeout(recompute);
         clearTimeout(closing);
-        onContent.dispose();
         for (const subscription of mouse) subscription.dispose();
         if (owned() !== null) openHint(session, null);
         decorations.clear();

@@ -16,11 +16,11 @@ import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
+import { settledContentVersion } from "../content-version";
 import { editorContexts } from "../editor-context";
 import type { FixItem } from "../FixPrompt";
 import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
-import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { reviewItems } from "../review-items/review-items";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
@@ -93,12 +93,7 @@ export function createPrComments(
             return null;
           }),
     );
-    const [version, setVersion] = createSignal(0);
-    let recompute: ReturnType<typeof setTimeout> | undefined;
-    const onContent = model.onDidChangeContent(() => {
-      clearTimeout(recompute);
-      recompute = setTimeout(() => setVersion((value) => value + 1), DIFF_RECOMPUTE_DEBOUNCE_MS);
-    });
+    const version = settledContentVersion(model);
     // The map remembers the head it was built from, so a post can't pair new-head lines with old-head text.
     const anchors = createMemo((): { map: AnchorMap; headSha: string } | null => {
       version();
@@ -324,8 +319,6 @@ export function createPrComments(
           .map((card) => (card.data.kind === "thread" ? fixItem(card.data.placement) : null))
           .find((item) => item !== null) ?? null,
       dispose: () => {
-        clearTimeout(recompute);
-        onContent.dispose();
         onMouseDown.dispose();
         disposeCards();
         draftMark.clear();

@@ -34,7 +34,7 @@ export const sendAgentSelection = (
   session: ClientSession,
   selection: AgentSelection,
   comment: string,
-): void => state.sendSelection(main(session), selection, comment);
+): string | null => state.sendSelection(main(session), selection, comment);
 
 export function replyComposer(session: ClientSession, conversationId: string) {
   const owner = state.composerOwner(session, conversationId);

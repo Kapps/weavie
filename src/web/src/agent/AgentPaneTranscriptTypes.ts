@@ -56,6 +56,8 @@ export interface AgentTranscriptEntry {
   turnStart?: true;
   turnKey?: string | undefined;
   promptTurnId?: string;
+  /** The submission whose text this row is. */
+  submissionId?: string;
   conversation?: AgentConversationProjection;
   asideActive?: boolean | undefined;
   asideCollapsed?: boolean | undefined;

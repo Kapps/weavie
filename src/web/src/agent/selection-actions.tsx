@@ -22,7 +22,12 @@ let releaseCurrent: (() => void) | null = null;
 export function createSelectionActions(host: HTMLElement, session: ClientSession) {
   let release: (() => void) | null = null;
   const clear = (): void => release?.();
-  const show = (selection: AgentSelection, point: { x: number; y: number }): void => {
+  /** `sent` receives the submission id and comment of a selection sent as its own prompt. */
+  const show = (
+    selection: AgentSelection,
+    point: { x: number; y: number },
+    sent: (submissionId: string, comment: string) => void,
+  ): void => {
     releaseCurrent?.();
     if (session.closed || modalActive()) return;
     const above = point.y > window.innerHeight / 2;
@@ -42,7 +47,8 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
       return true;
     };
     const send = (): boolean => {
-      sendAgentSelection(session, selection, note());
+      const id = sendAgentSelection(session, selection, note());
+      if (id !== null) sent(id, note());
       clear();
       return true;
     };

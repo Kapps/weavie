@@ -384,6 +384,12 @@
     flex-wrap: wrap;
   }
 
+  /* The stacked header's actions start at its left edge, and so does the panel under them. */
+  .unified-review-header .finish-review-panel {
+    right: auto;
+    left: 8px;
+  }
+
   .unified-review-file-header {
     top: 0;
     flex-wrap: wrap;

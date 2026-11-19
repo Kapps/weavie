@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
-import { openPullRequest } from "../harness/review";
+import { jumpToReviewFile, openPullRequest } from "../harness/review";
 
 // Finishing a review: comments queue as pending drafts in place, then submit once with a verdict and summary
 // through the stubbed store, which enforces GitHub's pending-review rules.
@@ -109,7 +109,7 @@ test("the finish panel fits inside a review pane narrower than itself", async ({
   const y = handle.y + handle.height / 2;
   await page.mouse.move(handle.x + handle.width / 2, y);
   await page.mouse.down();
-  await page.mouse.move(1280 - 360, y, { steps: 6 });
+  await page.mouse.move(page.viewportSize()!.width - 360, y, { steps: 6 });
   await page.mouse.up();
   await expect.poll(async () => (await pane.boundingBox())!.width).toBeLessThan(400);
 
@@ -126,8 +126,7 @@ test("the finish panel fits inside a review pane narrower than itself", async ({
   await expectPanelInsidePane();
 
   // Scrolled into the diffs, the review header hosts the control.
-  await page.locator(".unified-review-tree-row", { hasText: "hello.ts" }).focus();
-  await page.keyboard.press("Enter");
+  await jumpToReviewFile(page, "hello.ts");
   await expect(page.locator(".unified-review-header .finish-review-button")).toBeVisible();
   await expectPanelInsidePane();
 });

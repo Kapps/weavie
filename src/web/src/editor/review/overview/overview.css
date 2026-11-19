@@ -14,7 +14,9 @@
   margin-bottom: 1.2em;
 }
 
+/* Spans the row whatever its text measures, so the finish-review panel under the byline gets its full width. */
 .session-overview-name {
+  flex: 1;
   min-width: 0;
 }
 

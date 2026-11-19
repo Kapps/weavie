@@ -30,8 +30,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private readonly CancellationTokenSource _stopping = new();
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
-	private IReadOnlySet<string> _files;
-	private IReadOnlySet<string> _listedGitDirectories = new HashSet<string>();
 	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
 	private Task? _stopTask;
@@ -113,7 +111,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				OnRenamed,
 				OnError,
 				recursive: false);
-		_files = new HashSet<string>(PathIdentity.Comparer);
 	}
 
 	/// <summary>Completes when the initial inventory is loaded and platform watches are installed.</summary>
@@ -132,7 +129,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 		return !_finished.Task.IsCompleted && _inventory.LastSnapshot is { } snapshot
 			? snapshot
-			: await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+			: (await _inventory.RefreshAsync(ct).ConfigureAwait(false)).Snapshot;
 	}
 
 	/// <summary>
@@ -225,30 +222,24 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		scope = scope is null ? null : _inventory.CoveringScope(scope);
 		bool watchesChanged;
 		do {
-			var previous = _inventory.LastSnapshot;
-			var snapshot = scope is null
+			var change = scope is null
 				? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
 				: await _inventory.RefreshAsync(scope, ct).ConfigureAwait(false);
-			if (!initial && ReferenceEquals(snapshot, previous)) {
+			if (!initial && change.IsEmpty) {
 				return;
 			}
 
-			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 			if (!initial) {
-				foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
+				foreach (string path in change.CreatedFiles) {
 					Record(path, FileInvalidationKind.Created);
 				}
 
-				foreach (string path in _files.Except(nextFiles, PathIdentity.Comparer)) {
+				foreach (string path in change.DeletedFiles) {
 					Record(path, FileInvalidationKind.Deleted);
 				}
 			}
 
-			Volatile.Write(ref _files, nextFiles);
-			Volatile.Write(ref _listedGitDirectories, snapshot.Directories
-				.Where(directory => Path.GetFileName(directory) == ".git")
-				.ToHashSet(PathIdentity.CanonicalComparer));
-			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
+			watchesChanged = _directoryWatchers.Reconcile(change.Snapshot.Directories);
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");
@@ -269,7 +260,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		int git = Array.IndexOf(segments, ".git");
 		if (git >= 0) {
 			string gitDirectory = Path.Combine([_inventory.Root, .. segments[..(git + 1)]]);
-			if (git < segments.Length - 1 && !Volatile.Read(ref _listedGitDirectories).Contains(gitDirectory)) {
+			if (git < segments.Length - 1 && _inventory.LastSnapshot?.Directories.Contains(gitDirectory) != true) {
 				return;
 			}
 

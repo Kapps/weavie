@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 
@@ -7,8 +8,21 @@ namespace Weavie.Core.Workspaces;
 /// <param name="Files">Canonical absolute paths for the workspace's files, none of them ignored.</param>
 /// <param name="Directories">Canonical absolute file ancestors and non-ignored directories, including empty ones.</param>
 public sealed record WorkspaceInventorySnapshot(
-	IReadOnlyList<string> Files,
-	IReadOnlyList<string> Directories);
+	ImmutableSortedSet<string> Files,
+	ImmutableSortedSet<string> Directories);
+
+/// <summary>
+/// What one refresh changed and the snapshot it produced: the previous snapshot instance when nothing changed.
+/// </summary>
+public sealed record WorkspaceInventoryChange(
+	WorkspaceInventorySnapshot Snapshot,
+	IReadOnlyCollection<string> CreatedFiles,
+	IReadOnlyCollection<string> DeletedFiles,
+	IReadOnlyCollection<string> AddedDirectories,
+	IReadOnlyCollection<string> RemovedDirectories) {
+	/// <summary>Whether the refresh found the workspace as the previous snapshot had it.</summary>
+	public bool IsEmpty => CreatedFiles.Count + DeletedFiles.Count + AddedDirectories.Count + RemovedDirectories.Count == 0;
+}
 
 /// <summary>
 /// Loads one workspace's files and directories from its <see cref="WorkspaceListing"/>, including empty
@@ -58,7 +72,7 @@ public sealed class WorkspaceInventory {
 	public WorkspaceInventorySnapshot? LastSnapshot => Volatile.Read(ref _lastSnapshot);
 
 	/// <summary>Reloads the whole inventory. A listing failure throws rather than yielding a partial snapshot.</summary>
-	public async Task<WorkspaceInventorySnapshot> RefreshAsync(CancellationToken ct = default) {
+	public async Task<WorkspaceInventoryChange> RefreshAsync(CancellationToken ct = default) {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
 			return await ReloadAsync(ct).ConfigureAwait(false);
@@ -67,22 +81,27 @@ public sealed class WorkspaceInventory {
 		}
 	}
 
-	private async Task<WorkspaceInventorySnapshot> ReloadAsync(CancellationToken ct) {
+	private async Task<WorkspaceInventoryChange> ReloadAsync(CancellationToken ct) {
 		var paths = await _load(ct).ConfigureAwait(false);
-		var snapshot = BuildSnapshot(
+		var (files, directories) = Canonicalize(
 			[.. paths.Where(path => !path.EndsWith('/'))],
 			[.. paths.Where(path => path.EndsWith('/'))]);
-		Volatile.Write(ref _lastSnapshot, snapshot);
-		return snapshot;
+		var previous = LastSnapshot ?? Empty;
+		return Commit(
+			previous,
+			[.. files.Where(path => !previous.Files.Contains(path))],
+			[.. previous.Files.Where(path => !files.Contains(path))],
+			[.. directories.Where(path => !previous.Directories.Contains(path))],
+			[.. previous.Directories.Where(path => !directories.Contains(path))]);
 	}
 
 	/// <summary>
 	/// Re-lists only the entries at or beneath <paramref name="paths"/> (absolute, inside <see cref="Root"/>) and
-	/// keeps the rest of the previous snapshot; the result matches a full refresh for those paths. Returns the
-	/// previous snapshot instance when nothing changed, and refreshes fully before a snapshot exists.
+	/// keeps the rest of the previous snapshot; the result matches a full refresh for those paths, at a cost that
+	/// follows the listed paths rather than the workspace. Refreshes fully before a snapshot exists.
 	/// Pass <see cref="CoveringScope"/>'s result to list a burst of related paths as one query.
 	/// </summary>
-	public async Task<WorkspaceInventorySnapshot> RefreshAsync(IReadOnlyCollection<string> paths, CancellationToken ct = default) {
+	public async Task<WorkspaceInventoryChange> RefreshAsync(IReadOnlyCollection<string> paths, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(paths);
 		var scope = paths.Select(path => WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(path))).ToHashSet(PathIdentity.CanonicalComparer);
 		if (LastSnapshot is null || scope.Contains(Root)) {
@@ -92,33 +111,62 @@ public sealed class WorkspaceInventory {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
 			var previous = LastSnapshot!;
-			var files = previous.Files.ToHashSet(PathIdentity.CanonicalComparer);
-			var directories = previous.Directories.ToHashSet(PathIdentity.CanonicalComparer);
 			// Every known entry beneath a scope path implies that path is known, so unknown scope paths drop nothing.
 			// Known paths are always listed: an ignored directory can still hold tracked files.
-			var discovered = scope.Where(path => !files.Contains(path) && !directories.Contains(path)).ToList();
+			var discovered = scope.Where(path => !previous.Files.Contains(path) && !previous.Directories.Contains(path)).ToList();
 			scope.ExceptWith(discovered);
 			var listed = await _loadScope(scope, discovered, ct).ConfigureAwait(false);
 			if (listed is null) {
 				return await ReloadAsync(ct).ConfigureAwait(false);
 			}
 
-			if (listed.Count == 0 && scope.Count == 0) {
-				return previous;
-			}
-
-			files.RemoveWhere(path => IsWithin(scope, path));
-			directories.RemoveWhere(path => IsWithin(scope, path));
-			var additions = BuildSnapshot(
+			var (files, directories) = Canonicalize(
 				[.. listed.Where(path => !path.EndsWith('/'))],
 				[.. listed.Where(path => path.EndsWith('/'))]);
-			files.UnionWith(additions.Files);
-			directories.UnionWith(additions.Directories);
-			var snapshot = new WorkspaceInventorySnapshot(Sorted(files), Sorted(directories));
-			Volatile.Write(ref _lastSnapshot, snapshot);
-			return snapshot;
+			return Commit(
+				previous,
+				[.. files.Where(path => !previous.Files.Contains(path))],
+				[.. scope.SelectMany(path => AtOrBeneath(previous.Files, path)).Where(path => !files.Contains(path)).Distinct(PathIdentity.CanonicalComparer)],
+				[.. directories.Where(path => !previous.Directories.Contains(path))],
+				[.. scope.SelectMany(path => AtOrBeneath(previous.Directories, path)).Where(path => !directories.Contains(path)).Distinct(PathIdentity.CanonicalComparer)]);
 		} finally {
 			_refreshGate.Release();
+		}
+	}
+
+	private static readonly WorkspaceInventorySnapshot Empty = new(
+		ImmutableSortedSet.Create<string>(PathIdentity.CanonicalComparer),
+		ImmutableSortedSet.Create<string>(PathIdentity.CanonicalComparer));
+
+	private WorkspaceInventoryChange Commit(
+		WorkspaceInventorySnapshot previous,
+		string[] createdFiles,
+		string[] deletedFiles,
+		string[] addedDirectories,
+		string[] removedDirectories) {
+		var change = new WorkspaceInventoryChange(previous, createdFiles, deletedFiles, addedDirectories, removedDirectories);
+		if (change.IsEmpty) {
+			return change;
+		}
+
+		var snapshot = new WorkspaceInventorySnapshot(
+			previous.Files.Except(deletedFiles).Union(createdFiles),
+			previous.Directories.Except(removedDirectories).Union(addedDirectories));
+		Volatile.Write(ref _lastSnapshot, snapshot);
+		return change with { Snapshot = snapshot };
+	}
+
+	private static IEnumerable<string> AtOrBeneath(ImmutableSortedSet<string> paths, string path) =>
+		paths.Contains(path) ? Beneath(paths, path).Prepend(path) : Beneath(paths, path);
+
+	// Paths sort ordinally, so everything beneath a directory is one contiguous run after its separator-ended name.
+	internal static IEnumerable<string> Beneath(ImmutableSortedSet<string> paths, string directory) {
+		string prefix = directory.EndsWith(Path.DirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;
+		int index = paths.IndexOf(prefix);
+		for (index = index < 0 ? ~index : index + 1;
+			index < paths.Count && paths[index].StartsWith(prefix, PathIdentity.Comparison);
+			index++) {
+			yield return paths[index];
 		}
 	}
 
@@ -130,14 +178,13 @@ public sealed class WorkspaceInventory {
 	public IReadOnlyCollection<string> CoveringScope(IReadOnlyCollection<string> paths) {
 		ArgumentNullException.ThrowIfNull(paths);
 		if (LastSnapshot is not { } snapshot) return paths;
-		var directories = snapshot.Directories.ToHashSet(PathIdentity.CanonicalComparer);
 		return paths
-			.Select(path => HighestUnknownAncestor(directories, WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(path))))
+			.Select(path => HighestUnknownAncestor(snapshot.Directories, WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(path))))
 			.ToHashSet(PathIdentity.CanonicalComparer);
 	}
 
 	// A known directory, the root above all, is already its own covering scope: nothing above the root is listed.
-	private static string HighestUnknownAncestor(HashSet<string> directories, string path) {
+	private static string HighestUnknownAncestor(ImmutableSortedSet<string> directories, string path) {
 		if (directories.Contains(path)) {
 			return path;
 		}
@@ -151,23 +198,8 @@ public sealed class WorkspaceInventory {
 		return path;
 	}
 
-	private bool IsWithin(HashSet<string> scope, string path) {
-		for (string? current = path;
-			current is not null && !PathIdentity.CanonicalComparer.Equals(current, Root);
-			current = Path.GetDirectoryName(current)) {
-			if (scope.Contains(current)) return true;
-		}
-
-		return false;
-	}
-
-	private static List<string> Sorted(HashSet<string> paths) {
-		var sorted = paths.ToList();
-		sorted.Sort(PathIdentity.CanonicalComparer);
-		return sorted;
-	}
-
-	internal WorkspaceInventorySnapshot BuildSnapshot(
+	// The canonical absolute files, and the directories with every file ancestor and the root added.
+	internal (HashSet<string> Files, HashSet<string> Directories) Canonicalize(
 		IReadOnlyList<string> relativeFiles,
 		IReadOnlyList<string> relativeDirectories) {
 		var files = new HashSet<string>(PathIdentity.CanonicalComparer);
@@ -202,6 +234,6 @@ public sealed class WorkspaceInventory {
 			directories.Add(fullPath);
 		}
 
-		return new WorkspaceInventorySnapshot(Sorted(files), Sorted(directories));
+		return (files, directories);
 	}
 }

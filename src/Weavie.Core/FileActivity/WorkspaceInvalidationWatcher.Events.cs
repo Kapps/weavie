@@ -53,8 +53,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 	}
 
 	private bool RecordKnown(string fullPath, FileInvalidationKind kind) {
-		var files = Volatile.Read(ref _files);
-		if (files.Contains(WorkspacePaths.CanonicalFsPath(Path.GetFullPath(fullPath)))) {
+		if (_inventory.LastSnapshot?.Files.Contains(WorkspacePaths.CanonicalFsPath(Path.GetFullPath(fullPath))) == true) {
 			Record(fullPath, kind);
 			return true;
 		}
@@ -62,13 +61,9 @@ public sealed partial class WorkspaceInvalidationWatcher {
 		return false;
 	}
 
-	private IReadOnlyList<string> KnownDescendants(string directory) {
-		string canonical = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(directory));
-		string prefix = canonical.EndsWith(Path.DirectorySeparatorChar)
-			? canonical
-			: canonical + Path.DirectorySeparatorChar;
-		return [.. Volatile.Read(ref _files).Where(file => file.StartsWith(prefix, PathIdentity.Comparison))];
-	}
+	private IReadOnlyList<string> KnownDescendants(string directory) => _inventory.LastSnapshot is { } snapshot
+		? [.. WorkspaceInventory.Beneath(snapshot.Files, WorkspacePaths.CanonicalFsPath(Path.GetFullPath(directory)))]
+		: [];
 
 	internal void Record(string fullPath, FileInvalidationKind kind) {
 		string canonical = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(fullPath));

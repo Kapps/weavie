@@ -37,6 +37,8 @@ export interface CommandResult {
   message?: string;
   error?: string;
   data?: unknown;
+  /** A persistent error toast owned by the addressed operation. */
+  errorToastKey?: string;
   /** The user declined a confirmation the command needed; nothing failed. */
   cancelled?: boolean;
 }

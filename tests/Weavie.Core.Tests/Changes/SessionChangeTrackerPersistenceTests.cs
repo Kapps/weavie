@@ -201,6 +201,36 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
+	public void Restart_CollectsUnreferencedTextAndPreservesTheReview() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		files.WriteAllText(File, "original");
+		Edit(Tracker(files, persistence), files, "proposal");
+		var saved = persistence.Read();
+		persistence.Save(new Dictionary<string, string?> { ["text:unused"] = "unused baseline" });
+
+		var change = Assert.Single(Tracker(files, persistence).TurnChanges());
+		Assert.Equal("original", change.BaselineText);
+		Assert.Equal("proposal", change.CurrentText);
+		Assert.Equal(saved, persistence.Read());
+	}
+
+	[Fact]
+	public void MissingReferencedText_ReportsTheFileAndPreservesEveryRecord() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		Edit(Tracker(files, persistence), files, "proposal");
+		var missing = persistence.Read().Single(row => row.Key.StartsWith("text:", StringComparison.Ordinal) && row.Value == "proposal");
+		persistence.Save(new Dictionary<string, string?> { [missing.Key] = null, ["text:unused"] = "unused baseline" });
+		var saved = persistence.Read();
+
+		var error = Assert.Throws<IOException>(() => Tracker(files, persistence));
+		Assert.Contains($"'{File}' is missing its saved text", error.Message);
+		Assert.Equal(saved, persistence.Read());
+		Assert.Equal("proposal", files.ReadAllText(File));
+	}
+
+	[Fact]
 	public void InvalidCheckpoint_FailsWithoutChangingItsDocumentOrFiles() {
 		var files = new InMemoryFileSystem();
 		files.WriteAllText(File, "user text\n");

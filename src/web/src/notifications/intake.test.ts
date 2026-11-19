@@ -27,7 +27,8 @@ const notifications = vi.hoisted(() => ({
   notify: vi.fn(),
   clear: vi.fn(),
 }));
-vi.mock("../notify/notify", () => ({
+vi.mock(import("../notify/notify"), async (importOriginal) => ({
+  ...(await importOriginal()),
   notify: notifications.notify,
   clearNotification: notifications.clear,
 }));

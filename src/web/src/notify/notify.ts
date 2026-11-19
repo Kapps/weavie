@@ -12,6 +12,14 @@ type NotifySink = (
 let sink: NotifySink | null = null;
 let clearSink: ((key: string) => void) | null = null;
 
+export function backendNotificationKey(backendId: string, key: string): string {
+  return `backend:${backendId}:${key}`;
+}
+
+export function sessionRestoreKey(backendId: string, slot: string): string {
+  return backendNotificationKey(backendId, `session-restore:${slot}`);
+}
+
 /** Registers the toast sink. App calls this once at mount. */
 export function setNotifySink(next: NotifySink, clear: (key: string) => void): void {
   sink = next;

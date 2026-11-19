@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -93,6 +94,25 @@ public sealed class HostCoreSessionRestoreTests {
 		var a = host.CatalogEntry("branch-a");
 		Assert.False(a.GetProperty("loaded").GetBoolean());
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
+	}
+
+	[Fact]
+	public async Task InvalidSavedReview_StartupAndManualRestoreIdentifyTheSessionAndCause() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		string id = host.SlotId("branch-a");
+		string directory = WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(host.Session("branch-a").WorkspaceRoot));
+		await host.RestartAsync(() => new ReviewPersistence(Path.Combine(directory, "review", "review.db"))
+			.Save(new Dictionary<string, string?> { ["metadata"] = "{}", ["unknown"] = "invalid" }));
+
+		var notice = Assert.Single(host.Bridge.PostedEvents("notifications", "show"),
+			message => message.TryGetProperty("key", out var key) && key.GetString() == $"session-restore:{id}");
+		Assert.False(host.CatalogEntry("branch-a").GetProperty("loaded").GetBoolean());
+		var result = await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id });
+		Assert.False(result.Ok);
+		Assert.Equal(notice.GetProperty("message").GetString(), result.Error);
+		Assert.Contains("branch-a", result.Error);
+		Assert.Contains("Unknown review record.", result.Error);
 	}
 
 	[Fact]

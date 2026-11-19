@@ -3,6 +3,7 @@ using Weavie.Core;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -10,7 +11,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private const int MaxConcurrentSessionRestores = 8;
 
-	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
+	private readonly List<ToastMessage> _sessionStartupNotices = [];
 
 	private void PersistSessionState() {
 		if (_sessions is null) {
@@ -57,7 +58,7 @@ public sealed partial class HostCore {
 				if (placed.Lost is null) {
 					Join(repo);
 				} else {
-					_sessionStartupNotices.Add(("warn",
+					_sessionStartupNotices.Add(ToastMessage.Plain("warn",
 						$"The session '{item.Label}' can't find its repository: {placed.Lost} It can't be loaded until the "
 						+ "repository is back; delete the session to drop it."));
 				}
@@ -102,7 +103,7 @@ public sealed partial class HostCore {
 			OpenHomeSession(AvailableWorkspaceSessionProvider());
 		} catch (Exception error) {
 			_sessionStartupNotices.Add(
-				("error", $"Couldn't open a session on this workspace's home folder: {Innermost(error).Message}"));
+				ToastMessage.Plain("error", $"Couldn't open a session on this workspace's home folder: {Innermost(error).Message}"));
 			Log($"[sessions] opening the home folder's session failed: {error}");
 		}
 	}
@@ -183,17 +184,20 @@ public sealed partial class HostCore {
 		} catch (Exception error) {
 			lock (publicationGate) {
 				var failure = RollbackSessionLoad(slot, session, removeSlot: false, error);
-				_sessionStartupNotices.Add(
-					("error", $"Couldn't restore the session '{NameOf(slot)}': {Innermost(failure).Message}"));
-				Log($"[sessions] restoring '{slot.Label}' failed: {failure}");
+				_sessionStartupNotices.Add(ToastMessage.Keyed("error", ReportSessionRestoreFailure(slot, failure), $"session-restore:{slot.Id}"));
 			}
 		}
 	}
 
+	private string ReportSessionRestoreFailure(SessionSlot slot, Exception error) {
+		Log($"[sessions] restoring '{slot.Label}' failed: {error}");
+		return $"Couldn't restore the session '{NameOf(slot)}': {Innermost(error).Message}";
+	}
+
 	// Raised while no page is connected, so the notices wait for the first hello (as the crash report does).
 	private void SurfaceSessionStartupNotices() {
-		foreach (var (level, message) in _sessionStartupNotices) {
-			Notify(level, message);
+		foreach (var notice in _sessionStartupNotices) {
+			Notify(notice);
 		}
 
 		_sessionStartupNotices.Clear();

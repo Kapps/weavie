@@ -206,7 +206,7 @@ import "./notifications/intake";
 import "./notifications/startup-tip";
 import { installComposerClipboardCommand } from "./agent/composer-clipboard";
 import { requestOverview } from "./editor/review/overview/overview-request";
-import { setNotifySink } from "./notify/notify";
+import { sessionRestoreKey, setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
@@ -1052,6 +1052,7 @@ export default function App(): JSX.Element {
       );
       return Promise.resolve(false);
     }
+    const toastKey = sessionRestoreKey(session.backendId, session.id);
     const commit = beginClientSelection();
     const endSelection = beginSessionSelection(session.backendId, session.id);
     const leaving = selectedSession();
@@ -1077,11 +1078,12 @@ export default function App(): JSX.Element {
         return target;
       })
       .then((activated) => {
+        dismissKeyed(toastKey);
         presentSession(activated, false);
         return true;
       })
       .catch((error: unknown) => {
-        addToast("error", error instanceof Error ? error.message : String(error));
+        addToast("error", error instanceof Error ? error.message : String(error), toastKey);
         return false;
       })
       .finally(endSelection);

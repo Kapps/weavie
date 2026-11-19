@@ -22,7 +22,7 @@ import {
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
 import { requireSessionAddress } from "../messaging/message-envelope";
-import { notify } from "../notify/notify";
+import { notify, sessionRestoreKey } from "../notify/notify";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -389,6 +389,8 @@ async function routeCoreCommand(
     if (result.ok) {
       await applySessionActivation(target, result, commit);
       await applyTerminalActivation(target, result);
+    } else if (command.id === CommandIds.loadSession && trackedId !== undefined) {
+      return { ...result, errorToastKey: sessionRestoreKey(target, trackedId) };
     }
     return result;
   };
@@ -582,7 +584,8 @@ function reportCommandResult(result: CommandResult): void {
   // A Core command round-trips over JSON, so an absent message/error arrives as `null`, not `undefined` —
   // compare with `!= null` so a silent success (e.g. a normal font zoom) doesn't fire an empty toast.
   if (!result.ok && result.error != null) {
-    notify("warn", result.error);
+    if (result.errorToastKey !== undefined) notify("error", result.error, result.errorToastKey);
+    else notify("warn", result.error);
   } else if (result.ok && result.message != null) {
     notify("info", result.message);
   }

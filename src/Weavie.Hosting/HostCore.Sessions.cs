@@ -362,7 +362,7 @@ public sealed partial class HostCore {
 		var replacement = _agentProviders.Providers.Select(provider => provider.Info).FirstOrDefault(info => info.Available)
 			?? throw new InvalidOperationException($"No agent provider is available to replace '{preferred}'.");
 		_sessionStartupNotices.Add(
-			("warn", $"Your default agent '{preferred}' isn't available — this session opened with {replacement.Name}."));
+			ToastMessage.Plain("warn", $"Your default agent '{preferred}' isn't available — this session opened with {replacement.Name}."));
 		return replacement.Id;
 	}
 
@@ -795,7 +795,7 @@ public sealed partial class HostCore {
 					$"Loaded session '{NameOf(target)}' in the background.",
 					SessionAddressJson(target)));
 			} catch (Exception ex) {
-				result.SetException(ex);
+				result.SetResult(CommandResult.Failure(ReportSessionRestoreFailure(target, ex)));
 			}
 		});
 		return result.Task;

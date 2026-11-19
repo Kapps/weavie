@@ -32,6 +32,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly IReadOnlyList<string> _workspaceFolders;
 	private readonly string _settingsWorkspaceRoot;
 	private readonly SettingsStore? _settings;
+	private readonly SettingsTools? _settingsTools;
+	private readonly IDeviceSettings? _deviceSettings;
 	private readonly LayoutStore? _layout;
 	private readonly EditorStore _editor;
 	private readonly CommandDispatcher? _commands;
@@ -87,6 +89,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_editor = editor;
 		_settings = registry?.Settings;
 		_settingsWorkspaceRoot = registry?.SettingsWorkspaceRoot ?? "";
+		_settingsTools = registry?.SettingsTools;
+		_deviceSettings = registry?.DeviceSettings;
 		_layout = registry?.Layout;
 		_commands = registry?.Commands;
 		_keybindings = registry?.Keybindings;
@@ -433,17 +437,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "messageSession":
 				await HandleMessageSessionAsync(responder, call.Sessions, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "listSettings":
-				await HandleListSettingsAsync(responder, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "getSetting":
-				await HandleGetSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "setSetting":
-				await HandleSetSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "clearSetting":
-				await HandleClearSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+			case "listSettings" or "getSetting" or "setSetting" or "clearSetting":
+				await HandleSettingsToolAsync(responder, name, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "getLayout":
 				await HandleGetLayoutAsync(responder, idRaw, ct).ConfigureAwait(false);
@@ -518,102 +513,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
-		var settings = Require(_settings, "Settings");
-		string root = _settingsWorkspaceRoot;
-		string json = root.Length > 0 ? settings.BuildIndexJson(root) : settings.BuildIndexJson();
-		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
-	}
-
-	private async Task HandleGetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
-		var settings = Require(_settings, "Settings");
-		string? key = args.GetStringOrNull("key");
-		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(responder, idRaw, "getSetting requires a 'key'.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		try {
-			string root = _settingsWorkspaceRoot;
-			string json = root.Length > 0 ? settings.BuildGetJson(key, root) : settings.BuildGetJson(key);
-			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
-		} catch (UnknownSettingException ex) {
-			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
-		}
-	}
-
 	// The session's own root (empty when none).
 	private string PrimaryWorkspaceRoot => _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty;
-
-	private async Task HandleSetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
-		var settings = Require(_settings, "Settings");
-		string? key = args.GetStringOrNull("key");
-		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(responder, idRaw, "setSetting requires a 'key'.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("value", out var valueElement)) {
-			await SendToolErrorAsync(responder, idRaw, "setSetting requires a 'value'.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		try {
-			// A workspace-scoped key (test.profile, worktree.*) goes to its workspace's out-of-repo overlay;
-			// SettingsStore ignores the root for user-scoped keys.
-			string root = _settingsWorkspaceRoot;
-			var result = root.Length > 0 ? settings.Set(key, valueElement, root) : settings.Set(key, valueElement);
-			await SendToolTextAsync(responder, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
-			Emit($"setSetting {key} = {valueElement.GetRawText()}");
-		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
-			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
-		}
-	}
-
-	private static string FormatSetSummary(string key, JsonElement value, SetResult result) {
-		string shadow = result.ShadowedByEnv is null
-			? string.Empty
-			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
-		return $"Set {key} to {value.GetRawText()}.{ApplyNote(result.Apply)}{shadow}";
-	}
-
-	private static string ApplyNote(ApplyMode apply) => apply switch {
-		ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
-		ApplyMode.NextSession => " It applies to the next session that starts.",
-		ApplyMode.NextLanguageServerStart => $" Run {CoreCommands.RestartLanguageServers} to apply it to running language servers.",
-		ApplyMode.RestartRequired => " Restart weavie to apply.",
-		_ => " It is live now.",
-	};
-
-	private async Task HandleClearSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
-		var settings = Require(_settings, "Settings");
-		string? key = args.GetStringOrNull("key");
-		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(responder, idRaw, "clearSetting requires a 'key'.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		try {
-			// Match setSetting's routing so a workspace override is cleared from its overlay, not the user file.
-			string root = _settingsWorkspaceRoot;
-			var result = root.Length > 0 ? settings.Clear(key, root) : settings.Clear(key);
-			await SendToolTextAsync(responder, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
-			Emit($"clearSetting {key} (removed={result.Removed})");
-		} catch (Exception ex) when (ex is UnknownSettingException or SettingsFileMalformedException) {
-			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
-		}
-	}
-
-	private static string FormatClearSummary(string key, ClearResult result) {
-		string shadow = result.ShadowedByEnv is null
-			? string.Empty
-			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
-		if (!result.Removed) {
-			return $"{key} had no user-file override to clear; it was already at its default or env value.{shadow}";
-		}
-
-		return $"Cleared {key}; it now falls back to its default.{ApplyNote(result.Apply)}{shadow}";
-	}
 
 	private async Task HandleGetLayoutAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var layout = Require(_layout, "Layout");

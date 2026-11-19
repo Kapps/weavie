@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
-import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, registerHomeFeature } from "../bridge";
+import { homeHello } from "../messaging/host-connection";
 
 // App-global chrome UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
 // backend a session was last created on, the session panel's layout, and the fullscreen column's width.
@@ -28,11 +29,8 @@ function applyRailState(state: RailState): void {
   setFullscreenWidthSig(state.fullscreenWidth);
 }
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return () => {};
-  }
-  const offHello = connection.onHello((hello) => applyRailState(hello.rail));
+registerHomeFeature((connection) => {
+  const offHello = connection.onHello((hello) => applyRailState(homeHello(hello).rail));
   const offState = connection.host.feature("rail").on<RailState>("changed", applyRailState);
   return () => {
     offHello();

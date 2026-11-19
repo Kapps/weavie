@@ -47,6 +47,7 @@ public static class NotificationSettings {
 		registry.Register(new SettingDefinition {
 			Key = Sounds,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = "Play a sound when a session wants attention (turn complete, waiting on you, or "
 				+ "crashed). Sounds play on your client, so a remote session's ping is heard locally. The "
 				+ "session you're actively looking at never pings.",
@@ -58,6 +59,7 @@ public static class NotificationSettings {
 		registry.Register(new SettingDefinition {
 			Key = Os,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = "Show an OS notification naming the session that wants attention when the Weavie "
 				+ "window isn't focused; clicking it focuses that session. Notifications are silent — the "
 				+ "sound comes from notifications.sounds.",
@@ -69,6 +71,7 @@ public static class NotificationSettings {
 		registry.Register(new SettingDefinition {
 			Key = Volume,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = "Attention sound volume, 0–100.",
 			Aliases = ["notification volume", "sound volume", "alert volume"],
 			Apply = ApplyMode.Live,
@@ -81,6 +84,7 @@ public static class NotificationSettings {
 		registry.Register(new SettingDefinition {
 			Key = SoundPack,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "The sound pack attention sounds play from (a bundled CESP pack).",
 			Aliases = ["sound pack", "notification pack", "sound theme", "peon pack"],
 			AllowedValues = Packs,
@@ -128,6 +132,7 @@ public static class NotificationSettings {
 		registry.Register(new SettingDefinition {
 			Key = key,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = $"Notify (sound + OS notification, per their switches) when {trigger}.",
 			Aliases = aliases,
 			Apply = ApplyMode.Live,

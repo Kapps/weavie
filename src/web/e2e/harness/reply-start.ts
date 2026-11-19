@@ -9,6 +9,6 @@ export const fromReplyStart = (row: Locator): Promise<number> =>
     const body = element.closest(".agent-body")!;
     const top = element.getBoundingClientRect().top - body.getBoundingClientRect().top;
     const above = top + body.scrollHeight - body.clientHeight + body.scrollTop;
-    const line = body.clientHeight * window.__WEAVIE_AGENT__!.replyStartOffset;
+    const line = body.clientHeight * window.__WEAVIE_AGENT_DISPLAY__!.replyStartOffset;
     return top - Math.min(line, above);
   });

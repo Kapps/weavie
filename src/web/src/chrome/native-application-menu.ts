@@ -1,5 +1,5 @@
 import { createEffect, createRoot, on } from "solid-js";
-import { log, registerHostFeature } from "../bridge";
+import { log, registerHomeFeature } from "../bridge";
 import { type ContextOverrides, onContextChanged, paneFocusContext } from "../commands/context";
 import { findCommand, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import { notify } from "../notify/notify";
@@ -140,10 +140,7 @@ export function installNativeApplicationMenu(): () => void {
     });
   };
 
-  const stopHost = registerHostFeature((connection) => {
-    if (!connection.isLocal) {
-      return;
-    }
+  const stopHost = registerHomeFeature((connection) => {
     const feature = connection.host.feature("applicationMenu");
     publishToHost = (state) => feature.publish("state", state);
     const stopInvocations = feature.on<{ revision: number; token: string }>(

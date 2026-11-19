@@ -10,10 +10,12 @@ internal partial class MessageBus {
 			}
 		}
 
+		// The page leaves before its requests settle, so whoever a settled request wakes sees it gone.
+		bool known = _peers.TryRemove(peer, out var owner);
+		owner?.MarkDisconnected();
 		SettleOutbound(peer, "The bound view disconnected before the request completed.", notifyPeer: false);
-		if (_peers.TryRemove(peer, out var owner)) {
-			owner.MarkDisconnected();
-			RaisePeerDisconnected(owner);
+		if (known) {
+			RaisePeerDisconnected(owner!);
 		}
 	}
 

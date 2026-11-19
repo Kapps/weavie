@@ -517,6 +517,8 @@ public sealed partial class AgentSessionHostTests {
 				ExposeIdeTools = true,
 				Settings = settings,
 				SettingsWorkspaceRoot = dir.Path,
+				SettingsTools = new SettingsTools(settings, "test-machine"),
+				DeviceSettings = new SettingsTools(settings, "test-device"),
 				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 				Editor = new EditorStore(),
 				Commands = new CommandDispatcher(commandRegistry),

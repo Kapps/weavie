@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 
@@ -172,6 +173,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			Unseen = entry.Unseen,
 			WorktreePath = entry.WorktreePath,
 			WorkflowDocumentsDirectory = entry.WorkflowDocumentsDirectory,
+			Device = entry.Device,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
 			EditorSession = editorSession,
@@ -195,6 +197,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		Unseen = session.Unseen,
 		WorktreePath = session.WorktreePath,
 		WorkflowDocumentsDirectory = session.WorkflowDocumentsDirectory,
+		Device = session.Device,
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
 		EditorSession = session.EditorSession,
@@ -233,6 +236,9 @@ public sealed partial class SessionStore : JsonDocumentStore {
 
 		[JsonPropertyName("workflowDocumentsDirectory")]
 		public string? WorkflowDocumentsDirectory { get; set; }
+
+		[JsonPropertyName("device")]
+		public DeviceIdentity? Device { get; set; }
 
 		[JsonPropertyName("loaded")]
 		public bool? Loaded { get; set; }

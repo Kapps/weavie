@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.AcpDistribution;
+using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
@@ -190,6 +191,9 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.RoleSuggestionRequest))]
 [JsonSerializable(typeof(HostCore.RoleSuggestionResult))]
 [JsonSerializable(typeof(HostCore.HostHello))]
+[JsonSerializable(typeof(HostCore.HelloRequest))]
+[JsonSerializable(typeof(SettingsRequest))]
+[JsonSerializable(typeof(SettingsReply))]
 [JsonSerializable(typeof(IReadOnlyList<AcpRegistryAgent>))]
 [JsonSerializable(typeof(IReadOnlyList<ThemeChoice>))]
 [JsonSerializable(typeof(IReadOnlyList<ThemePreview>))]

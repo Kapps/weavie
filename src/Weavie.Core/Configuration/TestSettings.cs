@@ -14,6 +14,7 @@ public static class TestSettings {
 		registry.Register(new SettingDefinition {
 			Key = Profile,
 			Kind = SettingKind.Json,
+			Owner = SettingOwner.Repo,
 			Description = "This workspace's test profile: a JSON array of rules that map test files to run "
 				+ "commands, so Weavie shows run buttons on test blocks without knowing any framework. Each rule is "
 				+ "{ \"glob\": file glob, \"symbol\": regex over a symbol name (first capture = test name), "
@@ -26,7 +27,6 @@ public static class TestSettings {
 			Aliases = ["test profile", "test runner", "how to run tests", "test command", "run tests config",
 				"test running", "configure tests"],
 			Apply = ApplyMode.Live,
-			Scope = SettingScope.Workspace,
 			Default = "",
 			Validate = TestProfile.Validate,
 		});

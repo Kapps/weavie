@@ -391,7 +391,6 @@ public sealed class CommandTests {
 	[InlineData(CoreCommands.UndoThemeOverride)]
 	[InlineData(CoreCommands.ResetTheme)]
 	[InlineData(CoreCommands.ToggleWindow)]
-	[InlineData(CoreCommands.EnableAutomaticInference)]
 	public void PresentationCommands_AreClientOwned(string id) {
 		var command = CoreCommands.CreateRegistry().Require(id);
 

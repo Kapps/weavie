@@ -43,7 +43,8 @@ internal static class TestMcp {
 		ISessionPeers? sessions = null,
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
-		IWorkflowRegistry? workflows = null) {
+		IWorkflowRegistry? workflows = null,
+		IDeviceSettings? deviceSettings = null) {
 		var defaults = Defaults(settings, settingsWorkspaceRoot ?? workspaceFolders[0]);
 		return new McpServer(authToken, presenter, workspaceFolders, "weavie", defaults with {
 			ExposeIdeTools = exposeIdeTools,
@@ -56,6 +57,7 @@ internal static class TestMcp {
 			Agents = agents ?? defaults.Agents,
 			ReviewHints = reviewHints ?? defaults.ReviewHints,
 			Workflows = workflows ?? defaults.Workflows,
+			DeviceSettings = deviceSettings ?? defaults.DeviceSettings,
 		});
 	}
 
@@ -75,6 +77,8 @@ internal static class TestMcp {
 			ExposeIdeTools = false,
 			Settings = settings,
 			SettingsWorkspaceRoot = settingsWorkspaceRoot,
+			SettingsTools = new SettingsTools(settings, "test-machine"),
+			DeviceSettings = new SettingsTools(settings, "test-device"),
 			Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			Editor = new EditorStore(),
 			Commands = new CommandDispatcher(commands),

@@ -4,7 +4,7 @@ using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
-internal sealed class HostMessageRouter : IAsyncDisposable {
+internal sealed partial class HostMessageRouter : IAsyncDisposable {
 	private readonly IWebTransportHub _transport;
 	private readonly SessionMessageRouter _sessions;
 	private readonly MessageOperationRegistry _operations;

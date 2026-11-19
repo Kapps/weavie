@@ -38,4 +38,5 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   inlineReplies: true,
   reviewFilesAhead: 2,
   spellCheck: true,
+  spellCheckLocale: "en",
 };

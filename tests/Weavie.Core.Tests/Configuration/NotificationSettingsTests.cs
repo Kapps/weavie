@@ -74,7 +74,7 @@ public sealed class NotificationSettingsTests : IDisposable {
 	public void RegisteredInCoreCatalog_WithNotificationKeys() {
 		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
-		using var catalog = JsonDocument.Parse(store.BuildIndexJson());
+		using var catalog = JsonDocument.Parse(store.BuildIndexJson(workspaceRoot: null, static _ => true));
 		var keys = catalog.RootElement.GetProperty("settings")
 			.EnumerateArray().Select(s => s.GetProperty("key").GetString()).ToList();
 

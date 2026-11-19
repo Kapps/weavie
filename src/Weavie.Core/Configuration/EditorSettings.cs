@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Json;
+using Weavie.Core.Spelling;
 
 namespace Weavie.Core.Configuration;
 
@@ -16,7 +17,7 @@ namespace Weavie.Core.Configuration;
 public static class EditorSettings {
 	/// <summary>Checks visible prose for spelling mistakes.</summary>
 	public const string SpellCheck = "editor.spellCheck";
-	/// <summary>The backend spelling dictionary selected through Set Spelling Locale.</summary>
+	/// <summary>The spelling dictionary the page asks each checking host for.</summary>
 	public const string SpellCheckLocale = "editor.spellCheckLocale";
 	/// <summary>Inline type/parameter-name hints (the greyed <c>: Type</c> / <c>name:</c> annotations).</summary>
 	public const string InlayHints = "editor.inlayHints";
@@ -122,7 +123,7 @@ public static class EditorSettings {
 
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
-		SpellCheck,
+		SpellCheck, SpellCheckLocale,
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
@@ -170,14 +171,20 @@ public static class EditorSettings {
 		registry.Register(new SettingDefinition {
 			Key = SpellCheckLocale,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Default = "en",
 			Apply = ApplyMode.Live,
-			Description = "Spelling dictionary on this backend. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; use weavie.spell.setLocale to download and select a regional dictionary or another language.",
+			Description = "Spelling dictionary. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; a regional dictionary or another language downloads the first time a machine checks spelling with it. Set it with setSetting; weavie.spell.setLocale without arguments lists locale codes.",
+			Aliases = ["spelling language", "spelling locale", "dictionary language"],
+			Validate = value => value is string locale && SpellLanguages.IsLocaleCode(locale)
+				? ValidationResult.Success
+				: ValidationResult.Failure(SpellLanguages.LocaleCodeHint),
 		});
 
 		registry.Register(new SettingDefinition {
 			Key = InlayHints,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Inline type and parameter-name hints in the editor (the greyed ': Type' and "
 				+ "'name:' annotations). 'offUnlessPressed' hides them until you hold Ctrl+Alt; "
 				+ "'onUnlessPressed' shows them until you do.",
@@ -366,6 +373,7 @@ public static class EditorSettings {
 	private static void WriteOptions(Utf8JsonWriter writer, SettingsStore store) {
 		writer.WriteStartObject();
 		writer.WriteBoolean("spellCheck", store.RequireBool(SpellCheck));
+		writer.WriteString("spellCheckLocale", store.RequireString(SpellCheckLocale));
 		writer.WriteString("inlayHints", store.RequireString(InlayHints));
 		writer.WriteBoolean("minimap", store.RequireBool(Minimap));
 		writer.WriteBoolean("bracketPairColorization", store.RequireBool(BracketPairColorization));
@@ -408,6 +416,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			Apply = ApplyMode.Live,
@@ -419,6 +428,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			AllowedValues = allowed,
@@ -433,6 +443,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			Apply = ApplyMode.Live,

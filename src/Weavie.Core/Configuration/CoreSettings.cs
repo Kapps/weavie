@@ -57,6 +57,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = CommandLearning,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Learn command palette and slash-command ordering from recent, frequent, and query-specific choices. Disabling stops recording and ranking by history; retained history can be reset with Reset Command Learning.",
 			Aliases = ["command ranking", "command history", "command learning"],
 			Apply = ApplyMode.Live,
@@ -66,6 +67,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = Workspace,
 			Kind = SettingKind.Path,
+			Owner = SettingOwner.Machine,
 			Description = "Directory Claude and the terminal open in (the IDE workspace).",
 			Aliases = ["workspace", "working directory", "project folder"],
 			Apply = ApplyMode.RestartRequired,
@@ -79,6 +81,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = TerminalShell,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Shell for the plain terminal pane.",
 			Aliases = ["shell", "my shell", "terminal shell"],
 			Apply = ApplyMode.ReopensTerminal,
@@ -92,6 +95,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = TerminalPersistScrollbackKb,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "How much of the shell terminal's recent output (in KiB) to persist on disk per "
 				+ "session, so a reattaching client (a browser refresh, a session switch, a resumed remote "
 				+ "backend) replays a coherent screen instead of a blank pane — and a restarted shell shows "
@@ -109,6 +113,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = TerminalOutputCoalesceMs,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "How long (milliseconds) to batch a terminal pane's live output into one update before "
 				+ "sending it to the page. Batching keeps a burst of output (a build, a big file, `seq`) from "
 				+ "flooding the bridge and freezing the UI. 16 by default — one frame at 60fps, imperceptible; "
@@ -125,6 +130,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.PaneCoalesceMs,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "How long (milliseconds) to batch a native agent pane's live messages into one update "
 				+ "before sending it to the page. Batching keeps a fast turn (or a resumed thread replaying its "
 				+ "whole history) from flooding the bridge and dropping a network-slow page mid-stream. 16 by "
@@ -142,6 +148,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider.",
 			Aliases = ["agent provider", "default agent", "new session agent", "provider"],
 			Apply = ApplyMode.NextSession,
@@ -151,6 +158,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.AllowAllPermissions,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Automatically select the strongest allow option advertised by an ACP agent. "
 				+ "Mode changes such as plan approval always require your choice. "
 				+ "On by default and applied to the next permission request.",
@@ -162,6 +170,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.PlanReviewAutoOpen,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Open an agent's plan in the editor as soon as it asks you to review it. When off, use the "
 				+ "plan card's Open plan button.",
 			Aliases = ["open plan automatically", "plan review", "auto open plan"],
@@ -172,6 +181,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.RemoteImages,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Show the https images an agent's reply references. Weavie fetches them from the machine the "
 				+ "agent runs on; when off, only workspace images show.",
 			Aliases = ["agent images", "remote images", "load images", "web images"],
@@ -182,6 +192,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ReplyStartOffset,
 			Kind = SettingKind.Number,
+			Owner = SettingOwner.Device,
 			Description = "Where a long agent reply's first line rests once it stops scrolling, as a fraction of the "
 				+ "agent pane's height below its top edge, so the end of what came before stays in view above it. "
 				+ "0.5 by default — the middle of the pane; 0 rests it against the top edge.",
@@ -197,6 +208,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ThoughtDisplay,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Show each piece of agent thinking in the transcript as a collapsed Thinking row that expands, or in full.",
 			Aliases = ["show thinking", "collapse thinking", "thought display"],
 			Apply = ApplyMode.Live,
@@ -207,6 +219,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ProgressDisplay,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Show every agent reply, or only the first reply after your message, the latest update and final replies, with earlier updates and completed work collapsed. Pending questions and running work stay visible.",
 			Aliases = ["progress updates", "collapse updates", "agent narration"],
 			Apply = ApplyMode.Live,
@@ -219,6 +232,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = ClaudePath,
 			Kind = SettingKind.Path,
+			Owner = SettingOwner.Machine,
 			Description = "Path to the claude binary (auto-detected when unset).",
 			Aliases = ["claude", "claude binary", "claude path"],
 			Apply = ApplyMode.NextSession,
@@ -228,6 +242,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = GettingStartedCompleted,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = "Whether the Getting Started setup (theme, agent, inference) has been finished or dismissed. "
 				+ "Set to false to show it again on the next launch; run Getting Started to open it now.",
 			Aliases = ["onboarding", "first run", "setup wizard", "welcome setup"],
@@ -238,6 +253,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = ClaudeResumeSession,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Resume the previous Claude conversation when a session reopens, instead of cold-starting "
 				+ "a fresh one. Weavie assigns each session's working directory a stable Claude session id and "
 				+ "reattaches to it (claude --resume) on the next launch. On by default. Takes effect on the next "
@@ -251,6 +267,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = PullRequestAutoReviewPrompt,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "When you open a pull request as a session, automatically seed Claude's first message "
 				+ "asking it to look at the branch's changes and help address review feedback. On by default; "
 				+ "turn it off to open the PR (and its diff navigator) without prompting Claude. Takes effect the "
@@ -264,6 +281,7 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = WorktreeSetupCommand,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Repo,
 			Description = "Shell command run once in a new session's worktree right after it is created "
 				+ "(e.g. 'pnpm install' or 'npm ci'). Empty by default, so nothing runs. It executes via the "
 				+ "platform shell with the worktree as the working directory; its output is logged and a "
@@ -271,22 +289,19 @@ public static class CoreSettings {
 			Aliases = ["worktree setup", "post-create command", "install deps on new session",
 				"bootstrap worktree", "provision worktree", "worktree install command"],
 			Apply = ApplyMode.NextSession,
-			// Per-workspace: stored out-of-repo in ~/.weavie/workspaces/<id>/settings.toml (reads fall back to the user file).
-			Scope = SettingScope.Workspace,
 			Default = "",
 		});
 
 		registry.Register(new SettingDefinition {
 			Key = WorktreeTeardownCommand,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Repo,
 			Description = "Shell command run once in a worktree right before it is discarded ('git worktree "
 				+ "remove'). Empty by default, so nothing runs. It executes via the platform shell with the "
 				+ "worktree as the working directory; its output is logged and a non-zero exit is surfaced as "
 				+ "a toast, but removal proceeds regardless.",
 			Aliases = ["worktree teardown", "pre-remove command", "cleanup on discard",
 				"worktree cleanup command", "deprovision worktree"],
-			// Per-workspace, like its setupCommand sibling: a teardown command belongs to one repo, not every workspace.
-			Scope = SettingScope.Workspace,
 			Apply = ApplyMode.NextSession,
 			Default = "",
 		});

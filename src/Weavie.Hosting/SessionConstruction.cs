@@ -33,6 +33,9 @@ internal sealed record SessionServices {
 
 	public required HostRuntimeInfo Runtime { get; init; }
 
+	/// <summary>The settings tools over this machine's store.</summary>
+	public required SettingsTools SettingsTools { get; init; }
+
 	public required SessionWorkflowServices Workflow { get; init; }
 }
 
@@ -89,6 +92,9 @@ internal sealed record SessionPaths {
 internal sealed record SessionOwner {
 	/// <summary>The session's view of the other sessions on the host.</summary>
 	public required ISessionPeers Peers { get; init; }
+
+	/// <summary>The device settings of the device the session belongs to.</summary>
+	public required IDeviceSettings DeviceSettings { get; init; }
 
 	/// <summary>Whether terminal input is frozen while the host drains for an update.</summary>
 	public required Func<bool> InputFrozen { get; init; }

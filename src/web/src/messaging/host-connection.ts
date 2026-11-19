@@ -25,11 +25,14 @@ export interface SessionCatalogEntry {
   repoLabel: string;
 }
 
-export interface HostHello {
-  hostIncarnation: string;
-  buildNumber: string;
-  sessions: SessionCatalogEntry[];
-  layout: unknown;
+/** The stable identity of one Weavie root, named by the pages it serves. */
+export interface DeviceIdentity {
+  id: string;
+  name: string;
+}
+
+/** A host's snapshot for the pages it serves: its remote agents, chrome state and device setting groups by name. */
+export interface HomeHello {
   remoteAgents: { name: string; url: string; token: string }[];
   rail: {
     lastLocation: string;
@@ -51,6 +54,23 @@ export interface HostHello {
     recentTerms: string[];
   };
   reviewOverview: { collapsed: string[] };
+  deviceSettings: Record<string, unknown>;
+}
+
+/** The home snapshot of a hello from the host that serves this page. */
+export function homeHello(hello: HostHello): HomeHello {
+  if (hello.home === null) throw new Error("This host does not serve the page.");
+  return hello.home;
+}
+
+export interface HostHello {
+  device: DeviceIdentity;
+  hostIncarnation: string;
+  buildNumber: string;
+  sessions: SessionCatalogEntry[];
+  layout: unknown;
+  /** What only a page this host serves is sent; null on a host the page merely visits. */
+  home: HomeHello | null;
   repos: RepoState[];
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
@@ -123,6 +143,7 @@ export class HostConnection {
     readonly isLocal: boolean,
     private readonly write: (json: string) => void,
     private readonly onError: (error: unknown) => void,
+    private readonly home: () => DeviceIdentity,
   ) {
     this.sessionCatalogFeature = this.host.feature("sessions");
     this.sessionCatalogFeature.on<SessionCatalogEntry[]>("catalog", (catalog) => {
@@ -274,7 +295,11 @@ export class HostConnection {
   }
 
   private async connectCore(): Promise<HostHello> {
-    const hello = await this.host.feature("connection").request<HostHello>("hello", {});
+    const hello = await this.host
+      .feature("connection")
+      .request<HostHello, { home: DeviceIdentity | null }>("hello", {
+        home: this.isLocal ? null : this.home(),
+      });
     this.hello = hello;
     const helloListeners = [...this.helloListeners];
     this.notifyHello(this.initializingListeners, [...this.initializingListeners], hello);

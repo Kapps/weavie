@@ -14,7 +14,7 @@ namespace Weavie.Core.Tests;
 /// In the <c>Settings</c> collection because <c>setSetting</c> resolves shells against the real PATH.
 /// </summary>
 [Collection("Settings")]
-public sealed class McpSettingsToolsTests : IDisposable {
+public sealed partial class McpSettingsToolsTests : IDisposable {
 	private const string Token = "0123456789abcdef0123456789abcdef";
 	private readonly TempDirectory _dir = new("weavie-mcp-settings-tests");
 
@@ -53,7 +53,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.Equal(CoreSettings.CreateRegistry().Definitions.Count, rows.Count);
 		Assert.InRange(text!.Length, 1, McpCommandToolsTests.IndexBudget);
 		Assert.Equal(
-			["key", "type", "aliases", "value", "source", "allowedValues"],
+			["key", "type", "owner", "aliases", "value", "source", "allowedValues"],
 			rows.Single(s => s.GetProperty("key").GetString() == "theme.mode").EnumerateObject().Select(p => p.Name));
 		Assert.Contains("terminal.shell", keys);
 		Assert.Contains("workspace", keys);

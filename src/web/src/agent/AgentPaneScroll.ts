@@ -10,7 +10,6 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { agentReplyStartOffset } from "../chrome/agent-default";
 import { isAutoscrolling } from "../chrome/middle-click-autoscroll";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -22,6 +21,7 @@ import type { AgentPaneModel } from "./AgentPaneModel";
 import type { AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { holdTranscript, withLivePending } from "./AgentTranscriptSnapshot";
+import { agentDisplay } from "./agent-display";
 
 type PaneVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
 
@@ -74,7 +74,7 @@ export function createAgentPaneScroll(
   const clamped = (to: number): number => Math.max(0, Math.min(maxPosition(), to));
   const nearBottom = (): boolean => position <= Math.ceil(lineHeight * 3);
   // Where a row read from its start is placed: below the viewport top, so what came before shows above it.
-  const startLine = (): number => viewport * (1 - agentReplyStartOffset());
+  const startLine = (): number => viewport * (1 - agentDisplay().replyStartOffset);
   const startOf = (row: VirtualItem): number => clamped(row.end - startLine());
   // The reader is moving the pane, so the pane doesn't write over them.
   const driving = (): boolean =>

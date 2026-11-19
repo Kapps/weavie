@@ -116,8 +116,8 @@ test.describe("session-addressed WebSocket transport", () => {
           message.name === "hello"
         ) {
           const hello = message.payload as HostHello;
-          hello.remoteAgents = [{ name: "devbox", url: remote.url, token: "runner-token" }];
-          hello.rail.selected = { backendId: "remote:devbox", slot: remoteSession.id };
+          hello.home!.remoteAgents = [{ name: "devbox", url: remote.url, token: "runner-token" }];
+          hello.home!.rail.selected = { backendId: "remote:devbox", slot: remoteSession.id };
           socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
         } else socket.send(data);
       });
@@ -793,7 +793,7 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
-  test("remote thought preferences initialize before existing sessions and survive disconnect cleanup", async ({
+  test("a remote session's thoughts follow this device's display and survive disconnect cleanup", async ({
     page,
   }) => {
     const errors: string[] = [];
@@ -819,23 +819,15 @@ test.describe("session-addressed WebSocket transport", () => {
         },
       ],
     });
-    await page.routeWebSocket(`${remote.bridgeUrl}*`, (socket) => {
-      const server = socket.connectToServer();
-      server.onMessage((data) => {
-        const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
-        if (
-          message.kind === "response" &&
-          message.feature === "connection" &&
-          message.name === "hello"
-        ) {
-          (message.payload as HostHello).agentDefaults.thoughtDisplay = "all";
-          socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
-        } else socket.send(data);
-      });
-    });
     try {
       await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
       await host.waitUntilConnected();
+      // The remote's own hello says collapsed; only the home's value applies.
+      host.publishHost("settings", "agentDisplay", {
+        replyStartOffset: 0.5,
+        thoughtDisplay: "all",
+        progressDisplay: "all",
+      });
       host.publishHost("remoteAgents", "changed", {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });

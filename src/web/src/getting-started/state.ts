@@ -1,5 +1,5 @@
 import { createEffect, createRoot, createSignal, on } from "solid-js";
-import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
+import { homeFeature, registerHomeFeature } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { openThemeRegistry, themePickerOpen } from "../theme/picker-state";
@@ -21,12 +21,10 @@ export function openGettingStarted(step: number): void {
 registerCommand(CommandIds.gettingStarted, () => openGettingStarted(0));
 
 // The host asks for setup on connect while it hasn't been finished or dismissed.
-registerHostFeature((connection) =>
-  connection.isLocal
-    ? connection.host.feature("gettingStarted").on("show", () => {
-        openGettingStarted(0);
-      })
-    : undefined,
+registerHomeFeature((connection) =>
+  connection.host.feature("gettingStarted").on("show", () => {
+    openGettingStarted(0);
+  }),
 );
 
 // Only one modal shows at a time, so the setup modal steps aside for the theme picker and returns after it.
@@ -54,14 +52,7 @@ createRoot(() =>
   ),
 );
 
-/** One of the local host's features, for request/response calls. */
-export function localFeature(name: string) {
-  const connection = hostConnection(LOCAL_BACKEND_ID);
-  if (connection === undefined) throw new Error("The Weavie host is not connected.");
-  return connection.host.feature(name);
-}
-
-const settings = () => localFeature("settings");
+const settings = () => homeFeature("settings");
 
 /** Reads one global setting's effective value from the local host, and whether it's still the default. */
 export async function readSetting<T>(key: string): Promise<{ value: T; isDefault: boolean }> {

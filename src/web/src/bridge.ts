@@ -472,7 +472,9 @@ function createConnection(
     // The host's only route to this page's device: device settings requests go to the home and nowhere else.
     connection.host
       .feature("device")
-      .handle("settings", (request) => homeFeature("device").request("settings", request));
+      .handle("settings", (request, signal) =>
+        homeFeature("device").request("settings", request, signal),
+      );
   }
   connection.onCatalog(reconcileSessions);
   connection.onHello((hello) => {

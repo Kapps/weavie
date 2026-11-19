@@ -22,14 +22,15 @@ public sealed partial class HostCore {
 	// Input a page gives a session makes that page's home the session's device.
 	private void TrackDevice(HostSession session, SessionDevice device) =>
 		session.Bus.Received += (page, envelope) => {
-			if (IsUserInput(envelope)) {
-				device.Claim(_messages.Homes.Of(page), page);
+			if (IsUserInput(envelope) && _messages.Homes.TryGet(page, out var home)) {
+				device.Claim(home, page);
 			}
 		};
 
 	private static bool IsUserInput(MessageEnvelope envelope) => envelope.Feature switch {
-		"agent" => envelope.Name is "typing" or "submit" or "replyAside" or "input" or "permission",
+		"agent" => envelope.Name is "typing" or "submit" or "replyAside" or "input" or "permission" or "authenticate" or "interrupt",
 		"commands" => envelope.Name == "invoke",
+		"pullRequests" => envelope.Name == "open",
 		_ => envelope.Name == "input"
 			&& envelope.Payload.ValueKind == JsonValueKind.Object
 			&& envelope.Payload.TryGetProperty("userInitiated", out var userInitiated)
@@ -54,8 +55,10 @@ public sealed partial class HostCore {
 			try {
 				return await core._messages.Host.RequestAsync(
 					page, "device", "settings", WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply, request, either.Token).ConfigureAwait(false);
-			} catch (InvalidOperationException) when (core._messages.Homes.Of(page) is null) {
-				throw new DeviceUnavailableException($"{home.Name} disconnected before it answered; the setting may or may not have changed.");
+			} catch (InvalidOperationException failure) {
+				throw new DeviceUnavailableException(core._messages.Homes.TryGet(page, out _)
+					? $"{home.Name} couldn't answer: {failure.Message}"
+					: $"{home.Name} disconnected before it answered; the setting may or may not have changed.");
 			} catch (OperationCanceledException) when (timeout.IsCancellationRequested && !ct.IsCancellationRequested) {
 				throw new DeviceUnavailableException(
 					$"{home.Name} didn't answer within {deadline.TotalSeconds:0} seconds; the setting may or may not have changed.");

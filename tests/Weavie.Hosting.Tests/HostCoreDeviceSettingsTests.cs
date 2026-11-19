@@ -100,6 +100,44 @@ public sealed class HostCoreDeviceSettingsTests {
 	}
 
 	[Fact]
+	public async Task InputFromAPageThatHasNotSaidHello_ClaimsNothing() {
+		await using var host = await TestHost.StartAsync();
+		AnswerFromLaptop(host);
+		ConnectFromLaptop(host, Visitor);
+		Type(host, Visitor, host.WorkspaceSession);
+		Type(host, new WebPeer("reconnecting"), host.WorkspaceSession);
+
+		await host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+
+		Assert.Equal(Visitor, Assert.Single(Asked(host)).Page);
+	}
+
+	[Fact]
+	public async Task AHomeThatFailsTheRequest_FailsItNamingTheDevice() {
+		await using var host = await TestHost.StartAsync();
+		host.Bridge.RequestResponder = envelope => envelope.Feature == "device"
+			? new FakeWebResponse(JsonSerializer.SerializeToElement(new { }), "The Weavie host is not connected.")
+			: null;
+		ConnectFromLaptop(host, Visitor);
+		Type(host, Visitor, host.WorkspaceSession);
+
+		var failed = await Assert.ThrowsAsync<DeviceUnavailableException>(
+			() => host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None));
+
+		Assert.Equal("laptop couldn't answer: The Weavie host is not connected.", failed.Message);
+	}
+
+	[Fact]
+	public async Task APageServedElsewhere_IsNeverAskedToSetUp() {
+		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(CoreSettings.GettingStartedCompleted, JsonSerializer.SerializeToElement(false));
+
+		ConnectFromLaptop(host, Visitor);
+
+		Assert.Empty(host.Bridge.PostedEvents("gettingStarted", "show"));
+	}
+
+	[Fact]
 	public async Task APageThatNeverAnswers_FailsTheRequestAtTheOperationDeadline() {
 		await using var host = await TestHost.StartAsync();
 		ConnectFromLaptop(host, Visitor);

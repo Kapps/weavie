@@ -79,7 +79,8 @@ and by each push, so a page that reconnects shows what changed while it was away
 learns its home's identity from the home hello and names it in the hello it sends every other host.
 
 **A session's device** is the home of the page that last gave it input: typing or submitting in its composer,
-answering its agent, keystrokes into one of its terminals, or running one of its commands. A session takes the
+answering or interrupting its agent, keystrokes into one of its terminals, running one of its commands, or
+opening a pull request from it. Input from a page that hasn't said hello claims nothing. A session takes the
 device of the page that created it, and a session an agent creates takes its creator's. Wake-ups, workflow
 stages and messages from other sessions change nothing. The device is persisted with the session; a session
 with none recorded belongs to its own host.
@@ -129,6 +130,9 @@ The same rule covers state outside the registry. Each is its own change:
   works from a session that isn't on screen.
 - **Keybindings.** Every binding comes from the home's `keybindings.json`, for client and backend commands
   alike, and `listCommands` reports those keys.
+
+- **Configure Suggestions.** The panel edits the home's inference settings whichever session opened it; it
+  should edit the machine of the session it was opened from.
 
 Layout stays per host: it is keyed by workspace and holds native window placement.
 

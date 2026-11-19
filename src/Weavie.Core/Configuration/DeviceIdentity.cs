@@ -15,9 +15,17 @@ public sealed record DeviceIdentity(
 				?? throw new JsonException($"{path} holds no device identity.");
 		}
 
+		// Written whole and moved into place without replacing, so two hosts starting together agree on one identity.
 		var identity = new DeviceIdentity(Guid.NewGuid().ToString("n"), Environment.MachineName);
 		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-		File.WriteAllText(path, JsonSerializer.Serialize(identity, CoreJson.Default.DeviceIdentity));
-		return identity;
+		string staged = $"{path}.{identity.Id}";
+		File.WriteAllText(staged, JsonSerializer.Serialize(identity, CoreJson.Default.DeviceIdentity));
+		try {
+			File.Move(staged, path, overwrite: false);
+			return identity;
+		} catch (IOException) when (File.Exists(path)) {
+			File.Delete(staged);
+			return LoadOrCreate(path);
+		}
 	}
 }

@@ -583,6 +583,19 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Clear_RepoKey_OfARepoWithNoOverlay_KeepsTheMachineFilesValue() {
+		File.WriteAllText(FilePath, "t.wsstr = \"machine-default\"\n");
+		string root = WorkspaceRoot;
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+
+		var result = store.Clear("t.wsstr", root);
+
+		Assert.False(result.Removed);
+		Assert.Equal("machine-default", store.Resolve("t.wsstr", root).Value);
+		Assert.Contains("machine-default", File.ReadAllText(FilePath), StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void Set_WorkspaceScopedKey_WithRoot_WritesWorkspaceFile_NotUserFile() {
 		string root = WorkspaceRoot;
 		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);

@@ -26,12 +26,13 @@ public sealed partial class HostCore {
 				return Task.FromResult(new ResponseWithCompletion<HostHello>(
 					BuildHello(home: request.Home is null),
 					_ => {
-						// Setup is a device's own, so a page served elsewhere is never offered it; its machine offers still apply.
-						if (request.Home is not null || _settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
-							OfferStartupTip();
-							OfferAutomaticInference();
-						} else {
+						// Setup and the startup tip are a device's own, so only a page this host serves is offered them.
+						bool home = request.Home is null;
+						if (home && !_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
 							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
+						} else {
+							if (home) OfferStartupTip();
+							OfferAutomaticInference();
 						}
 
 						return Task.CompletedTask;
@@ -217,7 +218,9 @@ public sealed partial class HostCore {
 		return message.Id switch {
 			CoreCommands.ResetCommandLearning => ResetCommandLearning(),
 			CoreCommands.EnableAutomaticInference => InferenceCommands.EnableAutomatic(_settings),
-			SessionCommands.NewSession => await NewSessionFromHostAsync(args, _messages.Homes.Of(page.Transport), ct).ConfigureAwait(false),
+			SessionCommands.NewSession => _messages.Homes.TryGet(page.Transport, out var home)
+				? await NewSessionFromHostAsync(args, home, ct).ConfigureAwait(false)
+				: CommandResult.Failure("This page hasn't connected yet."),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
 				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.ReloadSession => await ReloadSessionAsync(

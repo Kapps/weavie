@@ -212,7 +212,7 @@ public sealed class SettingsStore : IDisposable {
 		SetResult result;
 		lock (_gate) {
 			var definition = Registry.Require(key);
-			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: true);
+			var layer = TargetLayerLocked(definition, workspaceRoot);
 			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
 					$"{layer.FilePath} has TOML parse errors; fix or delete it before changing settings.");
@@ -248,7 +248,7 @@ public sealed class SettingsStore : IDisposable {
 		ClearResult result;
 		lock (_gate) {
 			var definition = Registry.Require(key);
-			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: false);
+			var layer = TargetLayerLocked(definition, workspaceRoot);
 			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
 					$"{layer.FilePath} has TOML parse errors; fix or delete it before changing settings.");
@@ -281,9 +281,9 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// The file a write targets: a Repo key with a root goes to that workspace's overlay (registered
-	// on demand for writes); everything else — including a Repo key with no root — goes to the user file.
-	private SettingsFileLayer TargetLayerLocked(SettingDefinition definition, string? workspaceRoot, bool createIfMissing) {
+	// The file a write or clear targets: a Repo key with a root goes to that workspace's overlay, registered
+	// on demand; everything else — including a Repo key with no root — goes to the user file.
+	private SettingsFileLayer TargetLayerLocked(SettingDefinition definition, string? workspaceRoot) {
 		if (definition.Owner != SettingOwner.Repo || workspaceRoot is null) {
 			return _userLayer;
 		}
@@ -291,10 +291,6 @@ public sealed class SettingsStore : IDisposable {
 		string root = NormalizeRoot(workspaceRoot);
 		if (_workspaces.TryGetValue(root, out var existing)) {
 			return existing.Layer;
-		}
-
-		if (!createIfMissing) {
-			return _userLayer; // nothing registered and not creating: clearing a never-set overlay is a no-op on the user file
 		}
 
 		var registration = new WorkspaceRegistration(root, CreateLayer(_workspaceSettingsPath(root)));

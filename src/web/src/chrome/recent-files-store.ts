@@ -1,33 +1,14 @@
 import { createMemo } from "solid-js";
 import { selectedSession } from "../bridge";
-import { normalizePath, repoRelativePath } from "../editor/fs-path";
-import { selectedFileIndex } from "../files/session-files";
+import { type FileIndex, selectedFileIndex } from "../files/file-index";
 import { repoStateOf } from "../repo-state";
 
-export function projectRecentFiles(
-  relativeHistory: readonly string[],
-  root: string,
-  indexedFiles: readonly string[],
-): string[] {
-  const exact = new Map<string, string>();
-  const loose = new Map<string, string[]>();
-  for (const path of indexedFiles) {
-    const relative = repoRelativePath(root, path);
-    exact.set(relative, path);
-    const key = normalizePath(relative);
-    const aliases = loose.get(key);
-    if (aliases === undefined) {
-      loose.set(key, [path]);
-    } else {
-      aliases.push(path);
-    }
-  }
+/** The listed files a repo's checkout-relative history names, in history order. */
+export function projectRecentFiles(relativeHistory: readonly string[], index: FileIndex): string[] {
   const used = new Set<string>();
   const projected: string[] = [];
   for (const relative of relativeHistory) {
-    const exactMatch = exact.get(relative);
-    const aliases = exactMatch === undefined ? loose.get(normalizePath(relative)) : undefined;
-    const match = exactMatch ?? (aliases?.length === 1 ? aliases[0] : undefined);
+    const match = (index.find(relative) ?? index.findLoose(relative.replace(/[\\/]+$/, "")))?.abs;
     if (match !== undefined && !used.has(match)) {
       projected.push(match);
       used.add(match);
@@ -56,8 +37,9 @@ export const recentFilesState = createMemo<RecentFilesState>(() => {
   if (index.root === null || index.pending) {
     return { files: [], loading: true, hasHistory: history.length > 0 };
   }
+  index.version;
   return {
-    files: projectRecentFiles(history, index.root, index.files),
+    files: projectRecentFiles(history, index),
     loading: false,
     hasHistory: history.length > 0,
   };

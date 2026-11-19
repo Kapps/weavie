@@ -23,9 +23,8 @@ public sealed partial class HostCore {
 		session.FileActivity.Subscribe(
 			"file index projection",
 			fact => {
-				if (fact is FilesInvalidated invalidated && invalidated.Changes.Any(
-					change => change.Kind != FileInvalidationKind.Changed)) {
-					PushFileIndexToWeb(session, false);
+				if (fact is InventoryChanged changed) {
+					PushFileIndexChangeToWeb(session, changed.Change);
 				}
 				return Task.CompletedTask;
 			},
@@ -53,7 +52,7 @@ public sealed partial class HostCore {
 
 		session.FileActivity.Subscribe(
 			"git status projection",
-			_ => InvokeForSessionAsync(() => PushGitStatus(session)),
+			fact => fact is InventoryChanged ? Task.CompletedTask : InvokeForSessionAsync(() => PushGitStatus(session)),
 			OnFailure);
 	}
 

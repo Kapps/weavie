@@ -9,12 +9,12 @@ import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import { createListNavigation } from "../list-navigation";
+import type { FileIndex } from "./file-index";
 
 export function BrowserFilter(props: {
   root: string;
   session: ClientSession | null;
-  files: string[];
-  pending: boolean;
+  index: FileIndex;
   request: { session: ClientSession } | null;
   onRequestHandled: () => void;
   currentFile: string | null;
@@ -27,8 +27,7 @@ export function BrowserFilter(props: {
   const [filtering, setFiltering] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const search = createFileSearch({
-    files: () => props.files,
-    root: () => props.root,
+    index: () => props.index,
     query,
     recent: recentFiles,
     currentFile: () => props.currentFile,
@@ -95,7 +94,7 @@ export function BrowserFilter(props: {
         </button>
         <Show when={needle().length > 0}>
           <span class="browser-filter-count" role="status">
-            {props.pending ? "Loading files…" : `${search.total()} matches`}
+            {props.index.pending ? "Loading files…" : `${search.total()} matches`}
           </span>
         </Show>
       </div>
@@ -134,7 +133,7 @@ export function BrowserFilter(props: {
             when={matches().length > 0}
             fallback={
               <div class="browser-empty">
-                {props.pending ? "Loading files…" : "No matching files"}
+                {props.index.pending ? "Loading files…" : "No matching files"}
               </div>
             }
           >

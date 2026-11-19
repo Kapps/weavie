@@ -47,13 +47,17 @@ export function splitPath(abs: string, root: string): FileRow {
   if (root.length > 0 && abs.toLowerCase().startsWith(root.toLowerCase())) {
     rel = abs.slice(root.length).replace(/^[\\/]+/, "");
   }
-  const norm = rel.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
+  return fileRow(abs, rel.replace(/\\/g, "/"));
+}
+
+/// The {@link FileRow} of the file at `abs`, whose path below its workspace root is the `/`-separated `rel`.
+export function fileRow(abs: string, rel: string): FileRow {
+  const slash = rel.lastIndexOf("/");
   return {
     abs,
-    rel: norm,
-    leaf: slash >= 0 ? norm.slice(slash + 1) : norm,
-    dir: slash >= 0 ? norm.slice(0, slash) : "",
+    rel,
+    leaf: slash >= 0 ? rel.slice(slash + 1) : rel,
+    dir: slash >= 0 ? rel.slice(0, slash) : "",
     leafStart: slash >= 0 ? slash + 1 : 0,
   };
 }
@@ -66,11 +70,15 @@ const RESCORE_CAP = 2000;
 interface PreFiltered {
   row: FileRow;
   pre: number;
-  index: number;
+}
+
+// Ties break on the path, so ranking depends on which files are listed and never on the order they sit in.
+function comparePaths(a: PreFiltered, b: PreFiltered): number {
+  return a.row.rel < b.row.rel ? -1 : a.row.rel > b.row.rel ? 1 : 0;
 }
 
 function isWorse(a: PreFiltered, b: PreFiltered): boolean {
-  return a.pre > b.pre || (a.pre === b.pre && a.index > b.index);
+  return a.pre > b.pre || (a.pre === b.pre && comparePaths(a, b) > 0);
 }
 
 function siftUp(heap: PreFiltered[], start: number): void {
@@ -202,12 +210,11 @@ export function rankFiles(
   const needle = query.toLowerCase();
   const matched: PreFiltered[] = [];
   let matchCount = 0;
-  for (let index = 0; index < finder.entries.length; index++) {
-    const entry = finder.entries[index] as Entry;
+  for (const entry of finder.entries) {
     const pre = preFilter(entry.lower, needle, entry.row.leafStart);
     if (pre >= 0) {
       matchCount++;
-      const candidate = { row: entry.row, pre, index };
+      const candidate = { row: entry.row, pre };
       if (matched.length < RESCORE_CAP) {
         matched.push(candidate);
         siftUp(matched, matched.length - 1);
@@ -217,11 +224,9 @@ export function rankFiles(
       }
     }
   }
-  if (matchCount > RESCORE_CAP) {
-    matched.sort((a, b) => a.pre - b.pre || a.index - b.index);
-  } else {
-    matched.sort((a, b) => a.index - b.index);
-  }
+  matched.sort(
+    matchCount > RESCORE_CAP ? (a, b) => a.pre - b.pre || comparePaths(a, b) : comparePaths,
+  );
   const candidates = matched.map((m) => m.row);
 
   const fzf = new Fzf(candidates, { selector: (r) => r.rel, casing: "case-insensitive" });

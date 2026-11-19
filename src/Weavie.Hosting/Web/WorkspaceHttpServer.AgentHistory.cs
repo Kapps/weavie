@@ -32,6 +32,6 @@ public sealed partial class WorkspaceHttpServer {
 		}
 		return long.TryParse(value, out long revision) && revision >= 0
 			? revision
-			: throw new BadHttpRequestException("Invalid transcript revision.");
+			: throw new BadHttpRequestException("Invalid revision.");
 	}
 }

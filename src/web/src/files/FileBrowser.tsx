@@ -13,6 +13,7 @@ import {
 import type { ClientSession } from "../bridge";
 import { normalizePath, samePath } from "../editor/fs-path";
 import { BrowserFilter } from "./BrowserFilter";
+import type { FileIndex } from "./file-index";
 import { acquireDirectory } from "./session-files";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
@@ -173,8 +174,7 @@ function Directory(props: {
 export default function FileBrowser(props: {
   root: string;
   session: ClientSession | null;
-  files: string[];
-  pending: boolean;
+  index: FileIndex;
   filterRequest: { session: ClientSession } | null;
   onFilterRequestHandled: () => void;
   listings: DirListings;
@@ -197,8 +197,7 @@ export default function FileBrowser(props: {
       <BrowserFilter
         root={props.root}
         session={props.session}
-        files={props.files}
-        pending={props.pending}
+        index={props.index}
         request={props.filterRequest}
         onRequestHandled={props.onFilterRequestHandled}
         currentFile={props.currentFile}

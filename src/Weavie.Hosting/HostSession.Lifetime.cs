@@ -36,7 +36,6 @@ public sealed partial class HostSession {
 			return Task.CompletedTask;
 		}).ConfigureAwait(false);
 		ProjectDictionary.Dispose();
-		FileIndexGate.Dispose();
 		await DisposeStepAsync(failures, "message endpoint", () => _endpoint.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {
 			throw new AggregateException(failures);

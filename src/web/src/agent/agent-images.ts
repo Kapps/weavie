@@ -1,6 +1,6 @@
 import { type ClientSession, mediaResourceUrl, sessionResourceUrl } from "../bridge";
 import { samePath } from "../editor/fs-path";
-import { fileIndexFor } from "../files/session-files";
+import { fileIndexFor } from "../files/file-index";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { AGENT_IMAGE_HEIGHT } from "./AgentPaneEstimate";
 import { cropPng, type Rect, sourceRect } from "./agent-crop";

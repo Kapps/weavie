@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js";
+import type { FileIndex } from "../files/file-index";
 import type { SymbolActions } from "../symbols/symbol-match";
 import { onCaptionContextMenu, onCaptionMouseDown } from "./caption-press";
 import { Menu } from "./Menu";
@@ -13,12 +14,10 @@ export function TitleBar(props: {
   chrome: WeavieWindowChrome;
   maximized: boolean;
   focused: boolean;
-  files: string[];
-  filesPending: boolean;
+  index: FileIndex;
   root: string | null;
   currentFile: string | null;
   onOpenFile: (abs: string, line: number | undefined) => void;
-  onRequestIndex: () => void;
   symbols: () => SymbolActions;
 }): JSX.Element {
   const shell = window.__WEAVIE_SHELL__;
@@ -47,13 +46,11 @@ export function TitleBar(props: {
 
       <div class="tb-center" data-caption>
         <Omnibar
-          files={props.files}
-          filesPending={props.filesPending}
+          index={props.index}
           root={props.root}
           currentFile={props.currentFile}
           workspaceLabel={label()}
           onOpenFile={props.onOpenFile}
-          onRequestIndex={props.onRequestIndex}
           symbols={props.symbols}
         />
       </div>

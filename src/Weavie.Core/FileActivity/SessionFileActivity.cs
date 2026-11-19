@@ -34,6 +34,7 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 			ReportInvalidated,
 			log,
 			watcherDebounceMs);
+		inventory.Changed += ReportInventoryChanged;
 		_worker = Task.Run(ProcessAsync);
 	}
 
@@ -128,6 +129,15 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 	private void ReportInvalidated(IReadOnlyList<FileInvalidation> changes) {
 		if (changes.Count > 0) {
 			Admit(sequence => new FilesInvalidated(sequence, changes), internalAdmission: true);
+		}
+	}
+
+	// The inventory can still refresh for a reader after this stream closes; nothing is listening by then.
+	private void ReportInventoryChanged(WorkspaceInventoryChange change) {
+		lock (_gate) {
+			if (_accepting) {
+				Admit(sequence => new InventoryChanged(sequence, change), internalAdmission: true);
+			}
 		}
 	}
 

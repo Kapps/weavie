@@ -2,7 +2,7 @@ import { type ClientSession, selectedSession } from "../bridge";
 import { writeClipboard } from "../clipboard";
 import type { CommandCapture, CommandHandler } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { fileIndexFor } from "../files/session-files";
+import { fileIndexFor } from "../files/file-index";
 import type { EditorController } from "./editor-controller";
 import { basename, repoRelativePath } from "./fs-path";
 import { canPreview, previewKindOf } from "./preview/preview-registry";

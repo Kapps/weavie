@@ -1,4 +1,5 @@
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.FileActivity;
 
@@ -29,6 +30,12 @@ public sealed record FileDeleted(long Sequence, string Path) : FileActivityFact(
 /// <param name="Sequence">The activity's monotonic sequence within its owning session.</param>
 /// <param name="Changes">The normalized paths and invalidation kinds in this batch.</param>
 public sealed record FilesInvalidated(long Sequence, IReadOnlyList<FileInvalidation> Changes)
+	: FileActivityFact(Sequence);
+
+/// <summary>The session's workspace inventory changed which files or directories it lists.</summary>
+/// <param name="Sequence">The activity's monotonic sequence within its owning session.</param>
+/// <param name="Change">What changed, and the snapshot it produced.</param>
+public sealed record InventoryChanged(long Sequence, WorkspaceInventoryChange Change)
 	: FileActivityFact(Sequence);
 
 /// <summary>The watcher-observed filesystem transition for one path.</summary>

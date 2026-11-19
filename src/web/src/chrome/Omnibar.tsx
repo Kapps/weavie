@@ -22,6 +22,7 @@ import { CommandIds, type CommandInfo } from "../commands/types";
 import { captureCommandUsage, commandUsage } from "../commands/usage-store";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
+import { type FileIndex, selectedFileIndex } from "../files/file-index";
 import {
   buildPathTree,
   type PathTreeNode,
@@ -29,11 +30,7 @@ import {
   pathAncestorKeys,
   visiblePathTreeRows,
 } from "../files/path-tree";
-import {
-  acquireDirectory,
-  selectedDirectoryListings,
-  selectedFileIndex,
-} from "../files/session-files";
+import { acquireDirectory, selectedDirectoryListings } from "../files/session-files";
 import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
@@ -63,17 +60,13 @@ const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
 };
 
 // The center omnibar quick-open: file tree when the query is empty, fuzzy-ranked flat list when typing, and a
-// command palette when the query leads with ">". Focusing it asks the host for the file index.
+// command palette when the query leads with ">".
 export function Omnibar(props: {
-  files: string[];
-  // A session switch invalidated the index and the new worktree's walk is still running — the empty list
-  // means "loading", not "this worktree has no files".
-  filesPending: boolean;
+  index: FileIndex;
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
   onOpenFile: (abs: string, line: number | undefined) => void;
-  onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
   symbols: () => SymbolActions;
 }): JSX.Element {
@@ -163,8 +156,7 @@ export function Omnibar(props: {
   const pathView = createMemo(() => pathRows().slice(0, VIEW_CAP));
 
   const fileSearch = createFileSearch({
-    files: () => props.files,
-    root: () => props.root ?? "",
+    index: () => props.index,
     query: () => (searchMode() ? query() : ""),
     recent: recentFiles,
     currentFile: () => props.currentFile,
@@ -349,7 +341,6 @@ export function Omnibar(props: {
           priorFocus = active;
         }
         setOpen(true);
-        props.onRequestIndex();
         queueMicrotask(() => {
           inputRef.focus();
           // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
@@ -668,7 +659,6 @@ export function Omnibar(props: {
               priorFocus = from;
             }
             setOpen(true);
-            props.onRequestIndex();
           }}
           onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
@@ -692,7 +682,7 @@ export function Omnibar(props: {
             onSelect={setSelected}
             rowProps={nav.row}
             hiddenCount={hiddenCount}
-            filesPending={props.filesPending}
+            filesPending={props.index.pending}
             currentFile={props.currentFile}
             pathRows={pathView}
             pathError={pathError}

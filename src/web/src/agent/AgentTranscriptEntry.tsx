@@ -5,7 +5,7 @@ import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { displayPath } from "../editor/fs-path";
-import { fileIndexFor } from "../files/session-files";
+import { fileIndexFor } from "../files/file-index";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
 import { AgentBlockAddedEntry } from "./AgentBlockAddedEntry";

@@ -5,9 +5,11 @@ using Weavie.Core.Git;
 namespace Weavie.Core.Workspaces;
 
 /// <summary>An authoritative workspace snapshot and the flat directories needed to observe its files.</summary>
+/// <param name="Revision">Counts the changes that produced this snapshot; each change is exactly one more.</param>
 /// <param name="Files">Canonical absolute paths for the workspace's files, none of them ignored.</param>
 /// <param name="Directories">Canonical absolute file ancestors and non-ignored directories, including empty ones.</param>
 public sealed record WorkspaceInventorySnapshot(
+	long Revision,
 	ImmutableSortedSet<string> Files,
 	ImmutableSortedSet<string> Directories);
 
@@ -64,6 +66,9 @@ public sealed class WorkspaceInventory {
 
 	/// <summary>The canonical absolute workspace root.</summary>
 	public string Root { get; }
+
+	/// <summary>Raised once per non-empty change, in revision order, before the refresh that made it returns.</summary>
+	public event Action<WorkspaceInventoryChange>? Changed;
 
 	/// <summary>
 	/// The snapshot a refresh most recently computed, or <c>null</c> before the first refresh. It is current only
@@ -135,6 +140,7 @@ public sealed class WorkspaceInventory {
 	}
 
 	private static readonly WorkspaceInventorySnapshot Empty = new(
+		0,
 		ImmutableSortedSet.Create<string>(PathIdentity.CanonicalComparer),
 		ImmutableSortedSet.Create<string>(PathIdentity.CanonicalComparer));
 
@@ -149,11 +155,15 @@ public sealed class WorkspaceInventory {
 			return change;
 		}
 
-		var snapshot = new WorkspaceInventorySnapshot(
-			previous.Files.Except(deletedFiles).Union(createdFiles),
-			previous.Directories.Except(removedDirectories).Union(addedDirectories));
-		Volatile.Write(ref _lastSnapshot, snapshot);
-		return change with { Snapshot = snapshot };
+		change = change with {
+			Snapshot = new WorkspaceInventorySnapshot(
+				previous.Revision + 1,
+				previous.Files.Except(deletedFiles).Union(createdFiles),
+				previous.Directories.Except(removedDirectories).Union(addedDirectories)),
+		};
+		Volatile.Write(ref _lastSnapshot, change.Snapshot);
+		Changed?.Invoke(change);
+		return change;
 	}
 
 	private static IEnumerable<string> AtOrBeneath(ImmutableSortedSet<string> paths, string path) =>

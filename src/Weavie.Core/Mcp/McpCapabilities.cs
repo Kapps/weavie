@@ -24,6 +24,12 @@ public sealed record McpCapabilities {
 	/// </summary>
 	public required string SettingsWorkspaceRoot { get; init; }
 
+	/// <summary>The name of the machine this server's sessions run on, as the settings tools report it.</summary>
+	public required string MachineName { get; init; }
+
+	/// <summary>The device settings of the device the session belongs to.</summary>
+	public required IDeviceSettings DeviceSettings { get; init; }
+
 	/// <summary>The layout store behind the layout tools.</summary>
 	public required LayoutStore Layout { get; init; }
 

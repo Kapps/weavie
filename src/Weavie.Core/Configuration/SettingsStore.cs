@@ -51,7 +51,6 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
-	private readonly SettingsRegistry _registry;
 	private readonly Func<string, string> _workspaceSettingsPath;
 	private readonly Lock _gate = new();
 	private readonly bool _enableWatcher;
@@ -71,7 +70,7 @@ public sealed class SettingsStore : IDisposable {
 	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher, Func<string, string> workspaceSettingsPath) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(workspaceSettingsPath);
-		_registry = registry;
+		Registry = registry;
 		_workspaceSettingsPath = workspaceSettingsPath;
 		_enableWatcher = enableWatcher;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
@@ -83,7 +82,7 @@ public sealed class SettingsStore : IDisposable {
 		_userLayer = CreateLayer(FilePath);
 
 		lock (_gate) {
-			foreach (var definition in _registry.Definitions) {
+			foreach (var definition in Registry.Definitions) {
 				_resolved[definition.Key] = ResolveLocked(definition, workspaceRoot: null).Value;
 			}
 
@@ -97,6 +96,9 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>Raised (off the UI thread) once per resolved value that actually changed.</summary>
 	public event Action<SettingChange>? SettingChanged;
+
+	/// <summary>The definitions this store resolves.</summary>
+	public SettingsRegistry Registry { get; }
 
 	/// <summary>Diagnostic log line: parse errors and ignored invalid values.</summary>
 	public event Action<string>? Log;
@@ -139,14 +141,14 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Resolves <paramref name="key"/> through env → user file → default (no workspace overlay).</summary>
 	public ResolvedValue Resolve(string key) {
 		lock (_gate) {
-			return ResolveLocked(_registry.Require(key), workspaceRoot: null);
+			return ResolveLocked(Registry.Require(key), workspaceRoot: null);
 		}
 	}
 
 	/// <summary>Resolves <paramref name="key"/> for <paramref name="workspaceRoot"/> through env → workspace file → user file → default.</summary>
 	public ResolvedValue Resolve(string key, string workspaceRoot) {
 		lock (_gate) {
-			return ResolveLocked(_registry.Require(key), workspaceRoot);
+			return ResolveLocked(Registry.Require(key), workspaceRoot);
 		}
 	}
 
@@ -209,7 +211,7 @@ public sealed class SettingsStore : IDisposable {
 		List<SettingChange> changes;
 		SetResult result;
 		lock (_gate) {
-			var definition = _registry.Require(key);
+			var definition = Registry.Require(key);
 			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: true);
 			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
@@ -245,7 +247,7 @@ public sealed class SettingsStore : IDisposable {
 		List<SettingChange> changes;
 		ClearResult result;
 		lock (_gate) {
-			var definition = _registry.Require(key);
+			var definition = Registry.Require(key);
 			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: false);
 			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
@@ -315,18 +317,17 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, aliases, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
-	public string BuildIndexJson() => BuildIndex(workspaceRoot: null);
+	public string BuildIndexJson() => BuildIndexJson(workspaceRoot: null, static _ => true);
 
-	/// <summary>As <see cref="BuildIndexJson()"/>, resolving <see cref="SettingOwner.Repo"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
-	public string BuildIndexJson(string workspaceRoot) => BuildIndex(workspaceRoot);
-
-	private string BuildIndex(string? workspaceRoot) {
+	/// <summary>As <see cref="BuildIndexJson()"/> for the settings <paramref name="include"/> admits, resolving repo keys against <paramref name="workspaceRoot"/>'s overlay when given.</summary>
+	public string BuildIndexJson(string? workspaceRoot, Func<SettingDefinition, bool> include) {
+		ArgumentNullException.ThrowIfNull(include);
 		lock (_gate) {
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
 				writer.WriteStartObject();
 				writer.WriteStartArray("settings");
-				foreach (var definition in _registry.Definitions) {
+				foreach (var definition in Registry.Definitions.Where(include)) {
 					WriteSettingObject(writer, definition, workspaceRoot, detailed: false);
 				}
 
@@ -346,7 +347,7 @@ public sealed class SettingsStore : IDisposable {
 
 	private string BuildGet(string key, string? workspaceRoot) {
 		lock (_gate) {
-			var definition = _registry.Require(key);
+			var definition = Registry.Require(key);
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
 				WriteSettingObject(writer, definition, workspaceRoot, detailed: true);
@@ -660,7 +661,7 @@ public sealed class SettingsStore : IDisposable {
 		path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
 
 	private string ResolveWorkspaceDirLocked(string fallback) {
-		if (_registry.TryGet(CoreSettings.Workspace, out var workspace) && ResolveLocked(workspace, workspaceRoot: null).Value is string dir) {
+		if (Registry.TryGet(CoreSettings.Workspace, out var workspace) && ResolveLocked(workspace, workspaceRoot: null).Value is string dir) {
 			return dir;
 		}
 
@@ -671,7 +672,7 @@ public sealed class SettingsStore : IDisposable {
 
 	// Seeds a workspace's resolved cache so a later reload can diff against it and only fire real changes.
 	private void SeedWorkspaceResolvedLocked(WorkspaceRegistration registration) {
-		foreach (var definition in _registry.Definitions) {
+		foreach (var definition in Registry.Definitions) {
 			if (definition.Owner == SettingOwner.Repo) {
 				registration.Resolved[definition.Key] = ResolveLocked(definition, registration.Root).Value;
 			}
@@ -680,7 +681,7 @@ public sealed class SettingsStore : IDisposable {
 
 	private List<SettingChange> RecomputeAndDiffLocked() {
 		var changes = new List<SettingChange>();
-		foreach (var definition in _registry.Definitions) {
+		foreach (var definition in Registry.Definitions) {
 			var (value, source) = ResolveLocked(definition, workspaceRoot: null);
 			object? previous = _resolved.GetValueOrDefault(definition.Key);
 			if (!Equals(previous, value)) {
@@ -697,7 +698,7 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	private void DiffWorkspaceLocked(WorkspaceRegistration registration, List<SettingChange> changes) {
-		foreach (var definition in _registry.Definitions) {
+		foreach (var definition in Registry.Definitions) {
 			if (definition.Owner != SettingOwner.Repo) {
 				continue;
 			}

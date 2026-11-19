@@ -183,8 +183,9 @@ public sealed class WorkspaceInventory {
 	private static bool Spells(HashSet<string> paths, string path) =>
 		paths.TryGetValue(path, out string? held) && string.Equals(held, path, StringComparison.Ordinal);
 
-	private static IEnumerable<string> AtOrBeneath(ImmutableSortedSet<string> paths, string path) =>
-		paths.Contains(path) ? Beneath(paths, path).Prepend(path) : Beneath(paths, path);
+	// The entry is yielded as the set spells it, which is not how `path` does where paths compare without case.
+	internal static IEnumerable<string> AtOrBeneath(ImmutableSortedSet<string> paths, string path) =>
+		paths.TryGetValue(path, out string held) ? Beneath(paths, path).Prepend(held) : Beneath(paths, path);
 
 	// Paths sort ordinally, so everything beneath a directory is one contiguous run after its separator-ended name.
 	internal static IEnumerable<string> Beneath(ImmutableSortedSet<string> paths, string directory) {

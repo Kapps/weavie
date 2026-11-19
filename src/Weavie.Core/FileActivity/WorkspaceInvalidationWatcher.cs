@@ -28,6 +28,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private HashSet<string> _dirtyPaths = new(PathIdentity.Comparer);
 	private bool _dirtyAll;
 	private readonly CancellationTokenSource _stopping = new();
+	private readonly TaskCompletionSource _listed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private Exception? _watcherFailure;
@@ -120,9 +121,18 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	/// The inventory this watcher keeps current, once its initial load completes; a fresh listing when
 	/// observation failed or ended, since nothing then keeps the snapshot current.
 	/// </summary>
-	public async Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) {
+	public Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) => SnapshotAsync(_ready.Task, ct);
+
+	/// <summary>
+	/// As <see cref="SnapshotAsync(CancellationToken)"/>, but as soon as the first listing has its watches armed.
+	/// For a reader that follows <see cref="WorkspaceInventory.Changed"/>: what moved while they were being armed
+	/// reaches it as a change.
+	/// </summary>
+	public Task<WorkspaceInventorySnapshot> ListedSnapshotAsync(CancellationToken ct) => SnapshotAsync(_listed.Task, ct);
+
+	private async Task<WorkspaceInventorySnapshot> SnapshotAsync(Task loaded, CancellationToken ct) {
 		try {
-			await _ready.Task.WaitAsync(ct).ConfigureAwait(false);
+			await loaded.WaitAsync(ct).ConfigureAwait(false);
 		} catch (Exception) when (!ct.IsCancellationRequested) {
 			// The observation failure reaches the user through the run loop; the listing below reports its own.
 		}
@@ -152,7 +162,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
 			lock (_flushLock) {
 				if (_disposed) {
-					_ready.TrySetException(new ObjectDisposedException(nameof(WorkspaceInvalidationWatcher)));
+					EndLoading(loading => loading.TrySetException(new ObjectDisposedException(nameof(WorkspaceInvalidationWatcher))));
 					return;
 				}
 				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
@@ -160,6 +170,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 			var cooldown = Task.CompletedTask;
 			await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
+			_ready.TrySetResult();
 			while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
 				// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
 				if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
@@ -173,9 +184,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 			}
 		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
-			_ready.TrySetCanceled(_stopping.Token);
+			EndLoading(loading => loading.TrySetCanceled(_stopping.Token));
 		} catch (Exception ex) {
-			_ready.TrySetException(ex);
+			EndLoading(loading => loading.TrySetException(ex));
 			throw;
 		} finally {
 			_directoryWatchers.Dispose();
@@ -202,7 +213,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 
 		timer?.Dispose();
-		_ready.TrySetCanceled();
+		EndLoading(loading => loading.TrySetCanceled());
 		_stopping.Cancel();
 		_directoryWatchers.Dispose();
 		_refreshSignals.Writer.TryComplete();
@@ -211,6 +222,11 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			await _finished.Task.ConfigureAwait(false);
 		}
 		_stopping.Dispose();
+	}
+
+	private void EndLoading(Action<TaskCompletionSource> end) {
+		end(_listed);
+		end(_ready);
 	}
 
 	// Spacing re-enumerations by the previous pass keeps a burst (a checkout, an install) under half this loop.
@@ -225,18 +241,21 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
 				: await _inventory.RefreshAsync(scope, ct).ConfigureAwait(false);
 			if (!initial) {
-				foreach (string path in change.CreatedFiles) {
-					Record(path, FileInvalidationKind.Created);
-				}
-
+				// Deletions first: where paths compare without case, a renamed file is both, and it exists.
 				foreach (string path in change.DeletedFiles) {
 					Record(path, FileInvalidationKind.Deleted);
 				}
+
+				foreach (string path in change.CreatedFiles) {
+					Record(path, FileInvalidationKind.Created);
+				}
 			}
 
-			// Events inside a `.git` were dropped until this pass listed it, so it is listed once more.
-			watchesChanged = _directoryWatchers.Reconcile(change.Snapshot.Directories)
-				| change.AddedDirectories.Any(directory => Path.GetFileName(directory) == ".git");
+			// Watches follow directories, so a change to files alone leaves them as they are. Events inside a
+			// `.git` were dropped until this pass listed it, so it is listed once more.
+			watchesChanged = (initial || change.AddedDirectories.Count + change.RemovedDirectories.Count > 0)
+				&& (_directoryWatchers.Reconcile(change.Snapshot.Directories)
+					| change.AddedDirectories.Any(directory => Path.GetFileName(directory) == ".git"));
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");
@@ -245,8 +264,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			if (watchesChanged) {
 				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 			}
-			// The first listing is served once its watches are armed; the pass after it reports what moved meanwhile.
-			_ready.TrySetResult();
+			_listed.TrySetResult();
 			initial = false;
 			// Snapshot after installing new watches so changes during discovery cannot fall into an unwatched gap.
 		} while (watchesChanged);

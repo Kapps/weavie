@@ -72,8 +72,12 @@ public sealed partial class WorkspaceInvalidationWatcher {
 				return;
 			}
 
-			if (kind != FileInvalidationKind.Changed || !_pending.ContainsKey(canonical)) {
+			if (kind != FileInvalidationKind.Changed) {
+				// Re-keyed, so the batch names the path as this event spells it.
+				_pending.TryRemove(canonical, out _);
 				_pending[canonical] = kind;
+			} else {
+				_pending.TryAdd(canonical, kind);
 			}
 			_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 		}

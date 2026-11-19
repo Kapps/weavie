@@ -23,12 +23,7 @@ import { captureCommandUsage, commandUsage } from "../commands/usage-store";
 import { canonicalFsPath, repoRelativePath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import type { FileIndex } from "../files/file-index";
-import {
-  type PathTreeNode,
-  type PathTreeRow,
-  pathAncestorKeys,
-  visiblePathTreeRows,
-} from "../files/path-tree";
+import { type PathTreeRow, pathAncestorKeys, visiblePathTreeRows } from "../files/path-tree";
 import { selectedFileIndex } from "../files/session-file-index";
 import { acquireDirectory, selectedDirectoryListings } from "../files/session-files";
 import { createListNavigation } from "../list-navigation";
@@ -181,15 +176,12 @@ export function Omnibar(props: {
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  const treeNodes = createMemo<PathTreeNode<string>[]>(() => {
-    props.index.version;
-    return props.index.tree();
-  });
   const visibleRows = createMemo<PathTreeRow<string>[]>(() => {
-    if (!treeMode()) {
+    if (!open() || !treeMode()) {
       return [];
     }
-    return visiblePathTreeRows(treeNodes(), expanded(), VIEW_CAP);
+    props.index.version;
+    return visiblePathTreeRows(props.index.tree(), expanded(), VIEW_CAP);
   });
 
   // The palette: visible commands whose `when` passes, fuzzy-ranked (with positions) over the text after ">".

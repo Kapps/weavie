@@ -104,15 +104,22 @@ sequenceDiagram
     P->>H: GET /weavie-file-index
 ```
 
-- The list downloads as a stream of newline-delimited batches from the session's own address, so the host never
-  builds it as one message and a slow page applies backpressure.
+- The list downloads as a gzipped stream of newline-delimited batches from the session's own address, so the
+  host never builds it as one message and a slow page applies backpressure.
+- A page gets the first listing as soon as its watches are armed. The pass that verifies it reports anything it
+  finds as a change; a reader that looks once (path recovery) waits for that pass.
 - Each inventory change is published once as the step from the revision before it. A page applies a step only as
   the exact next revision. A step it already holds is ignored, steps that arrive during a download wait for it,
   and anything else makes the page download again.
 - A change touching more paths than `MaxFileIndexChangePaths` is announced without its paths, and the page
   downloads the list.
 - A reconnecting page asks with the revision it holds and is told "unchanged" when the list is.
-- Paths are relative to the workspace root; the page spells the absolute path once per file.
+- Paths are relative to the workspace root; the page spells the absolute path once per file, with the
+  separator the host names.
+- The page keeps each folder's own files and child folders, so Go to File's tree lists only the levels that are
+  open.
+- A download that fails leaves the surfaces saying so, with Retry on the error; Reload File List
+  (`weavie.files.reloadList`) downloads again for the session it is run in.
 
 ## Persistence
 

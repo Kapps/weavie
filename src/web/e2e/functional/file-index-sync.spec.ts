@@ -1,5 +1,6 @@
 import { unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
@@ -80,4 +81,35 @@ test("a change published while the list downloads is applied to it", async ({ pa
     page.locator(".tb-omnibar-list .tb-omnibar-row").filter({ hasText: "sync-probe-during.ts" }),
   ).toHaveCount(1);
   expect(downloads).toBe(1);
+});
+
+test("Reload File List downloads the list again for the revision in hand", async ({ page }) => {
+  const downloads: (string | null)[] = [];
+  await page.route("**/weavie-file-index?**", async (route) => {
+    downloads.push(new URL(route.request().url()).searchParams.get("knownRevision"));
+    await route.continue();
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const input = page.locator(".tb-omnibar-input");
+  await input.click();
+  await input.fill("README");
+  await expect(
+    page.locator(".tb-omnibar-list .tb-omnibar-row").filter({ hasText: "README.md" }).first(),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await runCommand(page, "Reload File List");
+
+  await expect.poll(() => downloads.length).toBe(2);
+  expect(downloads[0]).toBeNull();
+  expect(downloads[1]).toMatch(/^\d+$/);
+});
+
+test("a list the host cannot give says so instead of loading forever", async ({ page }) => {
+  await page.route("**/weavie-file-index?**", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const input = page.locator(".tb-omnibar-input");
+  await input.click();
+  await input.fill("README");
+  await expect(page.locator(".tb-omnibar-empty")).toHaveText("Couldn't load files");
 });

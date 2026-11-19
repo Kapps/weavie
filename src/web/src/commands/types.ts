@@ -62,6 +62,7 @@ export const CommandIds = {
   toggleFullscreenPane: "weavie.pane.toggleFullscreen",
   toggleFileBrowser: "weavie.view.toggleFileBrowser",
   filterFileBrowser: "weavie.files.filter",
+  reloadFileList: "weavie.files.reloadList",
   dockFileBrowser: "weavie.view.dockFileBrowser",
   dockSearch: "weavie.view.dockSearch",
   closeFloatingPanel: "weavie.view.closeFloatingPanel",

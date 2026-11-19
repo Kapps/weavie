@@ -37,6 +37,9 @@ public static partial class CoreCommands {
 	/// <summary>Opens the file browser's filename and path filter.</summary>
 	public const string FilterFileBrowser = "weavie.files.filter";
 
+	/// <summary>Downloads the session's file list again.</summary>
+	public const string ReloadFileList = "weavie.files.reloadList";
+
 	/// <summary>Toggles whether File Browser stays docked.</summary>
 	public const string DockFileBrowser = "weavie.view.dockFileBrowser";
 	/// <summary>Toggles whether Find in Files stays docked.</summary>
@@ -590,6 +593,7 @@ public static partial class CoreCommands {
 		foreach (var (id, title, keys, when) in new (string, string, string[], string)[] {
 			(DockFileBrowser, "Toggle File Browser Stay Open", [], ""),
 			(FilterFileBrowser, "Filter Files", ["$mod+shift+b"], ""),
+			(ReloadFileList, "Reload File List", [], ""),
 			(DockSearch, "Toggle Find in Files Stay Open", [], ""),
 			(CloseFloatingPanel, "Close Floating Panel", ["Escape"], "floatingPanelOpen"),
 			(CloseToolPanel, "Close Tool Panel", ["$mod+shift+w"], "focusedTool"),

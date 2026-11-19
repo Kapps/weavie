@@ -2,17 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../bridge", () => ({
   registerHostFeature: () => {},
-  registerSessionFeature: () => () => {},
   selectedSession: () => null,
-  sessionResourceUrl: () => new URL("http://host/"),
 }));
+// The store under test is built by hand; the per-session wiring would need a page.
+vi.mock("../files/session-file-index", () => ({ selectedFileIndex: () => null }));
 
 const { FileIndex } = await import("../files/file-index");
 const { projectRecentFiles } = await import("./recent-files-store");
 
 function indexOf(root: string, paths: string[]) {
   const index = new FileIndex();
-  index.setWorkspace(root, null);
+  index.setWorkspace(root, null, root.startsWith("/") ? "/" : "\\");
   const listing = index.newListing();
   for (const path of paths) listing.add(path);
   index.install(listing);

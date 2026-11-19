@@ -66,8 +66,11 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 		return _watcher.RunAsync(ct);
 	}
 
-	/// <inheritdoc cref="WorkspaceInvalidationWatcher.SnapshotAsync"/>
+	/// <inheritdoc cref="WorkspaceInvalidationWatcher.SnapshotAsync(CancellationToken)"/>
 	public Task<WorkspaceInventorySnapshot> InventorySnapshotAsync(CancellationToken ct) => _watcher.SnapshotAsync(ct);
+
+	/// <inheritdoc cref="WorkspaceInvalidationWatcher.ListedSnapshotAsync"/>
+	public Task<WorkspaceInventorySnapshot> ListedInventoryAsync(CancellationToken ct) => _watcher.ListedSnapshotAsync(ct);
 
 	/// <summary>Stops watcher admission, flushes its pending debounce batch, and waits for observation to end.</summary>
 	public Task StopObservingAsync() => _watcher.StopAsync();

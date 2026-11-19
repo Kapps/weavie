@@ -98,6 +98,17 @@ public sealed class HostCoreFileIndexTests {
 	}
 
 	[Fact]
+	public async Task APageSyncCarriesTheWorkspaceAndNeverTheList() {
+		await using var host = await TestHost.StartAsync();
+
+		var workspace = host.Bridge.PostedEvents("files", "workspace")[^1];
+
+		Assert.Equal(Path.GetFullPath(host.WorkspaceSession.WorkspaceRoot), workspace.GetProperty("root").GetString());
+		Assert.Equal(Path.DirectorySeparatorChar.ToString(), workspace.GetProperty("separator").GetString());
+		Assert.Empty(host.Bridge.PostedEvents("files", "index"));
+	}
+
+	[Fact]
 	public async Task AnAddressNoLoadedSessionHasFindsNothing() {
 		await using var host = await TestHost.StartAsync();
 		var stale = new Messaging.SessionAddress(host.WorkspaceSession.Address.Slot, "not-this-one");

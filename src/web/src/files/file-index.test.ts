@@ -4,7 +4,7 @@ import { buildPathTree, type PathTreeNode, visiblePathTreeRows } from "./path-tr
 
 function indexOf(root: string, paths: string[]) {
   const index = new FileIndex();
-  index.setWorkspace(root, null);
+  index.setWorkspace(root, null, root.startsWith("/") ? "/" : "\\");
   const listing = index.newListing();
   for (const path of paths) listing.add(path);
   index.install(listing);
@@ -48,9 +48,52 @@ describe("FileIndex", () => {
     });
   });
 
+  it("files a name holding a backslash where the tree and its reveal both look", () => {
+    const paths = ["foo\\bar/file.ts", "plain/x.ts"];
+    const index = indexOf("/repo", paths);
+    expect(unfolded(index.tree())).toEqual(
+      unfolded(buildPathTree(paths.map((path) => ({ path, value: `/repo/${path}` })))),
+    );
+    expect(index.find("foo\\bar/file.ts")?.abs).toBe("/repo/foo\\bar/file.ts");
+    index.apply({ revision: 2, added: [], removed: ["foo\\bar/file.ts"] });
+    expect(index.tree().map((node) => node.name)).toEqual(["plain"]);
+  });
+
+  it("joins paths with the host's separator, whatever characters the root holds", () => {
+    const index = new FileIndex();
+    index.setWorkspace("/tmp/a\\b", null, "/");
+    const listing = index.newListing();
+    listing.add("dir/file.ts");
+    index.install(listing);
+    expect(index.find("dir/file.ts")?.abs).toBe("/tmp/a\\b/dir/file.ts");
+  });
+
+  it("lists a path nested deeper than the stack", () => {
+    const deep = `${Array.from({ length: 12_000 }, () => "d").join("/")}/file.ts`;
+    const index = indexOf("/repo", [deep]);
+    expect(index.tree().map((node) => node.name)).toEqual(["d"]);
+    index.apply({ revision: 2, added: [], removed: [deep] });
+    expect(index.tree()).toEqual([]);
+  });
+
+  it("keeps a folder's level until what sits directly inside it changes", () => {
+    const index = indexOf("/repo", ["a.ts", "src/b.ts", "src/deep/c.ts"]);
+    const root = index.tree();
+    const src = root.find((node) => node.kind === "directory");
+    if (src?.kind !== "directory") throw new Error("expected the src folder");
+    const level = src.children;
+    index.apply({ revision: 2, added: ["src/deep/d.ts"], removed: [] });
+    expect(index.tree()).toBe(root);
+    expect(src.children).toBe(level);
+    index.apply({ revision: 3, added: ["src/e.ts"], removed: [] });
+    expect(index.tree()).toBe(root);
+    expect(src.children).not.toBe(level);
+    expect(src.children.map((node) => node.name)).toEqual(["deep", "b.ts", "e.ts"]);
+  });
+
   it("says why it has no files until its first list is installed", () => {
     const index = new FileIndex();
-    index.setWorkspace("/repo", null);
+    index.setWorkspace("/repo", null, "/");
     expect(index.pending).toBe(true);
     expect(index.emptyText("No files")).toBe("Loading files…");
     index.setDownloading(true);
@@ -73,7 +116,7 @@ describe("FileIndex", () => {
   it("refuses a list before its workspace and a change before its list", () => {
     const index = new FileIndex();
     expect(() => index.newListing()).toThrow();
-    index.setWorkspace("/repo", null);
+    index.setWorkspace("/repo", null, "/");
     expect(index.apply({ revision: 1, added: ["a.ts"], removed: [] })).toBe(false);
   });
 
@@ -114,11 +157,11 @@ describe("FileIndex", () => {
 
   it("notifies workspace readers only when the workspace differs", () => {
     const index = new FileIndex();
-    index.setWorkspace("/repo", "/home/me");
+    index.setWorkspace("/repo", "/home/me", "/");
     const first = index.root;
-    index.setWorkspace("/repo", "/home/me");
+    index.setWorkspace("/repo", "/home/me", "/");
     expect(index.root).toBe(first);
-    index.setWorkspace("/other", "/home/me");
+    index.setWorkspace("/other", "/home/me", "/");
     expect(index.root).toBe("/other");
   });
 

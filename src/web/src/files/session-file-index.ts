@@ -4,6 +4,8 @@ import {
   selectedSession,
   sessionResourceUrl,
 } from "../bridge";
+import { registerCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { readJsonStream } from "../messaging/json-stream";
 import { createSessionOwnedState } from "../messaging/session-owned-state";
 import { clearNotification, notify } from "../notify/notify";
@@ -16,6 +18,14 @@ const indexes = createSessionOwnedState(() => new FileIndex());
 export const fileIndexFor = (session: ClientSession | null): FileIndex =>
   indexes.get(session) ?? NO_SESSION;
 export const selectedFileIndex = (): FileIndex => fileIndexFor(selectedSession());
+
+// Each loaded session's own download, so Reload File List reaches the session it was run for.
+const reloads = new Map<ClientSession, () => void>();
+
+registerCommand(CommandIds.reloadFileList, (_args, { session }) => {
+  if (session === null) return false;
+  reloads.get(session)?.();
+});
 
 interface IndexBatch {
   revision: number;
@@ -55,8 +65,9 @@ registerSessionFeature((session) => {
     if (sync.known !== null) url.searchParams.set("knownRevision", sync.known.toString());
     const listing = index.newListing();
     const response = await fetch(url, { signal });
-    // The host no longer has this session loaded, so this page's copy of it is about to be released too.
+    // The host has nothing to list here: the session is closing, or its folder is gone and the host has said so.
     if (response.status === 404) {
+      index.setDownloading(true);
       sync.abandon();
       return;
     }
@@ -81,16 +92,21 @@ registerSessionFeature((session) => {
 
   const sync = new FileIndexSync((change) => index.apply(change), download);
   // The host sends the workspace on every sync, so each connection checks the list it holds against the host's.
-  const offWorkspace = files.on<{ root: string; home: string }>("workspace", ({ root, home }) => {
-    index.setWorkspace(root, home === "" ? null : home);
-    download();
-  });
+  const offWorkspace = files.on<{ root: string; home: string; separator: string }>(
+    "workspace",
+    ({ root, home, separator }) => {
+      index.setWorkspace(root, home === "" ? null : home, separator);
+      download();
+    },
+  );
+  reloads.set(session, download);
   const offChanged = files.on<FileIndexChange>("indexChanged", (change) => sync.changed(change));
   const offReplaced = files.on<{ revision: number }>("indexReplaced", ({ revision }) =>
     sync.replaced(revision),
   );
   return () => {
     abort?.abort();
+    reloads.delete(session);
     clearNotification(errorKey);
     offWorkspace();
     offChanged();

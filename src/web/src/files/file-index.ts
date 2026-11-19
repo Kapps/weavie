@@ -13,10 +13,24 @@ interface Folder {
   /** The names of the folders directly inside this one. */
   readonly folders: Set<string>;
   readonly files: Slotted[];
+  /** This folder's level of the tree, kept until what sits directly inside it changes. */
+  level: PathTreeNode<string>[] | null;
 }
 
 const parentOf = (key: string): string => key.slice(0, Math.max(0, key.lastIndexOf("/")));
 const nameOf = (key: string): string => key.slice(key.lastIndexOf("/") + 1);
+const byName = new Intl.Collator().compare;
+
+// Where a file sits in the tree. The tree splits on either separator, as `pathAncestorKeys` does, so a POSIX
+// name holding a backslash is filed under the same folders that reveal it.
+function treePlace(row: FileRow): { folder: string; name: string; key: string } {
+  if (!row.rel.includes("\\")) return { folder: row.dir, name: row.leaf, key: row.rel };
+  const key = row.rel
+    .split(/[\\/]/)
+    .filter((segment) => segment.length > 0)
+    .join("/");
+  return { folder: parentOf(key), name: nameOf(key), key };
+}
 
 // A POSIX file name can hold a backslash; a spelling from a Windows host uses one as its separator.
 const looseKey = (lower: string): string =>
@@ -28,13 +42,15 @@ export class FileListing {
   // Keyed by lowercased, slash-separated path: one map answers exact lookups and a recent file's looser spelling.
   private readonly byLower = new Map<string, Slotted | Slotted[]>();
   // Each folder's own files and child folder names, so a tree shows one level without visiting the rest.
-  private readonly folders = new Map<string, Folder>([["", { folders: new Set(), files: [] }]]);
+  private readonly folders = new Map<string, Folder>([
+    ["", { folders: new Set(), files: [], level: null }],
+  ]);
   private readonly prefix: string;
   private readonly backslashed: boolean;
 
-  constructor(root: string) {
-    this.backslashed = root.includes("\\");
-    const separator = this.backslashed ? "\\" : "/";
+  /** `separator` is the host's own: a backslash in a POSIX root is part of a name. */
+  constructor(root: string, separator: string) {
+    this.backslashed = separator === "\\";
     this.prefix = canonicalFsPath(root) + (root.endsWith(separator) ? "" : separator);
   }
 
@@ -63,49 +79,54 @@ export class FileListing {
   children(key: string): PathTreeNode<string>[] {
     const folder = this.folders.get(key);
     if (folder === undefined) return [];
+    folder.level ??= this.level(key, folder);
+    return folder.level;
+  }
+
+  private level(key: string, folder: Folder): PathTreeNode<string>[] {
     const below = key === "" ? "" : `${key}/`;
     const children = (childKey: string) => this.children(childKey);
     return [
-      ...[...folder.folders]
-        .sort((left, right) => left.localeCompare(right))
-        .map(
-          (name): PathTreeNode<string> => ({
-            kind: "directory",
-            name,
-            key: below + name,
-            // Read only for a folder the tree has expanded.
-            get children() {
-              return children(below + name);
-            },
-          }),
-        ),
+      ...[...folder.folders].sort(byName).map(
+        (name): PathTreeNode<string> => ({
+          kind: "directory",
+          name,
+          key: below + name,
+          // Read only for a folder the tree has expanded.
+          get children() {
+            return children(below + name);
+          },
+        }),
+      ),
       ...folder.files
-        .map((entry) => entry.row)
-        .sort((left, right) => left.leaf.localeCompare(right.leaf))
-        .map(
-          (row): PathTreeNode<string> => ({
-            kind: "file",
-            name: row.leaf,
-            key: row.rel,
-            value: row.abs,
-          }),
-        ),
+        .map(({ row }): PathTreeNode<string> => {
+          const place = treePlace(row);
+          return { kind: "file", name: place.name, key: place.key, value: row.abs };
+        })
+        .sort((left, right) => byName(left.name, right.name)),
     ];
   }
 
+  // Not recursive: a path can nest deeper than the stack.
   private folder(key: string): Folder {
+    const missing: string[] = [];
     let folder = this.folders.get(key);
-    if (folder === undefined) {
-      folder = { folders: new Set(), files: [] };
-      this.folders.set(key, folder);
-      this.folder(parentOf(key)).folders.add(nameOf(key));
+    for (let at = key; folder === undefined; folder = this.folders.get(at)) {
+      missing.push(at);
+      at = parentOf(at);
+    }
+    for (const created of missing.reverse()) {
+      folder.folders.add(nameOf(created));
+      folder.level = null;
+      folder = { folders: new Set(), files: [], level: null };
+      this.folders.set(created, folder);
     }
     return folder;
   }
 
   add(rel: string): void {
     const row = fileRow(this.prefix + (this.backslashed ? rel.replaceAll("/", "\\") : rel), rel);
-    const folder = this.folder(row.dir);
+    const folder = this.folder(treePlace(row).folder);
     const entry: Slotted = {
       row,
       lower: rel.toLowerCase(),
@@ -113,6 +134,7 @@ export class FileListing {
       folderSlot: folder.files.length,
     };
     folder.files.push(entry);
+    folder.level = null;
     this.entries.push(entry);
     const key = looseKey(entry.lower);
     const existing = this.byLower.get(key);
@@ -129,18 +151,21 @@ export class FileListing {
       last.slot = entry.slot;
       this.entries[entry.slot] = last;
     }
-    let folder = this.folders.get(entry.row.dir) as Folder;
+    let at = treePlace(entry.row).folder;
+    let folder = this.folders.get(at) as Folder;
     const lastInFolder = folder.files.pop() as Slotted;
     if (lastInFolder !== entry) {
       lastInFolder.folderSlot = entry.folderSlot;
       folder.files[entry.folderSlot] = lastInFolder;
     }
+    folder.level = null;
     // A folder is listed only while a file sits somewhere beneath it.
-    for (let key = entry.row.dir; key !== "" && folder.files.length + folder.folders.size === 0; ) {
-      this.folders.delete(key);
-      folder = this.folders.get(parentOf(key)) as Folder;
-      folder.folders.delete(nameOf(key));
-      key = parentOf(key);
+    while (at !== "" && folder.files.length + folder.folders.size === 0) {
+      this.folders.delete(at);
+      folder = this.folders.get(parentOf(at)) as Folder;
+      folder.folders.delete(nameOf(at));
+      folder.level = null;
+      at = parentOf(at);
     }
     const rest = spellings.filter((candidate) => candidate !== entry);
     const key = looseKey(entry.lower);
@@ -155,9 +180,11 @@ export class FileListing {
  */
 export class FileIndex {
   private listing: FileListing | null = null;
-  private readonly workspaceSignal = createSignal<{ root: string; home: string | null } | null>(
-    null,
-  );
+  private readonly workspaceSignal = createSignal<{
+    root: string;
+    home: string | null;
+    separator: string;
+  } | null>(null);
   private readonly statusSignal = createSignal<"loading" | "failed" | "listed">("loading");
   private readonly versionSignal = createSignal(0);
 
@@ -214,15 +241,17 @@ export class FileIndex {
     return spellings.length === 1 ? spellings[0]?.row : undefined;
   }
 
-  setWorkspace(root: string, home: string | null): void {
-    if (this.root !== root || this.home !== home) this.workspaceSignal[1]({ root, home });
+  /** `separator` is the one the host's paths use, which the root alone does not tell. */
+  setWorkspace(root: string, home: string | null, separator: string): void {
+    if (this.root !== root || this.home !== home)
+      this.workspaceSignal[1]({ root, home, separator });
   }
 
   /** An empty listing for this workspace, to fill and then {@link install}. */
   newListing(): FileListing {
-    const root = this.root;
-    if (root === null) throw new Error("A file list arrived before its workspace.");
-    return new FileListing(root);
+    const workspace = this.workspaceSignal[0]();
+    if (workspace === null) throw new Error("A file list arrived before its workspace.");
+    return new FileListing(workspace.root, workspace.separator);
   }
 
   install(listing: FileListing): void {

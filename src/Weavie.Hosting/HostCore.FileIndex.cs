@@ -10,11 +10,13 @@ public sealed partial class HostCore {
 	internal const int MaxFileIndexChangePaths = 4096;
 	private const int FileIndexBatchPaths = 4096;
 
-	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
+	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's;
+	// the separator is the host's too, since a POSIX name may hold the one Windows uses.
 	private static void PushWorkspaceToWeb(HostSession session, MessageTarget target) =>
 		target.Feature("files").Publish("workspace", WireJson.Default.FileWorkspace, new(
 			Path.GetFullPath(session.WorkspaceRoot),
-			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			Path.DirectorySeparatorChar.ToString()));
 
 	// Every revision is published exactly once, so a page holding the one before it can always take the step.
 	// The first listing is revision 1, and no page holds the empty list before it.
@@ -52,7 +54,7 @@ public sealed partial class HostCore {
 		using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, session.Background.Stopping);
 		WorkspaceInventorySnapshot snapshot;
 		try {
-			snapshot = await session.FileActivity.InventorySnapshotAsync(cancellation.Token).ConfigureAwait(false);
+			snapshot = await session.FileActivity.ListedInventoryAsync(cancellation.Token).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException
 			&& session.EndIfWorkspaceRootIsGone($"Couldn't load workspace files: {ex.Message}")) {
 			return false;
@@ -88,7 +90,7 @@ public sealed partial class HostCore {
 	}
 }
 
-internal sealed record FileWorkspace(string Root, string Home);
+internal sealed record FileWorkspace(string Root, string Home, string Separator);
 
 internal sealed record FileIndexChanged(long Revision, IReadOnlyList<string> Added, IReadOnlyList<string> Removed);
 

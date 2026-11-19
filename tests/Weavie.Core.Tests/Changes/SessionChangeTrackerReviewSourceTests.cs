@@ -153,7 +153,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		_files.WriteAllText(File, "edited\n");
 		_files.WriteAllText(Other, "other\n");
 		Assert.True(tracker.RefreshReviewPath(Review, File));
-		Assert.True(tracker.JoinReview(Review, Other, "", false));
+		Assert.True(tracker.Join(Review, Other, "", false));
 
 		var joined = tracker.ReplaceReview(Review, [Seed(File, "a\nspace\nb\n")], relist);
 
@@ -165,9 +165,9 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var tracker = Reviewing();
 		_files.WriteAllText(Other, "new\n");
 
-		Assert.False(tracker.JoinReview(Moved, Other, "old\n", true));
+		Assert.False(tracker.Join(Moved, Other, "old\n", true));
 		Assert.Null(tracker.GetTurn(Other));
-		Assert.True(tracker.JoinReview(Review, Other, "old\n", true));
+		Assert.True(tracker.Join(Review, Other, "old\n", true));
 		var joined = tracker.GetTurn(Other)!;
 		Assert.Equal("old\n", joined.AcceptedBaselineText);
 		Assert.Equal("old\n", joined.BaselineText);
@@ -242,7 +242,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var tracker = Tracker();
 		if (gitReview) tracker.StartReview(Review);
 		ReviewTestChanges.AgentEdit(tracker, _files, File, "agent\n");
-		if (gitReview) Assert.True(tracker.JoinReview(Review, File, "a\n", true));
+		if (gitReview) Assert.True(tracker.Join(Review, File, "a\n", true));
 		IReadOnlyList<CorrectionEdit>? corrected = null;
 		tracker.Corrected += edits => corrected = edits;
 
@@ -280,7 +280,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		_files.WriteAllText(Other, "ignored\n");
 		Assert.False(tracker.RefreshReviewPath(Review, Other));
 
-		Assert.True(tracker.JoinReview(Review, Other, string.Empty, false));
+		Assert.True(tracker.Join(Review, Other, string.Empty, false));
 
 		Assert.True(tracker.RefreshReviewPath(Review, Other));
 		Assert.Null(tracker.GetTurn(Other));
@@ -297,5 +297,26 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 
 		Assert.Equal("A\nspace\nB\nunseen\n", _files.ReadAllText(File));
 		Assert.Equal("A\nspace\nB\n", tracker.GetTurn(File)!.BaselineText);
+	}
+
+	[Fact]
+	public void JoiningNewFiles_AsksWhichAreIgnoredOnce() {
+		_files.WriteAllText(File, "A\nspace\nB\n");
+		int queries = 0;
+		var tracker = new SessionChangeTracker(_files, NoopFileActivitySink.Instance, Root,
+			path => Path.GetDirectoryName(path) == Root, paths => {
+				queries++;
+				return paths.Where(path => path.EndsWith(".log", StringComparison.Ordinal)).ToHashSet();
+			}, _persistence);
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+		string[] added = [.. new[] { "one.txt", "two.txt", "noise.log" }.Select(name => Path.Combine(Root, name))];
+		foreach (string path in added) _files.WriteAllText(path, "new\n");
+
+		Assert.Empty(tracker.JoinReview(Review, [.. added.Select(path => new ReviewJoin(path, string.Empty, false))]));
+
+		Assert.Equal(1, queries);
+		Assert.Empty(tracker.UnaccountedFor(added));
+		Assert.Null(tracker.GetTurn(added[2]));
+		Assert.NotNull(tracker.GetTurn(added[0]));
 	}
 }

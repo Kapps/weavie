@@ -63,7 +63,9 @@ git is recorded on that re-list and applied again after it.
 
 A file the watcher saw change that the review doesn't show as it is on disk is queued. The review checks its
 base once for the whole queue: unmoved, the queued files join one by one as above, with one git read for any it
-doesn't hold yet; moved, the review is listed again from git, which settles the queue. A listing from git in full
+doesn't hold yet; moved, the review is listed again from git, which settles the queue. Files join only if HEAD
+hasn't moved since the base was checked; a file stays queued until it has joined, and a join that fails hands the
+queue to a full listing. A changed `.gitignore` lists the review in full, since it changes which files belong. A listing from git in full
 happens only when a review starts, its base moves, or a saved review loads after a restart, when nothing watched.
 
 | Trigger | Action |

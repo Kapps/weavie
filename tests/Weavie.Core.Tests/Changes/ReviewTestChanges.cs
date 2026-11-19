@@ -22,6 +22,10 @@ internal static class ReviewTestChanges {
 
 	internal static ReviewSeed Seed(InMemoryFileSystem files, string path, string before) => Seed(files, path, before, true);
 
+	// One file joining; false when the review changed meanwhile.
+	internal static bool Join(this SessionChangeTracker tracker, ReviewContext review, string path, string before, bool beforeExists) =>
+		tracker.JoinReview(review, [new ReviewJoin(path, before, beforeExists)]).Count == 0;
+
 	internal static IReadOnlyCollection<string>? StartReview(
 		this SessionChangeTracker tracker, ReviewContext review, params ReviewSeed[] seeds) =>
 		tracker.ReplaceReview(review, seeds, tracker.BeginReviewRequest());

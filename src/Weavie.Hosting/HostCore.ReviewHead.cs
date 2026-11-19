@@ -71,6 +71,24 @@ public sealed partial class HostCore {
 		return new(review, branch, mergeBase, listing);
 	}
 
+	// Joins the files pending when the base was checked, unless HEAD moved since: then the base is checked again first.
+	private async Task JoinPendingAsync(HostSession session, ReviewContext review, ListingState seen, CancellationToken ct) {
+		if (session.ReviewListing.HeadMovedSince(seen)) {
+			session.ReviewHead.RefreshNow();
+			return;
+		}
+		var paths = session.ReviewListing.PendingAsOf(seen);
+		try {
+			await JoinAndRefreshReviewAsync(session, paths, ct).ConfigureAwait(false);
+			session.ReviewListing.Joined(paths, seen);
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+			// A full listing picks up what couldn't join; it settles even when it fails too, so this never loops.
+			session.ReviewListing.RequireFull();
+			session.ReviewHead.RequestRefresh();
+			Notify(session, "warn", $"Couldn't refresh the review {review.Label}: {ex.Message}");
+		}
+	}
+
 	private async Task FollowReviewHeadAsync(HostSession session, ReviewHeadSnapshot head, CancellationToken ct) {
 		if (head.Review is not { } review) return;
 		if (head.Branch != review.Branch || head.MergeBase is null) {
@@ -87,14 +105,9 @@ public sealed partial class HostCore {
 		}
 
 		string mergeBase = head.MergeBase;
-		try {
-			// With its base where it was, the review only needs the files the watcher saw change.
-			if (mergeBase == review.MergeBase && !head.Listing.Full) {
-				if (head.Listing.Pending) await JoinAndRefreshReviewAsync(session, session.ReviewListing.TakePending(), ct).ConfigureAwait(false);
-				return;
-			}
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't refresh the review {review.Label}: {ex.Message}");
+		// With its base where it was, the review only needs the files the watcher saw change.
+		if (mergeBase == review.MergeBase && !head.Listing.Full) {
+			if (head.Listing.Pending) await JoinPendingAsync(session, review, head.Listing, ct).ConfigureAwait(false);
 			return;
 		}
 

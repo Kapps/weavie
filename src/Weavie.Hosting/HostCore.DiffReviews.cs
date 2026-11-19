@@ -229,7 +229,8 @@ public sealed partial class HostCore {
 			var befores = await git.ReadFilesAtRefsAsync(review.Worktree, [.. unheld.Select(path =>
 				(review.MergeBase, Path.GetRelativePath(review.Worktree, path).Replace(Path.DirectorySeparatorChar, '/')))], ct)
 				.ConfigureAwait(false);
-			remaining = [.. unheld.Where((path, i) => !session.Changes.JoinReview(review, path, befores[i].Content, befores[i].Exists))];
+			remaining = [.. session.Changes.JoinReview(review, [.. unheld.Select((path, i) => new ReviewJoin(path, befores[i].Content, befores[i].Exists))])
+				.Select(join => join.Path)];
 		}
 	}
 

@@ -56,12 +56,16 @@ internal sealed class ReviewListing {
 		}
 	}
 
-	/// <summary>Takes the pending files to join the review at its current base.</summary>
-	public IReadOnlyList<string> TakePending() {
+	/// <summary>The files pending as of <paramref name="seen"/>, to join the review at the base checked then.</summary>
+	public IReadOnlyList<string> PendingAsOf(ListingState seen) {
+		lock (_gate) return [.. _pending.Where(pending => pending.Value <= seen.Generation).Select(pending => pending.Key)];
+	}
+
+	/// <summary>Settles files that joined, unless they changed again after <paramref name="seen"/>.</summary>
+	public void Joined(IEnumerable<string> paths, ListingState seen) {
 		lock (_gate) {
-			string[] paths = [.. _pending.Keys];
-			_pending.Clear();
-			return paths;
+			foreach (string path in paths)
+				if (_pending.TryGetValue(path, out long changed) && changed <= seen.Generation) _pending.Remove(path);
 		}
 	}
 

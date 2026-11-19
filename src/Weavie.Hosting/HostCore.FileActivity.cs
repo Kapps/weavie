@@ -65,11 +65,12 @@ public sealed partial class HostCore {
 	// The watcher echoes every save and agent edit the review already shows; the rest join it once its base is checked.
 	private static Task InvalidateReview(HostSession session, FilesInvalidated invalidated) {
 		if (session.Changes.Review is null) return Task.CompletedTask;
-		var unseen = session.Changes.UnaccountedFor(invalidated.Changes.Select(change => change.Path));
-		if (unseen.Count > 0) {
-			session.ReviewListing.Changed(unseen);
-			session.ReviewHead.RequestRefresh();
-		}
+		string[] paths = [.. invalidated.Changes.Select(change => change.Path)];
+		// Changed ignore rules can change which files the review lists, so it is listed from git in full.
+		if (paths.Any(path => Path.GetFileName(path) == ".gitignore")) session.ReviewListing.RequireFull();
+		else if (session.Changes.UnaccountedFor(paths) is { Count: > 0 } unseen) session.ReviewListing.Changed(unseen);
+		else return Task.CompletedTask;
+		session.ReviewHead.RequestRefresh();
 		return Task.CompletedTask;
 	}
 

@@ -10,6 +10,9 @@ public sealed class ReviewRequest(bool relist) {
 	internal HashSet<string> Joined { get; } = new(PathIdentity.Comparer);
 }
 
+/// <summary>A file joining a git review, with its before read at the review's base.</summary>
+public readonly record struct ReviewJoin(string Path, string Before, bool BeforeExists);
+
 public sealed partial class SessionChangeTracker {
 	private ReviewRequest? _reviewRequest;
 	// Paths the open git review never holds (ignored), so their saves stop asking git for a before.
@@ -145,35 +148,52 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Adds a worktree path to <paramref name="expected"/> with its before read at the review's base and its current from
-	/// disk. False only when the review changed meanwhile; an ignored or out-of-worktree path is not joined.
+	/// Adds worktree files to <paramref name="expected"/>, each current from disk. Answers every join when the review
+	/// changed meanwhile, else none; an ignored or out-of-worktree file is remembered as one the review can't hold.
 	/// </summary>
-	public bool JoinReview(ReviewContext expected, string path, string before, bool beforeExists) {
-		path = NormalizePath(path);
-		ArgumentNullException.ThrowIfNull(before);
-		bool joinable = _isInScope(path) && PathBoundary.Contains(_workspaceRoot, path)
-			&& (beforeExists || _ignoredAmong([path]).Count == 0);
+	public IReadOnlyList<ReviewJoin> JoinReview(ReviewContext expected, IReadOnlyList<ReviewJoin> joins) {
+		ArgumentNullException.ThrowIfNull(joins);
+		ReviewJoin[] normalized = [.. joins.Select(join => join with { Path = NormalizePath(join.Path) })];
+		var outside = normalized.Where(join => !_isInScope(join.Path) || !PathBoundary.Contains(_workspaceRoot, join.Path))
+			.Select(join => join.Path).ToHashSet(PathIdentity.Comparer);
+		// One ignore query for every file new at the base; a file the base has is tracked, so never ignored.
+		var ignored = _ignoredAmong([.. normalized.Where(join => !join.BeforeExists && !outside.Contains(join.Path)).Select(join => join.Path)]);
 		lock (_gate) {
-			if (_review != expected) return false;
-			if (!joinable) {
-				_unjoinable.Add(path);
-				return true;
+			if (_review != expected) return normalized;
+			foreach (var join in normalized) {
+				if (outside.Contains(join.Path) || ignored.Contains(join.Path)) {
+					_unjoinable.Add(join.Path);
+					continue;
+				}
+				_reviewRequest?.Joined.Add(join.Path);
+				if (!_acceptedAnchor.ContainsKey(join.Path)) HoldBefore(join.Path, join.Before, join.BeforeExists);
+				ReconcilePath(join.Path);
+				MarkReviewPending(join.Path);
 			}
-			_reviewRequest?.Joined.Add(path);
-			if (!_acceptedAnchor.ContainsKey(path)) HoldBefore(path, before, beforeExists);
-			ReconcilePath(path);
-			MarkReviewPending(path);
 			Checkpoint();
-			return true;
+			return [];
 		}
 	}
 
-	/// <summary>The paths the review doesn't hold or doesn't show as they are on disk; the rest of a watcher batch is an echo.</summary>
+	/// <summary>
+	/// The paths the review doesn't hold or doesn't show as they are on disk; the rest of a watcher batch is an echo.
+	/// Disk is read outside the tracker's lock.
+	/// </summary>
 	public IReadOnlyList<string> UnaccountedFor(IEnumerable<string> paths) {
 		ArgumentNullException.ThrowIfNull(paths);
+		string[] candidates;
+		HashSet<string> held;
 		lock (_gate) {
-			return [.. paths.Select(NormalizePath).Where(path => !_unjoinable.Contains(path)
-				&& (!_current.ContainsKey(path) || !ShowsDisk(path)))];
+			candidates = [.. paths.Select(NormalizePath).Where(path => !_unjoinable.Contains(path))];
+			held = candidates.Where(_current.ContainsKey).ToHashSet(PathIdentity.Comparer);
+		}
+		var disk = held.ToDictionary(path => path, path => {
+			bool exists = _fileSystem.FileExists(path);
+			return (Exists: exists, Text: exists && _fileSystem.TryReadAllText(path, out string text) ? text : null);
+		}, PathIdentity.Comparer);
+		lock (_gate) {
+			return [.. candidates.Where(path => !disk.TryGetValue(path, out var seen) || !_current.TryGetValue(path, out string? current)
+				|| seen.Exists == _missingCurrent.Contains(path) || seen.Exists && seen.Text != current)];
 		}
 	}
 

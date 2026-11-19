@@ -1,14 +1,22 @@
 // Shows the session's review hints in one editor binding: a margin badge, a line wash and an end-of-line pill per
 // hint, anchored to the live buffer, plus the hint popover as a content widget that overlays code without moving it.
 
-import { createEffect, createMemo, createRoot, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  Index,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { render } from "solid-js/web";
 import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { samePath } from "../fs-path";
 import { hiddenAreas } from "../hidden-areas";
-import { addLineEndItem } from "../line-end-lane";
+import { keyedLineEndItems } from "../line-end-lane";
 import { monaco } from "../monaco-setup";
 import type { PrCommentController } from "../pr-comments/pr-comment-controller";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
@@ -98,6 +106,17 @@ export function createReviewHints(
     // Pills are real elements in the shared line-end row, not injected text: Monaco splits long injected text
     // into separately styled chunks, and only an element can ellipsize at the viewport's edge.
     const decorations = editor.createDecorationsCollection();
+    // A line's pills, kept across placements while its hints stay together, so typing never rebuilds them.
+    const pillRows = keyedLineEndItems<PlacedHint[]>(editor, 1, (initial) => {
+      const [group, setGroup] = createSignal(initial);
+      const dom = document.createElement("div");
+      dom.className = "weavie-hint-pills weavie-line-end-flexible";
+      const unmount = render(
+        () => <Index each={group()}>{(entry) => <HintPill placed={entry()} />}</Index>,
+        dom,
+      );
+      return { dom, update: setGroup, dispose: unmount };
+    });
     createEffect(() => {
       const entries = placed();
       decorations.set(
@@ -116,31 +135,18 @@ export function createReviewHints(
         }),
       );
       // One widget per line, so several hints on a line sit side by side instead of stacking.
-      const lines = new Map<number, { index: number; group: PlacedHint[] }>();
-      entries.forEach((entry, index) => {
-        const line = lines.get(entry.line);
-        if (line === undefined) lines.set(entry.line, { index, group: [entry] });
-        else line.group.push(entry);
-      });
-      for (const { index, group } of lines.values()) {
-        const dom = document.createElement("div");
-        dom.className = "weavie-hint-pills weavie-line-end-flexible";
-        const unmount = render(
-          () => <For each={group}>{(entry) => <HintPill placed={entry} />}</For>,
-          dom,
-        );
-        // The tracked decoration carries the line through edits until the debounced re-anchor replaces it.
-        const remove = addLineEndItem(editor, {
-          dom,
-          order: 1,
-          line: () => decorations.getRange(index)?.startLineNumber ?? null,
-        });
-        onCleanup(() => {
-          remove();
-          unmount();
-        });
-      }
+      const lines = new Map<number, PlacedHint[]>();
+      for (const entry of entries) lines.set(entry.line, [...(lines.get(entry.line) ?? []), entry]);
+      pillRows.sync(
+        new Map(
+          [...lines].map(([line, value]) => [
+            value.map((entry) => entry.hint.id).join(","),
+            { line, value },
+          ]),
+        ),
+      );
     });
+    onCleanup(pillRows.clear);
     const owned = () => {
       const open = openedHint(session);
       return open?.owner === editor ? open : null;

@@ -151,15 +151,17 @@ export class PreviewReview {
   /** The review toolbar's Changes only toggle, while there are block changes to fold around. */
   toolbarItems(): HTMLElement[] {
     if (this.changes.length === 0) return [];
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "weavie-inline-nav weavie-inline-changes-only ui-button";
-    toggle.textContent = "Changes only";
-    toggle.title = `Show only the changed blocks${keyHint(CommandIds.previewChangesOnly)}`;
-    toggle.setAttribute("aria-pressed", String(this.options.changesOnly()));
-    toggle.addEventListener("click", () => this.options.toggleChangesOnly());
-    this.changesOnlyToggle = toggle;
-    return [toggle];
+    if (this.changesOnlyToggle === undefined) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "weavie-inline-nav weavie-inline-changes-only ui-button";
+      toggle.textContent = "Changes only";
+      toggle.addEventListener("click", () => this.options.toggleChangesOnly());
+      this.changesOnlyToggle = toggle;
+    }
+    this.changesOnlyToggle.title = `Show only the changed blocks${keyHint(CommandIds.previewChangesOnly)}`;
+    this.changesOnlyToggle.setAttribute("aria-pressed", String(this.options.changesOnly()));
+    return [this.changesOnlyToggle];
   }
 
   /** Takes the marks off `unit` so it can open on its own text; the rest of the page stays put. */

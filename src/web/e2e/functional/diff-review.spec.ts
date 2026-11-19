@@ -369,9 +369,19 @@ test.describe("applied review — typing never tears the diff down (regression)"
       const anchorTop = (): number =>
         (editor?.getScrolledVisiblePosition({ lineNumber: 125, column: 1 })?.top ?? Number.NaN) +
         (editor?.getScrollTop() ?? 0);
-      const probe = { added: 99, toolbarMissing: 0, anchorMoved: 0, frames: 0 };
+      const probe = {
+        added: 99,
+        toolbarMissing: 0,
+        toolbarReplaced: 0,
+        disabled: 0,
+        controlsReplaced: 0,
+        anchorMoved: 0,
+        frames: 0,
+      };
       (window as Window & { __DIFF_PROBE__?: typeof probe }).__DIFF_PROBE__ = probe;
       const from = anchorTop();
+      const toolbar = document.querySelector(".weavie-inline-toolbar");
+      const controls = [...document.querySelectorAll(".weavie-inline-pending-tag")];
       const tick = (): void => {
         probe.frames++;
         probe.added = Math.min(
@@ -388,6 +398,11 @@ test.describe("applied review — typing never tears the diff down (regression)"
         if (document.querySelector(".weavie-inline-scope") === null) {
           probe.toolbarMissing++;
         }
+        if (document.querySelector(".weavie-inline-toolbar") !== toolbar) probe.toolbarReplaced++;
+        if (controls.some((control) => !control.isConnected)) probe.controlsReplaced++;
+        probe.disabled += document.querySelectorAll(
+          ".weavie-inline-toolbar button:disabled:not(.weavie-inline-hist), .weavie-inline-pending-tag button:disabled",
+        ).length;
         if (anchorTop() !== from) {
           probe.anchorMoved++;
         }
@@ -407,9 +422,78 @@ test.describe("applied review — typing never tears the diff down (regression)"
     expect(probe?.frames, "the sampler never ran").toBeGreaterThan(10);
     expect(probe?.added, "highlights were cleared mid-edit").toBe(4);
     expect(probe?.toolbarMissing, "the review toolbar was replaced mid-edit").toBe(0);
+    expect(probe?.toolbarReplaced, "the review toolbar was rebuilt mid-edit").toBe(0);
+    expect(probe?.controlsReplaced, "a hunk's keep/revert buttons were rebuilt mid-edit").toBe(0);
+    expect(probe?.disabled, "review buttons dimmed mid-edit").toBe(0);
     expect(probe?.anchorMoved, "the document moved under the caret while typing").toBe(0);
   });
 });
+
+test.describe("applied review — acting mid-edit", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("long.ts", fourHunks())] } });
+
+  // A line opened above a hunk moves it before the recompute lands. Its ✓ keep moves with it, and a click in that
+  // window keeps that hunk once the change positions are fresh, not the lines it used to sit on.
+  test("keeping a hunk an edit just moved keeps that hunk", async ({ page }) => {
+    await openFile(page, "long.ts");
+    await expect(page.locator(KEEP)).toHaveCount(4);
+    // The edit, then the click two frames later: well inside the recompute's debounce.
+    const clicked = await page.evaluate(async () => {
+      const editor = window.__WEAVIE_EDITOR__!;
+      editor.focus();
+      editor.setPosition({ lineNumber: 30, column: 1 });
+      editor.trigger("keyboard", "type", { text: "\n" });
+      for (let frame = 0; frame < 2; frame++) await new Promise(requestAnimationFrame);
+      const keep = document.querySelector<HTMLButtonElement>(
+        '[widgetid="weavie.lineEnd.41"] .weavie-inline-pending-keep',
+      );
+      keep?.click();
+      return keep !== null && !keep.disabled;
+    });
+    expect(clicked, "the hunk's ✓ keep moved down with it, ready to click").toBe(true);
+    await expect.poll(() => keptLine(page)).toBe("// line 40 EDITED");
+  });
+
+  // A Keep pressed while the recompute is pending acts on the change the caret was on when it was pressed, even
+  // when the caret has walked to another change by the time the recompute lands.
+  test("a Keep pressed mid-edit keeps the change it was pressed on", async ({ page }) => {
+    await openFile(page, "long.ts");
+    await expect(page.locator(KEEP)).toHaveCount(4);
+    // The edit, the Keep, then two Next change presses that walk the caret to another change, all before the
+    // recompute's debounce ends.
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__!;
+      const lineHeight = editor.getOption(window.__WEAVIE_MONACO__.editor.EditorOption.lineHeight);
+      editor.focus();
+      editor.setScrollTop(35 * lineHeight);
+      editor.setPosition({ lineNumber: 40, column: 1 });
+      editor.executeEdits("mid-edit", [
+        { range: new window.__WEAVIE_MONACO__.Range(30, 1, 30, 1), text: "\n" },
+      ]);
+      const mac = navigator.platform.startsWith("Mac");
+      const press = (key: string, init: KeyboardEventInit): void => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }),
+        );
+      };
+      press("Enter", mac ? { metaKey: true } : { ctrlKey: true });
+      press("ArrowDown", { ctrlKey: true, metaKey: mac });
+      press("ArrowDown", { ctrlKey: true, metaKey: mac });
+    });
+    await expect.poll(() => keptLine(page)).toBe("// line 40 EDITED");
+    expect(await decorationCount(page, "weavie-inline-accepted")).toBe(1);
+  });
+});
+
+// The first line of the review's kept (faded) band, or null while nothing is kept.
+const keptLine = (page: import("@playwright/test").Page): Promise<string | null> =>
+  page.evaluate(() => {
+    const model = window.__WEAVIE_EDITOR__!.getModel()!;
+    const accepted = model
+      .getAllDecorations()
+      .find((decoration) => decoration.options.className === "weavie-inline-accepted");
+    return accepted === undefined ? null : model.getLineContent(accepted.range.startLineNumber);
+  });
 
 test.describe("applied review — scope picker (keep whole file)", () => {
   test.use({
@@ -452,7 +536,7 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 
-  test("an open scope menu survives a toolbar rebuild", async ({ page }) => {
+  test("an open scope menu stays open and usable while typing", async ({ page }) => {
     await awaitReviewSet(page, ["hello.ts", "notes.txt"]);
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
@@ -460,15 +544,15 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     const menu = page.locator(".weavie-inline-scope-menu");
     await expect(menu).toBeVisible();
 
+    // Line 4 is blank and untouched, so typing there lands as a third hunk: the sign the recompute rendered.
     await page.evaluate(() => {
-      document
-        .querySelector(".weavie-inline-toolbar")
-        ?.setAttribute("data-probe", "before-rebuild");
+      document.querySelector(".weavie-inline-toolbar")?.setAttribute("data-probe", "before-typing");
       window.__WEAVIE_EDITOR__?.focus();
+      window.__WEAVIE_EDITOR__?.setPosition({ lineNumber: 4, column: 1 });
     });
     await typeInEditor(page, "x");
-    await expect(page.locator(`${TOOLBAR}[data-probe]`)).toHaveCount(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(1);
+    await expect(page.locator(ADDED)).toHaveCount(3);
+    await expect(page.locator(`${TOOLBAR}[data-probe]`)).toHaveCount(1);
     await expect(menu).toBeVisible();
 
     await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
@@ -930,11 +1014,8 @@ test.describe("applied review — large files stay responsive", () => {
       ghostConnected: true,
       zoneTransactions: 0,
     });
-    // The hunk coordinates are a version behind while the newer worker request is pending, so Keep/Revert say
-    // so (dimmed) and the change-scoped shortcut is consumed without widening into Keep File.
-    await expect(page.locator(KEEP_BTN)).toBeDisabled();
-    await page.keyboard.press("ControlOrMeta+Enter");
-    await expect(page.locator(SCOPE)).toBeVisible();
+    // A pending recompute never dims the toolbar; an action taken meanwhile waits for it instead.
+    await expect(page.locator(KEEP_BTN)).toBeEnabled();
     await worker.evaluate((gate) => gate.release());
     await worker.dispose();
     await expect

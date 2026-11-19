@@ -141,7 +141,12 @@ function createLane(editor: monaco.editor.ICodeEditor): Lane {
       const row = existing ?? createRow(editor, line);
       rows.set(line, row);
       if (!sameItems(row.items, sorted)) {
-        row.dom.replaceChildren(...sorted.map((item) => item.dom));
+        // Moves only the items out of place, so an item already in the row is never detached.
+        sorted.forEach((item, index) => {
+          const at = row.dom.children[index];
+          if (at !== item.dom) row.dom.insertBefore(item.dom, at ?? null);
+        });
+        while (row.dom.children.length > sorted.length) row.dom.lastElementChild!.remove();
         row.items = sorted;
         row.natural = null;
       }
@@ -184,5 +189,94 @@ export function addLineEndItem(editor: monaco.editor.ICodeEditor, item: LineEndI
     owner.items.delete(item);
     item.dom.remove();
     owner.schedule();
+  };
+}
+
+/** A line that follows edits to the text around it, for an item's `line()`. */
+export interface TrackedLine {
+  line(): number | null;
+  /** Re-anchors the line, laying the editor's line-end items out again when it moved. */
+  moveTo(line: number): void;
+  dispose(): void;
+}
+
+export function trackLine(editor: monaco.editor.ICodeEditor, line: number): TrackedLine {
+  const anchor = editor.createDecorationsCollection();
+  const current = (): number | null => anchor.getRange(0)?.startLineNumber ?? null;
+  const place = (at: number): void => {
+    const model = editor.getModel();
+    if (model === null) return;
+    const target = Math.min(model.getLineCount(), Math.max(1, at));
+    // The whole line, never grown: text typed after it stays off it, and a line broken above carries it down.
+    anchor.set([
+      {
+        range: new monaco.Range(target, 1, target, model.getLineMaxColumn(target)),
+        options: {
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      },
+    ]);
+  };
+  place(line);
+  return {
+    line: current,
+    moveTo: (at) => {
+      if (current() === at) return;
+      place(at);
+      lanes.get(editor)?.schedule();
+    },
+    dispose: () => anchor.clear(),
+  };
+}
+
+/** A keyed line-end item's element, refreshed in place while its key stays wanted. */
+export interface KeyedLineEndItem<T> {
+  readonly dom: HTMLElement;
+  update(value: T): void;
+  dispose(): void;
+}
+
+/** Line-end items kept by key across syncs, so a re-sync moves them instead of rebuilding them. */
+export interface KeyedLineEndItems<T> {
+  sync(wanted: ReadonlyMap<string, { line: number; value: T }>): void;
+  clear(): void;
+}
+
+/** `build` gets the item's line as edits move it. */
+export function keyedLineEndItems<T>(
+  editor: monaco.editor.ICodeEditor,
+  order: number,
+  build: (value: T, line: () => number | null) => KeyedLineEndItem<T>,
+): KeyedLineEndItems<T> {
+  const shown = new Map<
+    string,
+    { item: KeyedLineEndItem<T>; anchor: TrackedLine; remove(): void }
+  >();
+  const drop = (key: string): void => {
+    const entry = shown.get(key)!;
+    entry.remove();
+    entry.item.dispose();
+    entry.anchor.dispose();
+    shown.delete(key);
+  };
+  return {
+    sync: (wanted) => {
+      for (const key of shown.keys()) if (!wanted.has(key)) drop(key);
+      for (const [key, { line, value }] of wanted) {
+        const existing = shown.get(key);
+        if (existing !== undefined) {
+          existing.item.update(value);
+          existing.anchor.moveTo(line);
+          continue;
+        }
+        const anchor = trackLine(editor, line);
+        const item = build(value, anchor.line);
+        const remove = addLineEndItem(editor, { dom: item.dom, order, line: anchor.line });
+        shown.set(key, { item, anchor, remove });
+      }
+    },
+    clear: () => {
+      for (const key of shown.keys()) drop(key);
+    },
   };
 }

@@ -140,7 +140,7 @@ test("file review closes from the keyboard and the same comparison opens fresh",
   expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
 });
 
-test("a comparison with no remaining changed files still offers Close Diff", async ({
+test("reopening a comparison with no remaining changed files closes it", async ({
   page,
   weavie,
 }) => {
@@ -150,9 +150,6 @@ test("a comparison with no remaining changed files still offers Close Diff", asy
   await writeFile(join(weavie.workspace, "notes.txt"), ORIGINAL);
   await runCommand(page, "Diff Against HEAD");
   await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible();
-  await expect(page.locator(".editor-review-open")).toHaveCount(0);
-  await expect(page.locator(".editor-review-close")).toBeVisible();
-  await runCommand(page, "Close Diff");
   await expectClosed(page);
 });
 

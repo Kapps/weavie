@@ -94,6 +94,14 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task CoveringScopeOfTheRootIsTheRoot() {
+		var inventory = new WorkspaceInventory(_root.Path, _ => Task.FromResult<IReadOnlyList<string>>(["src/a.cs"]));
+		await inventory.RefreshAsync();
+
+		Assert.Equal([_root.Path], inventory.CoveringScope([_root.Path]));
+	}
+
+	[Fact]
 	public async Task ScopedRefreshOfIgnoredPathsKeepsTheSnapshotWithoutListing() {
 		TempGitRepo.Init(_root.Path);
 		_root.WriteFile(".gitignore", "node_modules/\n");

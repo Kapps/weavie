@@ -136,7 +136,12 @@ public sealed class WorkspaceInventory {
 			.ToHashSet(PathIdentity.CanonicalComparer);
 	}
 
+	// A known directory, the root above all, is already its own covering scope: nothing above the root is listed.
 	private static string HighestUnknownAncestor(HashSet<string> directories, string path) {
+		if (directories.Contains(path)) {
+			return path;
+		}
+
 		for (string? parent = Path.GetDirectoryName(path);
 			parent is not null && !directories.Contains(parent);
 			parent = Path.GetDirectoryName(parent)) {

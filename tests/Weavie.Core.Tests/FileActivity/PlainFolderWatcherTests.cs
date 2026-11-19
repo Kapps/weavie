@@ -136,6 +136,32 @@ public sealed class PlainFolderWatcherTests : IAsyncLifetime {
 	}
 
 	[Fact]
+	public async Task AnIgnoreRuleWrittenAtARepositoryRootReListsIt() {
+		TempGitRepo.Init(_dir.Path);
+		_dir.WriteFile("build/out.o", "");
+		await StartAsync();
+		Assert.True(Lists("build", "out.o"));
+
+		_dir.WriteFile(".gitignore", "build/\n");
+
+		Assert.True(await WaitForAsync(() => _run.IsCompleted || !Lists("build", "out.o")));
+		await AssertStillObservingAsync();
+	}
+
+	[Fact]
+	public async Task APlainRootThatBecomesARepositoryIsListedByItsIgnoreRules() {
+		_dir.WriteFile(".gitignore", "build/\n");
+		_dir.WriteFile("build/out.o", "");
+		await StartAsync();
+		Assert.True(Lists("build", "out.o"));
+
+		TempGitRepo.Init(_dir.Path);
+
+		Assert.True(await WaitForAsync(() => _run.IsCompleted || !Lists("build", "out.o")));
+		await AssertStillObservingAsync();
+	}
+
+	[Fact]
 	public async Task ARootBeneathAGitDirectoryStillListsNewFiles() {
 		string root = _dir.CreateDirectory(".git", "worktree");
 		await StartAsync(root);

@@ -114,8 +114,9 @@ export function createMountWindow(page: MountedPage): {
     const reach = next();
     if (reach === undefined) return;
     held = reach;
-    setSteps((count) => count + 1);
+    // Scheduled first: publishing the files can jump or scroll the review, and the rest that starts wins.
     stepIn(STEP_MS);
+    setSteps((count) => count + 1);
   };
   const changed = (): void => {
     if (timer === undefined && page.rendered() && next() !== undefined) stepIn(STEP_MS);

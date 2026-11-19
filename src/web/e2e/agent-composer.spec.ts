@@ -1951,7 +1951,7 @@ test.describe("ACP composer", () => {
     const box = (await page.locator(".agent-compose-draft").boundingBox())!;
     const clip = (await textarea.boundingBox())!;
     expect(clip.y - box.y).toBeGreaterThanOrEqual(2);
-    expect(box.y + box.height - (clip.y + clip.height)).toBeGreaterThanOrEqual(3);
+    expect(box.y + box.height - (clip.y + clip.height)).toBeGreaterThanOrEqual(2);
   });
 
   test("typing / opens the slash menu and inserts a provider command", async ({ page }) => {

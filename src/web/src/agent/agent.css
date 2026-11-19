@@ -979,14 +979,15 @@ a:has(> .agent-path-dir) {
   --control-h: var(--agent-compose-h);
 }
 
-/* One line sits centred at the buttons' height; a longer draft keeps 2px clear of the edge and the underline. */
+/* One line sits centred at the buttons' height; a longer draft stops 2px under the edge and 1px over the
+   underline. */
 .agent-compose-draft {
   display: grid;
   align-content: center;
   min-width: 0;
   min-height: var(--agent-compose-h);
   margin-left: var(--agent-control-inline-padding);
-  padding-block: 2px;
+  padding-block: 2px 1px;
   border-bottom: 1px solid var(--border);
 }
 

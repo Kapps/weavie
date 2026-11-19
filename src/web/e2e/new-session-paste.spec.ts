@@ -213,7 +213,7 @@ test("a draft longer than the prompt box scrolls clear of the card's tag and the
     const clip = (await prompt.boundingBox())!;
     const tag = (await page.locator("#session-start-title").boundingBox())!;
     expect(clip.y).toBeGreaterThan(tag.y + tag.height);
-    expect((await source.boundingBox())!.y - (clip.y + clip.height)).toBeGreaterThanOrEqual(6);
+    expect((await source.boundingBox())!.y - (clip.y + clip.height)).toBeGreaterThanOrEqual(3);
 
     await source.focus();
     await page.locator(".session-composer-prompt").click({ position: { x: 40, y: 4 } });

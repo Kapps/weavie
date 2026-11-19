@@ -4,6 +4,8 @@
   z-index: 12;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* One pane-wide column, so no row's content can widen the others. */
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
@@ -234,7 +236,7 @@
 .unified-review-map-file {
   --track: color-mix(in srgb, var(--dim) 30%, var(--bar));
   flex: 1 1 12px;
-  min-width: 3px;
+  min-width: 0;
   height: 6px;
   padding: 0;
   border: 0;

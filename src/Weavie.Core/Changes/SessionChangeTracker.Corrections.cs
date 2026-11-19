@@ -36,8 +36,7 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(content);
 		List<CorrectionEdit> edits = [];
 		lock (_gate) {
-			if (!_current.TryGetValue(path, out string? reviewCurrent)
-				|| !_provenance.TryGetValue(path, out var provenance)) {
+			if (!_provenance.TryGetValue(path, out var provenance)) {
 				return CapturedHandEdit.None;
 			}
 
@@ -64,7 +63,9 @@ public sealed partial class SessionChangeTracker {
 				return CapturedHandEdit.None;
 			}
 
-			_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
+			// The default review shows only the agent's changes, so the user's correction is folded into them.
+			if (_review is null && _current.TryGetValue(path, out string? reviewCurrent))
+				_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
 			Checkpoint();
 		}
 
@@ -489,6 +490,9 @@ public sealed partial class SessionChangeTracker {
 		public required string Text { get; init; }
 		public required ImmutableArray<AgentOrigin?> Lines { get; init; }
 		public required ImmutableDictionary<int, ImmutableList<DeletedSegment>> DeletedAtGap { get; init; }
+
+		public bool HasPending => Lines.Any(origin => origin?.Pending == true)
+			|| DeletedAtGap.Values.Any(segments => segments.Any(segment => segment.Origin.Pending));
 
 		public static ProvenanceFile Empty(string text) => new() {
 			Text = text,

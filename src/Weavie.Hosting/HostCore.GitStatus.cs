@@ -16,10 +16,15 @@ public sealed partial class HostCore {
 		_ = new GitMetadataWatcher(
 			session.Background,
 			session.WorkspaceRoot,
-			() => {
+			headMoved => {
+				if (headMoved) session.ReviewListing.HeadMoved();
 				monitor.RequestRefresh();
 				commits.RequestRefresh();
 				reviewHead.RefreshNow();
+			},
+			// Weavie's own status reads take the index lock too, so only a review waiting on it looks again.
+			() => {
+				if (reviewHead.Latest == ReviewHeadSnapshot.Waiting) reviewHead.RefreshNow();
 			},
 			error => PostForSession(session, () => {
 				if (!session.EndIfWorkspaceRootIsGone(error.Message)) {

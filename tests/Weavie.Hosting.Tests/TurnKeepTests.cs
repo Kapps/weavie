@@ -25,10 +25,7 @@ public sealed class TurnKeepTests {
 		host.SessionEvent(session, "review", "keepFile", new { path });
 
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
-		var turn = session.Changes.GetTurn(path);
-		Assert.NotNull(turn);
-		Assert.Equal(turn!.BaselineText, turn.CurrentText);     // review baseline == current → nothing bright/pending
-		Assert.Equal(turn.AcceptedBaselineText, turn.CurrentText);
+		Assert.Null(session.Changes.GetTurn(path)); // keeping the turn's last change completes its review
 		Assert.Empty(host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("files").EnumerateArray());
 		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
@@ -61,10 +58,7 @@ public sealed class TurnKeepTests {
 			});
 
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
-		var turn = session.Changes.GetTurn(path);
-		Assert.NotNull(turn);
-		Assert.Equal(turn!.BaselineText, turn.CurrentText);
-		Assert.Equal(turn.AcceptedBaselineText, turn.CurrentText);
+		Assert.Null(session.Changes.GetTurn(path)); // keeping the turn's last change completes its review
 		Assert.Empty(host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("files").EnumerateArray());
 		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
@@ -102,9 +96,7 @@ public sealed class TurnKeepTests {
 			});
 
 		Assert.Equal("MINE\nhello\nAGENT\n", File.ReadAllText(path)); // disk untouched — keep is not a write
-		var turn = session.Changes.GetTurn(path);
-		Assert.NotNull(turn);
-		Assert.Equal(turn!.BaselineText, turn.CurrentText); // the agent hunk is now accepted — no pending band left
+		Assert.Null(session.Changes.GetTurn(path)); // the agent hunk was kept, completing the turn's review
 	}
 
 	[Fact]

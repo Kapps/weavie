@@ -1136,11 +1136,10 @@ test.describe("large review — every file remains reviewable", () => {
     await page.locator(".weavie-inline-scope-item", { hasText: "All files" }).click();
     await page.locator(".weavie-inline-accept").click();
 
-    await expect
-      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? -1))
-      .toBe(0);
+    // A git review stays open with everything kept.
     await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100 · change 0/0");
+    expect(await page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length)).toBe(100);
   });
 
   // The review's answer is held until the user is choosing a file in the omnibar, so it lands mid-choice every run.

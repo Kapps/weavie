@@ -17,20 +17,25 @@ public sealed class GitMetadataWatcherTests {
 
 		await using var background = new SessionTaskScope(_ => { });
 		int invalidations = 0;
+		int headMoves = 0;
 		_ = new GitMetadataWatcher(
 			background,
 			worktree,
-			() => Interlocked.Increment(ref invalidations),
+			headMoved => {
+				if (headMoved) Interlocked.Increment(ref headMoves);
+				Interlocked.Increment(ref invalidations);
+			},
+			() => { },
 			error => throw error);
 
 		File.WriteAllText(Path.Combine(worktree, "file.txt"), "committed\n");
 		TempGitRepo.Run(worktree, "add", "file.txt");
 		Commit(worktree, "linked commit");
-		await Wait.UntilAsync(() => Volatile.Read(ref invalidations) > 0);
-		int afterCommit = Volatile.Read(ref invalidations);
+		await Wait.UntilAsync(() => Volatile.Read(ref headMoves) > 0);
+		int afterCommit = Volatile.Read(ref headMoves);
 
 		TempGitRepo.Run(worktree, "switch", "--quiet", "--detach", "HEAD");
-		await Wait.UntilAsync(() => Volatile.Read(ref invalidations) > afterCommit);
+		await Wait.UntilAsync(() => Volatile.Read(ref headMoves) > afterCommit);
 	}
 
 	private static void Commit(string repository, string message) =>

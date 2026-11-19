@@ -22,20 +22,20 @@ public sealed partial class SessionChangeTracker {
 	private readonly object _gate = new();
 	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
 	private Dictionary<string, TurnChangeSummary> _summaries = new(PathIdentity.Comparer);
-	private readonly TrackedMap<string> _baseline;
-	private readonly TrackedSet _missingBaseline;
 	private readonly TrackedMap<string> _current;
 	// Absence is review data, including rejected creations and observed deletions.
 	private readonly TrackedSet _missingCurrent;
-	// Each file's last-reviewed content; advanced only on acceptance or a per-hunk revert, not on a
-	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
+	// Each held file's kept content: starts at its before and only an explicit Keep advances it (docs/specs/review-state.md).
 	private readonly TrackedMap<string> _reviewBaseline;
 	private readonly TrackedSet _missingReviewBaseline;
-	// The review's original anchor: keeps advance the review baseline, never this boundary.
+	// Each held file's before; holding a file means having one.
 	private readonly TrackedMap<string> _acceptedAnchor;
 	private readonly TrackedSet _missingAcceptedAnchor;
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly TrackedMap<string> _preEdit;
+	// The running tool's pre-edit capture per path, so its completion holds the right before even if a git review
+	// closed between the two.
+	private readonly Dictionary<string, (string Text, bool Exists)> _toolCapture = new(PathIdentity.Comparer);
 	// Binary contents are never stored; an earlier text review remains retained but unavailable.
 	private readonly Dictionary<string, FileStat> _nonText = new(PathIdentity.Comparer);
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
@@ -79,12 +79,10 @@ public sealed partial class SessionChangeTracker {
 		_workspaceRoot = NormalizePath(workspaceRoot);
 		_isInScope = isInScope;
 		_ignoredAmong = ignoredAmong;
-		_baseline = new(PathIdentity.Comparer, FileChanged);
 		_current = new(PathIdentity.Comparer, FileChanged);
 		_reviewBaseline = new(PathIdentity.Comparer, FileChanged);
 		_acceptedAnchor = new(PathIdentity.Comparer, FileChanged);
 		_preEdit = new(PathIdentity.Comparer, FileChanged);
-		_missingBaseline = new(PathIdentity.Comparer, FileChanged);
 		_missingCurrent = new(PathIdentity.Comparer, FileChanged);
 		_missingReviewBaseline = new(PathIdentity.Comparer, FileChanged);
 		_missingAcceptedAnchor = new(PathIdentity.Comparer, FileChanged);
@@ -119,11 +117,13 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		if (value is AgentTurnStopped) {
+			// A tool that never completed leaves no capture for a later edit to mistake for its before.
+			lock (_gate) _toolCapture.Clear();
 			return;
 		}
 
-		// Workspace-wide tools can delete an already-tracked path without reporting it explicitly.
-		if (value is AgentToolCompleted) {
+		// Workspace-wide tools can delete an already-tracked path without reporting it; a git review re-lists instead.
+		if (value is AgentToolCompleted && Review is null) {
 			ReconcileDeletions();
 		}
 
@@ -149,7 +149,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 
-	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
+	/// <summary>Snapshots <paramref name="path"/>'s pre-edit content; outside a git review it becomes the file's before, once.</summary>
 	/// <param name="path">Absolute file path.</param>
 	public void CaptureBaseline(string path) {
 		path = NormalizePath(path);
@@ -172,8 +172,12 @@ public sealed partial class SessionChangeTracker {
 
 	private void CaptureBaselineLocked(string path, string content, bool existed) {
 		CaptureProvenanceBaseline(path, content);
-		if (_baseline.TryAdd(path, content) && !existed) {
-			_missingBaseline.Add(path);
+		_preEdit[path] = content;
+		_toolCapture[path] = (content, existed);
+		// A git review's befores come from git; the edit joins it once reported.
+		if (_review is not null) {
+			Checkpoint();
+			return;
 		}
 		if (_reviewBaseline.TryAdd(path, content) && !existed) {
 			_missingReviewBaseline.Add(path);
@@ -182,7 +186,6 @@ public sealed partial class SessionChangeTracker {
 		if (_acceptedAnchor.TryAdd(path, content) && !existed) {
 			_missingAcceptedAnchor.Add(path);
 		}
-		_preEdit[path] = content;
 		if (_current.TryAdd(path, content)) SetMissing(_missingCurrent, path, !existed);
 		Checkpoint();
 	}
@@ -213,57 +216,30 @@ public sealed partial class SessionChangeTracker {
 					// A binary baseline cannot support a safe line-level reject; refresh the now-text file without review.
 					reviewRemoved = false;
 					nonTextChanged = true;
+				} else if (_review is not null) {
+					reviewRemoved = false;
+					nonTextChanged = false;
+					string before = _preEdit.GetValueOrDefault(path, content);
+					RecordAgentProvenance(path, before, content, content, _conversationPrompts.GetValueOrDefault(conversationId));
 				} else {
 					reviewRemoved = false;
 					nonTextChanged = false;
-					if (_baseline.TryAdd(path, string.Empty)) {
-						_missingBaseline.Add(path);
-					}
-					// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
-					if (_reviewBaseline.TryAdd(path, string.Empty)) {
-						_missingReviewBaseline.Add(path);
-					}
-
-					if (_acceptedAnchor.TryAdd(path, string.Empty)) {
-						_missingAcceptedAnchor.Add(path);
+					// An unheld file takes this tool's pre-edit capture as its before; with none, it appeared this session.
+					if (!_acceptedAnchor.ContainsKey(path)) {
+						var (text, exists) = _toolCapture.GetValueOrDefault(path, (string.Empty, false));
+						HoldBefore(path, text, exists);
 					}
 					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
 					string reviewCurrent = _current.GetValueOrDefault(path, before);
 					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent, _conversationPrompts.GetValueOrDefault(conversationId));
 				}
 			}
+			_toolCapture.Remove(path);
 			Checkpoint();
 		}
 
 		if (!ignoredNonText || nonTextChanged || reviewRemoved) {
 			ReportCurrentState(path);
-		}
-	}
-
-	/// <summary>
-	/// Extends one file's review to a ref baseline, preserving existing non-overlapping decisions.
-	/// </summary>
-	/// <param name="path">Absolute file path (inside the worktree, so it satisfies the tracker's scope).</param>
-	/// <param name="refContent">The file's content at the diff ref — the baseline the current file is diffed against.</param>
-	/// <param name="diskContent">The file's current worktree content.</param>
-	/// <param name="existedAtRef">
-	/// Whether the file existed at the ref; <see langword="false"/> marks it created-since-baseline, so reverting its
-	/// last hunk deletes it rather than leaving a 0-byte file.
-	/// </param>
-	/// <param name="existsOnDisk">Whether the current-side file exists, distinct from an existing empty file.</param>
-	public void SeedRefBaseline(
-		string path,
-		string refContent,
-		string diskContent,
-		bool existedAtRef,
-		bool existsOnDisk) {
-		path = NormalizePath(path);
-		ArgumentNullException.ThrowIfNull(refContent);
-		ArgumentNullException.ThrowIfNull(diskContent);
-		lock (_gate) {
-			RestoreState(PrepareSeed(new(path, refContent, diskContent, existedAtRef, existsOnDisk), []));
-			SynchronizeHistory(external: false, except: null);
-			Checkpoint();
 		}
 	}
 
@@ -325,7 +301,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			ReconcileReviewDisk();
+			ReconcilePath(path);
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
 			if (!ReviewBaselineIs(path, baselineRevision)
 				|| !TryGetSlice(baselineLines, baselineRange, out var replacement)
@@ -372,7 +348,8 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			ReconcileReviewDisk();
+			if (!ShownMatchesDisk([path])) return RevertHunkOutcome.Unlisted;
+			ReconcilePath(path);
 			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
@@ -395,6 +372,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		ReviewHistoryResult result;
 		lock (_gate) {
+			if (!ShownMatchesDisk(_acceptedAnchor.Keys)) return ReviewHistoryResult.Blocked(true);
 			ReconcileReviewDisk();
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
@@ -488,7 +466,7 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
-			ReconcileReviewDisk();
+			ReconcilePath(path);
 			if (_nonText.ContainsKey(path) || !ReviewBaselineIs(path, baselineRevision)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
@@ -517,8 +495,8 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Keeps a whole file: advances its review baseline to current content so the file leaves the pending diff for
-	/// good (and survives session switches), without touching disk. No-op for an untracked path.
+	/// Keeps a whole file: advances its kept text to current content so the file leaves the pending diff, without
+	/// touching disk. No-op for a path the review doesn't hold.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public void KeepFile(string path) {
@@ -527,24 +505,37 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		lock (_gate) {
-			ReconcileReviewDisk();
-			if (_nonText.ContainsKey(path) || !_current.ContainsKey(path)) {
-				return;
-			}
+			// A git review keeps what it shows; a change it hasn't listed yet stays pending.
+			if (_review is null) ReconcilePath(path);
+			if (!_nonText.ContainsKey(path) && _current.ContainsKey(path)) KeepLocked([path]);
+			// A keep retried after its save failed finds the review already scrapped in memory; this saves that.
+			else Checkpoint();
+		}
+	}
 
-			var before = Capture(path, withDisk: false);
-			string current = _current[path];
-			_reviewBaseline[path] = current;
-			bool existenceChanged = _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path);
-			SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
+	/// <summary>Keeps every listed file as one undoable step.</summary>
+	public void KeepAll() {
+		lock (_gate) {
+			if (_review is null) ReconcileReviewDisk();
+			KeepLocked([.. TurnChangesLocked().Select(change => change.Path)]);
+		}
+	}
+
+	private void KeepLocked(IReadOnlyList<string> paths) {
+		var before = new List<PathState>();
+		foreach (string path in paths) {
+			var state = Capture(path, withDisk: false);
+			_reviewBaseline[path] = state.Current;
+			SetMissing(_missingReviewBaseline, path, !state.CurrentExists);
 			SetAllPending(path, false);
-			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
-			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal) || existenceChanged) {
-				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before]);
-			} else {
-				CompleteAcceptanceLocked();
-				Checkpoint();
-			}
+			// A no-op keep (already kept) records nothing, so its undo wouldn't surprise with an empty step.
+			if (state.ReviewBaseline != state.Current || state.ReviewBaselineExists != state.CurrentExists) before.Add(state);
+		}
+		if (before.Count > 0) {
+			Record(ReviewActionKind.Keep, touchesDisk: false, line: null, before);
+		} else {
+			CompleteAcceptanceLocked();
+			Checkpoint();
 		}
 	}
 
@@ -599,18 +590,14 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	// Removes a path while restoring an untracked state. Caller holds _gate.
-	private void Forget(string path) {
-		_missingBaseline.Remove(path);
+	// Removes a path from the review, leaving its agent provenance. Caller holds _gate.
+	private void ForgetReview(string path) {
 		_current.Remove(path);
 		_missingCurrent.Remove(path);
-		_baseline.Remove(path);
 		_reviewBaseline.Remove(path);
 		_missingReviewBaseline.Remove(path);
 		_acceptedAnchor.Remove(path);
 		_missingAcceptedAnchor.Remove(path);
-		_preEdit.Remove(path);
-		_provenance.Remove(path);
 	}
 
 	private void SuspendReview(string path) {
@@ -643,10 +630,10 @@ public sealed partial class SessionChangeTracker {
 		foreach (string path in ExtractEditLocationPaths(completed.Mutation)) {
 			string before, after;
 			lock (_gate) {
-				if (!_current.TryGetValue(path, out string? current)) {
+				if (!_provenance.TryGetValue(path, out var provenance)) {
 					continue;
 				}
-				after = current;
+				after = provenance.Text;
 				before = _preEdit.GetValueOrDefault(path, string.Empty);
 			}
 
@@ -659,49 +646,9 @@ public sealed partial class SessionChangeTracker {
 		return locations;
 	}
 
-	/// <summary>The files whose current content differs from their session baseline.</summary>
-	public IReadOnlyList<FileChange> Changes() {
-		lock (_gate) {
-			var changes = new List<FileChange>();
-			foreach (var (path, current) in _current) {
-				string baseline = _baseline.GetValueOrDefault(path, string.Empty);
-				if (!string.Equals(baseline, current, StringComparison.Ordinal)
-					|| _missingBaseline.Contains(path) != _missingCurrent.Contains(path)) {
-					changes.Add(new FileChange {
-						Path = path,
-						BaselineText = baseline,
-						CurrentText = current,
-						BaselineExists = !_missingBaseline.Contains(path),
-						CurrentExists = !_missingCurrent.Contains(path),
-					});
-				}
-			}
-			return changes;
-		}
-	}
-
-	/// <summary>The change for a single <paramref name="path"/>, or <see langword="null"/> if it has no recorded change.</summary>
-	/// <param name="path">Absolute file path.</param>
-	public FileChange? Get(string path) {
-		path = NormalizePath(path);
-		lock (_gate) {
-			if (!_current.TryGetValue(path, out string? current)) {
-				return null;
-			}
-			return new FileChange {
-				Path = path,
-				BaselineText = _baseline.GetValueOrDefault(path, string.Empty),
-				CurrentText = current,
-				BaselineExists = !_missingBaseline.Contains(path),
-				CurrentExists = !_missingCurrent.Contains(path),
-			};
-		}
-	}
-
 	/// <summary>
-	/// The inline review diff set: every file whose current state differs from its accepted anchor — so a
-	/// fully-kept-but-uncommitted file (review baseline == current, but accepted anchor still behind) STAYS in the
-	/// set to carry its faded band, until closing the review advances the anchor to current.
+	/// The inline review diff set: every held file whose current state differs from its before, kept or not, or that
+	/// carries a rejection the user can still undo.
 	/// </summary>
 	public IReadOnlyList<FileChange> TurnChanges() {
 		lock (_gate) {

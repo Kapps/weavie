@@ -290,7 +290,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 
 		Keep();
 		var resumed = Tracker(files, persistence);
-		Assert.Equal("proposal\n", resumed.GetTurn(File)!.BaselineText);
+		Assert.Null(resumed.GetTurn(File));
 		Assert.Empty(resumed.TurnChanges());
 		Assert.False(resumed.CanUndoKeep);
 	}

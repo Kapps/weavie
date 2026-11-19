@@ -60,7 +60,7 @@ public sealed partial class SessionChangeTracker {
 					}
 				}
 			}
-			if (_baseline.ContainsKey(path)) _historyHeads[path] = current;
+			if (_acceptedAnchor.ContainsKey(path)) _historyHeads[path] = current;
 			else _historyHeads.Remove(path);
 			_historyDirty.Remove(path);
 		}
@@ -70,7 +70,7 @@ public sealed partial class SessionChangeTracker {
 		new(_reviewBaseline.GetValueOrDefault(path, string.Empty), !_missingReviewBaseline.Contains(path)),
 		new(_current.GetValueOrDefault(path, string.Empty), !_missingCurrent.Contains(path)),
 		new(_provenance.GetValueOrDefault(path)?.Text ?? _current.GetValueOrDefault(path, string.Empty),
-			_baseline.ContainsKey(path) && !_missingCurrent.Contains(path)));
+			_acceptedAnchor.ContainsKey(path) && !_missingCurrent.Contains(path)));
 
 	private sealed record HistoryHead(TextValue Review, TextValue Current, TextValue Disk) {
 		public TextValue Value(ReviewPart part) => part switch {

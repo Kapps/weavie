@@ -168,7 +168,6 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.CommitRefRequest))]
 [JsonSerializable(typeof(HostCore.CommitRefResult))]
 [JsonSerializable(typeof(HostCore.DiffAgainstMessage))]
-[JsonSerializable(typeof(HostCore.DiffAgainstBaseMessage))]
 [JsonSerializable(typeof(HostCore.DiffRefsResult))]
 [JsonSerializable(typeof(HostSession.DiffResolutionMessage))]
 [JsonSerializable(typeof(HostSession.DirectoryListingMessage))]

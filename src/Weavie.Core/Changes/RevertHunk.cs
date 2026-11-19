@@ -17,4 +17,7 @@ public enum RevertHunkOutcome {
 
 	/// <summary>Reverting returned a created-since-baseline file to non-existence — the file was deleted.</summary>
 	Deleted,
+
+	/// <summary>The file on disk moved past what the git review shows, so nothing was written over it.</summary>
+	Unlisted,
 }

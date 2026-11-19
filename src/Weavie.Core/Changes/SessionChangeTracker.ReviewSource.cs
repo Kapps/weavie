@@ -3,201 +3,231 @@ using Weavie.Core.Review;
 
 namespace Weavie.Core.Changes;
 
+/// <summary>A reserved review listing and the paths joined while it was read (see docs/specs/review-state.md).</summary>
+public sealed class ReviewRequest(bool relist) {
+	/// <summary>Whether this listing re-lists an open review rather than starting one the user asked for.</summary>
+	public bool Relist { get; } = relist;
+	internal HashSet<string> Joined { get; } = new(PathIdentity.Comparer);
+}
+
+/// <summary>A file joining a git review, with its before read at the review's base.</summary>
+public readonly record struct ReviewJoin(string Path, string Before, bool BeforeExists);
+
 public sealed partial class SessionChangeTracker {
-	private object? _reviewRequest;
-	private bool _replacingReview;
+	private ReviewRequest? _reviewRequest;
+	// Paths the open git review never holds (ignored), so their saves stop asking git for a before.
+	private readonly HashSet<string> _unjoinable = new(PathIdentity.Comparer);
 
 	/// <summary>Raised under the tracker's lock when the review's source changes; handlers may only signal.</summary>
 	public event Action? ReviewChanged;
 
-	/// <summary>
-	/// Raised under the tracker's lock with the files whose new review base overlapped their kept changes, so they
-	/// started over against it; handlers may only signal.
-	/// </summary>
-	public event Action<IReadOnlyList<string>>? ReviewFilesRestarted;
-
-	/// <summary>Reserves a source-opening request, replacing any earlier request still reading its files.</summary>
-	public object BeginReviewRequest() {
-		lock (_gate) return _reviewRequest = new object();
+	/// <summary>Reserves a review the user started, superseding any listing still reading git.</summary>
+	public ReviewRequest BeginReviewRequest() {
+		lock (_gate) return _reviewRequest = new ReviewRequest(false);
 	}
 
-	/// <summary>Every path the tracker holds; a review moving to a new merge-base re-seeds those in its worktree.</summary>
-	public IReadOnlyCollection<string> TrackedPaths() {
-		lock (_gate) return [.. _baseline.Keys];
+	/// <summary>
+	/// Reserves a re-list of <paramref name="expected"/>, superseding an earlier re-list; null when that review is no
+	/// longer open or a review the user started is still being listed.
+	/// </summary>
+	public ReviewRequest? BeginRelist(ReviewContext expected) {
+		lock (_gate) {
+			if (_review != expected || _reviewRequest is { Relist: false }) return null;
+			return _reviewRequest = new ReviewRequest(true);
+		}
+	}
+
+	/// <summary>Releases <paramref name="request"/> if it is still pending, so a failed listing blocks no re-list.</summary>
+	public void EndReviewRequest(ReviewRequest request) {
+		lock (_gate) {
+			if (ReferenceEquals(_reviewRequest, request)) _reviewRequest = null;
+		}
 	}
 
 	/// <summary>Closes <paramref name="expected"/> like <see cref="CloseReview"/>; another open review is left alone.</summary>
 	public bool RetireReview(ReviewContext expected) {
 		lock (_gate) {
 			if (_review != expected) return false;
-			ReconcileReviewDisk();
-			CloseReviewLocked();
+			CloseReviewLocked(accepted: false);
 			Checkpoint();
 			return true;
 		}
 	}
 
-	/// <summary>Finishes the review at its current contents, clearing its source and decision history.</summary>
+	/// <summary>Scraps the review: its files, decisions, and source go; nothing is approved.</summary>
 	public void CloseReview() {
 		lock (_gate) {
-			ReconcileReviewDisk();
-			CloseReviewLocked();
+			CloseReviewLocked(accepted: false);
 			Checkpoint();
 		}
 	}
 
+	// A default review with nothing pending has nothing left to show; a git review stays open with everything kept.
 	private bool CompleteAcceptanceLocked() {
-		if (_current.Any(file => !_nonText.ContainsKey(file.Key)
+		if (_review is not null || _current.Any(file => !_nonText.ContainsKey(file.Key)
 			&& ((_reviewBaseline.GetValueOrDefault(file.Key, string.Empty) != file.Value
 					&& LineDiff.FirstChangedLine(_reviewBaseline.GetValueOrDefault(file.Key, string.Empty), file.Value) is not null)
 				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)))) return false;
-		CloseReviewLocked();
+		CloseReviewLocked(accepted: true);
 		return true;
 	}
 
-	private void CloseReviewLocked() {
-		foreach (var (path, current) in _current) {
-			_reviewBaseline[path] = current;
-			_acceptedAnchor[path] = current;
-			SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
-			SetMissing(_missingAcceptedAnchor, path, _missingCurrent.Contains(path));
-			SetAllPending(path, false);
+	// Provenance outlives the review only while it has pending agent lines a later edit could correct.
+	private void CloseReviewLocked(bool accepted) {
+		foreach (string path in _acceptedAnchor.Keys.ToArray()) {
+			if (accepted) SetAllPending(path, false);
+			ForgetReview(path);
 		}
+		foreach (var (path, provenance) in _provenance.ToArray()) {
+			if (!provenance.HasPending) _provenance.Remove(path);
+		}
+		_nonText.Clear();
+		_unjoinable.Clear();
 		_undoStack.Clear();
 		_redoStack.Clear();
 		SetReview(null);
-		_reviewRequest = null;
-	}
-
-	/// <summary>Attaches a PR/ref and extends its baseline without discarding existing review decisions.</summary>
-	public void ArmReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds) {
-		lock (_gate) ArmReview(review, seeds, BeginReviewRequest());
-	}
-
-	/// <summary>Arms a reserved source request unless a newer request or completed review invalidated it.</summary>
-	public bool ArmReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds, object request) {
-		lock (_gate) {
-			if (!ReferenceEquals(_reviewRequest, request)) return false;
-			if (_review is { } existing && !existing.SameSource(review))
-				throw new InvalidOperationException("This worktree already has a review against a different source.");
-			ApplySeedsLocked(review, seeds);
-			return true;
-		}
+		// A re-list belongs to the review that just went; a review the user started still opens.
+		if (_reviewRequest is { Relist: true }) _reviewRequest = null;
 	}
 
 	/// <summary>
-	/// Moves <paramref name="expected"/> to <paramref name="moved"/>'s merge-base, re-seeding the given paths there and
-	/// keeping decisions; a review closed or replaced meanwhile is left alone.
+	/// Replaces the review with <paramref name="review"/>'s git listing unless a newer request or a close superseded
+	/// <paramref name="request"/>. A held path keeps its kept text and history only when its before is unchanged; every
+	/// path missing from <paramref name="seeds"/> is forgotten. Answers the paths joined while the listing was read, for
+	/// the caller to join again, or null when superseded.
 	/// </summary>
-	public bool RebaseReview(ReviewContext expected, ReviewContext moved, IReadOnlyList<ReviewSeed> seeds) {
+	public IReadOnlyCollection<string>? ReplaceReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds, ReviewRequest request) {
+		ArgumentNullException.ThrowIfNull(review);
+		ArgumentNullException.ThrowIfNull(seeds);
 		lock (_gate) {
-			if (_review != expected || !expected.SameSource(moved)) return false;
-			ApplySeedsLocked(moved, seeds);
-			return true;
-		}
-	}
-
-	// A review whose merge-base moved re-seeds every supplied path; otherwise only paths it doesn't hold yet.
-	private void ApplySeedsLocked(ReviewContext review, IReadOnlyList<ReviewSeed> seeds) {
-		bool rebase = _review is { } open && open.MergeBase != review.MergeBase;
-		var restarted = new List<string>();
-		var prepared = seeds.Where(seed => _review is null || rebase || !_baseline.ContainsKey(seed.Path))
-			.Select(seed => PrepareSeed(seed, restarted)).ToArray();
-		foreach (var state in prepared) RestoreState(state);
-		SynchronizeHistory(external: rebase, except: null);
-		SetReview(review);
-		ReconcileReviewDisk();
-		Checkpoint();
-		if (restarted.Count > 0) ReviewFilesRestarted?.Invoke(restarted);
-	}
-
-	/// <summary>
-	/// Arms a reserved source request like <see cref="ArmReview(ReviewContext, IReadOnlyList{ReviewSeed}, object)"/>,
-	/// first closing the review labelled <paramref name="replaces"/> the way <see cref="CloseReview"/> does. Refuses when
-	/// a different review is open than the one the user agreed to replace.
-	/// </summary>
-	public bool ReplaceReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds, object request, string replaces) {
-		lock (_gate) {
-			if (!ReferenceEquals(_reviewRequest, request)) return false;
-			var before = _review;
-			if (before is not { } existing || existing.SameSource(review)) return ArmReview(review, seeds, request);
-			if (existing.Label != replaces) return false;
-			// One change from the old review to the new, so listeners refresh once rather than for each step.
-			_replacingReview = true;
-			try {
-				ReconcileReviewDisk();
-				CloseReviewLocked();
-				_reviewRequest = request;
-				return ArmReview(review, seeds, request);
-			} finally {
-				_replacingReview = false;
-				if (_review != before) ReviewChanged?.Invoke();
+			if (!ReferenceEquals(_reviewRequest, request)) return null;
+			_reviewRequest = null;
+			_unjoinable.Clear();
+			var listed = new HashSet<string>(PathIdentity.Comparer);
+			foreach (var seed in seeds) {
+				string path = NormalizePath(seed.Path);
+				if (!_isInScope(path)) throw new ArgumentException("The review file is outside this session.");
+				listed.Add(path);
+				if (!_acceptedAnchor.TryGetValue(path, out string? before) || before != seed.Baseline
+					|| _missingAcceptedAnchor.Contains(path) == seed.BaselineExists) {
+					DropHistory(path);
+					HoldBefore(path, seed.Baseline, seed.BaselineExists);
+				}
+				SetText(_current, _missingCurrent, path, seed.Current, seed.CurrentExists);
+				_nonText.Remove(path);
+				// Only an explicit Keep settles agent lines; listing marks what this review shows as pending.
+				MarkReviewPending(path);
 			}
+			foreach (string path in _acceptedAnchor.Keys.Where(path => !listed.Contains(path)).ToArray()) {
+				DropHistory(path);
+				ForgetReview(path);
+			}
+			SynchronizeHistory(external: true, except: null);
+			SetReview(review);
+			Checkpoint();
+			return request.Joined;
+		}
+	}
+
+	/// <summary>
+	/// Refreshes a path <paramref name="expected"/> holds from disk. False when the caller must read the path's before
+	/// from git and call <see cref="JoinReview"/>: the review isn't the expected one, or it neither holds the path nor
+	/// knows it can't.
+	/// </summary>
+	public bool RefreshReviewPath(ReviewContext expected, string path) {
+		path = NormalizePath(path);
+		lock (_gate) {
+			if (_review != expected) return false;
+			if (_unjoinable.Contains(path)) return true;
+			if (!_acceptedAnchor.ContainsKey(path)) return false;
+			_reviewRequest?.Joined.Add(path);
+			ReconcilePath(path);
+			Checkpoint();
+			return true;
+		}
+	}
+
+	/// <summary>
+	/// Adds worktree files to <paramref name="expected"/>, each current from disk. Answers every join when the review
+	/// changed meanwhile, else none; an ignored or out-of-worktree file is remembered as one the review can't hold.
+	/// </summary>
+	public IReadOnlyList<ReviewJoin> JoinReview(ReviewContext expected, IReadOnlyList<ReviewJoin> joins) {
+		ArgumentNullException.ThrowIfNull(joins);
+		ReviewJoin[] normalized = [.. joins.Select(join => join with { Path = NormalizePath(join.Path) })];
+		var outside = normalized.Where(join => !_isInScope(join.Path) || !PathBoundary.Contains(_workspaceRoot, join.Path))
+			.Select(join => join.Path).ToHashSet(PathIdentity.Comparer);
+		// One ignore query for every file new at the base; a file the base has is tracked, so never ignored.
+		var ignored = _ignoredAmong([.. normalized.Where(join => !join.BeforeExists && !outside.Contains(join.Path)).Select(join => join.Path)]);
+		lock (_gate) {
+			if (_review != expected) return normalized;
+			foreach (var join in normalized) {
+				if (outside.Contains(join.Path) || ignored.Contains(join.Path)) {
+					_unjoinable.Add(join.Path);
+					continue;
+				}
+				_reviewRequest?.Joined.Add(join.Path);
+				if (!_acceptedAnchor.ContainsKey(join.Path)) HoldBefore(join.Path, join.Before, join.BeforeExists);
+				ReconcilePath(join.Path);
+				MarkReviewPending(join.Path);
+			}
+			Checkpoint();
+			return [];
+		}
+	}
+
+	/// <summary>
+	/// The paths the review doesn't hold or doesn't show as they are on disk; the rest of a watcher batch is an echo.
+	/// Disk is read outside the tracker's lock.
+	/// </summary>
+	public IReadOnlyList<string> UnaccountedFor(IEnumerable<string> paths) {
+		ArgumentNullException.ThrowIfNull(paths);
+		string[] candidates;
+		HashSet<string> held;
+		lock (_gate) {
+			candidates = [.. paths.Select(NormalizePath).Where(path => !_unjoinable.Contains(path))];
+			held = candidates.Where(_current.ContainsKey).ToHashSet(PathIdentity.Comparer);
+		}
+		var disk = held.ToDictionary(path => path, path => {
+			bool exists = _fileSystem.FileExists(path);
+			return (Exists: exists, Text: exists && _fileSystem.TryReadAllText(path, out string text) ? text : null);
+		}, PathIdentity.Comparer);
+		lock (_gate) {
+			return [.. candidates.Where(path => !disk.TryGetValue(path, out var seen) || !_current.TryGetValue(path, out string? current)
+				|| seen.Exists == _missingCurrent.Contains(path) || seen.Exists && seen.Text != current)];
+		}
+	}
+
+	// Whether a git review's held paths still show what disk holds, so a whole-file action acts only on what the user
+	// saw; the default review always reconciles first. Caller holds _gate.
+	private bool ShownMatchesDisk(IEnumerable<string> paths) =>
+		_review is null || paths.All(path => !_current.ContainsKey(path) || ShowsDisk(path));
+
+	private bool ShowsDisk(string path) {
+		bool exists = _fileSystem.FileExists(path);
+		return exists != _missingCurrent.Contains(path)
+			&& (!exists || _fileSystem.TryReadAllText(path, out string actual) && actual == _current[path]);
+	}
+
+	private void HoldBefore(string path, string before, bool exists) {
+		SetText(_acceptedAnchor, _missingAcceptedAnchor, path, before, exists);
+		SetText(_reviewBaseline, _missingReviewBaseline, path, before, exists);
+	}
+
+	private static void SetText(TrackedMap<string> texts, TrackedSet missing, string path, string text, bool exists) {
+		texts[path] = text;
+		SetMissing(missing, path, !exists);
+	}
+
+	private void DropHistory(string path) {
+		foreach (var action in HistoryFor(path)) {
+			_undoStack.Remove(action);
+			_redoStack.Remove(action);
 		}
 	}
 
 	private void SetReview(ReviewContext? review) {
-		if (_review == review) return;
+		bool changed = _review != review;
 		_review = review;
-		if (!_replacingReview) ReviewChanged?.Invoke();
-	}
-
-	private PathState PrepareSeed(ReviewSeed seed, List<string> restarted) {
-		string path = NormalizePath(seed.Path);
-		if (!_isInScope(path)) throw new ArgumentException("The review file is outside this session.");
-		var state = Capture(path, withDisk: false);
-		if (!state.Tracked) return new(path, true, seed.Baseline, seed.BaselineExists, seed.Current, seed.CurrentExists,
-			seed.Baseline, seed.BaselineExists, seed.Baseline, seed.BaselineExists, seed.Current,
-			ProvenanceFile.Empty(seed.Current), seed.CurrentExists, seed.Current);
-		if (state.AcceptedAnchor == state.Current && state.AcceptedAnchorExists == state.CurrentExists
-			&& state.ReviewBaseline == state.Current && state.ReviewBaselineExists == state.CurrentExists
-			&& !HistoryFor(path).Any())
-			return state with {
-				Baseline = seed.Baseline,
-				BaselineExists = seed.BaselineExists,
-				Current = seed.Current,
-				CurrentExists = seed.CurrentExists,
-				Provenance = state.Provenance is { } provenance
-					? RebaseProvenance(provenance, seed.Current, []) : ProvenanceFile.Empty(seed.Current),
-				ReviewBaseline = seed.Baseline,
-				ReviewBaselineExists = seed.BaselineExists,
-				AcceptedAnchor = seed.Baseline,
-				AcceptedAnchorExists = seed.BaselineExists,
-			};
-		if (state.Baseline == seed.Baseline && state.BaselineExists == seed.BaselineExists) return state;
-
-		var from = new TextValue(state.Baseline, state.BaselineExists);
-		var to = new TextValue(seed.Baseline, seed.BaselineExists);
-		var hunks = LineHunker.Hunks(TextLines(from), TextLines(to));
-		// Null when the base change overlaps kept changes: the new base then wins for the whole file.
-		TextValue? Extend(TextValue target) {
-			if (target == from) return to;
-			var mapping = LineHunker.Hunks(TextLines(from), TextLines(target));
-			var transport = new TransportIndex(TextLines(from), mapping);
-			var patches = new List<ReviewPatch>();
-			foreach (var hunk in hunks) {
-				var range = MapRange(hunk.BeforeRange, mapping);
-				if (mapping.Any(edit => Touches(hunk.BeforeRange, edit.BeforeRange))
-					|| transport.Ambiguous(hunk.BeforeRange)
-					|| !TryGetSlice(TextLines(target), range, out var actual)
-					|| !actual.SequenceEqual(Lines(TextLines(from), hunk.BeforeRange)))
-					return null;
-				patches.Add(new(path, ReviewPart.Review, range, [.. actual], [.. Lines(TextLines(to), hunk.AfterRange)],
-					target.Exists, seed.BaselineExists, null, null));
-			}
-			return patches.Count == 0 ? target : ApplyPatches(target, patches, undo: false);
-		}
-		var extended = (Boundary: Extend(new(state.ReviewBaseline, state.ReviewBaselineExists)),
-			Anchor: Extend(new(state.AcceptedAnchor, state.AcceptedAnchorExists)));
-		if (extended is not ( { }, { })) restarted.Add(path);
-		var (boundary, anchor) = extended is ( { } b, { } a) ? (b, a) : (to, to);
-		return state with {
-			Baseline = seed.Baseline,
-			BaselineExists = seed.BaselineExists,
-			ReviewBaseline = boundary.Text,
-			ReviewBaselineExists = boundary.Exists,
-			AcceptedAnchor = anchor.Text,
-			AcceptedAnchorExists = anchor.Exists,
-		};
+		if (changed) ReviewChanged?.Invoke();
 	}
 }

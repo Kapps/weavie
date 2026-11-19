@@ -234,6 +234,12 @@ public sealed partial class HostCore {
 		PushReviewActionToWeb(session, []);
 	}
 
+	private void KeepAll(HostSession session) {
+		string[] paths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
+		session.Changes.KeepAll();
+		PushReviewActionToWeb(session, paths);
+	}
+
 	/// <summary>
 	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
 	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by
@@ -242,7 +248,11 @@ public sealed partial class HostCore {
 	private void UndoTurn(HostSession session) =>
 		RunReviewAction(
 			session,
-			() => ApplyHistoryResult(session, session.Changes.RevertAll()),
+			() => {
+				var result = session.Changes.RevertAll();
+				if (result.WasBlocked) Notify(session, "warn", "Files changed since the review listed them; revert once it updates.");
+				else ApplyHistoryResult(session, result);
+			},
 			ex => $"Couldn't revert all changes: {ex.Message}");
 
 	/// <summary>
@@ -381,7 +391,10 @@ public sealed partial class HostCore {
 
 		RunReviewAction(
 			session,
-			() => session.Changes.RevertFile(path),
+			() => {
+				if (session.Changes.RevertFile(path) == RevertHunkOutcome.Unlisted)
+					Notify(session, "warn", $"{Path.GetFileName(path)} changed since the review listed it; revert once it updates.");
+			},
 			ex => $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 	}
 

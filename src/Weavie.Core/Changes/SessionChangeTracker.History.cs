@@ -35,7 +35,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private ReviewHistoryResult ApplyHistory(HistoryStack source, HistoryStack destination, ReviewActionKind? kind, bool undo) {
-		ReconcileReviewDisk();
+		foreach (string path in source.SelectMany(action => action.Paths).Distinct(PathIdentity.Comparer).ToArray()) ReconcilePath(path);
 		bool found = false;
 		var live = new Dictionary<(string Path, ReviewPart Part), (bool Exists, List<string> Lines)>();
 		foreach (var action in source.AsEnumerable().Reverse().ToArray()) {

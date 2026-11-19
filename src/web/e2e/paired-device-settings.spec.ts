@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { submitAcpDraft } from "./harness/acp-session";
+import { runCommand } from "./harness/actions";
 import { test } from "./harness/network-fixtures";
 import { type LaunchOptions, launchHeadless } from "./harness/weavie-host";
 import { launchRunner } from "./harness/weavie-runner";
@@ -23,7 +24,7 @@ const themeOverridesFile = (home: string): Promise<string> =>
 
 // A page served by one host (its home) working in a session on another: the two-machine shape of a native app
 // attached to a runner.
-test("a remote session's agent changes device settings, themes and commands on the page's home", async ({
+test("a remote session's device state lands on the page's home and its machine state on the runner", async ({
   page,
 }) => {
   const runner = await launchRunner(options);
@@ -90,6 +91,15 @@ test("a remote session's agent changes device settings, themes and commands on t
       { kind: "set", key: "editor.background", value: "#102030" },
     ]);
     expect(await themeOverridesFile(runner.home)).not.toContain("#102030");
+
+    // Suggestions run on the session's machine, so configuring them from its session edits the runner.
+    await runCommand(page, "Configure Suggestions…");
+    const setup = page.locator(".getting-started-dialog");
+    const suggestions = setup.getByRole("switch", { name: /Allow suggestions/ });
+    await expect(suggestions).toBeChecked();
+    await suggestions.click();
+    await expect.poll(() => settingsFile(runner.home)).toContain("inference.enabled = false");
+    expect(await settingsFile(home.home)).not.toContain("inference.enabled");
   } finally {
     await page.close();
     await home.stop();

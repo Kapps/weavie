@@ -8,6 +8,7 @@ import {
   hostConnection,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
+  registerHostFeature,
 } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
 import { openLink } from "../editor/source/source-links";
@@ -38,6 +39,13 @@ function revealFile(session: ClientSession, matchText: string): void {
 }
 
 /** Opens a URL in the OS/default browser (the terminal's left-click + the "Open in Browser" menu). */
+// A host opens a page on the device it belongs to, such as a service's key page.
+registerHostFeature((connection) =>
+  connection.host
+    .feature("device")
+    .on<{ url: string }>("openUrl", ({ url }) => openUrlExternal(url)),
+);
+
 export function openUrlExternal(url: string): void {
   // The browser lives on the user's machine: a served tab opens the URL itself under the click's user gesture;
   // a native shell asks the LOCAL host, which allowlists http(s) at that trust boundary — untrusted terminal

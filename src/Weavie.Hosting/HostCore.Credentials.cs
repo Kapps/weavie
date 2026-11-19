@@ -57,12 +57,16 @@ public sealed partial class HostCore {
 		return CommandResult.Success();
 	}
 
-	/// <summary>Opens <paramref name="id"/>'s key page and asks <paramref name="session"/>'s page for the key; once it is
-	/// saved, <paramref name="then"/> runs on that same session.</summary>
+	/// <summary>Opens <paramref name="id"/>'s key page on <paramref name="session"/>'s device and asks its page for the
+	/// key; once it is saved, <paramref name="then"/> runs on that same session.</summary>
 	private void PromptConnect(HostSession session, string id, Action<HostSession> then) {
 		var definition = _credentials.Require(id);
 		session.ConnectPrompt.Set(new PendingConnect(definition.Id, then));
-		_ui.Post(() => _platform.OpenExternalUrl(definition.KeyPageUrl));
+		var (home, claimant) = SlotFor(session)?.Device.Current ?? default;
+		if (_messages.PageFrom(home, claimant) is { } page && _messages.Host.TryGetPeer(page, out var peer)) {
+			_messages.Host.Feature("device").Target(peer).Publish("openUrl", WireJson.Default.OpenUrlMessage, new(definition.KeyPageUrl));
+		}
+
 		session.State.Set("credentials", "prompt", "prompt", WireJson.Default.CredentialPrompt, new(
 			definition.Id,
 			definition.DisplayName,

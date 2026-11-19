@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { LOCAL_BACKEND_ID } from "../bridge";
 import { controlMenuOpen } from "../chrome/ControlMenu";
 import { ModalShell } from "../chrome/ModalShell";
 import { registerCommand } from "../commands/registry";
@@ -8,6 +9,7 @@ import { notify } from "../notify/notify";
 import { AgentStep } from "./AgentStep";
 import {
   COMPLETED_SETTING,
+  gettingStartedMachine,
   gettingStartedOpen,
   gettingStartedStep,
   openGettingStarted,
@@ -40,8 +42,12 @@ const STEPS: { title: string; hint: string; body: (props: { run: SetupRun }) => 
   },
 ];
 
-registerCommand(CommandIds.configureSuggestions, () =>
-  openGettingStarted(STEPS.findIndex((step) => step.body === InferenceStep)),
+// Suggestions run on the machine of the session the command came from.
+registerCommand(CommandIds.configureSuggestions, (_args, context) =>
+  openGettingStarted(
+    STEPS.findIndex((step) => step.body === InferenceStep),
+    context.session?.connection.id ?? LOCAL_BACKEND_ID,
+  ),
 );
 
 const INTERACTIVE = "button, select, input, textarea, a";
@@ -57,11 +63,16 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
       setError(caught instanceof Error ? caught.message : String(caught)),
     );
   };
-  const run: SetupRun = { attempt, agentChoice: 0, suggestionsAgent: null };
+  const run: SetupRun = {
+    attempt,
+    agentChoice: 0,
+    suggestionsAgent: null,
+    machine: gettingStartedMachine(),
+  };
 
   const finish = () =>
     attempt(async () => {
-      await writeSetting(COMPLETED_SETTING, true);
+      await writeSetting(LOCAL_BACKEND_ID, COMPLETED_SETTING, true);
       props.onDone();
     });
   const step = () => STEPS[index()]!;
@@ -141,7 +152,7 @@ export function GettingStartedModal(): JSX.Element {
   const close = () => setGettingStartedOpen(false);
   const dismiss = () => {
     close();
-    writeSetting(COMPLETED_SETTING, true).catch((caught: unknown) =>
+    writeSetting(LOCAL_BACKEND_ID, COMPLETED_SETTING, true).catch((caught: unknown) =>
       notify("error", `Couldn't save that setup is done: ${String(caught)}`),
     );
   };

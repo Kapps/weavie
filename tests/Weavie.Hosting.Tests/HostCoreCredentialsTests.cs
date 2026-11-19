@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -24,7 +25,11 @@ public sealed class HostCoreCredentialsTests {
 		Assert.Equal(("notion", "Notion", "personal access token", "https://app.notion.com/developers/tokens"), (
 			prompt.GetProperty("id").GetString(), prompt.GetProperty("displayName").GetString(),
 			prompt.GetProperty("keyNoun").GetString(), prompt.GetProperty("keyPageUrl").GetString()));
-		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
+		var (page, opened) = Assert.Single(host.Bridge.Sent, sent => MessageEnvelope.TryParse(sent.Json, out var envelope)
+			&& envelope is { Feature: "device", Name: "openUrl" });
+		Assert.Equal(TestHost.TestPageId, page.Id);
+		Assert.Contains("https://app.notion.com/developers/tokens", opened, StringComparison.Ordinal);
+		Assert.Null(host.Platform.LastOpenedUrl);
 
 		Assert.True((await SaveKey(host, " ntn_secret ")).GetProperty("ok").GetBoolean());
 

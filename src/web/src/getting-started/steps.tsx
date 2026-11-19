@@ -26,6 +26,8 @@ export interface SetupRun {
   agentChoice: number;
   /** The agent suggestions were last pointed at, so revisiting the step keeps a "Which agent" change. */
   suggestionsAgent: string | null;
+  /** The backend whose machine runs the suggestions this run configures. */
+  machine: string;
 }
 
 const MODES: { mode: ThemeMode; label: string }[] = [
@@ -67,7 +69,9 @@ export function ThemeStep(props: { run: SetupRun }): JSX.Element {
               type="button"
               class="gs-mode"
               aria-pressed={savedAppearance().mode === option.mode}
-              onClick={() => props.run.attempt(() => writeSetting("theme.mode", option.mode))}
+              onClick={() =>
+                props.run.attempt(() => writeSetting(LOCAL_BACKEND_ID, "theme.mode", option.mode))
+              }
             >
               <span class="gs-mode-preview">
                 <Show
@@ -150,26 +154,27 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
     props.run.attempt(async () => {
       set(value);
       try {
-        await writeSetting(key, value);
+        await writeSetting(props.run.machine, key, value);
       } catch (error) {
-        set((await readSetting<T>(key)).value);
+        set((await readSetting<T>(props.run.machine, key)).value);
         throw error;
       }
     });
   // Switches never set start on. Suggestions follow an agent picked on the previous step in this run, once per agent,
   // so a choice made here survives going back and forth, and reopening the step never undoes it.
   const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
-    const setting = await readSetting<T>(key);
+    const setting = await readSetting<T>(props.run.machine, key);
     const value = setting.isDefault ? onByDefault : setting.value;
-    if (value !== setting.value) await writeSetting(key, value);
+    if (value !== setting.value) await writeSetting(props.run.machine, key, value);
     set(value);
   };
   onMount(() =>
     props.run.attempt(async () => {
       await initial("inference.enabled", true, setEnabled);
       await initial("inference.allowAutomatic", true, setAutomatic);
-      const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
-      const current = (await readSetting<string>("inference.defaultProvider")).value;
+      const agent = defaultAgentProvider(props.run.machine);
+      const current = (await readSetting<string>(props.run.machine, "inference.defaultProvider"))
+        .value;
       if (
         props.run.agentChoice === 0 ||
         props.run.suggestionsAgent === agent ||
@@ -177,7 +182,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       ) {
         setProvider(current);
       } else {
-        await writeSetting("inference.defaultProvider", agent);
+        await writeSetting(props.run.machine, "inference.defaultProvider", agent);
         setProvider(agent);
       }
       props.run.suggestionsAgent = agent;
@@ -213,7 +218,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
         )}
       />
       <Show when={provider()}>
-        <SuggestionProfile disabled={off()} attempt={props.run.attempt} />
+        <SuggestionProfile disabled={off()} run={props.run} />
       </Show>
       <p class="gs-later">
         Change it anytime with <CommandName id={CommandIds.configureSuggestions} />

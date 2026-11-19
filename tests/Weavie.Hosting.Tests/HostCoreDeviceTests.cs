@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Inference;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
@@ -137,6 +138,19 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 
 		Assert.Empty(host.Bridge.PostedEvents("gettingStarted", "show"));
+	}
+
+	[Fact]
+	public async Task APageServedElsewhere_IsOfferedThisMachinesInference_WithoutThisHostsSetup() {
+		await using var host = await TestHost.StartAsync(_ => { }, settings => {
+			settings.Set(CoreSettings.GettingStartedCompleted, JsonSerializer.SerializeToElement(false));
+			return InferenceComposition.CreateDisabled(settings);
+		});
+		Assert.Empty(host.Bridge.PostedEvents("notifications", "show"));
+
+		ConnectFromLaptop(host, Visitor);
+
+		Assert.Contains(host.Bridge.PostedEvents("notifications", "show"), offer => offer.GetProperty("key").GetString() == "inference-automatic-opt-in");
 	}
 
 	[Fact]

@@ -256,12 +256,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 		lock (_gate) {
 			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
 			var run = _run ?? throw new WorkflowException("This session has no workflow run.");
-			var open = definition.Stage(stage);
-			return definition.AgentOf(open, run.Roles) ?? ((definition.Opener(open) ?? open).Role is { } role
-				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
-				: null);
+			return AgentOf(definition, run, definition.Stage(stage));
 		}
 	}
+
+	// A role never runs on the session's own model, so a role the run didn't fill is an error.
+	private static WorkflowAgent? AgentOf(WorkflowDefinition definition, WorkflowRun run, WorkflowStage stage) =>
+		definition.AgentOf(stage, run.Roles) ?? ((definition.Opener(stage) ?? stage).Role is { } role
+			? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
+			: null);
+
 
 	/// <summary>Whether the run still owes exactly <paramref name="turn"/>.</summary>
 	public bool Owes(WorkflowKickoff turn) {

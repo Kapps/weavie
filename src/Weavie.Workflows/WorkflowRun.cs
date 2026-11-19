@@ -139,10 +139,16 @@ public sealed record WorkflowRun {
 	/// </summary>
 	public string Place(string frame, string stage, bool totals) {
 		var levels = Chain(frame).Reverse().Skip(1).Select(level => level.Entry == 0 ? level.Stage
-			: totals ? $"{level.Stage} {level.Entry}/{FrameOf(level.Parent)?.Loops.GetValueOrDefault(level.Stage)?.Items.Count}"
+			: totals ? $"{level.Stage} {level.Entry}/{EntryCount(level)}"
 			: $"{level.Stage} {level.Entry}").ToList();
 		if (FrameOf(frame)?.IsEntryOf(stage) != true) levels.Add(stage);
 		return string.Join(" › ", levels);
+	}
+
+	/// <summary>How many entries the repetition that <paramref name="entry"/> belongs to has.</summary>
+	public int EntryCount(WorkflowFrame entry) {
+		ArgumentNullException.ThrowIfNull(entry);
+		return FrameOf(entry.Parent)?.Loops.GetValueOrDefault(entry.Stage)?.Items.Count ?? 0;
 	}
 
 	/// <summary>The record <paramref name="id"/> and every record holding it, innermost first.</summary>

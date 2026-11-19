@@ -67,7 +67,8 @@ public sealed record WorkflowDefinition {
 	/// </summary>
 	public WorkflowStage? Opener(WorkflowStage stage) {
 		ArgumentNullException.ThrowIfNull(stage);
-		return stage.Reuse is { } reused ? List(stage).First(s => s.Id == reused)
+		// A reuse naming no sibling is reported at load; until then the stage stands for its own conversation.
+		return stage.Reuse is { } reused ? List(stage).FirstOrDefault(s => s.Id == reused) ?? stage
 			: stage.Context != WorkflowContext.Continue ? stage
 			: Parent(stage) is { } parent ? Opener(parent)
 			: null;
@@ -185,6 +186,12 @@ public sealed record WorkflowStage {
 
 	/// <summary>Whether the stage repeats per entry of a list.</summary>
 	public bool Repeats => Foreach is not null;
+
+	/// <summary>The output of one of its stages that <paramref name="source"/> names, or <see langword="null"/>.</summary>
+	public WorkflowOutputSpec? Copied(WorkflowReference source) {
+		ArgumentNullException.ThrowIfNull(source);
+		return Stages.FirstOrDefault(c => c.Id == source.Scope)?.Outputs.FirstOrDefault(o => o.Name == source.Name);
+	}
 }
 
 /// <summary>A stage's work: a prompt, or a skill run as its slash command.</summary>

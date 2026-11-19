@@ -108,6 +108,27 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		Assert.Equal("b", WorkflowRunSummary.From(run with { Stage = "b" }, SessionStatus.Working)!.Stage);
 	}
 
+	[Fact]
+	public void SummaryNamesTheStagePathInsideRepeatedStages() {
+		_dir.WriteFile("worktree/.weavie/workflows/tree.yaml", """
+			id: tree
+			description: Nested.
+			stages:
+			  - id: list
+			    run: { prompt: List. }
+			    outputs: { items: list }
+			  - id: group
+			    foreach: "{{list.items}}"
+			    stages:
+			      - id: plan
+			        run: { prompt: "Plan {{group.item}}." }
+			""");
+		using var runner = Runner();
+		runner.Start("tree", Json("{}"));
+		runner.CompleteStage(Json("""{"items":["auth","billing"]}"""), "listed");
+		Assert.Equal("group 1/2 › plan", WorkflowRunSummary.From(runner.Current, SessionStatus.Working)!.Stage);
+	}
+
 	[Theory]
 	[InlineData(WorkflowPhase.Open, SessionStatus.Working, WorkflowRunState.Working)]
 	[InlineData(WorkflowPhase.Open, SessionStatus.Starting, WorkflowRunState.Working)]

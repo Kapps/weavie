@@ -26,8 +26,40 @@ public sealed class WorkflowTreeSemanticsTests {
 	[InlineData("  - id: g\n    context: fork\n    stages: [{ id: c, agent: a, run: { prompt: p } }]", "stages[0].stages[0].agent", "stage \"c\" runs in the conversation of \"g\"")]
 	[InlineData("  - id: g\n    stages: [{ id: c, context: fresh, run: { prompt: p } }]\n  - id: z\n    context: { reuse: c }\n    run: { prompt: p }", "stages[1].context.reuse", "\"c\" is not a stage beside \"z\"")]
 	[InlineData("  - id: l\n    run: { prompt: p }\n    outputs: { items: list }\n  - id: r\n    foreach: \"{{l.items}}\"\n    context: fresh\n    run: { prompt: p }\n  - id: z\n    context: { reuse: r }\n    run: { prompt: p }", "stages[2].context.reuse", "opens a conversation per entry")]
+	[InlineData("  - id: g\n    stages: [{ id: c, run: { prompt: p }, outputs: { n: text } }]\n    if: \"{{c.n}}?\"", "stages[0].if", "{{c.n}} is set inside stage \"g\"; only its outputs and then read it")]
 	public void ReportsEachTreeRuleAtItsField(string stages, string path, string message) =>
 		Assert.Contains(Errors(stages), d => d.Path == path && d.Message.Contains(message, StringComparison.Ordinal));
+
+	[Fact]
+	public void AReuseNamingNoSiblingIsReportedEvenWhereAnAgentAsksForItsConversation() {
+		var errors = Errors("  - id: g\n    context: { reuse: nowhere }\n    stages: [{ id: c, agent: a, run: { prompt: p } }]");
+		Assert.Contains(errors, d => d.Path == "stages[0].context.reuse" && d.Message.Contains("\"nowhere\" names no stage", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public void ARepeatedOutputCopiedByAStageWithStagesIsAList() =>
+		Assert.Empty(Errors("""
+			  - id: l
+			    run: { prompt: p }
+			    outputs: { items: list }
+			  - id: g
+			    outputs: { notes: "{{r.note}}" }
+			    stages:
+			      - id: r
+			        foreach: "{{l.items}}"
+			        run: { prompt: p }
+			        outputs: { note: text }
+			  - id: each
+			    foreach: "{{g.notes}}"
+			    run: { prompt: "{{each.item}}" }
+			"""));
+
+	[Fact]
+	public void ReaderAndTreeErrorsAreReportedTogether() {
+		var errors = Errors("  - id: a\n    run: { prompt: p }\n    outputs: { n: number }\n    then: nowhere");
+		Assert.Contains(errors, d => d.Path == "stages[0].outputs.n");
+		Assert.Contains(errors, d => d.Path == "stages[0].then");
+	}
 
 	[Fact]
 	public void AcceptsTheBriefsExampleAndReadsItsTree() {

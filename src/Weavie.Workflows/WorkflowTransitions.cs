@@ -150,10 +150,12 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			PromptImagesSent = run.PromptImagesSent || turn.Conversation is null && turn.CarriesPromptImages,
 		};
 		run = ClearOwed(run, turn.Conversation);
-		return turn.Conversation is { } used && turn.Opens.Length > 0
-			? Update(run, used.Frame, frame => frame.Opened.Contains(used.Opener) ? frame : frame with { Opened = [.. frame.Opened, used.Opener] })
-			: run;
+		return turn.Conversation is { } used && turn.Opens.Length > 0 ? Opened(run, used) : run;
 	}
+
+	/// <summary>The run with conversation <paramref name="conversation"/> in use for this pass of its record.</summary>
+	public static WorkflowRun Opened(WorkflowRun run, WorkflowConversationRef conversation) =>
+		Update(run, conversation.Frame, frame => frame.Opened.Contains(conversation.Opener) ? frame : frame with { Opened = [.. frame.Opened, conversation.Opener] });
 
 	private WorkflowStep Enter(WorkflowRun run, WorkflowFrame frame, string target) => Enter(run, frame, target, startsExecution: true);
 

@@ -111,7 +111,7 @@ internal sealed partial class WorkflowTransitions {
 	private WorkflowStep AskUser(WorkflowRun run, string reason) {
 		var asked = run.Asked! with { Reason = reason };
 		string context = run.Decision == WorkflowDecisionKind.Then && Scope(run).Conversation is not null
-			? ReportText(run, definition.Stage(run.Stage), null, Scope(run), Scope(run).Outputs.GetValueOrDefault(run.Stage, []), run.Summary, own: false)
+			? ReportText(run, definition.Stage(run.Stage), null, Scope(run), Scope(run).Outputs.GetValueOrDefault(run.Stage, []), run.Summary)
 			: "";
 		var kickoff = WorkflowKickoff.Prompt(Join(context, WorkflowStageBlock.PutToUser(asked, environment)));
 		return Send(run with { Phase = WorkflowPhase.Asking, Asked = asked }, kickoff);

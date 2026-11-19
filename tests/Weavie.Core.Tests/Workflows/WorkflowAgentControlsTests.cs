@@ -85,6 +85,16 @@ public sealed class WorkflowAgentControlsTests {
 		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent) with { Stages = [] }, [], Acp with { Id = "other" }, null));
 	}
 
+	[Fact]
+	public void ATerminalAgentRefusesAForkNestedInAStageWithStages() {
+		var nested = Definition(Agent(null));
+		var inner = nested.Stages[0] with { Id = "task", Agent = null, Context = WorkflowContext.Fork };
+		nested = nested with { Stages = [nested.Stages[0] with { Id = "group", Agent = null, Run = null, Stages = [inner] }] };
+		Assert.Equal("Stage \"task\" requires its own conversation; Fake ACP runs in a terminal.",
+			WorkflowAgentControls.Refusal(nested, [], Acp with { Capabilities = AgentProviderCapabilities.Terminal }, null));
+		Assert.Null(WorkflowAgentControls.Refusal(nested, [], Acp, null));
+	}
+
 	private static WorkflowDefinition RoleDefinition() {
 		var pinned = Definition(Agent(null));
 		var stage = pinned.Stages[0];

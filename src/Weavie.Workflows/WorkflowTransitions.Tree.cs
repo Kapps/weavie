@@ -7,26 +7,21 @@ internal sealed partial class WorkflowTransitions {
 		frame = run.FrameOf(frame.Id)!;
 		run = run with { Frame = frame.Id, Stage = stage.Id };
 		if (stage.Context == WorkflowContext.Fork && stage.Reuse is null) {
-			// A fork entered again copies its source again.
-			run = Update(run, frame.Id, f => f with { Opened = [.. f.Opened.Where(o => o != stage.Id)] });
+			// A fork entered again copies its source again, and the earlier copy's undelivered reports go with it.
+			run = Update(run, frame.Id, f => f with { Opened = [.. f.Opened.Where(o => o != stage.Id)], Owed = Without(f.Owed, stage.Id) });
 		}
 
 		if (stage.Repeats) {
 			if (!TryResolve(run, stage.Foreach!, out var list, out string missing)) return Pause(run, missing);
 			var items = list.Flat();
-			if (items.Count == 0) {
-				return Enter(Store(run, frame, stage, stage.Outputs.ToDictionary(o => o.Name, _ => new WorkflowValue { Entries = [] })), frame, Following(stage));
-			}
+			if (items.Count == 0) return Enter(Store(run, frame, stage, Repeated(stage, [], [])), frame, Following(stage));
 
 			run = Update(run, frame.Id, f => f with { Loops = new(f.Loops) { [stage.Id] = new() { Items = items, Results = [] } } });
 			return StartEntry(run, frame, stage, 1);
 		}
 
 		if (stage.Stages.Count > 0) {
-			var body = run.Frames.FirstOrDefault(f => f.Parent == frame.Id && f.Stage == stage.Id && f.Entry == 0);
-			if (body is null) {
-				(run, body) = AddFrame(run, frame, stage, 0, "");
-			}
+			if (Body(run, frame.Id, stage.Id) is not { } body) (run, body) = AddFrame(run, frame, stage, 0, "");
 			return Enter(run, body, stage.Stages[0].Id);
 		}
 
@@ -78,18 +73,23 @@ internal sealed partial class WorkflowTransitions {
 			return StartEntry(run, run.FrameOf(entry.Parent)!, stage, entry.Entry + 1);
 		}
 
-		var outputs = new Dictionary<string, WorkflowValue>(StringComparer.Ordinal);
-		foreach (var output in stage.Outputs) {
-			List<WorkflowEntryValue> entries = [.. loop.Results.Select((result, i) => (result, i))
-				.Where(r => r.result.ContainsKey(output.Name))
-				.Select(r => new WorkflowEntryValue { Item = loop.Items[r.i], Value = r.result[output.Name] })];
-			if (entries.Count > 0) outputs[output.Name] = new WorkflowValue { Entries = entries };
-		}
 		run = Update(run, entry.Parent, f => f with { Loops = Without(f.Loops, stage.Id) });
-		run = Store(run, run.FrameOf(entry.Parent)!, stage, outputs);
+		run = Store(run, run.FrameOf(entry.Parent)!, stage, Repeated(stage, loop.Items, loop.Results));
 		var step = Advance(run, run.FrameOf(entry.Parent)!, stage);
 		return step with { Effects = [new WorkflowEffect.EnterStage(), .. step.Effects] };
 	}
+
+	// A repeated stage's outputs: each holds the value of every entry that reported it, none when no entry did.
+	private static Dictionary<string, WorkflowValue> Repeated(
+		WorkflowStage stage, IReadOnlyList<string> items, IReadOnlyList<Dictionary<string, WorkflowValue>> results) =>
+		stage.Outputs.ToDictionary(output => output.Name, output => new WorkflowValue {
+			Entries = [.. results.Select((result, i) => (result, i)).Where(r => r.result.ContainsKey(output.Name))
+				.Select(r => new WorkflowEntryValue { Item = items[r.i], Value = r.result[output.Name] })],
+		}, StringComparer.Ordinal);
+
+	/// <summary>The record of non-repeated stage <paramref name="stage"/> with stages, inside record <paramref name="frame"/>, once entered.</summary>
+	internal static WorkflowFrame? Body(WorkflowRun run, string frame, string stage) =>
+		run.Frames.FirstOrDefault(f => f.Parent == frame && f.Stage == stage && f.Entry == 0);
 
 	private static WorkflowRun Store(WorkflowRun run, WorkflowFrame frame, WorkflowStage stage, Dictionary<string, WorkflowValue> values) =>
 		Update(run, frame.Id, f => f with { Outputs = new(f.Outputs) { [stage.Id] = values } });
@@ -98,16 +98,14 @@ internal sealed partial class WorkflowTransitions {
 	private static WorkflowRun Report(
 		WorkflowRun run, WorkflowStage stage, WorkflowFrame? entry, WorkflowFrame sits, Dictionary<string, WorkflowValue> values, string summary) {
 		if (stage.Context == WorkflowContext.Continue) return run;
-		string text = ReportText(run, stage, entry, sits, values, summary, own: true);
-		var target = sits.Conversation;
-		string frame = target?.Frame ?? run.Frames[0].Id;
-		string key = target?.Opener ?? "";
+		string text = ReportText(run, stage, entry, sits, values, summary);
+		var (frame, key) = Address(run, sits.Conversation);
 		return Update(run, frame, f => f with { Owed = new(f.Owed) { [key] = Join(f.Owed.GetValueOrDefault(key, ""), text) } });
 	}
 
 	private static string ReportText(
-		WorkflowRun run, WorkflowStage stage, WorkflowFrame? entry, WorkflowFrame sits, Dictionary<string, WorkflowValue> values, string summary, bool own) =>
-		$"Stage {Position(run, stage.Id, entry, sits)} {(own ? "ran in its own conversation and completed" : "completed")}.\nOutputs: "
+		WorkflowRun run, WorkflowStage stage, WorkflowFrame? entry, WorkflowFrame sits, Dictionary<string, WorkflowValue> values, string summary) =>
+		$"Stage {Position(run, stage.Id, entry, sits)} {(stage.Context != WorkflowContext.Continue ? "ran in its own conversation and completed" : "completed")}.\nOutputs: "
 		+ (values.Count == 0 ? "{}" : string.Join("\n", values.Select(output => $"{output.Key} = {output.Value.Render()}")))
 		+ $"\nSummary: {summary}";
 
@@ -121,7 +119,7 @@ internal sealed partial class WorkflowTransitions {
 	}
 
 	private static string Entry(WorkflowRun run, WorkflowFrame? frame) => frame is not { Entry: > 0 } ? ""
-		: $" (entry {frame.Entry} of {run.FrameOf(frame.Parent)?.Loops.GetValueOrDefault(frame.Stage)?.Items.Count}: \"{frame.Item.Split('\n')[0].Trim()}\")";
+		: $" (entry {frame.Entry} of {run.EntryCount(frame)}: \"{WorkflowValue.Label(frame.Item)}\")";
 
 	/// <summary>The conversation the run's stage takes its turns in, or <see langword="null"/> for main.</summary>
 	public WorkflowConversationRef? TurnConversation(WorkflowRun run) => TurnConversation(run, definition);
@@ -153,13 +151,17 @@ internal sealed partial class WorkflowTransitions {
 			: owner.Conversation;
 	}
 
-	private static string OwedTo(WorkflowRun run, WorkflowConversationRef? conversation) =>
-		conversation is null ? run.Frames[0].Owed.GetValueOrDefault("", "")
-		: run.FrameOf(conversation.Frame)?.Owed.GetValueOrDefault(conversation.Opener, "") ?? "";
+	// Where the reports owed to a conversation are kept: its owning record and opener, or the root's empty key for main.
+	private static (string Frame, string Key) Address(WorkflowRun run, WorkflowConversationRef? conversation) =>
+		conversation is null ? (run.Frames[0].Id, "") : (conversation.Frame, conversation.Opener);
+
+	private static string OwedTo(WorkflowRun run, WorkflowConversationRef? conversation) {
+		var (frame, key) = Address(run, conversation);
+		return run.FrameOf(frame)?.Owed.GetValueOrDefault(key, "") ?? "";
+	}
 
 	private static WorkflowRun ClearOwed(WorkflowRun run, WorkflowConversationRef? conversation) {
-		string frame = conversation?.Frame ?? run.Frames[0].Id;
-		string key = conversation?.Opener ?? "";
+		var (frame, key) = Address(run, conversation);
 		return Update(run, frame, f => f.Owed.ContainsKey(key) ? f with { Owed = Without(f.Owed, key) } : f);
 	}
 

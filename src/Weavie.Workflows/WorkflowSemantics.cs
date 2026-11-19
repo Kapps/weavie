@@ -2,24 +2,27 @@ namespace Weavie.Workflows;
 
 /// <summary>Checks a well-shaped workflow's meaning across fields: ids, targets, conversations, and which values each field reads.</summary>
 internal static class WorkflowSemantics {
-	private enum Field { If, Foreach, Run, Outputs, Then }
+	private enum Field { If, Foreach, Run, Then }
 
 	public static void Check(WorkflowDefinition definition, string fileId, WorkflowCheck check) {
 		if (definition.Id != fileId) {
 			check.Add("id", $"id \"{definition.Id}\" must match the file name \"{fileId}\"");
 		}
 
+		// The tree's lookups key on ids, so its other checks only run once every id is unique.
 		var seen = new HashSet<string>(StringComparer.Ordinal);
+		bool unique = true;
 		foreach (var (stage, path) in Paths(definition.Stages, "stages")) {
 			if (stage.Id == "run") {
 				check.Add($"{path}.id", "stage id \"run\" is reserved for run references");
 			}
 			if (!seen.Add(stage.Id)) {
 				check.Add($"{path}.id", $"stage id \"{stage.Id}\" is used twice");
+				unique = false;
 			}
 		}
 
-		if (check.HasErrors) return;
+		if (!unique) return;
 		foreach (var (stage, path) in Paths(definition.Stages, "stages")) {
 			CheckStage(definition, stage, path, check);
 		}
@@ -54,15 +57,12 @@ internal static class WorkflowSemantics {
 			CheckForeach(definition, stage, path, check);
 		}
 
-		foreach (var output in stage.Outputs.Where(o => o.Source is not null)) {
-			var source = output.Source!;
-			if (stage.Stages.FirstOrDefault(c => c.Id == source.Scope)?.Outputs.Any(o => o.Name == source.Name) != true) {
-				check.Add($"{path}.outputs.{output.Name}", $"{source} names no output of a stage inside \"{stage.Id}\"");
-			}
+		foreach (var output in stage.Outputs.Where(o => o.Source is { } source && stage.Copied(source) is null)) {
+			check.Add($"{path}.outputs.{output.Name}", $"{output.Source} names no output of a stage inside \"{stage.Id}\"");
 		}
 
 		if (stage.If is { } condition) {
-			CheckQuestion(definition, stage, condition, Field.If, $"{path}.if", seesOutputs: false, check);
+			CheckQuestion(definition, stage, condition, Field.If, $"{path}.if", check);
 		}
 
 		var siblings = definition.List(stage);
@@ -83,7 +83,7 @@ internal static class WorkflowSemantics {
 					check.Add($"{path}.then.limit", "limit applies only to decisions the model answers");
 				}
 
-				CheckQuestion(definition, stage, decide.Question, Field.Then, $"{path}.then", seesOutputs: stage.Outputs.Count > 0, check);
+				CheckQuestion(definition, stage, decide.Question, Field.Then, $"{path}.then", check);
 				WorkflowEvidenceWarnings.CheckOutputs(definition, stage, decide.Question, $"{path}.then.ask", check);
 				break;
 		}
@@ -135,15 +135,16 @@ internal static class WorkflowSemantics {
 			return;
 		}
 		if (!CheckReferences(definition, stage, stage.Foreach, Field.Foreach, $"{path}.foreach", check)) return;
-		var type = WorkflowReferences.TypeOf(definition, reference);
-		bool repeated = definition.TryStage(reference.Scope)?.Repeats == true && !WorkflowReferences.IsEntry(definition, reference);
-		if (type is not (WorkflowValueType.List or WorkflowValueType.Files) && !repeated) {
+		if (WorkflowReferences.TypeOf(definition, reference) is not (WorkflowValueType.List or WorkflowValueType.Files)
+			&& !WorkflowReferences.IsRepeated(definition, reference)) {
 			check.Add($"{path}.foreach", $"{reference} is not a list");
 		}
 	}
 
+	// A then decision also sees the stage's output values.
 	private static void CheckQuestion(
-		WorkflowDefinition definition, WorkflowStage stage, WorkflowQuestion question, Field field, string path, bool seesOutputs, WorkflowCheck check) {
+		WorkflowDefinition definition, WorkflowStage stage, WorkflowQuestion question, Field field, string path, WorkflowCheck check) {
+		bool seesOutputs = field == Field.Then && stage.Outputs.Count > 0;
 		if (question.By == WorkflowAnswerer.User && question.Confidence is not null) {
 			check.Add($"{path}.confidence", "confidence applies only to decisions the model answers");
 		}
@@ -187,18 +188,17 @@ internal static class WorkflowSemantics {
 		if (WorkflowReferences.TypeOf(definition, reference) is null) {
 			return $"{reference} names no output declared by a stage \"{reference.Scope}\"";
 		}
-		if (target == from) return null;
-		if (Encloses(definition, from, target)) {
-			bool child = definition.Parent(target) == from;
-			return child && field == Field.Then && from.Repeats
-				? $"{reference} is one entry's value; a repeated stage's then reads its own outputs"
-				: child && field is Field.Outputs or Field.Then ? null
-				: $"{reference} is inside stage \"{OutermostBelow(definition, from, target).Id}\"; read an output of \"{OutermostBelow(definition, from, target).Id}\" instead";
-		}
-		if (Visible(definition, from, target)) return null;
-		var hidden = Hidden(definition, from, target);
-		return $"{reference} is inside stage \"{hidden.Id}\"; read an output of \"{hidden.Id}\" instead";
+		if (target == from || Visible(definition, from, target)) return null;
+		if (!Encloses(definition, from, target)) return Inside(reference, Hidden(definition, from, target));
+		if (definition.Parent(target) != from) return Inside(reference, OutermostBelow(definition, from, target));
+		return field != Field.Then ? $"{reference} is set inside stage \"{from.Id}\"; only its outputs and then read it"
+			: from.Repeats ? $"{reference} is one entry's value; a repeated stage's then reads its own outputs"
+			: null;
 	}
+
+	private static string Inside(WorkflowReference reference, WorkflowStage holder) =>
+		$"{reference} is inside stage \"{holder.Id}\"; read an output of \"{holder.Id}\" instead";
+
 
 	// Whether outer holds inner at any depth.
 	private static bool Encloses(WorkflowDefinition definition, WorkflowStage outer, WorkflowStage inner) {

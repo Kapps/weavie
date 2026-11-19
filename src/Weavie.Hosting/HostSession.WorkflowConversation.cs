@@ -24,7 +24,7 @@ public sealed partial class HostSession {
 		public WorkflowConversationOwner(HostSession session, WorkflowStageConversation description) {
 			_session = session;
 			_description = description;
-			Key = new(description.Key.Frame, description.Key.Opener);
+			Key = KeyOf(description.Key);
 		}
 
 		private WorkflowStage Opener => _description.Opener;
@@ -104,14 +104,17 @@ public sealed partial class HostSession {
 		}
 
 		/// <summary>
-		/// The live conversation for a fork of it to copy, restored or opened when needed, under this owner's gate;
-		/// null when it was lost and the run paused for it.
+		/// This pass's conversation for a fork of it to copy, under this owner's gate: a new one when the pass hasn't used
+		/// one yet, which its own stages then continue; null when it was lost and the run paused for it.
 		/// </summary>
 		public async Task<IAgentConversation?> SourceAsync(WorkflowStageExecution visit, WorkflowKickoff kickoff, CancellationToken ct) {
 			using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
 			await _delivery.WaitAsync(stopping.Token).ConfigureAwait(false);
 			try {
-				return Live is not null || await EnsureAsync(visit, kickoff, stopping.Token).ConfigureAwait(false) is not null ? _conversation : null;
+				if (Live is not null && _session.Workflow.HasOpened(_description.Key)) return _conversation;
+				if (await EnsureAsync(visit, kickoff, stopping.Token).ConfigureAwait(false) is null) return null;
+				_session.Workflow.MarkOpened(_description.Key);
+				return _conversation;
 			} finally {
 				_delivery.Release();
 			}
@@ -119,9 +122,8 @@ public sealed partial class HostSession {
 
 		private IAgentConversation? Live => _conversation is { Completion.IsCompleted: false } live ? live : null;
 
-		// A turn that continues restores the kept conversation; otherwise, or when there is nothing to restore, a new one
-		// opens. A stage whose stages already used the conversation pauses the run instead, until the user resumes.
-		// Whether a new conversation opened, or null when none is ready.
+		// Restores the conversation this pass used, else opens one; a stage with stages that lost it pauses the run instead.
+		// True when a new conversation opened, false when one was restored, null when none is ready.
 		private async Task<bool?> EnsureAsync(WorkflowStageExecution visit, WorkflowKickoff kickoff, CancellationToken ct) {
 			if (_session.Agent.Session is not IStructuredAgentConversations conversations) {
 				throw new WorkflowException("This agent cannot open a separate workflow conversation.");
@@ -133,7 +135,7 @@ public sealed partial class HostSession {
 				try {
 					_conversation = await conversations.RestoreAsync(Binding(), ct).ConfigureAwait(false);
 				} catch (Exception ex) when (ex is not OperationCanceledException) {
-					lost = $"its earlier one could not be restored: {ex.Message}";
+					lost = ex.Message;
 				}
 			}
 			bool opened = _conversation is null;
@@ -145,11 +147,12 @@ public sealed partial class HostSession {
 				}
 				if (!await OpenAsync(conversations, visit, kickoff, ct).ConfigureAwait(false)) return null;
 				_promptImagesSent = false;
-				lost ??= renewing || !kickoff.Continues && visit.Stage.Reuse != Opener.Id ? null
+				string? line = lost is not null ? $"its earlier one could not be restored: {lost}"
 					: continues ? "its earlier one ended"
-					: $"stage \"{Opener.Id}\" has no conversation to continue";
-				string who = visit.Stage.Id == Opener.Id ? _description.Title : visit.Stage.Id;
-				if (lost is not null) _session.Agent.Structured?.Notice($"Workflow: {who} opened a new conversation; {lost}");
+					: kickoff.Continues || visit.Stage.Reuse == Opener.Id ? $"stage \"{Opener.Id}\" has no conversation to continue"
+					: null;
+				string who = visit.Stage.Reuse == Opener.Id ? visit.Stage.Id : _description.Title;
+				if (line is not null) _session.Agent.Structured?.Notice($"Workflow: {who} opened a new conversation; {line}");
 			}
 			var current = _conversation!;
 			try {

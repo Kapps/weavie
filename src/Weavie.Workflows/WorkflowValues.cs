@@ -27,7 +27,11 @@ public sealed record WorkflowValue {
 	public IReadOnlyList<string> Flat() => Entries is { } entries ? [.. entries.SelectMany(entry => entry.Value.Flat())]
 		: Items ?? (Text is { Length: > 0 } text ? [text] : []);
 
-	private static string Label(string item) => item.Split('\n')[0].Trim();
+	/// <summary>An entry's label: the first line of its item.</summary>
+	public static string Label(string item) {
+		ArgumentNullException.ThrowIfNull(item);
+		return item.Split('\n')[0].Trim();
+	}
 
 	private static string Indent(string text) => string.Join("\n", text.Split('\n').Select(line => "  " + line));
 }

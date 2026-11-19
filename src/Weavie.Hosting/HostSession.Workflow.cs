@@ -86,12 +86,10 @@ public sealed partial class HostSession {
 	// The owner of a stage conversation of the live run; described before the owners' lock, which comes after the runner's.
 	private WorkflowConversationOwner ConversationOwner(WorkflowConversationRef key) {
 		var description = Workflow.Conversation(key);
+		var live = LiveWorkflowFrames();
 		lock (_workflowConversations) {
-			if (_workflowConversations.TryGetValue(new(key.Frame, key.Opener), out var owner)) return owner;
-			if (_workflowConversations.Count == 0) {
-				var live = LiveWorkflowFrames();
-				ForgetWorkflowConversations(kept => !live.Contains(kept.Scope));
-			}
+			if (_workflowConversations.TryGetValue(KeyOf(key), out var owner)) return owner;
+			if (_workflowConversations.Count == 0) ForgetWorkflowConversations(kept => !live.Contains(kept.Scope));
 			owner = new WorkflowConversationOwner(this, description);
 			_workflowConversations.Add(owner.Key, owner);
 			_ = Background.Run(owner.RunLifetimeAsync);
@@ -115,6 +113,8 @@ public sealed partial class HostSession {
 		ForgetWorkflowConversations(kept => !live.Contains(kept.Scope));
 	};
 
+	private static AgentConversationKey KeyOf(WorkflowConversationRef conversation) => new(conversation.Frame, conversation.Opener);
+
 	private HashSet<string> LiveWorkflowFrames() => Workflow.Current is { IsFinished: false } run
 		? run.Frames.Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal)
 		: new HashSet<string>(StringComparer.Ordinal);
@@ -134,7 +134,7 @@ public sealed partial class HostSession {
 			var execution = Workflow.Execution;
 			bool lent;
 			lock (_workflowConversations) lent = execution is { Conversation: { } conversation }
-				&& _workflowConversations.GetValueOrDefault(new(conversation.Key.Frame, conversation.Key.Opener))?.Lends(execution) == true;
+				&& _workflowConversations.GetValueOrDefault(KeyOf(conversation.Key))?.Lends(execution) == true;
 			if (lent && Workflow.Current?.Kickoff is null) {
 				execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
 			}

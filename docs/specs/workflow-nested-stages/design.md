@@ -192,7 +192,8 @@ flowchart TD
   Left the ledger untouched.
 ```
 
-An entry that did not report the value is left out. With no entry reporting it the value is absent.
+An entry that did not report the value is left out. Every declared output is present once the repetition finishes,
+holding no entries when none reported it or the list was empty, so a later stage reads it without pausing.
 
 **Stage block**, the position sentence:
 
@@ -434,7 +435,7 @@ Begin(run, F, S):
   S.Context == Fork → F.Opened.Remove(S)                    // a fork entered again copies again
   S.Foreach:
     items = Flat(resolve S.Foreach)                         // unreported → Pause, as any template
-    items empty → F.Outputs[S] = {}; Enter(F, Following(S))
+    items empty → F.Outputs[S] = each output with no entries; Enter(F, Following(S))
     F.Loops[S] = (items, []); StartEntry(run, F, S, 1)
   S.Stages → B = body record of S under F, created on first entry; Enter(run, B, S.Stages[0])
   else Open(run, F, S)

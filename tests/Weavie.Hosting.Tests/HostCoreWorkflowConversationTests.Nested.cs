@@ -98,6 +98,8 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await fixture.ClosedAsync(second);
 		await fixture.ReplyAsync(null, "echo: Stage \"group\" (entry 1 of 2: \"auth\") ran in its own conversation");
 		Assert.Equal("publish", workflow.Current!.Stage);
+		// Each stage's turn waited for the previous stage's turn to end instead of steering into it.
+		Assert.DoesNotContain("_session/steering", File.ReadAllText(Path.Combine(fixture.State("conversation-acp"), "wire-prompts.jsonl")), StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -119,8 +121,65 @@ public sealed partial class HostCoreWorkflowConversationTests {
 			workflow.Current!.PausedReason);
 
 		workflow.Resume(run.Id);
+		await fixture.MessageAsync(message => Conversation(message) is null && Type(message) == "notice"
+			&& Text(message) == "Workflow: group 1 opened a new conversation; its earlier one ended");
 		var renewed = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "group 1" && Conversation(message) != group);
 		await fixture.ReplyAsync(Conversation(renewed), "echo: first on auth");
 		Assert.Equal(WorkflowPhase.Open, workflow.Current!.Phase);
+	}
+
+	private const string Again = """
+		id: conversation
+		description: A group whose first stage forks it, entered twice.
+		agents: { checker: { provider: conversation-acp, model: beta } }
+		stages:
+		  - id: group
+		    agent: checker
+		    context: fork
+		    stages:
+		      - id: task
+		        context: fork
+		        run: { prompt: do the task }
+		      - id: wrap
+		        run: { prompt: wrap up }
+		    then: { ask: Again?, by: user, choices: { again: group, stop: done } }
+		""";
+
+	[Fact]
+	public async Task AForkThatRunsFirstInAGroupForksThisPassesGroupWhichItsStagesThenContinue() {
+		await using var fixture = await ConversationFixture.StartAsync(Again);
+		var workflow = fixture.Session.Workflow;
+		workflow.Start("conversation", Json("{}"));
+		string task = Conversation(await StartedAsync(fixture, "group › task"))!;
+		await fixture.ReplyAsync(task, "echo: do the task");
+		fixture.Send(task, "control-state");
+		await fixture.ReplyAsync(task, "control state: beta/");
+		fixture.Send(task, StageDone);
+		var wrap = await fixture.MessageAsync(message => Type(message) == "item-completed" && Conversation(message) is not null
+			&& Text(message).EndsWith("wrap up", StringComparison.Ordinal));
+		string group = Conversation(wrap)!;
+		Assert.Single(fixture.Messages, message => Type(message) == "side-conversation-started" && Text(message) == "group");
+		fixture.Send(group, StageDone);
+		await fixture.ReplyAsync(null, "now asks the user: Again?");
+
+		workflow.Answer(workflow.Current!.Id, workflow.Current.Asked!.Id, "again", "");
+		var second = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "group › task" && Conversation(message) != task);
+		var reply = await fixture.ReplyAsync(Conversation(second), "echo: do the task");
+		string transcript = File.ReadAllText(Path.Combine(fixture.State("conversation-acp"), $"session-transcript-{Thread(reply)}.log"));
+		Assert.DoesNotContain("wrap up", transcript, StringComparison.Ordinal);
+		await fixture.ClosedAsync(group);
+	}
+
+	[Fact]
+	public async Task AnAgentThatRefusesANestedForkPausesTheRunWithItsReason() {
+		await using var fixture = await ConversationFixture.StartAsync(Group);
+		File.WriteAllText(Path.Combine(fixture.Session.WorkspaceRoot, "refuse-nested-fork"), "");
+		var workflow = fixture.Session.Workflow;
+		workflow.Start("conversation", Json("{}"));
+		string group = Conversation(await StartedAsync(fixture, "group"))!;
+		await fixture.ReplyAsync(group, "echo: plan the group");
+		fixture.Send(group, StageDone);
+		await Eventually(() => workflow.Current!.Phase == WorkflowPhase.Paused);
+		Assert.Contains("This agent refuses to fork a fork.", workflow.Current!.PausedReason, StringComparison.Ordinal);
 	}
 }

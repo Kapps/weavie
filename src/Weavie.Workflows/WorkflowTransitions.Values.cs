@@ -82,9 +82,12 @@ internal sealed partial class WorkflowTransitions {
 	// The single value a foreach names.
 	private bool TryResolve(WorkflowRun run, WorkflowTemplate template, out WorkflowValue value, out string missing) {
 		template.IsSingleReference(out var reference);
-		value = Lookup(run, reference) ?? WorkflowValue.Empty;
-		missing = value == WorkflowValue.Empty ? $"Stage \"{run.Stage}\" repeats over {reference}, but stage \"{reference.Scope}\" hasn't reported it." : "";
-		return missing.Length == 0;
+		if ((reference.IsRunValue ? ResolveValue(run, reference) : Lookup(run, reference)) is { } found) {
+			(value, missing) = (found, "");
+			return true;
+		}
+		(value, missing) = (WorkflowValue.Empty, $"Stage \"{run.Stage}\" repeats over {reference}, but stage \"{reference.Scope}\" hasn't reported it.");
+		return false;
 	}
 
 	private WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) =>
@@ -101,8 +104,7 @@ internal sealed partial class WorkflowTransitions {
 				? new WorkflowValue { Text = reference.Name == "item" ? entry.Item : entry.Entry.ToString(System.Globalization.CultureInfo.InvariantCulture) }
 				: null;
 		}
-		var body = run.Frames.FirstOrDefault(f => f.Parent == live.Id && f.Stage == run.Stage && f.Entry == 0);
-		return run.Chain(live.Id).Prepend(body).OfType<WorkflowFrame>()
+		return run.Chain(live.Id).Prepend(Body(run, live.Id, run.Stage)).OfType<WorkflowFrame>()
 			.Select(f => f.Outputs.GetValueOrDefault(reference.Scope)?.GetValueOrDefault(reference.Name))
 			.FirstOrDefault(value => value is not null);
 	}

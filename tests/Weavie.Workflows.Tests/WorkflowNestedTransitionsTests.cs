@@ -121,7 +121,7 @@ public sealed class WorkflowNestedTransitionsTests {
 		Assert.Equal(WorkflowPhase.Asking, asked.Run.Phase);
 		var question = asked.Run.Kickoff!;
 		Assert.Null(question.Conversation);
-		Assert.StartsWith("Stage \"review\", inside \"group\" (entry 1 of 2: \"auth\") completed.\nOutputs: verdict = bug", question.Text);
+		Assert.StartsWith("Stage \"review\", inside \"group\" (entry 1 of 2: \"auth\") ran in its own conversation and completed.\nOutputs: verdict = bug", question.Text);
 		Assert.Contains($"question {asked.Run.Asked!.Id}", question.Text);
 		Assert.Throws<WorkflowException>(() => Machine.Answer(asked.Run, asked.Run.Asked.Id + 1, "clean", ""));
 
@@ -147,7 +147,7 @@ public sealed class WorkflowNestedTransitionsTests {
 		Assert.Contains("ran in its own conversation", run.Kickoff.Text);
 
 		run = Group(run, "https://example.com/pr/2", "invoices");
-		Assert.Equal(["root"], run.Frames.Select(_ => "root"));
+		Assert.Single(run.Frames);
 		Assert.Equal(("join", null), (run.Stage, run.Kickoff!.Conversation));
 		Assert.EndsWith("Join - auth: https://example.com/pr/1\n- billing: https://example.com/pr/2.", run.Kickoff.Text);
 		Assert.Contains("Stage \"group\" (entry 2 of 2: \"billing\") ran in its own conversation and completed.", run.Kickoff.Text);
@@ -157,7 +157,7 @@ public sealed class WorkflowNestedTransitionsTests {
 	}
 
 	[Fact]
-	public void AnEmptyListSkipsTheStageWithEmptyOutputs() {
+	public void AnEmptyListSkipsTheStageAndItsOutputsHoldNoEntries() {
 		var run = Complete(Machine.Start(TestWorkflows.Start).Run, """{"groups":[]}""");
 		Assert.Equal("join", run.Stage);
 		Assert.Equal("Join .", run.Kickoff!.Text);
@@ -253,12 +253,104 @@ public sealed class WorkflowNestedTransitionsTests {
 
 	[Fact]
 	public void TheRunDocumentKeepsItsRecords() {
-		var run = Complete(Complete(Machine.Start(TestWorkflows.Start).Run, """{"groups":["auth"]}"""), """{"tasks":["schema"]}""");
+		var run = Complete(Complete(Machine.Start(TestWorkflows.Start).Run, """{"groups":["auth","billing"]}"""), """{"tasks":["schema","api"]}""");
+		run = Decide(Complete(Complete(Complete(run, """{"notes":"a"}"""), """{"notes":"b"}"""), """{"verdict":"bug"}"""), "fix");
+		run = Machine.ConversationLost(run, run.Kickoff!.Conversation!, "gone").Run;
 		var read = WorkflowRunDocument.Read(WorkflowRunDocument.Write(run))!;
 		Assert.Equal(run.Frames.Select(f => (f.Id, f.Parent, f.Stage, f.Entry, f.Item, f.Conversation)),
 			read.Frames.Select(f => (f.Id, f.Parent, f.Stage, f.Entry, f.Item, f.Conversation)));
-		Assert.Equal(["schema"], read.Frames[1].Outputs["plan"]["tasks"].Items!);
-		Assert.Equal(run.Kickoff, read.Kickoff);
+		var entry = read.FrameOf(run.Frame)!;
+		Assert.Equal(["schema", "api"], entry.Outputs["plan"]["tasks"].Items!);
+		Assert.Equal("- schema: a\n- api: b", entry.Outputs["task"]["notes"].Render());
+		Assert.Equal(run.FrameOf(run.Frame)!.Owed, entry.Owed);
+		Assert.Equal(["group", "review"], entry.Opened);
+		Assert.Equal(1, entry.Streaks["review"]);
+		Assert.Equal(run.Lost, read.Lost);
 		Assert.Equal(run.Path(), read.Path());
+	}
+
+	[Fact]
+	public void ARunSavedBeforeRecordsCannotBeRead() =>
+		Assert.ThrowsAny<JsonException>(() => WorkflowRunDocument.Read("""
+			{"run":{"id":"r-1","documentsDirectory":"/d","workflowId":"w","sourcePath":"p","sourceText":"t","inputs":{},"stage":"a",
+			"phase":"Open","decision":null,"asked":null,"attempts":0,"outputs":{},"summary":"","unreported":"","streaks":{},"note":"",
+			"pausedReason":null,"kickoff":null,"hold":null}}
+			"""));
+
+	[Fact]
+	public void AForkCarriesItsSourcesOwedReportsAndLeavesThemOwed() {
+		var run = Complete(Machine.Start(TestWorkflows.Start).Run, """{"groups":["auth"]}""");
+		run = Complete(Complete(run, """{"tasks":["schema","api"]}"""), """{"notes":"first notes"}""");
+		Assert.Contains("first notes", run.Kickoff!.Text);
+		Assert.Contains("first notes", run.FrameOf(run.FrameOf(run.Frame)!.Parent)!.Owed["group"]);
+		run = Complete(run, """{"notes":"second notes"}""");
+		Assert.Contains("first notes", run.FrameOf(run.Frame)!.Owed["group"]);
+		Assert.Contains("second notes", run.FrameOf(run.Frame)!.Owed["group"]);
+	}
+
+	[Fact]
+	public void ASecondPassOverARepeatedStageGetsNewRecords() {
+		var machine = TestWorkflows.Machine(Read("""
+			id: again
+			description: Twice.
+			stages:
+			  - id: list
+			    run: { prompt: List. }
+			    outputs: { items: list }
+			  - id: each
+			    foreach: "{{list.items}}"
+			    context: fresh
+			    run: { prompt: "Do {{each.item}}." }
+			    then: { ask: Again?, by: user, choices: { again: each, stop: done } }
+			"""));
+		var run = machine.Start(TestWorkflows.Start).Run;
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff!), Json("""{"items":["x"]}"""), "listed").Step.Run;
+		var first = run.Kickoff!.Conversation!;
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff), Json("{}"), "did x").Step.Run;
+		run = machine.Answer(WorkflowTransitions.Claim(run, run.Kickoff!), "again", "").Run;
+		var second = run.Kickoff!.Conversation!;
+		Assert.Equal(("each", false), (second.Opener, run.Kickoff.Continues));
+		Assert.NotEqual(first.Frame, second.Frame);
+	}
+
+	[Fact]
+	public void ResumeBeforeARepeatedStageCouldBeginTriesItsListAgain() {
+		var run = Machine.Jump(Machine.Start(TestWorkflows.Start).Run, "group").Run;
+		Assert.Equal((WorkflowPhase.Paused, "group"), (run.Phase, run.Stage));
+		Assert.Contains("repeats over {{design.groups}}", run.PausedReason);
+		var resumed = Machine.Resume(run).Run;
+		Assert.Equal((WorkflowPhase.Paused, run.PausedReason), (resumed.Phase, resumed.PausedReason));
+	}
+
+	[Fact]
+	public void ARepeatedStageReadsInputsAndCopiedRepeatedOutputs() {
+		var machine = TestWorkflows.Machine(Read("""
+			id: lists
+			description: Lists.
+			inputs: { items: list, extra: list? }
+			stages:
+			  - id: outer
+			    outputs: { notes: "{{inner.note}}" }
+			    stages:
+			      - id: inner
+			        foreach: "{{inputs.items}}"
+			        run: { prompt: "Note {{inner.item}}." }
+			        outputs: { note: text }
+			  - id: skipped
+			    foreach: "{{inputs.extra}}"
+			    run: { prompt: Never. }
+			    outputs: { result: text }
+			  - id: each
+			    foreach: "{{outer.notes}}"
+			    run: { prompt: "Read {{each.item}} and {{skipped.result}}." }
+			"""));
+		var start = TestWorkflows.Start with { Inputs = new() { ["items"] = new WorkflowValue { Items = ["a", "b"] } } };
+		var run = machine.Start(start).Run;
+		Assert.Equal("Note a.", run.Kickoff!.Text);
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff), Json("""{"note":"noted a"}"""), "s").Step.Run;
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff!), Json("""{"note":"noted b"}"""), "s").Step.Run;
+		Assert.Equal(["noted a", "noted b"], run.Frames[0].Outputs["outer"]["notes"].Flat());
+		Assert.Equal(("each", "Read noted a and ."), (run.Stage, run.Kickoff!.Text));
+		Assert.Empty(run.Frames[0].Outputs["skipped"]["result"].Entries!);
 	}
 }

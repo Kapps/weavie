@@ -67,10 +67,21 @@ public sealed partial class WorkflowRunner {
 		lock (_gate) return Describe(_run ?? throw new WorkflowException("This session has no workflow run."), key);
 	}
 
-	/// <summary>Whether conversation <paramref name="key"/> of the live run has taken a turn of the run.</summary>
+	/// <summary>Whether conversation <paramref name="key"/> of the live run is in use for this pass of its record.</summary>
 	public bool HasOpened(WorkflowConversationRef key) {
 		ArgumentNullException.ThrowIfNull(key);
 		lock (_gate) return _run?.FrameOf(key.Frame)?.Opened.Contains(key.Opener) == true;
+	}
+
+	/// <summary>
+	/// Records conversation <paramref name="key"/>, opened to be forked before it took a turn of its own, as in use for
+	/// this pass, so the stages that run in it continue it; nothing changes once its record is gone.
+	/// </summary>
+	public void MarkOpened(WorkflowConversationRef key) {
+		ArgumentNullException.ThrowIfNull(key);
+		lock (_gate) {
+			if (!_closed && _run is { IsFinished: false } run && run.FrameOf(key.Frame) is not null) Commit(WorkflowTransitions.Opened(run, key), []);
+		}
 	}
 
 	private WorkflowStageConversation Describe(WorkflowRun run, WorkflowConversationRef key) {
@@ -80,9 +91,7 @@ public sealed partial class WorkflowRunner {
 			Key = key,
 			Opener = opener,
 			Source = opener.Context == WorkflowContext.Fork ? WorkflowTransitions.Source(run, key) : null,
-			Agent = definition.AgentOf(opener, run.Roles) ?? (opener.Role is { } role
-				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
-				: null),
+			Agent = AgentOf(definition, run, opener),
 			Title = run.Place(key.Frame, opener.Id, totals: false),
 		};
 	}

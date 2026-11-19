@@ -71,8 +71,7 @@ internal static class WorkflowReader {
 			Context = stage.Reuse is { } reused && stages.FirstOrDefault(s => s.Id == reused) is { Reuse: null, Context: not WorkflowContext.Continue } opener
 				? opener.Context : stage.Context,
 			Outputs = [.. stage.Outputs.Select(output => output.Source is { } source
-				&& children.FirstOrDefault(c => c.Id == source.Scope)?.Outputs.FirstOrDefault(o => o.Name == source.Name) is { } copied
-				? output with { Type = copied.Type } : output)],
+				&& (stage with { Stages = children }).Copied(source) is { } copied ? output with { Type = copied.Type } : output)],
 		};
 	})];
 

@@ -843,6 +843,7 @@ export class MockHost {
 
   private hello() {
     return {
+      device: { id: "mock-device", name: "mock-host" },
       hostIncarnation: "mock-host",
       buildNumber: this.buildNumber,
       sessions: this.sessions,

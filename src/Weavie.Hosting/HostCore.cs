@@ -47,6 +47,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
+	private readonly DeviceIdentity _device;
+	private readonly SettingsTools _settingsTools;
 	private readonly CommandRegistry _commandRegistry;
 	private readonly CommandDispatcher _clientCommands;
 	private readonly SuggestionRegistry _suggestionRegistry;
@@ -161,6 +163,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 				"ui-dispatch-failure", "View Logs", CoreCommands.ViewLogs, null);
 		});
 		_settings = services.Settings;
+		_device = services.Device;
+		_settingsTools = new SettingsTools(_settings, _device.Name);
 		_userDictionary = new(Path.Combine(Path.GetDirectoryName(_settings.FilePath)!, "dictionary.txt"), confined: false, watch: true);
 		_userDictionary.Changed += InvalidateSpelling;
 		_spellLanguages = new(_settings, _spellingHttp);
@@ -185,7 +189,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		FontCommands.RegisterHandlers(_clientCommands, _settings);
 		GitBlameCommands.RegisterHandlers(_clientCommands, _settings);
 		ReviewItemCommands.RegisterHandlers(_clientCommands, _settings);
-		InferenceCommands.RegisterHandlers(_clientCommands, _settings);
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;

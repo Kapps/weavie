@@ -12,10 +12,10 @@ public static class InferenceCommands {
 		ArgumentNullException.ThrowIfNull(registry);
 		registry.Register(new CommandDefinition {
 			Id = CoreCommands.EnableAutomaticInference,
+			Scope = CommandScope.Host,
 			Title = "Enable Automatic Inference",
 			RunsIn = CommandLocation.Core,
 			OnTimeout = OperationSeverity.ActionFailed,
-			Owner = CommandOwner.Client,
 			Category = "AI",
 			Description = "Allow Weavie to make isolated automatic model calls for small product suggestions. "
 				+ "Calls use the selected provider when it exposes ad-hoc inference and may spend tokens.",
@@ -55,7 +55,9 @@ public static class InferenceCommands {
 			(_, _) => Task.FromResult(EnableAutomatic(settings)));
 	}
 
-	private static CommandResult EnableAutomatic(SettingsStore settings) {
+	/// <summary>Turns automatic inference on in <paramref name="settings"/>, the machine's own.</summary>
+	public static CommandResult EnableAutomatic(SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
 		bool alreadyEnabled = IsEnabled(settings);
 		try {
 			var shadows = new List<string>();

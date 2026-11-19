@@ -92,7 +92,7 @@ public sealed class InferenceCommandsTests : IDisposable {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.EnableAutomaticInference);
 
 		Assert.Equal(CommandLocation.Core, command.RunsIn);
-		Assert.Equal(CommandOwner.Client, command.Owner);
+		Assert.Equal((CommandOwner.Backend, CommandScope.Host), (command.Owner, command.Scope));
 		Assert.Empty(command.DefaultKeybindings);
 		Assert.True(command.ShowInPalette);
 	}

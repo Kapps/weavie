@@ -4,9 +4,6 @@ using Weavie.Core.Commands;
 
 namespace Weavie.Core.Configuration;
 
-/// <summary>The stable identity of one Weavie root, named by the pages it serves.</summary>
-public sealed record DeviceIdentity(string Id, string Name);
-
 /// <summary>One settings tool call: <c>list</c>, <c>get</c>, <c>set</c> or <c>clear</c>.</summary>
 public sealed record SettingsRequest(string Operation, string? Key, JsonElement? Value);
 
@@ -28,15 +25,17 @@ public sealed class DeviceUnavailableException(string message) : Exception(messa
 /// </summary>
 public sealed class SettingsTools : IDeviceSettings {
 	private readonly SettingsStore _store;
-	private readonly string _hostName;
 
 	/// <summary>Creates the tools over <paramref name="store"/> on the host named <paramref name="hostName"/>.</summary>
 	public SettingsTools(SettingsStore store, string hostName) {
 		ArgumentNullException.ThrowIfNull(store);
 		ArgumentException.ThrowIfNullOrEmpty(hostName);
 		_store = store;
-		_hostName = hostName;
+		HostName = hostName;
 	}
+
+	/// <summary>The name this host's results report.</summary>
+	public string HostName { get; }
 
 	/// <summary>Whether <paramref name="key"/> is a machine or repo setting of this host.</summary>
 	public bool OwnsMachineKey(string key) =>
@@ -91,7 +90,7 @@ public sealed class SettingsTools : IDeviceSettings {
 		try {
 			if (request.Operation == "list") {
 				string rows = _store.BuildIndexJson(repoRoot, definition => definition.Owner == SettingOwner.Device == device);
-				return new($"{{\"host\":\"{JsonEncodedText.Encode(_hostName)}\",{rows[1..]}", IsError: false);
+				return new($"{{\"host\":\"{JsonEncodedText.Encode(HostName)}\",{rows[1..]}", IsError: false);
 			}
 
 			if (request.Key is not { Length: > 0 } key) {
@@ -102,7 +101,7 @@ public sealed class SettingsTools : IDeviceSettings {
 				return new(device ? $"{key} is not a device setting." : $"{key} is a device setting.", IsError: true);
 			}
 
-			string where = device ? $"on this device ({_hostName})" : $"on this machine ({_hostName})";
+			string where = device ? $"on this device ({HostName})" : $"on this machine ({HostName})";
 			return request.Operation switch {
 				"get" => new(repoRoot is null ? _store.BuildGetJson(key) : _store.BuildGetJson(key, repoRoot), IsError: false),
 				"set" when request.Value is { } value => new(

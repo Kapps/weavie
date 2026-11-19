@@ -25,7 +25,14 @@ export interface SessionCatalogEntry {
   repoLabel: string;
 }
 
+/** The stable identity of one Weavie root, named by the pages it serves. */
+export interface DeviceIdentity {
+  id: string;
+  name: string;
+}
+
 export interface HostHello {
+  device: DeviceIdentity;
   hostIncarnation: string;
   buildNumber: string;
   sessions: SessionCatalogEntry[];
@@ -123,6 +130,7 @@ export class HostConnection {
     readonly isLocal: boolean,
     private readonly write: (json: string) => void,
     private readonly onError: (error: unknown) => void,
+    private readonly home: () => DeviceIdentity,
   ) {
     this.sessionCatalogFeature = this.host.feature("sessions");
     this.sessionCatalogFeature.on<SessionCatalogEntry[]>("catalog", (catalog) => {
@@ -274,7 +282,11 @@ export class HostConnection {
   }
 
   private async connectCore(): Promise<HostHello> {
-    const hello = await this.host.feature("connection").request<HostHello>("hello", {});
+    const hello = await this.host
+      .feature("connection")
+      .request<HostHello, { home: DeviceIdentity | null }>("hello", {
+        home: this.isLocal ? null : this.home(),
+      });
     this.hello = hello;
     const helloListeners = [...this.helloListeners];
     this.notifyHello(this.initializingListeners, [...this.initializingListeners], hello);

@@ -112,6 +112,7 @@ public sealed partial class HostCore {
 		RegisterCredentialHandlers(session);
 		RegisterDecisionProviderHandler(session);
 		session.Commands.RegisterHandler(CoreCommands.ResetCommandLearning, (_, _) => Task.FromResult(ResetCommandLearning()));
+		Weavie.Core.Inference.InferenceCommands.RegisterHandlers(session.Commands, _settings);
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
@@ -175,8 +176,11 @@ public sealed partial class HostCore {
 		_sessions?.Find(SlotIdForTest(slot) ?? slot)?.Session;
 
 	/// <summary>Test seam for the id of the slot labelled <paramref name="label"/>.</summary>
-	internal string? SlotIdForTest(string label) =>
-		_sessions?.Slots.FirstOrDefault(slot => string.Equals(slot.Label, label, StringComparison.Ordinal))?.Id;
+	internal string? SlotIdForTest(string label) => SlotForTest(label)?.Id;
+
+	/// <summary>The slot labelled <paramref name="label"/>, loaded or not.</summary>
+	internal SessionSlot? SlotForTest(string label) =>
+		_sessions?.Slots.FirstOrDefault(slot => string.Equals(slot.Label, label, StringComparison.Ordinal));
 
 	/// <summary>Test seam for the ordinary session attached to the user-owned workspace checkout.</summary>
 	internal HostSession? WorkspaceSessionForTest =>
@@ -233,16 +237,16 @@ public sealed partial class HostCore {
 
 		string providerId = AvailableWorkspaceSessionProvider();
 		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
-		var session = CreateSession(Home, HomeFolder, _workspaceSessionLabel, providerId, shellTerminals);
 		var slot = new SessionSlot {
 			Label = _workspaceSessionLabel,
+			Device = NewDevice(null),
 			Repo = Home,
 			WorktreePath = HomeFolder,
 			AgentProviderId = providerId,
-			Session = session,
 			EditorSession = EditorSession.Empty,
 			ShellTerminals = shellTerminals,
 		};
+		var session = slot.Session = CreateSession(slot);
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
 		ActivateSessionRuntimeAndMessages(session);
@@ -278,6 +282,7 @@ public sealed partial class HostCore {
 
 				_sessions.Add(new SessionSlot {
 					Label = label,
+					Device = NewDevice(null),
 					Repo = Home,
 					WorktreePath = status.Path,
 					AgentProviderId = agentProviderId,
@@ -502,6 +507,7 @@ public sealed partial class HostCore {
 		AgentConsultation = _agentConsultation,
 		PtyLauncher = _platform.PtyLauncher,
 		Runtime = _runtime,
+		MachineName = _settingsTools.HostName,
 		Workflow = new() {
 			Roles = _workflowRoles,
 			DocumentsDirectory = _workflowDocuments.ForRun,
@@ -510,14 +516,10 @@ public sealed partial class HostCore {
 		},
 	};
 
-	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
-	private HostSession CreateSession(
-		Repo repo,
-		string cwd,
-		string label,
-		string agentProviderId,
-		IReadOnlyList<string> shellTerminals) {
-		string slotId = SessionSlot.IdFor(cwd);
+	/// <summary>Builds + wires a new <see cref="HostSession"/>: the live backend for <paramref name="slot"/>.</summary>
+	private HostSession CreateSession(SessionSlot slot) {
+		var (repo, cwd, label, agentProviderId, shellTerminals) = (slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
+		string slotId = slot.Id;
 		LogStartup($"session {slotId}: constructing");
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
@@ -533,6 +535,7 @@ public sealed partial class HostCore {
 				_sessionServices,
 				new SessionOwner {
 					Peers = new BoundSessionPeers(this, address, side: null),
+					DeviceSettings = new BoundDeviceSettings(this, slot.Device),
 					InputFrozen = () => _drainInputFrozen,
 					AcceptTerminalInput = (userInitiated, accept) => TryAcceptInput(slotId, userInitiated, accept),
 					ShellResized = _sessionStore.RecordShellSize,
@@ -545,6 +548,7 @@ public sealed partial class HostCore {
 			}
 
 			session.DisplayLabel = label;
+			TrackDevice(session, slot.Device);
 			WireSession(session);
 			_fileRoutes.Register(session.Incarnation, session.WorkspaceRoot);
 			LogStartup($"session {slotId}: constructed");
@@ -569,7 +573,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
+			slot.Session = CreateSession(slot);
 			slot.Session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(slot.Session, slot);
 		}
@@ -649,9 +653,13 @@ public sealed partial class HostCore {
 			: new AggregateException("Session load and rollback both failed.", failures);
 	}
 
+	// A session takes the device of the page that created it, or of the session an agent created it from.
+	private static DeviceIdentity? SourceDevice(SessionSlot? source) => source?.Device.Current.Home;
+
 	private Task<CommandResult> NewSessionAsync(
 		SessionAddress? sourceAddress,
 		NewSessionRequest request,
+		Func<SessionSlot?, DeviceIdentity?> device,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
@@ -694,7 +702,7 @@ public sealed partial class HostCore {
 				}
 			}
 
-			var start = new SessionStart(repo, input, provider, documents.Directory);
+			var start = new SessionStart(repo, input, provider, documents.Directory, device(source));
 			return await (request.Existing
 				? AttachExistingSessionAsync(start, request.Branch, ct)
 				: CreateWorktreeSessionAsync(start, source, request.Branch, request.Base, ct)).ConfigureAwait(false);
@@ -712,7 +720,7 @@ public sealed partial class HostCore {
 			if (await CurrentSourceAsync(source.Address, ct).ConfigureAwait(false) is not { } sourceSlot) return SourceGone();
 			using var documents = _workflowDocuments.Acquire(sourceSlot.WorktreePath);
 			return await CreateWorktreeSessionAsync(
-					new(sourceSlot.Repo, input, sourceSlot.AgentProviderId, documents.Directory),
+					new(sourceSlot.Repo, input, sourceSlot.AgentProviderId, documents.Directory, SourceDevice(sourceSlot)),
 					sourceSlot,
 					request.Branch,
 					"source",
@@ -1096,9 +1104,9 @@ public sealed partial class HostCore {
 	private static bool IsLiveWorktree(string worktreePath) =>
 		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
 
-	// What a new session starts from: the repo it is created in, its first input, its provider, and its documents.
+	// What a new session starts from: the repo it is created in, its first input, its provider, its documents, and its device.
 	private sealed record SessionStart(
-		Repo Repo, InitialSessionInput? Input, string AgentProviderId, string? WorkflowDocumentsDirectory);
+		Repo Repo, InitialSessionInput? Input, string AgentProviderId, string? WorkflowDocumentsDirectory, DeviceIdentity? Device);
 
 	private async Task<CommandResult> CreateWorktreeSessionAsync(
 		SessionStart start,
@@ -1245,14 +1253,15 @@ public sealed partial class HostCore {
 				IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 				slot = new SessionSlot {
 					Label = branch,
+					Device = NewDevice(start.Device),
 					Repo = start.Repo,
 					WorktreePath = record.Path,
 					WorkflowDocumentsDirectory = start.WorkflowDocumentsDirectory,
 					AgentProviderId = start.AgentProviderId,
-					Session = CreateSession(start.Repo, record.Path, branch, start.AgentProviderId, shellTerminals),
 					EditorSession = EditorSession.Empty,
 					ShellTerminals = shellTerminals,
 				};
+				slot.Session = CreateSession(slot);
 				slot.Session.InheritedWorkflowDocuments = start.WorkflowDocumentsDirectory;
 				// The repo has a session now, so it is one of the workspace's; its setup command (e.g. `pnpm install`)
 				// runs in the background, toasting "setting up… → ready/failed".

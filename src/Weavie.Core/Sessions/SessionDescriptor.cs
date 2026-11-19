@@ -1,3 +1,4 @@
+using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 
 namespace Weavie.Core.Sessions;
@@ -24,6 +25,9 @@ public sealed record SessionDescriptor {
 
 	/// <summary>The documents folder inherited from the session that created this one, if any.</summary>
 	public string? WorkflowDocumentsDirectory { get; set; }
+
+	/// <summary>The home of the device the session belongs to; <c>null</c> when that is this host.</summary>
+	public DeviceIdentity? Device { get; set; }
 
 	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
 	public required bool Loaded { get; init; }

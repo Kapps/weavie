@@ -29,6 +29,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
 });
 
 const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHello => ({
+  device: { id: "host-id", name: "host" },
   hostIncarnation,
   buildNumber: "test",
   sessions,
@@ -98,7 +99,7 @@ const event = (
   error: null,
 });
 
-function harness(initialHello: HostHello) {
+function harness(initialHello: HostHello, isLocal = true) {
   const sent: MessageEnvelope[] = [];
   const errors: unknown[] = [];
   let nextHello = initialHello;
@@ -106,7 +107,7 @@ function harness(initialHello: HostHello) {
   connection = new HostConnection(
     "local",
     "Local",
-    true,
+    isLocal,
     (json) => {
       const envelope = parseEnvelope(json);
       if (envelope === null) {
@@ -120,6 +121,7 @@ function harness(initialHello: HostHello) {
       }
     },
     (error) => errors.push(error),
+    () => ({ id: "home-id", name: "laptop" }),
   );
   return {
     connection,
@@ -132,6 +134,17 @@ function harness(initialHello: HostHello) {
 }
 
 describe("HostConnection session ownership", () => {
+  it("names its home in the hello only to a host that doesn't serve the page", async () => {
+    const helloPayload = async (isLocal: boolean) => {
+      const host = harness(hello("host-one", []), isLocal);
+      await host.connection.connect();
+      return host.sent.find((envelope) => envelope.name === "hello")?.payload;
+    };
+
+    expect(await helloPayload(false)).toEqual({ home: { id: "home-id", name: "laptop" } });
+    expect(await helloPayload(true)).toEqual({ home: null });
+  });
+
   it("initializes host defaults before installing sessions, including reconnects", async () => {
     const primary = address("primary", "one");
     const initial = hello("host-one", [entry("primary", primary)]);

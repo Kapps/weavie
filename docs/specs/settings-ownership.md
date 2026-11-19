@@ -59,6 +59,8 @@ Settings that change sides:
   defaults and travel with the other device settings. `agent.defaultProvider` stays per host.
 - `commands.learning` is a machine setting; the page keeps following each host's usage snapshot.
 - `gettingStarted.completed` is a device setting, so a host offers setup only to pages it is home for.
+- Turning on automatic inference changes machine settings, so `Enable Automatic Inference` is a host command of
+  the machine that offered it.
 - `agent.planReview.autoOpen`, `pr.autoReviewPrompt` and `workflow.openReviewItem` shape what a session does
   and are read by its host, so they are machine settings.
 
@@ -76,11 +78,11 @@ and by each push, so a page that reconnects shows what changed while it was away
 **Home identity.** Each Weavie root has a stable identity `{ id, name }` in `~/.weavie/device.json`. A page
 learns its home's identity from the home hello and names it in the hello it sends every other host.
 
-**A session's device** is the home of the page that last gave its agent input: a submitted prompt, an aside
-reply, or keystrokes into the agent's terminal. A session takes the device of the page that created it, and a
-session an agent creates takes its creator's. Wake-ups, workflow stages and messages from other sessions
-change nothing. The device is persisted with the session; a session with none recorded belongs to its own
-host.
+**A session's device** is the home of the page that last gave it input: typing or submitting in its composer,
+answering its agent, keystrokes into one of its terminals, or running one of its commands. A session takes the
+device of the page that created it, and a session an agent creates takes its creator's. Wake-ups, workflow
+stages and messages from other sessions change nothing. The device is persisted with the session; a session
+with none recorded belongs to its own host.
 
 `listSettings`, `getSetting`, `setSetting` and `clearSetting` handle the keys their host owns (machine and
 repo) and send every other key to the session's device:
@@ -107,7 +109,8 @@ sequenceDiagram
 - The page forwards device requests to its home's device feature and nothing else.
 - `listSettings` returns machine and repo keys from this host and device keys from the home, each row naming
   its owner. With the device unreachable it lists its own keys and says the device's are unavailable.
-- Every result says where it applied: `on this device (cachy)` or `on this machine (remdeb)`.
+- Every write says where it applied, `on this device (cachy)` or `on this machine (remdeb)`, and `listSettings`
+  names both.
 - With no page from the device's home connected, the tool fails naming the device. It never writes the
   session host's own file instead. A request to a connected page has no deadline of its own; it ends when the
   page answers or its connection drops.

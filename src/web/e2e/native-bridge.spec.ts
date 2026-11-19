@@ -108,6 +108,7 @@ test.describe("native in-process bridge contract", () => {
           message.name === "hello"
         ) {
           respond(message, {
+            device: { id: "native-device", name: "native-host" },
             hostIncarnation: "native-host",
             buildNumber: "test",
             sessions: [

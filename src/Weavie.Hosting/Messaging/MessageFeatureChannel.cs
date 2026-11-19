@@ -46,6 +46,14 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
+		HandleOwnedAfterResponse(name, activity, requestType, responseType, (request, _, ct) => handler(request, ct));
+
+	internal IDisposable HandleOwnedAfterResponse<TRequest, TResponse>(
+		string name,
+		MessageActivity activity,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
+		Func<TRequest, MessagePeer, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
 		_bus.HandleAfterResponse(_feature, name, activity, requestType, responseType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
@@ -125,6 +133,15 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
+		HandleKeyedOwned(name, activity, requestType, responseType, lane, (request, _, ct) => handler(request, ct));
+
+	internal IDisposable HandleKeyedOwned<TRequest, TResponse>(
+		string name,
+		Func<TRequest, MessageActivity> activity,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
+		Func<TRequest, string> lane,
+		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) =>
 		_bus.HandleKeyed(_feature, name, activity, requestType, responseType, lane, handler);
 
 	/// <summary>Registers an event handler that may run concurrently with other work in this feature.</summary>
@@ -151,20 +168,22 @@ internal interface IMessageFeatureTarget {
 }
 
 internal sealed class MessagePeer {
-	private readonly WebPeer _peer;
 	private bool _connected = true;
 
 	public MessagePeer(MessageBus bus, WebPeer peer) {
-		_peer = peer;
+		Transport = peer;
 		Target = new MessageTarget(bus, peer);
 	}
 
 	public MessageTarget Target { get; }
 
+	/// <summary>The transport peer, the same on every bus the page talks to.</summary>
+	internal WebPeer Transport { get; }
+
 	/// <summary>False from the moment the page disconnects, before any disconnect handler runs.</summary>
 	internal bool IsConnected => Volatile.Read(ref _connected);
 
-	internal bool Is(WebPeer peer) => _peer == peer;
+	internal bool Is(WebPeer peer) => Transport == peer;
 
 	internal void MarkDisconnected() => Volatile.Write(ref _connected, false);
 }

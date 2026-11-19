@@ -432,13 +432,38 @@ function clearBackendPhase(backendId: string): void {
   });
 }
 
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function homeConnection(): HostConnection {
+  return hostConnection(LOCAL_BACKEND_ID) ?? fail("The Weavie host is not connected.");
+}
+
 function createConnection(
   id: string,
   name: string,
   isLocal: boolean,
   send: (json: string) => void,
 ): HostConnection {
-  const connection = new HostConnection(id, name, isLocal, send, (error) => reportError(id, error));
+  const connection = new HostConnection(
+    id,
+    name,
+    isLocal,
+    send,
+    (error) => reportError(id, error),
+    () =>
+      homeConnection().currentHello?.device ??
+      fail("The host serving this page hasn't answered yet."),
+  );
+  if (!isLocal) {
+    // The host's only route to this page's device: device settings requests go to the home and nowhere else.
+    connection.host
+      .feature("device")
+      .handle("settings", (request) =>
+        homeConnection().host.feature("device").request("settings", request),
+      );
+  }
   connection.onCatalog(reconcileSessions);
   connection.onHello((hello) => {
     if (connection.isLocal) {

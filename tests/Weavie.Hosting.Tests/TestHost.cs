@@ -668,6 +668,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			new HttpClient(http), new FileCredentialStore(credentialsDir), settings, inference);
 		return new HostServices {
 			Settings = settings,
+			Device = DeviceIdentity.LoadOrCreate(Path.Combine(tempRoot, "device.json")),
 			CommandRegistry = registry,
 			SuggestionRegistry = Weavie.Core.Suggestions.CoreSuggestions.CreateRegistry(),
 			Keybindings = keybindings,

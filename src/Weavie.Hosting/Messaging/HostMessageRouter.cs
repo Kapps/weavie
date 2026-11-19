@@ -33,6 +33,9 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 
 	public HostMessageBus Host { get; }
 
+	/// <summary>The home each connected page named; a disconnecting page leaves it before its requests settle.</summary>
+	internal PageHomes Homes { get; } = new();
+
 	internal DiagnosticWorker Diagnostics { get; }
 
 	internal MessageHealthSnapshot Health(bool ingressResponsive) => _operations.Snapshot(ingressResponsive);
@@ -119,6 +122,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	}
 
 	public void Disconnect(WebPeer peer) {
+		Homes.Disconnected(peer);
 		lock (_viewLifecycle) {
 			_views.Disconnect(peer);
 			Host.Disconnect(peer);

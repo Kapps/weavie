@@ -268,7 +268,7 @@ public sealed partial class HostCore {
 		}
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) =>
-			_core.NewSessionAsync(_source.Address, request, ct);
+			_core.NewSessionAsync(_source.Address, request, SourceDevice, ct);
 
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);

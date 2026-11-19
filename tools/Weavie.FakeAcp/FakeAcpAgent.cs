@@ -646,14 +646,15 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private string StatePath(string name) => Path.Combine(_stateDirectory, name);
 
-	// As claude-agent-acp reads it: the command is the first block, exactly; only assistant-audience context may follow.
+	// As the real agents read it: codex-acp takes the command from the first block, claude-agent-acp from the last text block.
 	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
-		var block = prompt[0];
-		if (AcpJson.OptionalString(block, "type") != "text"
-			|| AcpJson.OptionalString(block, "text") != text) {
-			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
+		static bool Invokes(JsonElement block, string text) => AcpJson.OptionalString(block, "type") == "text"
+			&& AcpJson.OptionalString(block, "text") == text && !IsAssistantAudience(block);
+		if (!Invokes(prompt[0], text)
+			|| !Invokes(prompt.EnumerateArray().Last(block => AcpJson.OptionalString(block, "type") == "text"), text)) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' was not both the first block and the last text block.", null);
 		}
-		if (prompt.EnumerateArray().Skip(1).Any(next => AcpJson.OptionalString(next, "type") != "image" && !IsAssistantAudience(next))) {
+		if (prompt.EnumerateArray().Any(next => AcpJson.OptionalString(next, "type") != "image" && !IsAssistantAudience(next) && !Invokes(next, text))) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
 		}
 	}
@@ -1496,7 +1497,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	}
 
 	// The user's text: assistant-audience blocks are Weavie's context for the model, not the prompt.
-	private static string PromptText(JsonElement prompt) => string.Concat(TextBlocks(prompt, assistant: false));
+	private static string PromptText(JsonElement prompt) {
+		string?[] text = [.. TextBlocks(prompt, assistant: false)];
+		// A command sent with other blocks arrives as both the first and the last text block: one invocation.
+		return text is [['/', ..] command, var repeat] && repeat == command ? command : string.Concat(text);
+	}
 
 	private static IEnumerable<string?> AssistantContext(JsonElement prompt) => TextBlocks(prompt, assistant: true);
 

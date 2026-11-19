@@ -8,18 +8,27 @@ internal sealed partial class AcpConversation {
 	private PreparedPrompt BuildPrompt(AgentTurnSubmission submission) {
 		var blocks = new List<JsonNode>();
 		var images = new List<SubmittedImage>();
+		JsonObject? command = null;
 		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
 			lock (_gate) {
-				blocks.Add(AcpContent.Text(CanonicalCommandText(submission.Text, ResolveProviderCommandLocked(submission.CommandName).Name)));
+				command = AcpContent.Text(CanonicalCommandText(submission.Text, ResolveProviderCommandLocked(submission.CommandName).Name));
 			}
-			// The command stays the first block, which is how agents recognize it; images and context may follow it.
+			blocks.Add(command);
 			AddImages(submission, blocks, images);
-			if (submission.CarriesTurnContext && _binding.TurnContext.Compose() is { Length: > 0 } stage) {
-				blocks.Add(AcpContent.AssistantText(stage));
-			}
-			return new([.. blocks], images);
+		} else {
+			AddPromptBlocks(submission, blocks, images);
 		}
+		if (_spec.Role == AcpConversationRole.Side) {
+			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
+		} else if ((command is null || submission.CarriesTurnContext) && _binding.TurnContext.Compose() is { Length: > 0 } turnContext) {
+			blocks.Add(AcpContent.AssistantText(turnContext));
+		}
+		// Agents read a command from the first block or from the last text block, so one with company is sent as both.
+		if (command is not null && blocks.Count > 1) blocks.Add(command.DeepClone());
+		return new([.. blocks], images);
+	}
 
+	private void AddPromptBlocks(AgentTurnSubmission submission, List<JsonNode> blocks, List<SubmittedImage> images) {
 		if (submission.Sender is { } sender) blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SessionMessage(sender)));
 		bool includesGuidance = false;
 		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
@@ -56,14 +65,6 @@ internal sealed partial class AcpConversation {
 		if (includesGuidance) {
 			lock (_gate) _guidanceSent = true;
 		}
-
-		if (_spec.Role == AcpConversationRole.Side) {
-			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
-		} else if (_binding.TurnContext.Compose() is { Length: > 0 } turnContext) {
-			blocks.Add(AcpContent.AssistantText(turnContext));
-		}
-
-		return new([.. blocks], images);
 	}
 
 	private void RequireImageSupport(AgentTurnSubmission submission) {

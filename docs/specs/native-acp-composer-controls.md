@@ -46,7 +46,7 @@ flowchart LR
 
   UI -->|typed provider command| Host
   Host -->|validated submission| Client
-  Client -->|session/prompt: one text block| ACP
+  Client -->|session/prompt: the command block| ACP
 ```
 
 The host validates every selected value against the current advertised axis before sending it. A
@@ -64,7 +64,8 @@ conversation instead applies the primary conversation's live control values and 
 The ACP agent advertises models, reasoning levels, fast mode, modes, commands, skills, and plugins. A provider
 command is validated against the latest complete command snapshot, queued until the primary prompt is idle, and
 sent through standard `session/prompt` as exactly one text block. It never goes through steering and never receives
-implicit Weavie guidance, editor context, or image blocks. Waiting for a turn never blocks the composer: later
+implicit Weavie guidance or editor context. One that carries images, a side conversation's scope reminder, or a
+workflow stage block is laid out as [native ACP agents](../concepts/native-acp-agents.md) describes. Waiting for a turn never blocks the composer: later
 prompts steer past a queued command, and the composer shows the host's queue above the input until each entry is
 delivered. Commands without input execute when accepted; commands
 with ACP input metadata stage the canonical invocation and show the provider's hint. Unknown `/name` text remains

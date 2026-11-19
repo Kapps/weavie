@@ -88,5 +88,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		Assert.Equal("/review review the change", blocks[0].GetProperty("text").GetString());
 		Assert.Equal("image", blocks[1].GetProperty("type").GetString());
 		Assert.Equal(session.Workflow.Execution!.Compose(false), blocks[2].GetProperty("text").GetString());
+		Assert.Equal("/review review the change", blocks[3].GetProperty("text").GetString());
+		Assert.Equal(4, blocks.Length);
 	}
 }

@@ -53,5 +53,14 @@ test("BTW completes and executes agent commands in forks without changing the pr
     "Never include source code from non-public repositories",
   );
   expect(records[1].parameters.prompt[1].text).toBe("invented details");
-  expect(records[2].parameters.prompt).toEqual([{ type: "text", text: "/compact" }]);
+  const command = { type: "text", text: "/compact" };
+  expect(records[2].parameters.prompt).toEqual([
+    command,
+    {
+      type: "text",
+      text: expect.stringContaining("You are a side agent in a /btw conversation"),
+      annotations: { audience: ["assistant"] },
+    },
+    command,
+  ]);
 });

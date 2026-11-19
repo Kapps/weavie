@@ -344,8 +344,8 @@ also report an error and are reconciled on a later startup. Worktrees are never 
 Each turn during a run carries a short **stage block**: run, stage, expected outputs, and how to complete. Weavie
 appends it to every prompt it sends an ACP agent, and adds it for terminal Claude through a `UserPromptSubmit` hook on
 the hook bridge. The next turn always restates the stage, so compaction cannot lose it. A `skill` stage's opening
-turn is the provider command as the first block with the stage block after it, which agents read as the command plus
-context; other provider commands the user sends stay a single block.
+turn is the provider command as both the first block and the last text block, with the stage block between them:
+agents read a command from one of those two places. Other provider commands the user sends stay a single block.
 
 A stage's turn is owed by the run until it is handed to the agent: it is sent only if, at that moment, the run still
 owes exactly that turn, so a cancel, pause, or newer turn retires it. An owed turn survives a restart and is sent
@@ -761,5 +761,5 @@ can already ask the agent to use one.
 - `completeStage` waits for its check. Claude over ACP aborts an HTTP MCP call that sends no response headers within
   60s, so the response must stream (SSE) rather than return headers only when the check finishes.
 - Fork support for terminal Claude: `--fork-session` starts a separate process outside the PTY pane.
-- Skill stages on codex-acp: a stage's opening command is followed by the stage block. claude-agent-acp runs the
-  skill and sees the block (verified against 0.99.1); codex-acp is unverified.
+- Skill stages on codex-acp are unverified. A command sent with other blocks runs natively and its context reaches
+  the model on claude-agent-acp 0.107.0 and codex-acp 2.6.0, verified with a side conversation's scope reminder.

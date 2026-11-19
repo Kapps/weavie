@@ -70,7 +70,7 @@ public sealed class WorkflowConfidenceReaderTests {
 		var read = WorkflowReader.ReadProposal(Document("Ready?", "done"));
 		Assert.Null(read.Definition!.Stages[0].If!.Confidence);
 		using var schema = JsonDocument.Parse(WorkflowSchema.Json);
-		var confidence = schema.RootElement.GetProperty("properties").GetProperty("stages").GetProperty("items")
+		var confidence = schema.RootElement.GetProperty("$defs").GetProperty("stage")
 			.GetProperty("properties").GetProperty("if").GetProperty("oneOf")[1].GetProperty("properties").GetProperty("confidence");
 		Assert.Equal("number", confidence.GetProperty("type").GetString());
 		Assert.Equal(0, confidence.GetProperty("minimum").GetDouble());

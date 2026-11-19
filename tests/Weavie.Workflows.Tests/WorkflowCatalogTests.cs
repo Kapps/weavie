@@ -32,7 +32,7 @@ public sealed class WorkflowCatalogTests : IDisposable {
 	[Fact]
 	public void PrepareFillsEachRoleThroughTheResolverOrLeavesNoLaunch() {
 		_dir.WriteFile("worktree/.weavie/workflows/roles.yaml",
-			"id: roles\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go, role: planner }\n  - id: b\n    run: { prompt: go, role: builder }\n");
+			"id: roles\ndescription: d\nstages:\n  - id: a\n    role: planner\n    run: { prompt: go }\n  - id: b\n    role: builder\n    run: { prompt: go }\n");
 		static WorkflowAgent Agent(string name) => new() { Name = name, Provider = "p", Model = "m", Options = new Dictionary<string, string>() };
 
 		var launch = Catalog().Prepare("roles", NoInputs, null, WorkflowStartPrompt.None, new FixedRoles([Agent("builder"), Agent("planner")]));
@@ -177,9 +177,11 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.Contains("authors may ignore intentional warnings", schema["description"]!.GetValue<string>(), StringComparison.Ordinal);
 		Assert.False(schema["additionalProperties"]!.GetValue<bool>());
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
-		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
-		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
-		Assert.Equal(["context", "prompt", "skill", "args", "outputs", "agent", "role"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal("#/$defs/stage", schema["properties"]!["stages"]!["items"]!["$ref"]!.GetValue<string>());
+		var stage = schema["$defs"]!["stage"]!["properties"]!.AsObject();
+		Assert.Equal(["id", "if", "foreach", "agent", "role", "context", "run", "stages", "outputs", "then"], stage.Select(p => p.Key));
+		Assert.Equal(["prompt", "skill", "args"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal("#/$defs/stage", stage["stages"]!["items"]!["$ref"]!.GetValue<string>());
 		var agent = schema["properties"]!["agents"]!["additionalProperties"]!;
 		Assert.Equal(["provider", "model", "options"], agent["properties"]!.AsObject().Select(p => p.Key));
 		Assert.Equal(["provider"], agent["required"]!.AsArray().Select(n => n!.GetValue<string>()));

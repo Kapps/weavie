@@ -13,11 +13,10 @@ internal static class WorkflowStageBlock {
 			return "";
 		}
 
-		var stage = definition.Stages.First(s => s.Id == run.Stage);
-		bool independent = stage.Run.Context != WorkflowContext.Continue;
+		var stage = definition.Stage(run.Stage);
+		bool independent = stage.Run is not null && WorkflowTransitions.TurnConversation(run, definition) is not null;
 		var text = new StringBuilder()
-			.Append($"[{words.Host} workflow] Run {run.Id} of workflow \"{run.WorkflowId}\" is at stage \"{run.Stage}\" ")
-			.Append($"({definition.Stages.ToList().IndexOf(stage) + 1} of {definition.Stages.Count}). ");
+			.Append($"[{words.Host} workflow] Run {run.Id} of workflow \"{run.WorkflowId}\" is at stage {WorkflowTransitions.Position(run)}. ");
 		if (continued is not null && run.Phase == WorkflowPhase.Open) text.Append(continued == stage
 			? $"Stage \"{stage.Id}\" has opened again; your earlier work on it is above. "
 			: $"Stage \"{stage.Id}\" continues the conversation of stage \"{continued.Id}\"; that work is above. ");
@@ -37,24 +36,24 @@ internal static class WorkflowStageBlock {
 
 	/// <summary>Tells the agent to put <paramref name="asked"/> to the user.</summary>
 	public static string PutToUser(WorkflowAsked asked, WorkflowEnvironment environment) =>
-		$"{environment.Words.Host} now asks the user: {asked.Question} (answers: {string.Join(", ", asked.Choices)}). "
+		$"{environment.Words.Host} now asks the user: {asked.Question} (answers: {string.Join(", ", asked.Choices)}; question {asked.Id}). "
 		+ (environment.OpenReviewItem()
 			? $"If the question is about a document or file, call {environment.Words.OpenFile} with preview, rendered, and focus true on the main one only, and link any others in your reply. "
 			: "")
 		+ "Put that question to the user with what they need to answer it, and end your turn.";
 
 	private static string OpenInstructions(WorkflowStage stage, WorkflowVocabulary words) {
-		string outputs = stage.Run.Outputs.Count == 0
+		string outputs = stage.Outputs.Count == 0
 			? "with no outputs ({})"
-			: "with outputs " + string.Join(", ", stage.Run.Outputs.Select(o => $"\"{o.Name}\" ({o.Type.ToString().ToLowerInvariant()})"));
+			: "with outputs " + string.Join(", ", stage.Outputs.Select(o => $"\"{o.Name}\" ({o.Type.ToString().ToLowerInvariant()})"));
 		return $"Do the stage's work, talking with the user when it needs them. When it is truly finished, call {words.CompleteStage} {outputs} and a short summary of what you did and found (decisions read it), then end your turn; {words.Host} starts the next stage. If you can't finish it, call {words.FailStage} with the reason.";
 	}
 
 	private static string AnswerRules(WorkflowRun run, WorkflowVocabulary words) {
 		var asked = run.Asked!;
-		return $"{words.Host} is asking the user: \"{asked.Question}\" (answers: {string.Join(", ", asked.Choices)})"
+		return $"{words.Host} is asking the user question {asked.Id}: \"{asked.Question}\" (answers: {string.Join(", ", asked.Choices)})"
 			+ (asked.Reason.Length == 0 ? ". " : $"; {asked.Reason}. ")
 			+ $"Never answer for the user. Only when the user explicitly gives one of those answers, call {words.RunCommand} "
-			+ $"{words.Answer} with run \"{run.Id}\", their choice, and their own words as feedback (empty when they gave none).";
+			+ $"{words.Answer} with run \"{run.Id}\", question {asked.Id}, their choice, and their own words as feedback (empty when they gave none).";
 	}
 }

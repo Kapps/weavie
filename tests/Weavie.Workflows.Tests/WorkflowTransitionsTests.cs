@@ -16,8 +16,8 @@ public sealed class WorkflowTransitionsTests {
 		    if: "is {{inputs.task}} big?"
 		    run:
 		      prompt: "plan {{inputs.task}}"
-		      outputs:
-		        dir: text
+		    outputs:
+		      dir: text
 		    then:
 		      ask: "approve {{plan.dir}}?"
 		      by: user
@@ -70,7 +70,7 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Equal(("plan", WorkflowPhase.Open, "plan auth"), (yes.Run.Stage, yes.Run.Phase, Kickoff(yes)));
 		var no = OpenBuild();
 		Assert.Equal(("build", "/implement auth"), (no.Run.Stage, Kickoff(no)));
-		Assert.Equal(new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/implement auth", Command = "implement", Opens = "build" }, no.Run.Kickoff);
+		Assert.Equal(("/implement auth", "implement", "build", null), (no.Run.Kickoff!.Text, no.Run.Kickoff.Command, no.Run.Kickoff.Opens, no.Run.Kickoff.Conversation));
 		Assert.Equal("plan", yes.Run.Kickoff!.Opens);
 	}
 
@@ -163,7 +163,7 @@ public sealed class WorkflowTransitionsTests {
 		var asking = machine.Complete(machine.Start(TestWorkflows.Start).Run, Json("{}"), "s").Step.Run;
 		var next = machine.Answer(asking, "yes", "");
 		Assert.Contains("really?", next.Run.Kickoff!.Text);
-		Assert.Null(machine.Cancel(next.Run).Run.Kickoff);
+		Assert.Null(WorkflowTransitions.Cancel(next.Run).Run.Kickoff);
 	}
 
 	[Fact]
@@ -181,7 +181,8 @@ public sealed class WorkflowTransitionsTests {
 			description: d
 			stages:
 			  - id: a
-			    run: { prompt: "do a", outputs: { left: list } }
+			    run: { prompt: "do a" }
+			    outputs: { left: list }
 			    then:
 			      ask: "anything left in {{a.left}}?"
 			      choices: { yes: a, no: done }
@@ -214,7 +215,7 @@ public sealed class WorkflowTransitionsTests {
 	public void JumpOpensAStageRegardlessOfItsIfAndCancelEnds() {
 		var jumped = Machine.Jump(Started().Run, "plan");
 		Assert.Equal(("plan", WorkflowPhase.Open), (jumped.Run.Stage, jumped.Run.Phase));
-		Assert.Equal(WorkflowPhase.Cancelled, Machine.Cancel(jumped.Run).Run.Phase);
+		Assert.Equal(WorkflowPhase.Cancelled, WorkflowTransitions.Cancel(jumped.Run).Run.Phase);
 		Assert.Throws<WorkflowException>(() => Machine.Jump(jumped.Run, "nope"));
 	}
 
@@ -224,7 +225,7 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Throws<WorkflowException>(() => Machine.Answer(open, "yes", ""));
 		Assert.Throws<WorkflowException>(() => Machine.Resume(open));
 		Assert.Throws<WorkflowException>(() => Machine.Resolve(open, new WorkflowDecisionResult.Answered("yes", 1), 0.8));
-		Assert.Throws<WorkflowException>(() => Machine.Cancel(Machine.Cancel(open).Run));
+		Assert.Throws<WorkflowException>(() => WorkflowTransitions.Cancel(WorkflowTransitions.Cancel(open).Run));
 	}
 
 	[Fact]
@@ -235,7 +236,8 @@ public sealed class WorkflowTransitionsTests {
 			description: d
 			stages:
 			  - id: a
-			    run: { prompt: "a", outputs: { x: text } }
+			    run: { prompt: "a" }
+			    outputs: { x: text }
 			  - id: b
 			    run: { prompt: "use {{a.x}}" }
 			""", "refs").Definition!;

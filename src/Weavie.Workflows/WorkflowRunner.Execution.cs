@@ -12,7 +12,7 @@ public sealed partial class WorkflowRunner {
 
 	/// <summary>Captures the current visit and round for one tool admission.</summary>
 	public WorkflowStageCall? CaptureStageCall() {
-		lock (_gate) return _execution is { Stage.Run.Context: WorkflowContext.Continue } ? _execution.Capture() : null;
+		lock (_gate) return _execution is { Conversation: null } ? _execution.Capture() : null;
 	}
 
 	internal WorkflowStageCall Capture(WorkflowStageExecution execution) {
@@ -21,7 +21,7 @@ public sealed partial class WorkflowRunner {
 
 	internal string StageBlock(WorkflowStageExecution execution, bool continues) {
 		lock (_gate) return ReferenceEquals(_execution, execution)
-			? WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: true, continues ? execution.Opener : null)
+			? WorkflowStageBlock.Compose(_run, _definition, _environment.Words, ownsStage: true, continues ? execution.Conversation?.Opener : null)
 			: "";
 	}
 
@@ -52,9 +52,42 @@ public sealed partial class WorkflowRunner {
 		}
 	}
 
+	// A stage with work borrows its turn's conversation; a stage with stages, or a repetition whose entries are done, takes no turn.
 	private WorkflowStageExecution CreateExecution() {
-		var stage = _definition!.Stages.First(stage => stage.Id == _run!.Stage);
-		return new(this, _run!.Id, stage, _definition.Opener(stage));
+		var run = _run!;
+		var stage = _definition!.Stage(run.Stage);
+		var live = WorkflowTransitions.Live(run);
+		bool turns = stage.Run is not null && (!stage.Repeats || live.Stage == stage.Id && live.Entry > 0);
+		return new(this, run.Id, stage,
+			turns && WorkflowTransitions.TurnConversation(run, _definition) is { } key ? Describe(run, key) : null);
+	}
+
+	/// <summary>What the host needs to keep stage conversation <paramref name="key"/> of the live run.</summary>
+	public WorkflowStageConversation Conversation(WorkflowConversationRef key) {
+		lock (_gate) return Describe(_run ?? throw new WorkflowException("This session has no workflow run."), key);
+	}
+
+	/// <summary>Whether conversation <paramref name="key"/> of the live run has taken a turn of the run.</summary>
+	public bool HasOpened(WorkflowConversationRef key) {
+		ArgumentNullException.ThrowIfNull(key);
+		lock (_gate) return _run?.FrameOf(key.Frame)?.Opened.Contains(key.Opener) == true;
+	}
+
+	private WorkflowStageConversation Describe(WorkflowRun run, WorkflowConversationRef key) {
+		var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
+		var opener = definition.Stage(key.Opener);
+		var owner = run.FrameOf(key.Frame);
+		var levels = owner is null ? [] : run.Chain(owner.Id).Reverse().Skip(1).Select(f => f.Entry > 0 ? $"{f.Stage} {f.Entry}" : f.Stage).ToList();
+		if (owner is not { Entry: > 0 } || owner.Stage != opener.Id) levels.Add(opener.Id);
+		return new WorkflowStageConversation {
+			Key = key,
+			Opener = opener,
+			Source = opener.Context == WorkflowContext.Fork ? WorkflowTransitions.Source(run, key) : null,
+			Agent = definition.AgentOf(opener, run.Roles) ?? (opener.Role is { } role
+				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
+				: null),
+			Title = string.Join(" › ", levels),
+		};
 	}
 
 	private void UpdateExecution(IReadOnlyList<WorkflowEffect> effects, bool completed) {

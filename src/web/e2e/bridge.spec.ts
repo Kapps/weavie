@@ -1333,10 +1333,10 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(agentComposer.getByRole("button", { name: "Interrupt" })).toBeVisible();
     await expect(agentComposer.getByRole("button", { name: "Steer" })).toBeVisible();
     const composerGeometry = await agentComposer.evaluate((composer) => {
-      const textarea = composer.querySelector("textarea");
+      const draft = composer.querySelector(".agent-compose-draft");
       const actions = composer.querySelector(".agent-compose-actions");
       const actionButton = actions?.querySelector("button") ?? null;
-      if (textarea === null || actions === null || actionButton === null) {
+      if (draft === null || actions === null || actionButton === null) {
         throw new Error("mobile agent composer is incomplete");
       }
       return {
@@ -1346,18 +1346,18 @@ test.describe("session-addressed WebSocket transport", () => {
           (button) => button.getBoundingClientRect().height,
         ),
         buttonFontSize: getComputedStyle(actionButton).fontSize,
-        textareaHeight: textarea.getBoundingClientRect().height,
-        textareaRight: textarea.getBoundingClientRect().right,
-        textareaTop: textarea.getBoundingClientRect().top,
+        draftHeight: draft.getBoundingClientRect().height,
+        draftRight: draft.getBoundingClientRect().right,
+        draftTop: draft.getBoundingClientRect().top,
       };
     });
-    expect(
-      Math.abs(composerGeometry.actionsTop - composerGeometry.textareaTop),
-    ).toBeLessThanOrEqual(1);
-    expect(composerGeometry.actionsLeft).toBeGreaterThanOrEqual(composerGeometry.textareaRight);
+    expect(Math.abs(composerGeometry.actionsTop - composerGeometry.draftTop)).toBeLessThanOrEqual(
+      1,
+    );
+    expect(composerGeometry.actionsLeft).toBeGreaterThanOrEqual(composerGeometry.draftRight);
     expect(Math.min(...composerGeometry.buttonHeights)).toBeGreaterThanOrEqual(44);
     expect(composerGeometry.buttonFontSize).toBe(geometry.optionTargetFontSize);
-    expect(composerGeometry.textareaHeight).toBeGreaterThanOrEqual(44);
+    expect(composerGeometry.draftHeight).toBeGreaterThanOrEqual(44);
     host.publishHost("notifications", "show", {
       level: "error",
       message: "Agent surface error",

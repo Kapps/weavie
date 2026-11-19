@@ -607,6 +607,8 @@ public sealed partial class AgentSessionHostTests {
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? SubmissionsDropped { add { } remove { } }
+
 		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
 
 		public AgentUsageSnapshot Snapshot { get; private set; } = new(null, []);

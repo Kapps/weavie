@@ -2,6 +2,7 @@
 // hint, anchored to the live buffer, plus the hint popover as a content widget that overlays code without moving it.
 
 import {
+  type Accessor,
   createEffect,
   createMemo,
   createRoot,
@@ -19,7 +20,6 @@ import { hiddenAreas } from "../hidden-areas";
 import { keyedLineEndItems } from "../line-end-lane";
 import { monaco } from "../monaco-setup";
 import type { PrCommentController } from "../pr-comments/pr-comment-controller";
-import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { HintPill, HintPopover } from "./HintPopover";
 import { type PlacedHint, placeHints } from "./hint-anchor";
@@ -53,6 +53,7 @@ export function createReviewHints(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
   prComments: PrCommentController,
+  version: Accessor<number>,
 ): ReviewHintController {
   if (model.uri.scheme !== SESSION_FILE_SCHEME) return inert;
   const path = sessionUriHostPath(model.uri);
@@ -83,12 +84,6 @@ export function createReviewHints(
           },
         );
       }
-    });
-    const [version, setVersion] = createSignal(0);
-    let recompute: ReturnType<typeof setTimeout> | undefined;
-    const onContent = model.onDidChangeContent(() => {
-      clearTimeout(recompute);
-      recompute = setTimeout(() => setVersion((value) => value + 1), DIFF_RECOMPUTE_DEBOUNCE_MS);
     });
     const placed = createMemo((): PlacedHint[] => {
       version();
@@ -283,9 +278,7 @@ export function createReviewHints(
       placed,
       lineOf,
       dispose: () => {
-        clearTimeout(recompute);
         clearTimeout(closing);
-        onContent.dispose();
         for (const subscription of mouse) subscription.dispose();
         if (owned() !== null) openHint(session, null);
         decorations.clear();

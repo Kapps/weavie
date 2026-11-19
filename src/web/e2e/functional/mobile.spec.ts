@@ -536,7 +536,7 @@ test("the composer sends and interrupts with the keyboard dismissed", async ({ p
   };
   await expect(composer).toHaveValue("");
   expect(await edges(surface.getByRole("button", { name: "Run", exact: true }))).toEqual(
-    await edges(composer),
+    await edges(surface.locator(".agent-compose-draft")),
   );
   // An iOS tap never moves focus to a button, so the pane stays unfocused; a synthetic click does the same.
   const pressUnfocused = async (name: string): Promise<void> => {

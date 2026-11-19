@@ -9,14 +9,19 @@ const { queuedSubmissionLabel } = await import("./agent-queue-store");
 
 describe("queuedSubmissionLabel", () => {
   it("reads as the submitted text", () => {
-    expect(queuedSubmissionLabel({ text: "/compact", attachments: 0 })).toBe("/compact");
+    expect(queuedSubmissionLabel({ id: "q", text: "/compact", attachments: 0 })).toBe("/compact");
   });
 
   it("counts the images of an attachment-only submission", () => {
-    expect(queuedSubmissionLabel({ text: "", attachments: 1 })).toBe("1 image");
-    expect(queuedSubmissionLabel({ text: "", attachments: 3 })).toBe("3 images");
+    expect(queuedSubmissionLabel({ id: "q", text: "", attachments: 1 })).toBe("1 image");
+    expect(queuedSubmissionLabel({ id: "q", text: "", attachments: 3 })).toBe("3 images");
     expect(
-      queuedSubmissionLabel({ text: "ping", attachments: 0, sender: { id: "a", title: "auth" } }),
+      queuedSubmissionLabel({
+        id: "q",
+        text: "ping",
+        attachments: 0,
+        sender: { id: "a", title: "auth" },
+      }),
     ).toBe("From auth: ping");
   });
 });

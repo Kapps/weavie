@@ -446,6 +446,7 @@ export function AgentComposer(props: {
       <Show when={!props.compact}>
         <AgentWorkingStatus
           compact={false}
+          interruptHint
           pendingKind={props.pendingKind}
           turnActive={props.turnActive}
           turnStartedAt={props.turnStartedAt}
@@ -478,39 +479,41 @@ export function AgentComposer(props: {
         onAccept={acceptSlash}
         onDismiss={() => setSlashDismissed(true)}
       />
-      <textarea
-        ref={textareaRef}
-        data-agent-paste-target
-        rows={1}
-        value={composer().draft}
-        placeholder={
-          props.turnActive
-            ? "Steer the running turn…"
-            : props.compact
-              ? "Prompt — / for commands"
-              : "Write a prompt — / for commands and skills"
-        }
-        onKeyDown={onComposerKeyDown}
-        onInput={(event) => {
-          if (props.session !== null) {
-            setComposerDraft(props.session, event.currentTarget.value);
-            props.session.feature("agent").publish("typing", {});
-            // Editing starts a fresh draft, ending any history browse.
-            if (historyCursor().cursor !== null) {
-              setHistoryCursor(IDLE_CURSOR);
-            }
+      <label class="ui-draft agent-compose-draft">
+        <textarea
+          ref={textareaRef}
+          data-agent-paste-target
+          rows={1}
+          value={composer().draft}
+          placeholder={
+            props.turnActive
+              ? "Steer the running turn…"
+              : props.compact
+                ? "Prompt — / for commands"
+                : "Write a prompt — / for commands and skills"
           }
-        }}
-        onPaste={(event) => {
-          if (props.session !== null) {
-            if (props.inputProtocol >= 2) {
-              captureAgentImagePaste(event, props.session);
-            } else {
-              sendPastedImagesFromClipboard(event, props.session);
+          onKeyDown={onComposerKeyDown}
+          onInput={(event) => {
+            if (props.session !== null) {
+              setComposerDraft(props.session, event.currentTarget.value);
+              props.session.feature("agent").publish("typing", {});
+              // Editing starts a fresh draft, ending any history browse.
+              if (historyCursor().cursor !== null) {
+                setHistoryCursor(IDLE_CURSOR);
+              }
             }
-          }
-        }}
-      />
+          }}
+          onPaste={(event) => {
+            if (props.session !== null) {
+              if (props.inputProtocol >= 2) {
+                captureAgentImagePaste(event, props.session);
+              } else {
+                sendPastedImagesFromClipboard(event, props.session);
+              }
+            }
+          }}
+        />
+      </label>
       <div class="agent-compose-actions ui-button-group">
         <Show when={canInterrupt()}>
           <button

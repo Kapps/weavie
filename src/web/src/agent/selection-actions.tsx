@@ -21,8 +21,18 @@ let releaseCurrent: (() => void) | null = null;
 /** A captured excerpt belongs to its source and exact session, even while a command takes focus. */
 export function createSelectionActions(host: HTMLElement, session: ClientSession) {
   let release: (() => void) | null = null;
+  let commentOpen = (): boolean => false;
   const clear = (): void => release?.();
-  const show = (selection: AgentSelection, point: { x: number; y: number }): void => {
+  /** The selection moved on screen: a toolbar would sit off it, while a comment being written stays. */
+  const moved = (): void => {
+    if (!commentOpen()) clear();
+  };
+  /** `sent` receives the submission id and comment of a selection sent as its own prompt. */
+  const show = (
+    selection: AgentSelection,
+    point: { x: number; y: number },
+    sent: (submissionId: string, comment: string) => void,
+  ): void => {
     releaseCurrent?.();
     if (session.closed || modalActive()) return;
     const above = point.y > window.innerHeight / 2;
@@ -31,6 +41,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     const root = document.createElement("div");
     document.body.append(root);
     const [commenting, setCommenting] = createSignal(false);
+    commentOpen = commenting;
     const [comment, setComment] = createSignal("");
     const note = (): string => comment().trim();
     const attach = (): boolean => {
@@ -42,7 +53,8 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
       return true;
     };
     const send = (): boolean => {
-      sendAgentSelection(session, selection, note());
+      const id = sendAgentSelection(session, selection, note());
+      if (id !== null) sent(id, note());
       clear();
       return true;
     };
@@ -105,16 +117,17 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
-            <textarea
-              class="selection-comment-input ui-field"
-              data-agent-selection-comment
-              aria-label="Comment"
-              placeholder="Comment"
-              rows={3}
-              ref={(element) => queueMicrotask(() => element.focus())}
-              value={comment()}
-              onInput={(event) => setComment(event.currentTarget.value)}
-            />
+            <label class="ui-draft ui-field ui-draft-resize">
+              <textarea
+                data-agent-selection-comment
+                aria-label="Comment"
+                placeholder="Comment"
+                rows={3}
+                ref={(element) => queueMicrotask(() => element.focus())}
+                value={comment()}
+                onInput={(event) => setComment(event.currentTarget.value)}
+              />
+            </label>
             <div class="selection-comment-actions">
               <button type="button" class="ui-button" title="Cancel (Esc)" onClick={clear}>
                 Cancel
@@ -153,11 +166,10 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     };
     const onScroll = (event: Event): void => {
       if (
-        !commenting() &&
         event.target instanceof Node &&
         (host.contains(event.target) || event.target.contains(host))
       )
-        clear();
+        moved();
     };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -169,6 +181,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     release = () => {
       if (releaseCurrent === release) releaseCurrent = null;
       release = null;
+      commentOpen = () => false;
       for (const off of offCommands) off();
       setContext("agentSelectionAttachable", false);
       document.removeEventListener("pointerdown", onPress, true);
@@ -193,6 +206,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
   return {
     show,
     clear,
+    moved,
     dispose: () => {
       clear();
       offSession();

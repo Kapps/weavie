@@ -32,6 +32,8 @@ export function TranscriptEntry(props: {
   entry: AgentTranscriptEntry;
   keyboardRequestKey: string | null;
   latestPromptTurn: string | null;
+  /** Whether a prompt's row offers Rewind: only where the row is the conversation's own transcript. */
+  rewindable: boolean;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   onUpdatesToggle: (entryId: string, open: boolean) => void;
   sectionLabel: AgentSectionLabel | null;
@@ -124,7 +126,13 @@ export function TranscriptEntry(props: {
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
-          <Show when={agentControlState(props.session).rewindable && props.entry.promptTurnId}>
+          <Show
+            when={
+              props.rewindable &&
+              agentControlState(props.session).rewindable &&
+              props.entry.promptTurnId
+            }
+          >
             {(turnId) => (
               <RewindAction latest={turnId() === props.latestPromptTurn} turnId={turnId()} />
             )}

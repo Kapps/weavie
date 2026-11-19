@@ -979,22 +979,22 @@ a:has(> .agent-path-dir) {
   --control-h: var(--agent-compose-h);
 }
 
-.agent-compose textarea {
+/* One line sits centred at the buttons' height; a longer draft stops 2px under the edge and 1px over the
+   underline. */
+.agent-compose-draft {
+  display: grid;
+  align-content: center;
+  min-width: 0;
   min-height: var(--agent-compose-h);
-  max-height: calc(
-    var(--agent-compose-h) +
-    (var(--agent-compose-lines) - 1) *
-    var(--agent-compose-line)
-  );
-  field-sizing: content;
-  resize: none;
-  color: var(--fg);
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
   margin-left: var(--agent-control-inline-padding);
-  padding: calc((var(--agent-compose-h) - var(--agent-compose-line) - 1px) / 2) 0;
+  padding-block: 2px 1px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-compose textarea {
+  max-height: calc(var(--agent-compose-lines) * var(--agent-compose-line));
+  field-sizing: content;
+  padding-inline: 0;
 }
 
 /* The placeholder never wraps, so an empty draft is one line tall at any pane width. */
@@ -1004,8 +1004,7 @@ a:has(> .agent-path-dir) {
   text-overflow: ellipsis;
 }
 
-.agent-compose textarea:focus {
-  outline: 0;
+.agent-compose-draft:focus-within {
   border-color: var(--accent);
   box-shadow: inset 0 -1px 0 var(--accent);
 }

@@ -39,12 +39,11 @@ internal static class TestMcp {
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null,
 		ISessionPeers? sessions = null,
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null,
-		IDeviceSettings? deviceSettings = null) {
+		IDevice? device = null) {
 		var defaults = Defaults(settings, settingsWorkspaceRoot ?? workspaceFolders[0]);
 		return new McpServer(authToken, presenter, workspaceFolders, "weavie", defaults with {
 			ExposeIdeTools = exposeIdeTools,
@@ -52,12 +51,11 @@ internal static class TestMcp {
 			Editor = editor ?? defaults.Editor,
 			Commands = commands ?? defaults.Commands,
 			Keybindings = keybindings ?? defaults.Keybindings,
-			ThemeOverrides = themeOverrides ?? defaults.ThemeOverrides,
 			Sessions = sessions ?? defaults.Sessions,
 			Agents = agents ?? defaults.Agents,
 			ReviewHints = reviewHints ?? defaults.ReviewHints,
 			Workflows = workflows ?? defaults.Workflows,
-			DeviceSettings = deviceSettings ?? defaults.DeviceSettings,
+			Device = device ?? defaults.Device,
 		});
 	}
 
@@ -75,21 +73,24 @@ internal static class TestMcp {
 		var commands = CoreCommands.CreateRegistry();
 		return new() {
 			ExposeIdeTools = false,
-			Settings = settings,
 			SettingsWorkspaceRoot = settingsWorkspaceRoot,
 			SettingsTools = new SettingsTools(settings, "test-machine"),
-			DeviceSettings = new SettingsTools(settings, "test-device"),
+			Device = HomeDevice(settings, "test-device"),
 			Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			Editor = new EditorStore(),
 			Commands = new CommandDispatcher(commands),
 			Keybindings = new KeybindingStore(commands, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
-			ThemeOverrides = new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			Sessions = NoSessionPeers.Instance,
 			Agents = AgentConsultation.None,
 			ReviewHints = ReviewHintSink.None,
 			Workflows = WorkflowRegistry.None,
 		};
 	}
+
+	/// <summary>A device home over <paramref name="settings"/> and isolated theme overrides, showing dark.</summary>
+	internal static HomeDevice HomeDevice(SettingsStore settings, string name) => new(
+		new SettingsTools(settings, name),
+		new ThemeTools(settings, new ThemeOverridesStore(new InMemoryFileSystem(), "/theme-overrides.json"), new TestScreen { Showing = "dark" }, name));
 
 	/// <summary>The JSON-RPC response carried by an MCP event-stream reply (the event with an <c>id</c>).</summary>
 	internal static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response) {

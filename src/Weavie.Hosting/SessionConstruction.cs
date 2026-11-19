@@ -23,8 +23,6 @@ internal sealed record SessionServices {
 
 	public required KeybindingStore Keybindings { get; init; }
 
-	public required ThemeOverridesStore ThemeOverrides { get; init; }
-
 	public required IInferenceService Inference { get; init; }
 
 	public required AgentConsultation AgentConsultation { get; init; }
@@ -93,8 +91,8 @@ internal sealed record SessionOwner {
 	/// <summary>The session's view of the other sessions on the host.</summary>
 	public required ISessionPeers Peers { get; init; }
 
-	/// <summary>The device settings of the device the session belongs to.</summary>
-	public required IDeviceSettings DeviceSettings { get; init; }
+	/// <summary>The device the session belongs to, which answers its device settings and theme tools.</summary>
+	public required IDevice Device { get; init; }
 
 	/// <summary>Whether terminal input is frozen while the host drains for an update.</summary>
 	public required Func<bool> InputFrozen { get; init; }

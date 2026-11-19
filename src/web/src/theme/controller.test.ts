@@ -1,6 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 let receiveTheme: (value: unknown) => void;
+let hello: () => void;
+const published: { event: string; payload: unknown }[] = [];
 const properties = new Map<string, string>();
 const editorProperties = new Map<string, string>();
 vi.mock("../bridge", () => ({
@@ -8,12 +10,17 @@ vi.mock("../bridge", () => ({
   registerHomeFeature: (install: (connection: unknown) => void) =>
     install({
       onInitializing: () => () => {},
+      onHello: (listener: () => void) => {
+        hello = listener;
+        return () => {};
+      },
       host: {
         feature: () => ({
           on: (_event: string, handler: typeof receiveTheme) => {
             receiveTheme = handler;
             return () => {};
           },
+          publish: (event: string, payload: unknown) => published.push({ event, payload }),
         }),
       },
     }),
@@ -21,6 +28,7 @@ vi.mock("../bridge", () => ({
 
 beforeEach(() => {
   vi.resetModules();
+  published.length = 0;
   properties.clear();
   editorProperties.clear();
   const editorStyle = {
@@ -134,4 +142,18 @@ it("previews an editor theme on the editor surfaces only", async () => {
   expect(controller.currentEditorThemeId()).toBeUndefined();
   preview.dispose();
   expect(editorProperties.get("--bg")).toBe(properties.get("--bg"));
+});
+
+it("reports the saved polarity to its home on hello and on each change, never for a preview", async () => {
+  const controller = await import("./controller");
+  receiveTheme({ mode: "dark", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } });
+  expect(published).toEqual([]);
+  hello();
+  receiveTheme({ mode: "dark", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } });
+  controller.beginThemePreview("app").show({ id: "weavie-light" });
+  receiveTheme({ mode: "light", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } });
+  expect(published).toEqual([
+    { event: "showing", payload: { polarity: "dark" } },
+    { event: "showing", payload: { polarity: "light" } },
+  ]);
 });

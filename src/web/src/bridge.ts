@@ -485,12 +485,12 @@ function createConnection(
       fail("The host serving this page hasn't answered yet."),
   );
   if (!isLocal) {
-    // The host's only route to this page's device: device settings requests go to the home and nowhere else.
-    connection.host
-      .feature("device")
-      .handle("settings", (request, signal) =>
-        homeFeature("device").request("settings", request, signal),
-      );
+    // The host's only route to this page's device: device tool requests go to the home and nowhere else.
+    for (const name of ["settings", "themes"]) {
+      connection.host
+        .feature("device")
+        .handle(name, (request, signal) => homeFeature("device").request(name, request, signal));
+    }
   }
   connection.onCatalog(reconcileSessions);
   connection.onHello((hello) => {

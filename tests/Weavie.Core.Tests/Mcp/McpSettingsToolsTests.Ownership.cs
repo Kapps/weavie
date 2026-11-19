@@ -7,17 +7,24 @@ namespace Weavie.Core.Tests;
 
 // The settings tools route by owner: machine and repo keys stay on this host, every other key goes to the device.
 public sealed partial class McpSettingsToolsTests {
-	private sealed class FakeDevice(Func<SettingsRequest, SettingsReply> answer) : IDeviceSettings {
+	private sealed class FakeDevice(Func<SettingsRequest, ToolReply> answer) : IDevice {
 		public List<SettingsRequest> Requests { get; } = [];
 
-		public Task<SettingsReply> RequestAsync(SettingsRequest request, CancellationToken ct) {
+		public List<ThemeRequest> ThemeRequests { get; } = [];
+
+		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) {
 			Requests.Add(request);
 			return Task.FromResult(answer(request));
 		}
+
+		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) {
+			ThemeRequests.Add(request);
+			return Task.FromResult(new ToolReply($"{request.Tool} on laptop.", IsError: false));
+		}
 	}
 
-	private async Task<JsonElement> CallAsync(SettingsStore store, IDeviceSettings device, string tool, string arguments) {
-		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, deviceSettings: device);
+	private async Task<JsonElement> CallAsync(SettingsStore store, IDevice device, string tool, string arguments) {
+		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store, device: device);
 		using var ws = await ConnectAsync(server.Start());
 		await SendAsync(ws, Request(2, "tools/call", $$"""{"name":"{{tool}}","arguments":{{arguments}}}"""));
 		using var response = await ReceiveAsync(ws);
@@ -69,7 +76,7 @@ public sealed partial class McpSettingsToolsTests {
 		using var store = NewStore();
 		using var home = CoreSettings.CreateStore(_dir.Combine("home.toml"), enableWatcher: false);
 
-		var result = await CallAsync(store, new SettingsTools(home, "laptop"), "listSettings", "{}");
+		var result = await CallAsync(store, TestMcp.HomeDevice(home, "laptop"), "listSettings", "{}");
 
 		using var index = JsonDocument.Parse(Text(result));
 		Assert.Equal(("test-machine", "laptop"), (index.RootElement.GetProperty("machine").GetString(), index.RootElement.GetProperty("device").GetString()));
@@ -90,6 +97,37 @@ public sealed partial class McpSettingsToolsTests {
 		Assert.Equal("laptop isn't connected.", index.RootElement.GetProperty("deviceUnavailable").GetString());
 		Assert.DoesNotContain(index.RootElement.GetProperty("settings").EnumerateArray(), row => row.GetProperty("owner").GetString() == "device");
 		Assert.Contains(index.RootElement.GetProperty("settings").EnumerateArray(), row => row.GetProperty("key").GetString() == "terminal.shell");
+	}
+
+	[Theory]
+	[InlineData("applyThemeTransform", """{"op":"darken","amount":0.6}""", """{"op":"darken","amount":0.6}""")]
+	[InlineData("listThemes", "null", "{}")]
+	public async Task ThemeTools_GoToTheDevice(string tool, string arguments, string sent) {
+		using var store = NewStore();
+		var device = new FakeDevice(_ => throw new InvalidOperationException("A theme tool reached the settings route."));
+
+		var result = await CallAsync(store, device, tool, arguments);
+
+		Assert.Equal($"{tool} on laptop.", Text(result));
+		var request = Assert.Single(device.ThemeRequests);
+		Assert.Equal((tool, sent), (request.Tool, request.Args.GetRawText()));
+	}
+
+	[Fact]
+	public async Task ThemeTools_FailNamingTheDevice_WhenItIsUnavailable() {
+		using var store = NewStore();
+		var device = new UnreachableDevice();
+
+		var result = await CallAsync(store, device, "describeTheme", "{}");
+
+		Assert.True(IsError(result));
+		Assert.Equal("laptop isn't connected.", Text(result));
+	}
+
+	private sealed class UnreachableDevice : IDevice {
+		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => throw new DeviceUnavailableException("laptop isn't connected.");
+
+		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => throw new DeviceUnavailableException("laptop isn't connected.");
 	}
 
 	[Fact]

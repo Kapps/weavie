@@ -100,6 +100,8 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
 
+	public ThemeOverridesStore ThemeOverrides => _services.ThemeOverrides;
+
 	public IEnumerable<JsonElement> UiDispatchFailures => Bridge.PostedEvents("notifications", "show")
 		.Where(message => message.TryGetProperty("key", out var key) && key.GetString() == "ui-dispatch-failure");
 

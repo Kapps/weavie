@@ -40,7 +40,6 @@ internal static class TestSessions {
 				Layout = new LayoutStore(files, LayoutPanes.CreateRegistry(), dir.Combine("layout.json")),
 				CommandRegistry = commands,
 				Keybindings = new KeybindingStore(commands, dir.Combine("keybindings.json"), enableWatcher: false),
-				ThemeOverrides = new ThemeOverridesStore(files, dir.Combine("theme-overrides.json")),
 				Inference = UnusedInferenceService.Instance,
 				AgentConsultation = AgentConsultation.None,
 				PtyLauncher = launcher,
@@ -55,7 +54,7 @@ internal static class TestSessions {
 			},
 			new SessionOwner {
 				Peers = NoSessionPeers.Instance,
-				DeviceSettings = new SettingsTools(settings, "test-device"),
+				Device = TestDevice.Home(settings),
 				InputFrozen = () => false,
 				AcceptTerminalInput = (_, accept) => accept(),
 				ShellResized = (_, _) => { },

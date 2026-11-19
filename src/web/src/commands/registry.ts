@@ -15,7 +15,6 @@ import {
   log,
   onSelectedSession,
   registerHostFeature,
-  registerSessionFeature,
   registerViewFeature,
   selectedSession,
   waitForClientSession,
@@ -646,22 +645,17 @@ registerViewFeature((session) =>
     ),
 );
 
-registerSessionFeature((session) =>
-  session
-    .feature("commands")
-    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("runClient", ({ id, args }) => {
-      const command = findCommandInCatalog(LOCAL_BACKEND_ID, id);
-      if (command?.owner !== "client") {
+// A client-owned command an agent runs on this page's device, from any session of any host.
+registerHostFeature((connection) =>
+  connection.host
+    .feature("device")
+    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("command", ({ id, args }) => {
+      if (findCommandInCatalog(LOCAL_BACKEND_ID, id)?.owner !== "client") {
         return Promise.resolve({
           ok: false,
-          error: `Command '${id}' is not owned by the local presentation client.`,
+          error: `Command '${id}' doesn't belong to the device.`,
         });
       }
-      return dispatchFromCatalog(
-        LOCAL_BACKEND_ID,
-        id,
-        args,
-        captureScope(session, new Map(), args),
-      );
+      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args, captureScope(null, new Map(), args));
     }),
 );

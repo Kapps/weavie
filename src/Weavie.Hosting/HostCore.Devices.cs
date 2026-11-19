@@ -1,16 +1,27 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// Device settings: this host answers for the pages it serves, and relays a session's device requests to a page
+// Devices: this host answers device tools for the pages it serves, and relays a session's device requests to a page
 // from that device's home. See docs/specs/settings-ownership.md.
 public sealed partial class HostCore {
-	private void WireDeviceMessages() =>
-		_messages.Host.Feature("device").Handle(
-			"settings", MessageActivity.ActionFailed("Reaching device settings"), WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply,
-			(request, _) => Task.FromResult(_settingsTools.Device(request)));
+	private void WireDeviceMessages() {
+		var device = _messages.Host.Feature("device");
+		device.Handle(
+			"settings", MessageActivity.ActionFailed("Reaching device settings"), WireJson.Default.SettingsRequest, WireJson.Default.ToolReply,
+			(request, ct) => _homeDevice.SettingsAsync(request, ct));
+		device.Handle(
+			"themes", MessageActivity.ActionFailed("Reaching device themes"), WireJson.Default.ThemeRequest, WireJson.Default.ToolReply,
+			(request, ct) => _homeDevice.ThemesAsync(request, ct));
+		device.HandleOwned("showing", MessageActivity.Droppable("Noting the theme on screen"), WireJson.Default.ThemeShowing, (message, page, _) => {
+			_messages.Show(page, message.Polarity);
+			return Task.CompletedTask;
+		});
+	}
 
 	private SessionDevice NewDevice(DeviceIdentity? home) {
 		var device = new SessionDevice();
@@ -38,23 +49,51 @@ public sealed partial class HostCore {
 			&& userInitiated.ValueKind == JsonValueKind.True,
 	};
 
-	private sealed class BoundDeviceSettings(HostCore core, SessionDevice device) : IDeviceSettings {
-		public async Task<SettingsReply> RequestAsync(SettingsRequest request, CancellationToken ct) {
+	/// <summary>The polarity a page reports it is showing: <c>light</c> or <c>dark</c>.</summary>
+	internal sealed record ThemeShowing(string Polarity);
+
+	private sealed class BoundDevice(HostCore core, SessionDevice device) : IDevice {
+		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => device.Current.Home is null
+			? core._homeDevice.SettingsAsync(request, ct)
+			: PageAsync("settings", WireJson.Default.SettingsRequest, WireJson.Default.ToolReply, request, deadline: true, ct);
+
+		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => device.Current.Home is null
+			? core._homeDevice.ThemesAsync(request, ct)
+			: PageAsync("themes", WireJson.Default.ThemeRequest, WireJson.Default.ToolReply, request, deadline: true, ct);
+
+		// A client-owned command an agent runs: a page of the device runs it, as that page's own palette would.
+		public async Task<CommandResult> CommandAsync(string id, string? argsJson, CancellationToken ct) {
+			JsonElement? args = null;
+			if (!string.IsNullOrWhiteSpace(argsJson)) {
+				using var document = JsonDocument.Parse(argsJson);
+				args = document.RootElement.Clone();
+			}
+
+			bool deadline = core._commandRegistry.Require(id).OnTimeout != OperationSeverity.NoDeadline;
+			try {
+				return FromWireResult(await PageAsync(
+					"command", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult, new CommandRequest(id, args), deadline, ct)
+					.ConfigureAwait(false));
+			} catch (DeviceUnavailableException unavailable) {
+				return CommandResult.Failure(unavailable.Message);
+			}
+		}
+
+		private async Task<TResponse> PageAsync<TRequest, TResponse>(
+			string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, bool deadline, CancellationToken ct) {
 			var (home, claimant) = device.Current;
-			if (home is null) {
-				return core._settingsTools.Device(request);
-			}
-
+			string here = core._settingsTools.HostName;
+			string there = home?.Name ?? here;
 			if (core._messages.PageFrom(home, claimant) is not { } page) {
-				throw new DeviceUnavailableException(
-					$"{home.Name} isn't connected to {core._settingsTools.HostName}, so its device settings can't be read or changed from this session.");
+				throw new DeviceUnavailableException(home is null
+					? $"No page from {here} is open, so its device can't be reached from this session."
+					: $"{there} isn't connected to {here}, so its device can't be reached from this session.");
 			}
 
-			using var timeout = new CancellationTokenSource(core._operationDeadline, core._time);
+			using var timeout = deadline ? new CancellationTokenSource(core._operationDeadline, core._time) : new CancellationTokenSource();
 			using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
 			try {
-				var answer = core._messages.Host.RequestAsync(
-					page, "device", "settings", WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply, request, either.Token);
+				var answer = core._messages.Host.RequestAsync(page, "device", name, requestType, responseType, request, either.Token);
 				// A page that left before the request was registered would never settle it.
 				if (!core._messages.TryGetHome(page, out _)) {
 					await either.CancelAsync().ConfigureAwait(false);
@@ -62,11 +101,11 @@ public sealed partial class HostCore {
 
 				return await answer.ConfigureAwait(false);
 			} catch (InvalidOperationException failure) when (core._messages.TryGetHome(page, out _)) {
-				throw new DeviceUnavailableException($"{home.Name} couldn't answer: {failure.Message}");
+				throw new DeviceUnavailableException($"{there} couldn't answer: {failure.Message}");
 			} catch (Exception gone) when (gone is InvalidOperationException or OperationCanceledException && !ct.IsCancellationRequested) {
 				throw new DeviceUnavailableException(timeout.IsCancellationRequested
-					? $"{home.Name} didn't answer within {core._operationDeadline.TotalSeconds:0} seconds; the setting may or may not have changed."
-					: $"{home.Name} disconnected before it answered; the setting may or may not have changed.");
+					? $"{there} didn't answer within {core._operationDeadline.TotalSeconds:0} seconds; it may or may not have taken effect."
+					: $"{there} disconnected before it answered; it may or may not have taken effect.");
 			}
 		}
 	}

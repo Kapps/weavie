@@ -389,17 +389,25 @@ export class MockHost {
     payload: unknown,
   ): Promise<MessageEnvelope> {
     const address = typeof session === "string" ? this.address(session) : session;
+    return this.request("session", address, feature, name, payload);
+  }
+
+  requestHost(feature: string, name: string, payload: unknown): Promise<MessageEnvelope> {
+    return this.request("host", null, feature, name, payload);
+  }
+
+  private request(
+    scope: "host" | "session",
+    session: SessionAddress | null,
+    feature: string,
+    name: string,
+    payload: unknown,
+  ): Promise<MessageEnvelope> {
     const requestId = `mock-${++this.requestSequence}`;
-    const response = this.waitFor({
-      scope: "session",
-      session: address,
-      kind: "response",
-      feature,
-      name,
-    });
+    const response = this.waitFor({ scope, session, kind: "response", feature, name });
     this.send({
-      scope: "session",
-      session: address,
+      scope,
+      session,
       kind: "request",
       requestId,
       feature,

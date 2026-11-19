@@ -35,8 +35,8 @@ public sealed class CommandDispatcher {
 	public WebCommandInvoker? WebInvoker { get; set; }
 
 	/// <summary>
-	/// The host's relay for model-invoked, client-owned Core commands. Null until a presentation client is
-	/// attached; invocation then fails loudly instead of mutating an invisible backend setting.
+	/// The host's relay for model-invoked, client-owned commands to the session's device. Null until the host
+	/// wires it; invocation then fails loudly instead of mutating an invisible backend setting.
 	/// </summary>
 	public ClientCommandInvoker? ClientInvoker { get; set; }
 
@@ -125,15 +125,15 @@ public sealed class CommandDispatcher {
 	}
 
 	/// <summary>
-	/// Prepares a model-facing invocation. Client-owned Core commands relay through the presentation client;
-	/// backend-owned and web commands follow the normal dispatcher path.
+	/// Prepares a model-facing invocation. Client-owned commands go to the session's device through
+	/// <see cref="ClientInvoker"/>; backend-owned commands follow the normal dispatcher path.
 	/// </summary>
 	public async Task<CommandExecution> PrepareModelInvocationAsync(
 		string id,
 		string? argsJson,
 		CancellationToken ct) {
 		var definition = Registry.Require(id);
-		if (definition is not { RunsIn: CommandLocation.Core, Owner: CommandOwner.Client }) {
+		if (definition.Owner != CommandOwner.Client) {
 			return await PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
 		}
 
@@ -143,7 +143,7 @@ public sealed class CommandDispatcher {
 				var invoker = ClientInvoker;
 				var result = invoker is null
 					? CommandResult.Failure(
-						$"Command '{id}' belongs to the local presentation client, which isn't connected.")
+						$"Command '{id}' belongs to the user's device, which this host can't reach.")
 					: await invoker(id, argsJson, ct).ConfigureAwait(false);
 				return CommandExecution.Completed(result);
 			},

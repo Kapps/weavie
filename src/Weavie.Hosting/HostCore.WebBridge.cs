@@ -608,21 +608,8 @@ public sealed partial class HostCore {
 		return execution;
 	}
 
-	private Task<CommandResult> InvokeWebCommandAsync(
+	private async Task<CommandResult> InvokeWebCommandAsync(
 		HostSession session,
-		string id,
-		string? argsJson,
-		CancellationToken ct) => InvokeViewCommandAsync(session, "run", id, argsJson, ct);
-
-	private Task<CommandResult> InvokeClientCommandAsync(
-		HostSession session,
-		string id,
-		string? argsJson,
-		CancellationToken ct) => InvokeViewCommandAsync(session, "runClient", id, argsJson, ct);
-
-	private async Task<CommandResult> InvokeViewCommandAsync(
-		HostSession session,
-		string name,
 		string id,
 		string? argsJson,
 		CancellationToken ct) {
@@ -633,7 +620,7 @@ public sealed partial class HostCore {
 		}
 
 		var result = await session.View.Feature("commands").RequestAsync(
-			name, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
+			"run", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			new CommandRequest(id, args),
 			ct).ConfigureAwait(false);
 		return FromWireResult(result);

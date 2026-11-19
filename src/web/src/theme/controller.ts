@@ -5,7 +5,7 @@
 // editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
 import { createSignal } from "solid-js";
-import type { ThemeMode, ThemeSlot } from "../bridge";
+import { registerHomeFeature, type ThemeMode, type ThemeSlot } from "../bridge";
 import { deviceSetting } from "../device-settings";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
@@ -288,7 +288,31 @@ function reapplyActive(): void {
   for (const handler of previewSubscribers) {
     handler();
   }
+  for (const report of showingReporters) {
+    report();
+  }
 }
+
+// The home aims theme tools at the polarity on screen, so `system` mode edits the theme the user sees.
+const showingReporters = new Set<() => void>();
+registerHomeFeature((connection) => {
+  // Undefined until the home's hello; null once a hello needs a fresh report.
+  let reported: Polarity | null | undefined;
+  const report = (): void => {
+    if (reported === undefined || currentThemeType() === reported) return;
+    reported = currentThemeType();
+    connection.host.feature("device").publish("showing", { polarity: reported });
+  };
+  const offHello = connection.onHello(() => {
+    reported = null;
+    report();
+  });
+  showingReporters.add(report);
+  return () => {
+    offHello();
+    showingReporters.delete(report);
+  };
+});
 
 function setActive(injected: InjectedTheme): void {
   state = computeState(injected);

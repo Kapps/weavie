@@ -18,10 +18,14 @@ const options: LaunchOptions = {
 
 const settingsFile = (home: string): Promise<string> =>
   readFile(join(home, ".weavie", "settings.toml"), "utf8");
+const themeOverridesFile = (home: string): Promise<string> =>
+  readFile(join(home, ".weavie", "theme-overrides.json"), "utf8").catch(() => "");
 
 // A page served by one host (its home) working in a session on another: the two-machine shape of a native app
 // attached to a runner.
-test("a remote session's agent changes a device setting on the page's home", async ({ page }) => {
+test("a remote session's agent changes device settings, themes and commands on the page's home", async ({
+  page,
+}) => {
   const runner = await launchRunner(options);
   const home = await launchHeadless({
     ...options,
@@ -36,6 +40,7 @@ test("a remote session's agent changes a device setting on the page's home", asy
       maxRedirects: 0,
     });
     expect(connect.status()).toBe(302);
+    await page.emulateMedia({ colorScheme: "light" });
     await page.goto(home.url, { waitUntil: "domcontentloaded" });
     await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
 
@@ -65,6 +70,26 @@ test("a remote session's agent changes a device setting on the page's home", asy
       .toBe("28px");
     expect(await settingsFile(home.home)).toContain("font.size = 28");
     expect(await settingsFile(runner.home)).not.toContain("font.size");
+
+    await submitAcpDraft(surface, 'mcp:runCommand:{"id":"weavie.font.increase"}');
+    await expect.poll(() => settingsFile(home.home)).toContain("font.size = 29");
+    expect(await settingsFile(runner.home)).not.toContain("font.size");
+
+    await submitAcpDraft(
+      surface,
+      'mcp:setThemeOverride:{"key":"editor.background","value":"#102030"}',
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+        ),
+      )
+      .toBe("#102030");
+    expect(JSON.parse(await themeOverridesFile(home.home)).overrides["weavie-light"]).toEqual([
+      { kind: "set", key: "editor.background", value: "#102030" },
+    ]);
+    expect(await themeOverridesFile(runner.home)).not.toContain("#102030");
   } finally {
     await page.close();
     await home.stop();

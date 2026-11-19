@@ -5,7 +5,6 @@ using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
-using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 
 namespace Weavie.Core.Mcp;
@@ -14,9 +13,6 @@ namespace Weavie.Core.Mcp;
 public sealed record McpCapabilities {
 	/// <summary>Whether the registry also advertises the IDE RPC tools (open editors, selection, diagnostics).</summary>
 	public required bool ExposeIdeTools { get; init; }
-
-	/// <summary>The settings store behind the settings tools.</summary>
-	public required SettingsStore Settings { get; init; }
 
 	/// <summary>
 	/// The repo whose overlay holds repo settings: the one every reader resolves them against, not the session's
@@ -27,8 +23,8 @@ public sealed record McpCapabilities {
 	/// <summary>The settings tools over the store of the machine this server's sessions run on.</summary>
 	public required SettingsTools SettingsTools { get; init; }
 
-	/// <summary>The device settings of the device the session belongs to.</summary>
-	public required IDeviceSettings DeviceSettings { get; init; }
+	/// <summary>The device the session belongs to, which answers the device settings and theme tools.</summary>
+	public required IDevice Device { get; init; }
 
 	/// <summary>The layout store behind the layout tools.</summary>
 	public required LayoutStore Layout { get; init; }
@@ -41,9 +37,6 @@ public sealed record McpCapabilities {
 
 	/// <summary>The effective keybindings listed beside commands.</summary>
 	public required KeybindingStore Keybindings { get; init; }
-
-	/// <summary>The store behind the theme tools.</summary>
-	public required ThemeOverridesStore ThemeOverrides { get; init; }
 
 	/// <summary>The other sessions on the host.</summary>
 	public required ISessionPeers Sessions { get; init; }

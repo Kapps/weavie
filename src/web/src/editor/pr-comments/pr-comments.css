@@ -302,22 +302,21 @@
   gap: 8px;
 }
 
-.weavie-pr-composer-input {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 60px;
-  max-height: 320px;
-  resize: none;
-  padding: 7px 10px;
+.weavie-pr-composer-box {
+  padding-block: 7px;
   border: 1px solid var(--pr-line);
   border-radius: 6px;
   background: var(--bg);
-  color: var(--fg);
   font: var(--font-prose);
 }
 
-.weavie-pr-composer-input:focus {
-  outline: none;
+.weavie-pr-composer-input {
+  min-height: 44px;
+  max-height: 304px;
+  padding-inline: 10px;
+}
+
+.weavie-pr-composer-box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }

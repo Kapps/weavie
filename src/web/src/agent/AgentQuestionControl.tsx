@@ -1,5 +1,6 @@
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 import type { AgentInputQuestion } from "../bridge";
+import { DraftBox } from "../chrome/DraftBox";
 
 export function AgentQuestionControl(props: {
   question: AgentInputQuestion;
@@ -28,18 +29,19 @@ export function AgentQuestionControl(props: {
       input.setCustomValidity(lengthValidity(props.question, count, "value"));
     };
     return (
-      <textarea
-        class="ui-field"
-        rows={Math.max(2, props.values.length)}
-        value={props.values.join("\n")}
-        placeholder="One value per line"
-        ref={(input) => validate(input, props.values.length)}
-        onInput={(event) => {
-          const next = values(event.currentTarget);
-          validate(event.currentTarget, next.length);
-          props.setValues(next);
-        }}
-      />
+      <DraftBox class="ui-field">
+        <textarea
+          rows={Math.max(2, props.values.length)}
+          value={props.values.join("\n")}
+          placeholder="One value per line"
+          ref={(input) => validate(input, props.values.length)}
+          onInput={(event) => {
+            const next = values(event.currentTarget);
+            validate(event.currentTarget, next.length);
+            props.setValues(next);
+          }}
+        />
+      </DraftBox>
     );
   }
   const type = (): "email" | "url" | "date" | "number" | "text" => {

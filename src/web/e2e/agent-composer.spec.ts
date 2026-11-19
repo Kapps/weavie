@@ -1938,6 +1938,22 @@ test.describe("ACP composer", () => {
     });
   });
 
+  test("a draft past the line cap scrolls inside its box, clear of the edge and the underline", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill(Array.from({ length: 12 }, (_, line) => `line ${line}`).join("\n"));
+    expect(await textarea.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+    // The textarea's box is where the scrolled draft is clipped.
+    const box = (await page.locator(".agent-compose-draft").boundingBox())!;
+    const clip = (await textarea.boundingBox())!;
+    expect(clip.y - box.y).toBeGreaterThanOrEqual(2);
+    expect(box.y + box.height - (clip.y + clip.height)).toBeGreaterThanOrEqual(3);
+  });
+
   test("typing / opens the slash menu and inserts a provider command", async ({ page }) => {
     await mountAgent(page);
 

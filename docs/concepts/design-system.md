@@ -89,6 +89,9 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
   one frame. **`.ui-icon-button`** — 22px square, no border. See [Buttons](#buttons).
 - **`.ui-field`** — 32px text input; a `<select>` is a flat well with a drawn chevron. Variants: `-mono`, and
   `-content` for a multi-line field of content text.
+- **`.ui-draft`** — the box around a `<textarea>`, rendered by `DraftBox`. The box holds the border and the block
+  padding, so a scrolled draft is clipped inside the padding; `-resize` puts the drag corner on the box. A
+  `<textarea>` is never padded or bordered itself.
 - **`.ui-section-label`** — the section heading style.
 - **`.ui-kbd`** — key hint chip, badge role, on whatever element holds the hint (`<span>`, `<kbd>`,
   `<small>`); `-plain` drops the chip border, `-cap` is a filled keycap tinted from the text colour of the

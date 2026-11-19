@@ -1,5 +1,6 @@
 import { type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { DraftBox } from "../chrome/DraftBox";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
@@ -51,26 +52,27 @@ export function AgentAsideReply(props: {
           onRemove={composer.removeAttachment}
         />
       </Show>
-      <textarea
-        ref={textarea}
-        class="ui-field ui-field-content"
-        data-agent-paste-target
-        aria-label="Reply to BTW"
-        title={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
-        rows={2}
-        value={composer.state().draft}
-        onInput={(event) => composer.setDraft(event.currentTarget.value)}
-        onPaste={composer.captureImagePaste}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-      />
+      <DraftBox class="ui-field ui-field-content ui-draft-resize">
+        <textarea
+          ref={textarea}
+          data-agent-paste-target
+          aria-label="Reply to BTW"
+          title={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
+          rows={2}
+          value={composer.state().draft}
+          onInput={(event) => composer.setDraft(event.currentTarget.value)}
+          onPaste={composer.captureImagePaste}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              props.onClose();
+            } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+      </DraftBox>
       <Show when={composer.state().error !== null}>
         <div class="agent-compose-error">{composer.state().error}</div>
       </Show>

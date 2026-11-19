@@ -26,14 +26,6 @@
   padding: 10px;
 }
 
-.selection-comment-input {
-  --control-h: auto;
-  padding: 4px 8px;
-  display: block;
-  width: 100%;
-  resize: vertical;
-}
-
 .selection-comment-actions {
   display: flex;
   justify-content: flex-end;

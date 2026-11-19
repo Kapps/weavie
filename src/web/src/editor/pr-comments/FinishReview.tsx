@@ -1,6 +1,7 @@
 import { ChevronDown, ClipboardCheck } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { DraftBox } from "../../chrome/DraftBox";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -187,22 +188,24 @@ function ReviewPanel(props: {
         Finish your review
         <span>{props.set.viewerIsAuthor ? `your PR #${number}` : `PR #${number}`}</span>
       </div>
-      <textarea
-        // A frame later, after the review the command opened (or the palette) has settled focus.
-        ref={(el) => requestAnimationFrame(() => el.focus({ preventScroll: true }))}
-        data-pr-comment-input
-        class="weavie-pr-composer-input"
-        rows={3}
-        placeholder="Leave a summary (optional)"
-        value={summary()}
-        readOnly={busy()}
-        onInput={(event) => {
-          setSummary(event.currentTarget.value);
-          summaries.set(key, event.currentTarget.value);
-        }}
-        onFocus={focus.onFocus}
-        onBlur={focus.onBlur}
-      />
+      <DraftBox class="weavie-pr-composer-box">
+        <textarea
+          // A frame later, after the review the command opened (or the palette) has settled focus.
+          ref={(el) => requestAnimationFrame(() => el.focus({ preventScroll: true }))}
+          data-pr-comment-input
+          class="weavie-pr-composer-input"
+          rows={3}
+          placeholder="Leave a summary (optional)"
+          value={summary()}
+          readOnly={busy()}
+          onInput={(event) => {
+            setSummary(event.currentTarget.value);
+            summaries.set(key, event.currentTarget.value);
+          }}
+          onFocus={focus.onFocus}
+          onBlur={focus.onBlur}
+        />
+      </DraftBox>
       <Show
         when={!props.set.viewerIsAuthor}
         fallback={

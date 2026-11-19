@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using Weavie.Core;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
@@ -9,31 +11,26 @@ public sealed partial class HostCore {
 	private const int MaxConcurrentSessionRestores = 8;
 
 	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
-	// Saved sessions git couldn't place in a repo at startup: kept in the store so a later start can restore them.
-	private readonly List<SessionDescriptor> _unrestoredSessions = [];
 
 	private void PersistSessionState() {
 		if (_sessions is null) {
 			return;
 		}
 
-		var sessions = _sessions.Slots
-			.Select(slot => new SessionDescriptor {
-				Id = new SessionId(slot.Id),
-				Label = slot.Label,
-				LastActiveAt = slot.LastActiveAt,
-				Unseen = slot.Unseen,
-				WorktreePath = slot.WorktreePath,
-				WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
-				Device = slot.Device.Current.Home,
-				Loaded = slot.Loaded,
-				AgentProviderId = slot.AgentProviderId,
-				EditorSession = slot.EditorSession,
-				ShellTerminals = slot.ShellTerminals,
-			})
-			.Concat(_unrestoredSessions)
-			.ToList();
-		_sessionStore.Save(sessions);
+		_sessionStore.Save([.. _sessions.Slots.Select(slot => new SessionDescriptor {
+			Id = new SessionId(slot.Id),
+			Label = slot.Label,
+			LastActiveAt = slot.LastActiveAt,
+			Unseen = slot.Unseen,
+			WorktreePath = slot.WorktreePath,
+			WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
+			Device = slot.Device.Current.Home,
+			// A session git couldn't place comes back as it was saved once its repository does.
+			Loaded = slot.Lost?.Loaded ?? slot.Loaded,
+			AgentProviderId = slot.AgentProviderId,
+			EditorSession = slot.EditorSession,
+			ShellTerminals = slot.ShellTerminals,
+		})]);
 	}
 
 	private async Task RestoreSessionStateAsync() {
@@ -41,16 +38,29 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		var saved = _sessionStore.Items;
+		var foreign = await PlaceForeignSessionsAsync([.. saved.Where(item =>
+			_sessions.Find(SessionSlot.IdFor(item.WorktreePath)) is null
+			&& !IsWorkspaceCheckout(item.WorktreePath)
+			&& Directory.Exists(item.WorktreePath))]).ConfigureAwait(false);
 		var toLoad = new List<SessionSlot>();
-		foreach (var item in _sessionStore.Items) {
+		foreach (var item in saved) {
+			foreign.TryGetValue(item.WorktreePath, out var placed);
 			var slot = _sessions.Find(SessionSlot.IdFor(item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
-				_sessions.Add(slot = DormantSlot(item, Home, _workspaceSessionLabel, HomeFolder));
+				_sessions.Add(slot = DormantSlot(item with { WorktreePath = HomeFolder }, Home, _workspaceSessionLabel, null));
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
-			} else if (await RestoreForeignSlotAsync(item).ConfigureAwait(false) is { } foreign) {
-				_sessions.Add(slot = foreign);
+			} else if (placed.Repo is { } repo && repo != Home) {
+				_sessions.Add(slot = DormantSlot(item, repo, placed.Label, placed.Lost is null ? null : new(placed.Lost, item.Loaded)));
+				if (placed.Lost is null) {
+					Join(repo);
+				} else {
+					_sessionStartupNotices.Add(("warn",
+						$"The session '{item.Label}' can't find its repository: {placed.Lost} It can't be loaded until the "
+						+ "repository is back; delete the session to drop it."));
+				}
 			}
 
 			if (slot is { }) {
@@ -60,7 +70,7 @@ public sealed partial class HostCore {
 				slot.Unseen = item.Unseen;
 			}
 
-			if (item.Loaded && slot is { }) {
+			if (item.Loaded && slot is { Lost: null }) {
 				toLoad.Add(slot);
 			}
 		}
@@ -82,51 +92,76 @@ public sealed partial class HostCore {
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
 
-		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
-		// workspace with no available agent provider still opens, with its other sessions and the reason why.
+		// A workspace opens with a session on its home folder until the user deletes that session. One with no
+		// available agent provider still opens, with its other sessions and the reason why.
+		if (_sessionStore.HomeClosed || _sessions.Slots.Any(IsWorkspaceCheckout)) {
+			return;
+		}
+
 		try {
-			EnsureWorkspaceSession();
+			OpenHomeSession(AvailableWorkspaceSessionProvider());
 		} catch (Exception error) {
 			_sessionStartupNotices.Add(
-				("error", $"Couldn't open a session on this workspace's own checkout: {Innermost(error).Message}"));
-			Log($"[sessions] ensuring the workspace-checkout session failed: {error}");
+				("error", $"Couldn't open a session on this workspace's home folder: {Innermost(error).Message}"));
+			Log($"[sessions] opening the home folder's session failed: {error}");
 		}
 	}
 
-	// A saved session outside the home repo: git says which repo its worktree belongs to.
-	private async Task<SessionSlot?> RestoreForeignSlotAsync(SessionDescriptor item) {
-		if (!Directory.Exists(item.WorktreePath)) {
-			return null;
+	// Where git places each saved session outside the home repo: its repo, opened once however many of its
+	// sessions are saved, and its branch now. One git can't place stays listed on its own folder, with git's reason.
+	private async Task<IReadOnlyDictionary<string, (Repo Repo, string Label, string? Lost)>> PlaceForeignSessionsAsync(
+		IReadOnlyList<SessionDescriptor> items) {
+		var git = new GitService();
+		var repos = new ConcurrentDictionary<string, Lazy<Task<Repo>>>(PathIdentity.Comparer);
+		var placed = new ConcurrentDictionary<string, (Repo, string, string?)>(PathIdentity.Comparer);
+		if (items.Count == 0) {
+			return placed;
 		}
 
 		try {
-			var repo = await RepoForAsync(item.WorktreePath, CancellationToken.None).ConfigureAwait(false);
-			if (repo == Home) {
-				return null;
-			}
+			// Asked once here, not once by each of the sessions placed side by side.
+			await HomeMainWorktreeAsync(git, CancellationToken.None).ConfigureAwait(false);
+		} catch (GitException) {
+			// Each session's own placement reports it.
+		}
 
-			Join(repo);
-			// Its label is the branch git has there now, as the home repo's are.
-			string label = await new GitService().GetCurrentBranchAsync(item.WorktreePath).ConfigureAwait(false) ?? item.Label;
-			return DormantSlot(item, repo, label, item.WorktreePath);
-		} catch (GitException ex) {
-			_unrestoredSessions.Add(item);
-			_sessionStartupNotices.Add(
-				("warn", $"The session '{item.Label}' wasn't restored: {ex.Message} It is tried again at each start; "
-					+ $"delete its worktree {item.WorktreePath} to drop it."));
-			return null;
+		await Parallel.ForEachAsync(
+			items,
+			new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentSessionRestores },
+			async (item, ct) => {
+				Repo repo;
+				try {
+					string root = await RepoRootAsync(item.WorktreePath, ct).ConfigureAwait(false);
+					repo = await repos.GetOrAdd(root, _ => new(() => RepoAtAsync(root, CancellationToken.None))).Value.ConfigureAwait(false);
+				} catch (GitException ex) {
+					placed[item.WorktreePath] = (OpenRepo(item.WorktreePath, git, isRepository: false), item.Label, ex.Message);
+					return;
+				}
+
+				placed[item.WorktreePath] = (repo, await BranchLabelAsync(git, item, ct).ConfigureAwait(false), null);
+			}).ConfigureAwait(false);
+		return placed;
+	}
+
+	// The branch git has checked out there now, or the saved label where it names none (detached, or not yet born).
+	private static async Task<string> BranchLabelAsync(GitService git, SessionDescriptor item, CancellationToken ct) {
+		try {
+			return await git.GetCurrentBranchAsync(item.WorktreePath, ct).ConfigureAwait(false) ?? item.Label;
+		} catch (GitException) {
+			return item.Label;
 		}
 	}
 
-	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
+	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, LostRepository? lost) => new() {
 		Label = label,
 		Device = NewDevice(null),
 		Repo = repo,
-		WorktreePath = worktreePath,
+		WorktreePath = item.WorktreePath,
 		AgentProviderId = item.AgentProviderId,
 		Session = null,
 		EditorSession = item.EditorSession,
 		ShellTerminals = item.ShellTerminals,
+		Lost = lost,
 	};
 
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {

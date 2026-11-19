@@ -34,7 +34,6 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   workflowProblem: "",
   lastActiveAt: null,
   unseen: false,
-  workspaceCheckout: false,
   external: false,
   reloadRequired: null,
   repo: "/code/repo",

@@ -153,7 +153,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		SessionStore.WriteSnapshot(
 			_fileSystem,
 			Under(root, WeaviePaths.WorkspaceSessionsFile(workspaceId)),
-			new SessionStoreSnapshot { Items = sessions, ShellColumns = 120, ShellRows = 40 });
+			new SessionStoreSnapshot { Items = sessions, ShellColumns = 120, ShellRows = 40, Repos = [], HomeClosed = false });
 
 	private static SessionDescriptor Descriptor(
 		string id,

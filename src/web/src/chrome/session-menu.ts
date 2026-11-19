@@ -21,11 +21,10 @@ export function sessionMenuAt(
 }
 
 // The right-click entries for a session, command-driven. Every command carries the session's owning `backendId`,
-// so a remote session's load / unload / delete runs on its own host. The session on the workspace's own checkout
-// gets no Delete — the host refuses it — so unload is its only teardown.
+// so a remote session's load / unload / delete runs on its own host.
 export function sessionMenuEntries(session: RailSession): ContextMenuEntry[] {
   const args = { id: session.id, backendId: session.backendId };
-  const entries: ContextMenuEntry[] = [
+  return [
     ...(session.reloadRequired === null
       ? []
       : [{ commandId: CommandIds.reloadSessionPrompt, args, label: "Reload session" }]),
@@ -33,12 +32,7 @@ export function sessionMenuEntries(session: RailSession): ContextMenuEntry[] {
       ? { commandId: CommandIds.unloadSession, args, label: "Unload session" }
       : { commandId: CommandIds.loadSession, args, label: "Load session" },
     { commandId: CommandIds.recreateSessionPrompt, args, label: "Recreate with…" },
+    { kind: "separator" },
+    { commandId: CommandIds.deleteSessionPrompt, args, label: "Delete…", danger: true },
   ];
-  if (!session.workspaceCheckout) {
-    entries.push(
-      { kind: "separator" },
-      { commandId: CommandIds.deleteSessionPrompt, args, label: "Delete…", danger: true },
-    );
-  }
-  return entries;
 }

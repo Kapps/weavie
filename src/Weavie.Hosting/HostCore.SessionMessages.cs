@@ -282,6 +282,10 @@ public sealed partial class HostCore {
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 			_core.LoadSessionAsync(sessionId, ct);
 
+		public Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct) => _core.OpenHomeSessionAsync(ct);
+
+		public Task<CommandResult> ForgetRepoAsync(string? repo, CancellationToken ct) => _core.ForgetRepoAsync(repo, ct);
+
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
 			bool stopBackgroundWork,
@@ -291,11 +295,11 @@ public sealed partial class HostCore {
 
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			SessionDeleteConsent consent,
 			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct) =>
-			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), force, stopBackgroundWork, context, ct);
+			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), consent, stopBackgroundWork, context, ct);
 
 		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
 			_core.ClassifyDeleteAsync(TargetOrSource(sessionId), ct);

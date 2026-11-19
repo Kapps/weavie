@@ -1,5 +1,7 @@
+import { basename } from "node:path";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { createInfraRepo } from "../harness/git-workspace";
 import { focusEditor, navChord, stepIntoReview, walkToChangedFile } from "../harness/navigator";
 
 // The Open-PR journey end to end against a stubbed PR provider + a local "origin" with a base/head diff
@@ -107,4 +109,40 @@ test("a PR's review comments render on its changed file", async ({ page }) => {
   await expect(
     page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
   ).toBeVisible({ timeout: 10_000 });
+});
+
+// The prompt belongs to the session it was opened for. A selection that changes while it is open (stood in for
+// here by a click the modal would block) must not move the pull request into the newly selected session's repo.
+test("a pull request opens in the repo of the session the prompt was opened for", async ({
+  page,
+  weavie,
+}) => {
+  const infra = createInfraRepo(weavie.workspace);
+  const chips = page.locator(".session-chip");
+  await page.locator(".session-rail-add").click();
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("e2e/deploy");
+  await inbox
+    .getByRole("combobox", { name: "Repository", exact: true })
+    .selectOption({ label: "Other…" });
+  const path = inbox.getByRole("textbox", { name: "Repository path" }).first();
+  await path.fill(infra);
+  await path.press("Enter");
+  await expect(chips).toHaveCount(2);
+
+  const home = chips.filter({ hasText: basename(weavie.workspace) });
+  const other = chips.filter({ hasText: "infra" });
+  await home.click();
+  await expect(home).toHaveClass(/active/);
+  await runCommand(page, "Open Pull Request…");
+  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
+
+  await other.dispatchEvent("click");
+  await expect(other).toHaveClass(/active/);
+  await page.locator(".session-prompt-input").press("Enter");
+
+  await expect(chips).toHaveCount(3, { timeout: 20_000 });
+  await expect(other).toHaveCount(1);
+  await expect(home).toHaveCount(2);
 });

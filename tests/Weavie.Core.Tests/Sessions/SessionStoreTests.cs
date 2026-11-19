@@ -148,6 +148,35 @@ public sealed class SessionStoreTests {
 	}
 
 	[Fact]
+	public void RememberedReposAndTheClosedHomeSession_SurviveAnOverlaySave() {
+		var fs = new InMemoryFileSystem();
+		var store = new SessionStore(fs, StorePath);
+		Assert.True(store.RememberRepo("/code/infra"));
+		Assert.False(store.RememberRepo("/code/infra"));
+		store.HomeClosed = true;
+
+		store.Save([Descriptor("aaaa", "a", loaded: true)]);
+
+		var reloaded = new SessionStore(fs, StorePath);
+		Assert.Equal(["/code/infra"], reloaded.Repos);
+		Assert.True(reloaded.HomeClosed);
+		Assert.True(reloaded.ForgetRepo("/code/infra"));
+		Assert.False(reloaded.ForgetRepo("/code/infra"));
+		Assert.Empty(reloaded.Repos);
+	}
+
+	[Theory]
+	[InlineData("\"\"")]
+	[InlineData("null")]
+	public void ARememberedRepoWithNoPath_IsMalformed(string repo) {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(StorePath, $$"""{"version":4,"repos":[{{repo}}],"sessions":[]}""");
+
+		Assert.Empty(new SessionStore(fs, StorePath).Repos);
+		Assert.True(fs.FileExists(StorePath + ".bad"));
+	}
+
+	[Fact]
 	public void Strict_snapshot_read_rejects_malformed_state_without_repairing_it() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath, "{ broken ");
@@ -165,6 +194,8 @@ public sealed class SessionStoreTests {
 			Items = [Descriptor("aaaa", "a", loaded: true)],
 			ShellColumns = 160,
 			ShellRows = 48,
+			Repos = ["/code/infra"],
+			HomeClosed = true,
 		});
 
 		var snapshot = SessionStore.ReadSnapshot(fs, StorePath);
@@ -172,6 +203,8 @@ public sealed class SessionStoreTests {
 		Assert.Equal("aaaa", Assert.Single(snapshot.Items).Id.Value);
 		Assert.Equal(160, snapshot.ShellColumns);
 		Assert.Equal(48, snapshot.ShellRows);
+		Assert.Equal(["/code/infra"], snapshot.Repos);
+		Assert.True(snapshot.HomeClosed);
 	}
 
 	// A file a previous build wrote carries properties the store has since stopped reading; skipping them is

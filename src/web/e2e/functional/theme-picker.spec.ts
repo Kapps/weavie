@@ -79,6 +79,8 @@ test("editor theme picker previews, applies, reopens on, and resets only the edi
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
+  // The app follows the color scheme a moment later; its background is read once it has.
+  await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
   const bg = (selector: string) =>
     page.locator(selector).evaluate((el) => getComputedStyle(el).getPropertyValue("--bg"));
   const appBg = await bg("html");

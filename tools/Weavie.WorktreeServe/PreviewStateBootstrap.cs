@@ -65,6 +65,8 @@ internal static class PreviewStateBootstrap {
 			Items = projected,
 			ShellColumns = productionSessions.ShellColumns,
 			ShellRows = productionSessions.ShellRows,
+			Repos = productionSessions.Repos,
+			HomeClosed = productionSessions.HomeClosed,
 		});
 		var rail = new RailStateStore(new LocalFileSystem(), Under(destination, WeaviePaths.RailStateFile));
 		rail.SetLastLocation("local");

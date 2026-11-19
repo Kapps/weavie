@@ -39,6 +39,10 @@ public sealed partial class HostCoreMultiRepoTests {
 		[.. (await host.HostRequestAsync<JsonElement>("connection", "hello", new { })).GetProperty("repos").EnumerateArray()
 			.Select(repo => repo.GetProperty("repo").GetString()!)];
 
+	private static async Task<string[]> OfferedReposAsync(TestHost host) =>
+		[.. (await host.HostRequestAsync<JsonElement>("connection", "hello", new { })).GetProperty("knownRepos").EnumerateArray()
+			.Select(repo => repo.GetProperty("label").GetString()!)];
+
 	private static bool Toasted(TestHost host, string text) => host.Bridge.PostedEvents("notifications", "show")
 		.Any(toast => toast.GetProperty("message").GetString()!.Contains(text, StringComparison.Ordinal));
 

@@ -22,7 +22,6 @@ function railSession(over: Partial<RailSession>): RailSession {
     workflowProblem: "",
     lastActiveAt: null,
     unseen: false,
-    workspaceCheckout: false,
     reloadRequired: null,
     external: false,
     repo: "/repo",
@@ -54,13 +53,5 @@ describe("sessionMenuEntries", () => {
       label: "Delete…",
       danger: true,
     });
-  });
-
-  it("offers no Delete for the session on the workspace's own checkout", () => {
-    const entries = sessionMenuEntries(railSession({ workspaceCheckout: true }));
-    expect(
-      entries.some((e) => "commandId" in e && e.commandId === CommandIds.deleteSessionPrompt),
-    ).toBe(false);
-    expect(entries[0]).toMatchObject({ commandId: CommandIds.unloadSession });
   });
 });

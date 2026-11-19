@@ -1129,13 +1129,6 @@ export default function App(): JSX.Element {
   createEffect(() =>
     setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
   );
-  // The palette's Delete Session… acts on the selected session, so it hides for the one the host refuses.
-  createEffect(() =>
-    setContext(
-      "selectedSessionDeletable",
-      sessions().find((session) => session.active)?.workspaceCheckout === false,
-    ),
-  );
 
   // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
   // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning
@@ -1156,7 +1149,8 @@ export default function App(): JSX.Element {
     { session }: { session: ClientSession | null },
   ): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
-    const active = sessions().find((s) => s.owner === session);
+    // A dormant row has no owner, so no session never names one.
+    const active = session === null ? undefined : sessions().find((s) => s.owner === session);
     const id = a?.id ?? active?.id;
     const backendId = a?.backendId ?? active?.backendId ?? "local";
     if (id === undefined) {
@@ -1221,11 +1215,13 @@ export default function App(): JSX.Element {
     }
     setDeleteReq(null);
     // A dirty worktree (untracked or modified) needs force, or git refuses the removal; so does a branchless
-    // one, whose commits the removal discards.
+    // one, whose commits the removal discards. A confirmed kept folder is all the host may then delete for.
+    const keepFolder = req.state === "kept";
     const result = await dispatchCommand(CommandIds.deleteSession, {
       id: req.id,
       backendId: req.backendId,
-      force: req.state !== "clean" || req.branchless,
+      force: !keepFolder && (req.state !== "clean" || req.branchless),
+      keepFolder,
     });
     if (!result.ok && result.cancelled !== true) {
       addToast("warn", result.error ?? "Couldn't delete the session.");

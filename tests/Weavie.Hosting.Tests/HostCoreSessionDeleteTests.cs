@@ -648,29 +648,113 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.NotNull(host.Core.SessionForTest(id));
 	}
 
-	// The workspace's own checkout always has a session — Weavie does not own that directory, so there is nothing
-	// to remove and no way back if the slot went away. Delete and its classify both refuse, even with force.
+	// Weavie did not make the home folder, so deleting its session drops the session and leaves the folder. It
+	// stays deleted across restarts until Open Home Folder Session brings it back.
 	[Fact]
-	public async Task DeletingWorkspaceSessionIsRefused() {
+	public async Task DeletingTheHomeFolderSessionKeepsTheFolderAndLastsUntilItIsOpenedAgain() {
 		await using var host = await TestHost.StartAsync();
-		string workspaceId = host.WorkspaceSession.SlotId;
+		string homeId = host.WorkspaceSession.SlotId;
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectSession(host.SlotId("feature"));
 
-		var classification = await host.DeleteSessionAsync(workspaceId, force: false, classify: true);
-		Assert.False(classification.Ok);
-		Assert.Contains("workspace's own checkout", classification.Error!, StringComparison.Ordinal);
+		var classification = await host.DeleteSessionAsync(homeId, force: false, classify: true);
+		Assert.Equal("kept", JsonDocument.Parse(classification.DataJson!).RootElement.GetProperty("state").GetString());
 
-		var result = await host.DeleteSessionAsync(workspaceId, force: true, classify: false);
-
-		Assert.False(result.Ok);
-		Assert.Contains("workspace's own checkout", result.Error!, StringComparison.Ordinal);
-		Assert.Contains(workspaceId, SessionIds(host));
-		Assert.Contains("feature", host.SessionLabels);
+		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
+		Assert.DoesNotContain(homeId, SessionIds(host));
 		Assert.True(Directory.Exists(host.RepoRoot));
+		Assert.Contains($"Session 'main' was deleted. Its folder {host.RepoRoot} was kept.", NotificationMessages(host));
+
+		await host.RestartAsync();
+		Assert.DoesNotContain(homeId, SessionIds(host));
+		Assert.Contains("feature", host.SessionLabels);
+
+		var opened = await OpenHomeAsync(host);
+		Assert.True(opened.GetProperty("ok").GetBoolean());
+		Assert.True(opened.GetProperty("data").GetProperty("activateSession").GetBoolean());
+		Assert.True(host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("loaded").GetBoolean());
+
+		await host.RestartAsync();
+		Assert.Contains(homeId, SessionIds(host));
 	}
 
-	// The invariant repairs state persisted before it existed: a workspace whose stored catalog covers only
-	// worktree sessions gets its checkout session back at the next open.
+	private static Task<JsonElement> OpenHomeAsync(TestHost host) => host.HostRequestAsync<JsonElement>(
+		"sessions", "invoke", new { id = SessionCommands.OpenHomeSession, args = new { } });
+
+	// A confirm that promised to keep the folder never removes a worktree, should the slot be one by then.
+	[Fact]
+	public async Task ADeleteConfirmedAsKeepingItsFolderRefusesAWorktree() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+
+		var result = await host.InvokeCommandAsync(
+			host.WorkspaceSession.SlotId,
+			SessionCommands.DeleteSession,
+			new { id = host.SlotId("feature"), force = true, keepFolder = true },
+			CancellationToken.None);
+
+		Assert.Contains("deleting it now would remove its worktree", result.Error);
+
+		// The host's own entry reads the same args the same way, as an agent sends them.
+		var fromHost = await host.HostRequestAsync<JsonElement>("sessions", "invoke", new {
+			id = SessionCommands.DeleteSession,
+			args = new { id = host.SlotId("feature"), force = true, keepFolder = "true" },
+		});
+		Assert.Contains("deleting it now would remove its worktree", fromHost.GetProperty("error").GetString());
+		Assert.Contains("feature", host.SessionLabels);
+	}
+
+	// The session deleting itself is torn down after its own reply.
+	[Fact]
+	public async Task TheHomeFolderSessionCanDeleteItself() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+
+		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
+
+		await Wait.UntilAsync(() => !SessionIds(host).Contains(homeId));
+		Assert.Empty(host.SessionCatalog);
+
+		// A file the OS hands over has no session to open in, and says so instead of waiting for the next one.
+		host.Core.RequestOpenPath(Path.Combine(host.RepoRoot, "hello.ts"));
+		await Wait.UntilAsync(() => NotificationMessages(host).Any(message => message.Contains("this window has no loaded session")));
+		Assert.Empty(host.Bridge.PostedEvents("files", "openPath"));
+	}
+
+	// A dormant home session keeps its own provider, and is loaded and selected.
+	[Fact]
+	public async Task OpeningTheHomeFolderSessionLoadsTheOneThatIsThere() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectSession(host.SlotId("feature"));
+		Assert.True((await host.UnloadSessionAsync(homeId)).Ok);
+
+		var opened = await OpenHomeAsync(host);
+
+		Assert.Equal(homeId, opened.GetProperty("data").GetProperty("address").GetProperty("slot").GetString());
+		Assert.True(host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("loaded").GetBoolean());
+	}
+
+	// Its branch is checked out in the home folder, which git won't check out a second time.
+	[Fact]
+	public async Task OpeningTheHomeFoldersBranchBringsBackItsDeletedSession() {
+		await using var host = await TestHost.StartAsync();
+		string homeId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectSession(host.SlotId("feature"));
+		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
+
+		// It is named for the branch checked out there now, not the one the host started on.
+		TempGitRepo.Run(host.RepoRoot, "checkout", "--quiet", "-b", "release");
+		var opened = await host.CreateSessionAsync(new NewSessionRequest { Branch = "release", Existing = true });
+
+		Assert.True(opened.Ok, opened.Error);
+		Assert.Equal("release", host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("label").GetString());
+	}
+
+	// A workspace whose stored catalog covers only worktree sessions, with the home folder's never deleted, gets
+	// that session at the next open.
 	[Fact]
 	public async Task WorkspaceSessionIsRestoredWhenThePersistedCatalogOmitsIt() {
 		await using var host = await TestHost.StartAsync();
@@ -682,12 +766,12 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Contains("feature", host.SessionLabels);
 		var restored = Assert.Single(
 			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
-			entry => entry.GetProperty("workspaceCheckout").GetBoolean());
+			entry => entry.GetProperty("id").GetString() == workspaceId);
 		Assert.Equal("main", restored.GetProperty("label").GetString());
 		Assert.True(restored.GetProperty("loaded").GetBoolean());
 	}
 
-	// Removes one session from the on-disk catalog, standing in for state written before the invariant.
+	// Removes one session from the on-disk catalog, standing in for state that never held it.
 	private static void DropPersistedSession(TestHost host, string slotId) {
 		var fileSystem = new LocalFileSystem();
 		string file = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
@@ -879,6 +963,5 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Equal(workspaceId, remaining.GetProperty("id").GetString());
 		Assert.Equal("main", remaining.GetProperty("label").GetString());
 		Assert.True(remaining.GetProperty("loaded").GetBoolean());
-		Assert.True(remaining.GetProperty("workspaceCheckout").GetBoolean());
 	}
 }

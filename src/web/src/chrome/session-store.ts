@@ -101,13 +101,12 @@ registerHostFeature((connection) =>
     ) {
       setPendingSelection(null);
     }
-    if (catalog.length > 0) {
-      const live = new Set(catalog.map((entry) => entry.id));
-      const departed = (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
-      for (const chip of departed) {
-        clearSlotDrafts(connection.id, chip.id);
-      }
-    }
+    const live = new Set(catalog.map((entry) => entry.id));
+    // A disconnect empties the catalog without any session having left the host.
+    const departed =
+      connection.currentHello === null
+        ? []
+        : (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
     setByBackend((prev) => {
       const next = new Map(prev);
       // Activity and run arrive on each session's own feed, so they carry across catalog pushes by owner.
@@ -131,7 +130,6 @@ registerHostFeature((connection) =>
             workflowProblem: owner === null ? "" : (carried.get(owner)?.workflowProblem ?? ""),
             lastActiveAt: entry.lastActiveAt,
             unseen: entry.unseen,
-            workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
             reloadRequired: entry.reloadRequired,
             repo: entry.repo,
@@ -141,6 +139,10 @@ registerHostFeature((connection) =>
       );
       return next;
     });
+    // After the rail has them gone: storage that refuses is reported without holding a deleted chip on screen.
+    for (const chip of departed) {
+      clearSlotDrafts(connection.id, chip.id);
+    }
   }),
 );
 
@@ -249,20 +251,6 @@ const merged = createMemo<RailSession[]>(() => {
   }
   return out;
 });
-
-/** The repos a backend's sessions live in, each with the host's name for it: the home folder's, then by name. */
-export function backendRepos(backendId: string): { repo: string; label: string }[] {
-  const chips = byBackend().get(backendId) ?? [];
-  const home = chips.find((chip) => chip.workspaceCheckout)?.repo;
-  const labels = new Map(chips.map((chip) => [chip.repo, chip.repoLabel]));
-  return [...labels]
-    .map(([repo, label]) => ({ repo, label }))
-    .sort(
-      (left, right) =>
-        Number(right.repo === home) - Number(left.repo === home) ||
-        left.label.localeCompare(right.label),
-    );
-}
 
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;

@@ -150,7 +150,7 @@ test("reload restores the client-selected stable session slot @cross", async ({ 
 
 // Delete a (clean) session: right-click its chip → Delete… → confirm. A freshly forked worktree has no
 // changes, so the confirm dialog is the plain clean-state variant (single danger button, no checkbox).
-test("delete removes a clean worktree session and preserves the protected workspace @cross", async ({
+test("delete removes a clean worktree session and leaves the home folder's session @cross", async ({
   page,
   weavie,
 }) => {
@@ -159,15 +159,6 @@ test("delete removes a clean worktree session and preserves the protected worksp
   await expect(chips).toHaveCount(1);
   await createSession(page, { branch: "e2e/session-delete", provider: "claude" });
   await expect(chips).toHaveCount(2);
-
-  await test.step("the workspace session offers unload but never delete", async () => {
-    await chips.first().click({ button: "right" });
-    await expect(page.locator(".context-menu .context-menu-item > span:first-child")).toHaveText([
-      "Unload session",
-      "Recreate with…",
-    ]);
-    await page.keyboard.press("Escape");
-  });
 
   await chips.nth(1).click({ button: "right" });
   await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();

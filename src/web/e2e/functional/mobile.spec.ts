@@ -936,10 +936,10 @@ test("a compact session row manages its session from a hold and its actions butt
   await expect(menu).toBeVisible();
   await expect(page.locator(".confirm-dialog")).toHaveCount(0);
   await expect(inbox).toBeVisible();
-  // The workspace checkout can unload or recreate its agent, but cannot be deleted.
   await expect(menu.locator(".context-menu-item > span:first-child")).toHaveText([
     "Unload session",
     "Recreate with…",
+    "Delete…",
   ]);
   const rowHeights = await menu
     .locator(".context-menu-item")
@@ -961,6 +961,7 @@ test("a compact session row manages its session from a hold and its actions butt
   await expect(menu.locator(".context-menu-item > span:first-child")).toHaveText([
     "Load session",
     "Recreate with…",
+    "Delete…",
   ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
   await expect(row.locator(".session-status")).not.toHaveClass(/\bstatus-unloaded\b/);

@@ -209,7 +209,17 @@ public sealed partial class HostCore {
 
 	internal sealed record SessionSyncResult(bool Ok);
 
-	internal sealed record CommandRequest(string Id, JsonElement? Args);
+	internal sealed record CommandRequest(string Id, JsonElement? Args) {
+		/// <summary>A request for <paramref name="id"/> with its raw <paramref name="argsJson"/>, if any.</summary>
+		internal static CommandRequest Of(string id, string? argsJson) {
+			if (string.IsNullOrWhiteSpace(argsJson)) {
+				return new(id, null);
+			}
+
+			using var document = JsonDocument.Parse(argsJson);
+			return new(id, document.RootElement.Clone());
+		}
+	}
 
 	internal sealed record HostBranchPreviewRequest(
 		string? SourceId,

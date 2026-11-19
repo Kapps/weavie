@@ -56,35 +56,31 @@ public sealed partial class HostCore {
 	internal sealed record ThemeShowing(string Polarity);
 
 	private sealed class BoundDevice(HostCore core, SessionDevice device) : IDevice {
-		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => device.Current.Home is null
-			? core._homeDevice.SettingsAsync(request, ct)
-			: PageAsync("settings", WireJson.Default.SettingsRequest, WireJson.Default.ToolReply, request, deadline: true, ct);
+		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.SettingsAsync(request, ct), "settings", WireJson.Default.SettingsRequest, WireJson.Default.ToolReply, request, ct);
 
-		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => device.Current.Home is null
-			? core._homeDevice.ThemesAsync(request, ct)
-			: PageAsync("themes", WireJson.Default.ThemeRequest, WireJson.Default.ToolReply, request, deadline: true, ct);
+		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.ThemesAsync(request, ct), "themes", WireJson.Default.ThemeRequest, WireJson.Default.ToolReply, request, ct);
 
-		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => device.Current.Home is null
-			? core._homeDevice.KeybindingsAsync(ct)
-			: PageAsync("keybindings", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding, EmptyPayload.Value, deadline: true, ct);
+		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.KeybindingsAsync(ct), "keybindings", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding, EmptyPayload.Value, ct);
 
 		// A client-owned command an agent runs: a page of the device runs it, as that page's own palette would.
 		public async Task<CommandResult> CommandAsync(string id, string? argsJson, CancellationToken ct) {
-			JsonElement? args = null;
-			if (!string.IsNullOrWhiteSpace(argsJson)) {
-				using var document = JsonDocument.Parse(argsJson);
-				args = document.RootElement.Clone();
-			}
-
 			bool deadline = core._commandRegistry.Require(id).OnTimeout != OperationSeverity.NoDeadline;
 			try {
 				return FromWireResult(await PageAsync(
-					"command", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult, new CommandRequest(id, args), deadline, ct)
+					"command", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult, CommandRequest.Of(id, argsJson), deadline, ct)
 					.ConfigureAwait(false));
 			} catch (DeviceUnavailableException unavailable) {
 				return CommandResult.Failure(unavailable.Message);
 			}
 		}
+
+		// This host answers for its own device; any other device's home answers through one of its pages.
+		private Task<TResponse> AtHomeAsync<TRequest, TResponse>(
+			Func<Task<TResponse>> here, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, CancellationToken ct) =>
+			device.Current.Home is null ? here() : PageAsync(name, requestType, responseType, request, deadline: true, ct);
 
 		private async Task<TResponse> PageAsync<TRequest, TResponse>(
 			string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, bool deadline, CancellationToken ct) {

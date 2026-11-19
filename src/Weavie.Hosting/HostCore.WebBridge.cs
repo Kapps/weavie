@@ -613,15 +613,9 @@ public sealed partial class HostCore {
 		string id,
 		string? argsJson,
 		CancellationToken ct) {
-		JsonElement? args = null;
-		if (!string.IsNullOrWhiteSpace(argsJson)) {
-			using var document = JsonDocument.Parse(argsJson);
-			args = document.RootElement.Clone();
-		}
-
 		var result = await session.View.Feature("commands").RequestAsync(
 			"run", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
-			new CommandRequest(id, args),
+			CommandRequest.Of(id, argsJson),
 			ct).ConfigureAwait(false);
 		return FromWireResult(result);
 	}

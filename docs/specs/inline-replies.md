@@ -30,14 +30,21 @@ agent says after the steer. The `queue` feed names each waiting submission by id
 `Queued`; any other undelivered one reads `Sending`.
 
 The host reports a submission's fate on `submissionState`: `accepted`, `rejected` with a reason, or `dropped`
-when the agent discards an accepted prompt undelivered (Restart Agent, `/clear`).
+when an accepted prompt leaves the queue and never reaches the transcript: Restart Agent or `/clear` with it
+queued or steering unanswered, or a delivery that fails before the prompt is journaled. A steer the agent has
+not answered returns to the queue when its conversation ends, so it is dropped or handed to the successor
+with the rest. `dropped` is an event, so a page disconnected when it is sent keeps the card until dismissed.
 
 ## The card
 
 A zone card (`zone-cards.tsx`, as PR threads use) below the selection's last line, so it pushes code down
-instead of covering it. It shows the comment, each message of the reply as it streams, and the pane's working
-status while the turn runs, including when the agent is waiting on an approval or an answer. A refused prompt
-shows the host's reason; its comment and excerpt return to the composer as before.
+instead of covering it, and scrolls inside itself past 60% of the editor's height. It shows the comment, each
+message of the reply as it streams, and the pane's working status while the turn runs, including when the
+agent is waiting on an approval or an answer. A refused prompt shows the host's reason; its comment and
+excerpt return to the composer as before.
+
+The selection toolbar clears when its selection moves on screen (a scroll, a resize, a card growing above
+it); a comment being written stays through all of them.
 
 ## Lifetime
 

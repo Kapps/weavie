@@ -39,7 +39,7 @@ internal sealed partial class AcpConversation {
 				_ready = false;
 				promptActive = _promptActive;
 				_promptActive = false;
-				_steering = false;
+				RequeueSteerLocked();
 				_waitingForBackground = false;
 				_cancelRequested = false;
 				_controlMutations.Clear();
@@ -73,6 +73,12 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
+	// A steer the agent has not answered returns to the queue, to be dropped or handed on with the rest.
+	private void RequeueSteerLocked() {
+		if (_steer is { } steer) _pendingSubmissions.Requeue(steer);
+		_steer = null;
+	}
+
 	/// <summary>Stops live work for a restart, settling everything it published.</summary>
 	internal void TerminalizeForRestart(bool clearSubmissions, string summary) {
 		TerminalizedTool[] tools;
@@ -80,14 +86,15 @@ internal sealed partial class AcpConversation {
 		bool promptActive;
 		lock (_gate) {
 			_ready = false;
+			RequeueSteerLocked();
 			if (clearSubmissions) dropped = _pendingSubmissions.Clear();
 			_cancelRequested = false;
 			promptActive = _promptActive;
 			_promptActive = false;
-			_steering = false;
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		_port.SubmissionsDropped(dropped);
 		if (promptActive) CancelPrompt();
 		AbandonRunningRequests();
 		// Abandoned requests complete before the lifetime cancels their linked tokens.
@@ -110,7 +117,6 @@ internal sealed partial class AcpConversation {
 		}
 		_terminals.Close();
 		PublishQueue();
-		_port.SubmissionsDropped(dropped);
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) Observe(new AgentTurnStopped(WillResume: false));
 		while (_pendingTerminalMessages.TryPeek(out var message)) {

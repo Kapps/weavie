@@ -48,17 +48,17 @@ internal sealed partial class AcpConversation {
 		bool steer = false;
 		lock (_gate) {
 			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
-				|| (_steering || _promptDeliveryActive) && !_promptActive) {
+				|| (_steer is not null || _promptDeliveryActive) && !_promptActive) {
 				return;
 			}
 			threadId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
 			if (_promptActive) {
-				if (!_features.Steering || _steering || _steeringRefused) return;
+				if (!_features.Steering || _steer is not null || _steeringRefused) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
 				submission = _pendingSubmissions.TakeFirst(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
 				if (submission is null) return;
 				steer = true;
-				_steering = true;
+				_steer = submission;
 			} else {
 				submission = _pendingSubmissions.Dequeue();
 				_promptActive = true;
@@ -92,6 +92,7 @@ internal sealed partial class AcpConversation {
 
 	private async Task DeliverSteeringAsync(AgentTurnSubmission submission) {
 		bool retryAsPrompt = false;
+		bool settled = false;
 		try {
 			Task<JsonElement> request;
 			PreparedPrompt prompt;
@@ -114,13 +115,16 @@ internal sealed partial class AcpConversation {
 				switch (RequiredString(result, "outcome", "_session/steering response")) {
 					case "injected":
 						EmitSubmitted(submission, "user-steer", prompt.Images);
+						settled = true;
 						break;
 					case "promptRequired":
 						lock (_gate) _pendingSubmissions.Requeue(submission);
 						retryAsPrompt = true;
+						settled = true;
 						break;
 					case "failed":
 						RefuseSteering(submission);
+						settled = true;
 						break;
 					case "startedNewTurn":
 						throw new AcpProtocolException(
@@ -134,6 +138,7 @@ internal sealed partial class AcpConversation {
 				if (!Live) return;
 				_log($"[acp:{Definition.Id}] {ex.Message}");
 				RefuseSteering(submission);
+				settled = true;
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -143,10 +148,14 @@ internal sealed partial class AcpConversation {
 			}
 		} finally {
 			bool dispatch;
+			bool lost;
 			lock (_gate) {
-				if (Live) _steering = false;
+				// Ending the conversation took the steer back; otherwise an unsettled one went nowhere.
+				lost = !settled && ReferenceEquals(_steer, submission);
+				if (ReferenceEquals(_steer, submission)) _steer = null;
 				dispatch = Live && (!retryAsPrompt || !_promptActive);
 			}
+			if (lost) _port.SubmissionsDropped([submission]);
 			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
@@ -239,9 +248,8 @@ internal sealed partial class AcpConversation {
 		lock (_turnTransitionGate) {
 			string? sessionId;
 			TerminalizedTool[] cancelled = [];
-			AgentTurnSubmission[] dropped = [];
 			lock (_gate) {
-				if (_spec.Side && !_ready) dropped = _pendingSubmissions.Clear();
+				if (_spec.Side && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
 				// ACP: the client marks the cancelled turn's unfinished tool calls cancelled; agents may never report them.
@@ -254,7 +262,6 @@ internal sealed partial class AcpConversation {
 			ObserveTerminalizedTools(cancelled);
 			PublishTerminalizedToolMessages(cancelled);
 			PublishQueue();
-			_port.SubmissionsDropped(dropped);
 			bool interactionCancelled = CancelPendingInteractions();
 			if (interactionCancelled && sessionId is null && _spec.Side) {
 				lock (_gate) if (_sessionOpening) return;

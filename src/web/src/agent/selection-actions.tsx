@@ -21,7 +21,12 @@ let releaseCurrent: (() => void) | null = null;
 /** A captured excerpt belongs to its source and exact session, even while a command takes focus. */
 export function createSelectionActions(host: HTMLElement, session: ClientSession) {
   let release: (() => void) | null = null;
+  let commentOpen = (): boolean => false;
   const clear = (): void => release?.();
+  /** The selection moved on screen: a toolbar would sit off it, while a comment being written stays. */
+  const moved = (): void => {
+    if (!commentOpen()) clear();
+  };
   /** `sent` receives the submission id and comment of a selection sent as its own prompt. */
   const show = (
     selection: AgentSelection,
@@ -36,6 +41,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     const root = document.createElement("div");
     document.body.append(root);
     const [commenting, setCommenting] = createSignal(false);
+    commentOpen = commenting;
     const [comment, setComment] = createSignal("");
     const note = (): string => comment().trim();
     const attach = (): boolean => {
@@ -159,11 +165,10 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     };
     const onScroll = (event: Event): void => {
       if (
-        !commenting() &&
         event.target instanceof Node &&
         (host.contains(event.target) || event.target.contains(host))
       )
-        clear();
+        moved();
     };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -175,6 +180,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     release = () => {
       if (releaseCurrent === release) releaseCurrent = null;
       release = null;
+      commentOpen = () => false;
       for (const off of offCommands) off();
       setContext("agentSelectionAttachable", false);
       document.removeEventListener("pointerdown", onPress, true);
@@ -199,6 +205,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
   return {
     show,
     clear,
+    moved,
     dispose: () => {
       clear();
       offSession();

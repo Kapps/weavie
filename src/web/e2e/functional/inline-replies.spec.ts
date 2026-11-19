@@ -43,6 +43,12 @@ test("a comment sent from an editor selection is answered under that selection",
   expect(box.y).toBeGreaterThan(lineTops[0]!);
   expect(lineTops[1]).toBeGreaterThanOrEqual(box.y + box.height);
 
+  // A long reply scrolls inside the card, which never outgrows the editor.
+  const editorHeight = (await page.locator(".monaco-editor").first().boundingBox())!.height;
+  expect(
+    await card.evaluate((element) => Number.parseFloat(getComputedStyle(element).maxHeight)),
+  ).toBeCloseTo(editorHeight * 0.6, 0);
+
   await card.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(card).toHaveCount(0);
   await expect(
@@ -70,22 +76,26 @@ test("an inline reply follows a comment steered into a running turn", async ({ p
   const card = page.locator("[data-inline-reply]");
   await expect(card.locator(".agent-working")).toContainText("Working");
   await expect(card.locator(".agent-markdown")).toHaveCount(0);
-  // A second comment being typed survives the first card growing as its reply streams in.
+  // The card grows below the selection, which has not moved, so its toolbar stays for a second question.
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+a");
-  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
-  const draft = page.getByRole("textbox", { name: "Comment", exact: true });
-  await draft.fill("still typing");
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Shift+End");
+  const comment = page.getByRole("button", { name: "Comment on Selection", exact: true });
+  await expect(comment).toBeVisible();
   await writeFile(join(workspace, "release-steer-reply"), "");
   await expect(card.locator(".agent-markdown")).toContainText(
     /running the build directly in this session/,
   );
   await expect(card.locator(".agent-working")).toBeVisible();
-  await expect(draft).toHaveValue("still typing");
-  await page.keyboard.press("Escape");
+  await expect(comment).toBeVisible();
+  // And a comment being typed survives the rest of the reply.
+  await comment.click();
+  const draft = page.getByRole("textbox", { name: "Comment", exact: true });
+  await draft.fill("still typing");
   await writeFile(join(workspace, "release-steer-finish"), "");
   await expect(card.locator(".agent-markdown").last()).toContainText("Build verified.");
   await expect(card.locator(".agent-working")).toHaveCount(0);
+  await expect(draft).toHaveValue("still typing");
 });
 
 test("a comment sent from a line low in the view makes room for its reply", async ({ page }) => {

@@ -184,7 +184,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void PublishDroppedSubmissions(IReadOnlyList<AgentTurnSubmission> dropped) {
 		foreach (var submission in dropped) {
-			_messages.Publish("submissionState", WireJson.Default.SubmissionState, new(submission.Id, [], "dropped", string.Empty));
+			_messages.Publish("submissionState", WireJson.Default.SubmissionState, SubmissionState.Dropped(submission.Id));
 		}
 	}
 

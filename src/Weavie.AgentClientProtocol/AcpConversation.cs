@@ -47,7 +47,8 @@ internal sealed partial class AcpConversation {
 	private bool _promptActive;
 	// Completion publication still owns the slot after the prompt response, including reentrant submissions.
 	private bool _promptDeliveryActive;
-	private bool _steering;
+	// The steer awaiting the agent's answer, which is in neither the queue nor the transcript until then.
+	private AgentTurnSubmission? _steer;
 	private bool _steeringRefused;
 	private bool _loadingTranscript;
 	private bool _sessionOpening;
@@ -149,7 +150,7 @@ internal sealed partial class AcpConversation {
 	internal bool HasWork {
 		get {
 			lock (_gate) return _sessionOpening || _pendingSubmissions.Count > 0 || _promptActive
-				|| _promptDeliveryActive || _steering || HasBackgroundWorkLocked() || HasPendingInteractionLocked();
+				|| _promptDeliveryActive || _steer is not null || HasBackgroundWorkLocked() || HasPendingInteractionLocked();
 		}
 	}
 

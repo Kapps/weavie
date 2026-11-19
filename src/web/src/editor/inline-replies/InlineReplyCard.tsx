@@ -85,7 +85,7 @@ export function InlineReplyCard(props: {
                 )}
               </ForEachId>
               <Show when={!reply().working && reply().entries.length === 0}>
-                <Status text="No reply" />
+                <Status text={queued() ? "Queued" : "No reply"} />
               </Show>
               <AgentWorkingStatus
                 compact={false}

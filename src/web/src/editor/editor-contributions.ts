@@ -3,6 +3,7 @@ import { type ClientSession, selectedSession } from "../bridge";
 import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { createSymbolSource } from "../symbols/symbol-source";
 import { activeEditorMessage } from "./active-editor-message";
+import { settledContentVersion } from "./content-version";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { connectSelectionActions } from "./editor-selection-actions";
 import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
@@ -27,7 +28,8 @@ export function connectTextEditor(options: {
 }): { connection: TextEditorConnection; dispose(): void } {
   const { editor, model, session } = options;
   const lifetime = new AbortController();
-  const prComments = createPrComments(session, editor, model);
+  const settled = settledContentVersion(model);
+  const prComments = createPrComments(session, editor, model, settled.version);
   const connection: TextEditorConnection = {
     ...options,
     signal: lifetime.signal,
@@ -35,11 +37,11 @@ export function connectTextEditor(options: {
     blame: createGitBlame(editor),
     spelling: createSpellCheck(editor),
     prComments,
-    reviewHints: createReviewHints(session, editor, model, prComments),
+    reviewHints: createReviewHints(session, editor, model, prComments, settled.version),
   };
   const unregister = editorContexts.register(connection);
   const offSelectionActions = connectSelectionActions(connection);
-  const offInlineReplies = createInlineReplies(session, editor, model);
+  const offInlineReplies = createInlineReplies(session, editor, model, settled.version);
   const offRevise = sharedReviseMarks.attach(connection);
   const key = `editor:${editor.getId()}`;
   const offSelection = registerSelectionSource(key, () => {
@@ -98,6 +100,7 @@ export function connectTextEditor(options: {
       connection.spelling.dispose();
       connection.prComments.dispose();
       connection.reviewHints.dispose();
+      settled.dispose();
     },
   };
 }

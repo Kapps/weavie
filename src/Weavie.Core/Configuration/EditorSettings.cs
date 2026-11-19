@@ -340,6 +340,7 @@ public static class EditorSettings {
 		registry.Register(Toggle(ReviewStepSettled,
 			"Include resolved and outdated pull request threads when stepping with Next Comment or Hint.",
 			["resolved comments", "outdated comments", "step resolved threads"], false));
+
 		registry.Register(Toggle(InlineReplies,
 			"Show the agent's reply under an editor selection after sending a comment on it, as well as in the agent pane.",
 			["inline replies", "inline reply", "inline response", "reply in editor", "answer next to code"], true));

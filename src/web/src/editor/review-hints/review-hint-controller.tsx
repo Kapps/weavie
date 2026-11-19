@@ -2,6 +2,7 @@
 // hint, anchored to the live buffer, plus the hint popover as a content widget that overlays code without moving it.
 
 import {
+  type Accessor,
   createEffect,
   createMemo,
   createRoot,
@@ -14,7 +15,6 @@ import { render } from "solid-js/web";
 import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
-import { settledContentVersion } from "../content-version";
 import { samePath } from "../fs-path";
 import { hiddenAreas } from "../hidden-areas";
 import { keyedLineEndItems } from "../line-end-lane";
@@ -53,6 +53,7 @@ export function createReviewHints(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
   prComments: PrCommentController,
+  version: Accessor<number>,
 ): ReviewHintController {
   if (model.uri.scheme !== SESSION_FILE_SCHEME) return inert;
   const path = sessionUriHostPath(model.uri);
@@ -84,7 +85,6 @@ export function createReviewHints(
         );
       }
     });
-    const version = settledContentVersion(model);
     const placed = createMemo((): PlacedHint[] => {
       version();
       const loaded = sources();

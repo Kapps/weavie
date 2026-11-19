@@ -140,7 +140,11 @@ export function createZoneCards<T>(
     () => (
       <div
         class="weavie-zone-cards-clip"
-        style={{ width: `${layout().width}px`, height: `${layout().height}px` }}
+        style={{
+          width: `${layout().width}px`,
+          height: `${layout().height}px`,
+          "--editor-height": `${layout().height}px`,
+        }}
       >
         <For each={list()}>
           {(slot) => (

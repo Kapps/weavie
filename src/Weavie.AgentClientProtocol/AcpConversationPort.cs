@@ -61,6 +61,11 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 		lock (transitionGate) if (Publishing) OnQueueChanged(queue);
 	}
 
+	/// <summary>Reports accepted submissions discarded before delivery.</summary>
+	public void SubmissionsDropped(IReadOnlyList<AgentTurnSubmission> dropped) {
+		lock (transitionGate) if (Publishing && dropped.Count > 0) OnSubmissionsDropped(dropped);
+	}
+
 	/// <summary>Reports that the conversation has no work left; <paramref name="terminal"/> when it cannot continue.</summary>
 	public void Settled(AcpConversationState state, bool terminal) {
 		lock (transitionGate) if (Publishing) OnSettled(state, terminal);
@@ -126,6 +131,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 	protected abstract void OnControlsChanged();
 	protected abstract void OnUsageChanged(AgentUsageSnapshot snapshot);
 	protected abstract void OnQueueChanged(IReadOnlyList<AgentTurnSubmission> queue);
+	protected abstract void OnSubmissionsDropped(IReadOnlyList<AgentTurnSubmission> dropped);
 	protected abstract void OnSettled(AcpConversationState state, bool terminal);
 	protected abstract bool OnFail(Exception error);
 	protected abstract void OnRestartProcess(AcpConversation conversation);
@@ -216,6 +222,8 @@ public sealed partial class AcpAgentSession {
 		protected override void OnUsageChanged(AgentUsageSnapshot snapshot) => Owner.UsageChanged?.Invoke(snapshot);
 
 		protected override void OnQueueChanged(IReadOnlyList<AgentTurnSubmission> queue) => Owner.QueuedSubmissionsChanged?.Invoke(queue);
+
+		protected override void OnSubmissionsDropped(IReadOnlyList<AgentTurnSubmission> dropped) => Owner.SubmissionsDropped?.Invoke(dropped);
 
 		protected override void OnSettled(AcpConversationState state, bool terminal) { }
 

@@ -9,6 +9,7 @@ flowchart LR
   SEL["Comment on Selection → Send"] -->|submission id| SUB["agent.submit"]
   SEL -->|id, model, last selected line| ST[inline-replies-store]
   SUB --> HOST[AcpConversation]
+  HOST -->|"queue ids, submissionState dropped"| ST
   HOST -->|"user-message / user-steer, ItemId = submission id"| PANE[agent pane transcript]
   PANE -->|submissionReply| CARD[InlineReplyCard]
   ST --> CTRL[inline-reply-controller per editor]
@@ -18,13 +19,18 @@ flowchart LR
 ## Finding the reply
 
 The host journals a submitted prompt's text with `ItemId` set to the client's submission id, so the transcript
-row that holds it carries `submissionId`. `submissionReply(snapshot, id)` reads the reply from the pane's own
-transcript: the agent's messages and errors after that row and its attachments, up to the user's next input.
-The reply is still being written while that span is the transcript's last and the turn is active. Nothing new
-crosses the wire.
+row that holds it carries `submissionId`. `submissionReply(snapshot, id)` reads the reply from the pane's
+unfolded transcript (every reply, whatever `agent.progressDisplay` folds away): the agent's messages and error
+notices after that row and its attachments, up to the user's next input. The reply is still being written
+while that span is the transcript's last and the turn is active. Output the agent adds to the turn later with
+no new user input, such as after a background task finishes, continues the card as it continues the turn.
 
 A comment sent into a running turn is steered into it or queued, as any prompt is. A steer's reply is what the
-agent says after the steer; a queued prompt reads `Queued` until the host delivers it.
+agent says after the steer. The `queue` feed names each waiting submission by id, so a queued comment reads
+`Queued`; any other undelivered one reads `Sending`.
+
+The host reports a submission's fate on `submissionState`: `accepted`, `rejected` with a reason, or `dropped`
+when the agent discards an accepted prompt undelivered (Restart Agent, `/clear`).
 
 ## The card
 
@@ -39,13 +45,13 @@ Inline replies are client state owned by the session. Each holds a decoration on
 its line through edits. A reply ends when:
 
 - the user dismisses it (the card's ✕, or **Dismiss Inline Replies**, `weavie.agent.dismissInlineReplies`,
-  web, unbound, which clears the session's),
-- its model is disposed (the file's last tab closes),
+  web, unbound, `When = "agentInlineReplies"`, which clears the session's),
+- its model is disposed (the file's last tab closes) or its whole text is replaced, which discards the mark,
 - its prompt leaves the loaded transcript (`/clear`, Rewind),
+- the host drops its prompt undelivered,
 - the page reloads.
 
-Every editor showing the model shows its cards. The card layer and the edit listener exist only while a
-model has a reply.
+Every editor showing the model shows its cards. The card layer exists only while a model has a reply.
 
 ## Setting
 

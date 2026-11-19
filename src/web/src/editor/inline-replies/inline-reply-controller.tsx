@@ -1,9 +1,8 @@
 // Shows the replies to prompts sent from this model's selections, each a card under the line it was sent from.
 
 import type * as monaco from "monaco-editor";
-import { createEffect, createMemo, createRoot, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createMemo, createRoot, onCleanup } from "solid-js";
 import type { ClientSession } from "../../bridge";
-import { settledContentVersion } from "../content-version";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { InlineReplyCard } from "./InlineReplyCard";
 import { type InlineReply, inlineReplies } from "./inline-replies-store";
@@ -13,16 +12,16 @@ export function createInlineReplies(
   session: ClientSession,
   editor: monaco.editor.ICodeEditor,
   model: monaco.editor.ITextModel,
+  version: Accessor<number>,
 ): () => void {
   return createRoot((dispose) => {
     const replies = createMemo(() =>
       inlineReplies(session).filter((reply) => reply.model === model),
     );
     const any = createMemo(() => replies().length > 0);
-    // Few editors ever hold a reply, so the card layer and the edit listener exist only while one does.
+    // Few editors ever hold a reply, so the card layer exists only while one does.
     createEffect(() => {
       if (!any()) return;
-      const version = settledContentVersion(model);
       const cards = createMemo((): ZoneCard<InlineReply>[] => {
         version();
         return replies().flatMap((reply) => {

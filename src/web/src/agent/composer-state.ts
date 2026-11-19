@@ -314,10 +314,11 @@ interface AttachmentState {
   error: string;
 }
 
-interface SubmissionState {
+/** What became of a submission: accepted, refused with a reason, or accepted and later discarded undelivered. */
+export interface SubmissionState {
   id: string;
   attachmentIds: string[];
-  status: "accepted" | "rejected";
+  status: "accepted" | "rejected" | "dropped";
   error: string;
 }
 
@@ -345,6 +346,7 @@ registerSessionFeature((session) => {
     });
   });
   const offSubmission = feature.on<SubmissionState>("submissionState", (message) => {
+    if (message.status === "dropped") return;
     const sent = sentSelections.get(session, message.id);
     if (sent !== undefined) {
       sentSelections.delete(session, message.id);

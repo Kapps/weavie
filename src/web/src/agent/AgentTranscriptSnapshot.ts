@@ -173,7 +173,7 @@ export function latestResultIndex(entries: readonly AgentTranscriptEntry[]): num
   return last !== undefined && isResult(last) ? entries.length - 1 : null;
 }
 
-function sameItems<T>(left: readonly T[], right: readonly T[]): boolean {
+export function sameItems<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 

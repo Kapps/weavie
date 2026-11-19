@@ -94,4 +94,31 @@ describe("the reply to one submission", () => {
     expect(reply(steered, "ask")).toEqual({ said: ["It backs off."], working: true });
     expect(reply(steered, "first")).toEqual({ said: ["Starting."], working: false });
   });
+
+  it("leaves out a failed aside, and an attachment-only prompt that starts the next turn", () => {
+    const aside = (type: string): AgentPaneUpdate => ({
+      type,
+      providerId: "acp",
+      conversationId: "btw-1",
+      anchorTurnId: "1",
+      text: "an unrelated question",
+      summary: type === "side-conversation-failed" ? "The fork failed." : "BTW",
+    });
+    const failedAside = [
+      ...asked,
+      said("1", "a", "It backs off."),
+      turn("turn-completed", "1"),
+      aside("side-conversation-started"),
+      aside("side-conversation-failed"),
+    ];
+    expect(reply(failedAside, "ask")?.said).toEqual(["It backs off."]);
+    const imageOnly = [
+      ...asked,
+      turn("turn-completed", "1"),
+      turn("turn-started", "2"),
+      row("user-image", "2", "picture", "/tmp/picture.png"),
+      said("2", "c", "That is a diagram."),
+    ];
+    expect(reply(imageOnly, "ask")).toEqual({ said: [], working: false });
+  });
 });

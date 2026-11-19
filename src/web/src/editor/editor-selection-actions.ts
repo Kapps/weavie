@@ -56,7 +56,10 @@ export function connectSelectionActions(connection: TextEditorConnection): () =>
     changed = true;
     actions.clear();
   });
-  const scroll = editor.onDidScrollChange(actions.clear);
+  // Content changing size (a card growing, an annotation arriving) is not the user scrolling away.
+  const scroll = editor.onDidScrollChange((event) => {
+    if (event.scrollTopChanged || event.scrollLeftChanged) actions.clear();
+  });
   const mouse = editor.onMouseUp(show);
   const key = editor.onKeyUp(show);
   const content = model.onDidChangeContent(actions.clear);

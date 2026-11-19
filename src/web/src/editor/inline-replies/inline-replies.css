@@ -5,7 +5,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
-  max-height: 50vh;
+  max-height: calc(var(--editor-height) * 0.6);
   overflow: auto;
   color: var(--fg);
   font: var(--font-chrome-body);
@@ -13,7 +13,7 @@
 
 .inline-reply-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
@@ -27,7 +27,6 @@
 }
 
 .inline-reply-head > .ui-icon-button {
-  align-self: center;
   color: var(--dim);
 }
 
@@ -47,4 +46,5 @@
 .inline-reply-error {
   margin: 0;
   color: var(--bad);
+  font: var(--font-chrome-body-wrap);
 }

@@ -97,6 +97,8 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? SubmissionsDropped { add { } remove { } }
+
 		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
 
 		// Every replayable record the provider emits, so a reload can hand back the same conversation.

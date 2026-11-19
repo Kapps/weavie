@@ -1304,6 +1304,7 @@ public static partial class CoreCommands {
 			Category = "Agent",
 			Description = "Remove every agent reply shown under an editor selection in this session; the replies stay in the agent pane.",
 			Aliases = ["dismiss inline reply", "clear inline replies", "close inline replies", "hide inline replies"],
+			When = "agentInlineReplies",
 		});
 
 		registry.Register(new CommandDefinition {

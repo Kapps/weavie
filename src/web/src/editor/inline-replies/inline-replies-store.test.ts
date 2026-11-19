@@ -6,13 +6,20 @@ const host = vi.hoisted(() => ({
   installers: [] as Array<(session: unknown) => undefined | (() => void)>,
   commands: new Map<string, (args: unknown, context: { session: unknown }) => unknown>(),
   pane: null as unknown,
+  select: (_session: unknown): void => {},
 }));
-vi.mock("../../bridge", () => ({
-  registerSessionFeature: (installer: (session: unknown) => undefined | (() => void)) => {
-    host.installers.push(installer);
-    return () => {};
-  },
-}));
+vi.mock("../../bridge", async () => {
+  const solid = await vi.importActual<typeof import("solid-js")>("solid-js/dist/solid.js");
+  const [selected, select] = solid.createSignal<unknown>(null);
+  host.select = select;
+  return {
+    registerSessionFeature: (installer: (session: unknown) => undefined | (() => void)) => {
+      host.installers.push(installer);
+      return () => {};
+    },
+    selectedSession: selected,
+  };
+});
 vi.mock("../../commands/registry", () => ({
   registerCommand: (id: string, handler: (args: unknown, context: { session: unknown }) => void) =>
     host.commands.set(id, handler),
@@ -34,6 +41,7 @@ import { createSignal } from "solid-js";
 import type { AgentTranscriptSnapshot } from "../../agent/AgentPaneTranscriptTypes";
 import { emptyTranscript } from "../../agent/AgentTranscriptSnapshot";
 import type { ClientSession } from "../../bridge";
+import { evaluateWhen } from "../../commands/context";
 import { CommandIds } from "../../commands/types";
 import type { monaco } from "../monaco-setup";
 import { addInlineReply, dismissInlineReply, inlineReplies } from "./inline-replies-store";
@@ -51,7 +59,7 @@ function openSession() {
   } as unknown as ClientSession;
   const [historyComplete, setHistoryComplete] = createSignal(true);
   const [transcript, setTranscript] = createSignal(emptyTranscript);
-  host.pane = { historyComplete, transcript };
+  host.pane = { historyComplete, unfolded: transcript };
   for (const install of host.installers) install(session);
   const prompts = (...ids: string[]): AgentTranscriptSnapshot => ({
     ...emptyTranscript,
@@ -74,15 +82,19 @@ function openSession() {
     session,
     setHistoryComplete,
     show: (...ids: string[]) => setTranscript(prompts(...ids)),
-    reject: (id: string, error: string) =>
-      handlers.get("submissionState")!({ id, status: "rejected", error }),
+    settle: (id: string, status: "rejected" | "dropped", error: string) =>
+      handlers.get("submissionState")!({ id, attachmentIds: [], status, error }),
   };
 }
 
 function openModel() {
   const marks = new Set<string>();
   let disposed = false;
-  let onDispose = () => {};
+  const listeners = new Map<string, (event: { isFlush: boolean }) => void>();
+  const listen = (name: string, listener: (event: { isFlush: boolean }) => void) => {
+    listeners.set(name, listener);
+    return { dispose: () => listeners.delete(name) };
+  };
   const model = {
     getLineMaxColumn: () => 8,
     deltaDecorations: (old: string[], added: unknown[]) => {
@@ -94,15 +106,17 @@ function openModel() {
       });
     },
     isDisposed: () => disposed,
-    onWillDispose: (listener: () => void) => {
-      onDispose = listener;
-    },
+    onWillDispose: (listener: () => void) => listen("dispose", listener),
+    onDidChangeContent: (listener: (event: { isFlush: boolean }) => void) =>
+      listen("content", listener),
   } as unknown as monaco.editor.ITextModel;
   return {
     model,
     marks,
+    listening: () => listeners.size,
+    replaceText: () => listeners.get("content")?.({ isFlush: true }),
     dispose: () => {
-      onDispose();
+      listeners.get("dispose")?.({ isFlush: false });
       disposed = true;
     },
   };
@@ -111,6 +125,7 @@ function openModel() {
 describe("inline replies", () => {
   beforeEach(() => {
     host.pane = null;
+    host.select(null);
   });
 
   it("keeps a reply under its line until it is dismissed", () => {
@@ -125,11 +140,15 @@ describe("inline replies", () => {
     expect(marks.size).toBe(0);
   });
 
-  it("carries the reason a prompt was refused", () => {
-    const { session, reject } = openSession();
+  it("carries the reason a prompt was refused, and ends when the agent drops it undelivered", () => {
+    const { session, settle } = openSession();
     addInlineReply(session, openModel().model, 1, "ask", "why?");
-    reject("ask", "Agent input is paused while Weavie restarts.");
+    settle("ask", "rejected", "Agent input is paused while Weavie restarts.");
     expect(inlineReplies(session)[0]?.error).toBe("Agent input is paused while Weavie restarts.");
+
+    addInlineReply(session, openModel().model, 1, "queued", "and this?");
+    settle("queued", "dropped", "");
+    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["ask"]);
   });
 
   it("drops a reply whose prompt left the loaded transcript, and keeps one still on its way", () => {
@@ -147,18 +166,26 @@ describe("inline replies", () => {
     expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["queued"]);
   });
 
-  it("ends with its model, and all at once by command", () => {
+  it("ends with its model or the text its mark was in, and all at once by command", () => {
     const { session } = openSession();
+    host.select(session);
     const closing = openModel();
-    const { model, marks } = openModel();
+    const replaced = openModel();
+    const { model, marks, listening } = openModel();
     addInlineReply(session, closing.model, 1, "closed", "why?");
+    addInlineReply(session, replaced.model, 1, "replaced", "why?");
     addInlineReply(session, model, 1, "first", "why?");
     addInlineReply(session, model, 2, "second", "why?");
     closing.dispose();
+    replaced.replaceText();
     expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["first", "second"]);
+    expect(replaced.listening()).toBe(0);
 
+    expect(evaluateWhen("agentInlineReplies")).toBe(true);
     host.commands.get(CommandIds.dismissInlineReplies)!(undefined, { session });
     expect(inlineReplies(session)).toEqual([]);
+    expect(evaluateWhen("agentInlineReplies")).toBe(false);
     expect(marks.size).toBe(0);
+    expect(listening()).toBe(0);
   });
 });

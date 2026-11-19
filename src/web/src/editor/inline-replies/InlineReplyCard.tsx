@@ -1,7 +1,9 @@
 import { X } from "lucide-solid";
 import { createMemo, type JSX, Match, Show, Switch } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
+import { sameItems } from "../../agent/AgentTranscriptSnapshot";
 import { AgentWorkingStatus } from "../../agent/AgentWorkingStatus";
+import { agentQueuedSubmissions } from "../../agent/agent-queue-store";
 import { ForEachId } from "../../agent/ForEachId";
 import { submissionReply } from "../../agent/inline-reply";
 import { agentPaneModel } from "../../agent/pane-store";
@@ -26,10 +28,24 @@ export function InlineReplyCard(props: {
   session: ClientSession;
 }): JSX.Element {
   const pane = () => agentPaneModel(props.session);
-  const answer = createMemo(() => {
-    const model = pane();
-    return model === null ? null : submissionReply(model.transcript(), props.reply.id);
-  });
+  // Unchanged entries keep their identity across snapshots, so a settled reply never re-renders.
+  const answer = createMemo(
+    () => {
+      const model = pane();
+      return model === null ? null : submissionReply(model.unfolded(), props.reply.id);
+    },
+    null,
+    {
+      equals: (before, after) =>
+        before === after ||
+        (before !== null &&
+          after !== null &&
+          before.working === after.working &&
+          sameItems(before.entries, after.entries)),
+    },
+  );
+  const queued = () =>
+    agentQueuedSubmissions(props.session).some((waiting) => waiting.id === props.reply.id);
   return (
     <section class="inline-reply ui-card" data-inline-reply aria-label="Agent reply">
       <header class="inline-reply-head">
@@ -46,7 +62,7 @@ export function InlineReplyCard(props: {
           <X aria-hidden="true" />
         </button>
       </header>
-      <Switch fallback={<Status text={pane()?.turnActive() ? "Queued" : "Sending"} />}>
+      <Switch>
         <Match when={props.reply.error}>{(error) => <Problem text={error()} />}</Match>
         <Match when={answer()}>
           {(reply) => (
@@ -72,13 +88,18 @@ export function InlineReplyCard(props: {
                 <Status text="No reply" />
               </Show>
               <AgentWorkingStatus
-                compact={true}
+                compact={false}
+                interruptHint={false}
                 pendingKind={pane()?.pendingRequestKind() ?? null}
                 turnActive={reply().working}
                 turnStartedAt={pane()?.turnStartedAt() ?? null}
               />
             </>
           )}
+        </Match>
+        {/* A transcript still loading says nothing yet about a prompt it has not shown. */}
+        <Match when={pane()?.historyComplete()}>
+          <Status text={queued() ? "Queued" : "Sending"} />
         </Match>
       </Switch>
     </section>

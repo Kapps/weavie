@@ -116,6 +116,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? SubmissionsDropped { add { } remove { } }
+
 		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
 
 		public List<AgentTurnSubmission> Submissions { get; } = [];

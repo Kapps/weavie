@@ -446,6 +446,7 @@ export function AgentComposer(props: {
       <Show when={!props.compact}>
         <AgentWorkingStatus
           compact={false}
+          interruptHint
           pendingKind={props.pendingKind}
           turnActive={props.turnActive}
           turnStartedAt={props.turnStartedAt}

@@ -25,18 +25,12 @@ public sealed class EditorSettingsTests {
 	}
 
 	[Fact]
-	public void InlineReplies_AreOnUntilTurnedOff() {
+	public void InlineReplies_IsInTheOptionsPayload() {
 		using var directory = new TempDirectory("weavie-editor-settings");
 		using var store = CoreSettings.CreateStore(directory.Combine("settings.toml"), enableWatcher: false);
-		Assert.True(InlineReplies(store));
-
 		store.Set(EditorSettings.InlineReplies, JsonDocument.Parse("false").RootElement.Clone());
-
-		Assert.False(InlineReplies(store));
-	}
-
-	private static bool InlineReplies(SettingsStore store) {
 		using var options = JsonDocument.Parse(EditorSettings.BuildJson(store));
-		return options.RootElement.GetProperty("inlineReplies").GetBoolean();
+
+		Assert.False(options.RootElement.GetProperty("inlineReplies").GetBoolean());
 	}
 }

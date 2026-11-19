@@ -38,6 +38,8 @@ export class AgentConversationProjection {
   >();
   private readonly presentation;
   readonly transcript;
+  /** The transcript before earlier updates fold away. */
+  readonly unfolded = this.state[0];
   readonly dispose: () => void;
   readonly card = this.caption[0];
   readonly pendingCards = new Set<string>();

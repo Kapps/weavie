@@ -76,10 +76,11 @@ internal sealed partial class AcpConversation {
 	/// <summary>Stops live work for a restart, settling everything it published.</summary>
 	internal void TerminalizeForRestart(bool clearSubmissions, string summary) {
 		TerminalizedTool[] tools;
+		AgentTurnSubmission[] dropped = [];
 		bool promptActive;
 		lock (_gate) {
 			_ready = false;
-			if (clearSubmissions) _pendingSubmissions.Clear();
+			if (clearSubmissions) dropped = _pendingSubmissions.Clear();
 			_cancelRequested = false;
 			promptActive = _promptActive;
 			_promptActive = false;
@@ -109,6 +110,7 @@ internal sealed partial class AcpConversation {
 		}
 		_terminals.Close();
 		PublishQueue();
+		_port.SubmissionsDropped(dropped);
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) Observe(new AgentTurnStopped(WillResume: false));
 		while (_pendingTerminalMessages.TryPeek(out var message)) {

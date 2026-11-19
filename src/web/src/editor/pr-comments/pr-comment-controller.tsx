@@ -16,7 +16,6 @@ import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
-import { settledContentVersion } from "../content-version";
 import { editorContexts } from "../editor-context";
 import type { FixItem } from "../FixPrompt";
 import { samePath } from "../fs-path";
@@ -61,6 +60,7 @@ export function createPrComments(
   session: ClientSession,
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
+  version: Accessor<number>,
 ): PrCommentController {
   if (model.uri.scheme !== SESSION_FILE_SCHEME) return inert;
   const path = sessionUriHostPath(model.uri);
@@ -93,7 +93,6 @@ export function createPrComments(
             return null;
           }),
     );
-    const version = settledContentVersion(model);
     // The map remembers the head it was built from, so a post can't pair new-head lines with old-head text.
     const anchors = createMemo((): { map: AnchorMap; headSha: string } | null => {
       version();

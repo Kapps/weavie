@@ -312,6 +312,7 @@ export interface AgentControlState {
 }
 
 export interface AgentQueuedSubmission {
+  id: string;
   text: string;
   attachments: number;
   sender?: AgentMessageSender | null;

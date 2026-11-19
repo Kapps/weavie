@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { createAcpSession, setFakeAcpMode, submitAcpDraft } from "../harness/acp-session";
 import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
@@ -70,11 +70,19 @@ test("an inline reply follows a comment steered into a running turn", async ({ p
   const card = page.locator("[data-inline-reply]");
   await expect(card.locator(".agent-working")).toContainText("Working");
   await expect(card.locator(".agent-markdown")).toHaveCount(0);
+  // A second comment being typed survives the first card growing as its reply streams in.
+  await clickIntoEditor(page);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  const draft = page.getByRole("textbox", { name: "Comment", exact: true });
+  await draft.fill("still typing");
   await writeFile(join(workspace, "release-steer-reply"), "");
   await expect(card.locator(".agent-markdown")).toContainText(
     /running the build directly in this session/,
   );
   await expect(card.locator(".agent-working")).toBeVisible();
+  await expect(draft).toHaveValue("still typing");
+  await page.keyboard.press("Escape");
   await writeFile(join(workspace, "release-steer-finish"), "");
   await expect(card.locator(".agent-markdown").last()).toContainText("Build verified.");
   await expect(card.locator(".agent-working")).toHaveCount(0);
@@ -92,4 +100,56 @@ test("a comment sent from a line low in the view makes room for its reply", asyn
   await expect(
     page.locator(".monaco-editor .view-line", { hasText: "// line 30" }),
   ).toBeInViewport();
+});
+
+test("a queued comment's card ends when a restart drops the comment", async ({ page, weavie }) => {
+  await setFakeAcpMode(page, weavie.home, "no-steering");
+  const surface = await createAcpSession(page, "inline-reply-dropped");
+  await submitAcpDraft(surface, "hold");
+  await expect(surface).toContainText("Waiting for steering");
+  await openFile(page, "notes.txt");
+  await askAboutFirstLine(page, "why this line");
+
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".inline-reply-status")).toHaveText("Queued");
+  await runCommand(page, "Restart Agent");
+  await expect(card).toHaveCount(0);
+});
+
+test("a card stays under its line through edits at that line", async ({ page }) => {
+  await createAcpSession(page, "inline-reply-edits");
+  await openFile(page, "hello.ts");
+  await askAboutFirstLine(page, "why this line");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+  const underFirstLine = async (): Promise<void> => {
+    await expect(page.locator(".monaco-editor .view-line").first()).toContainText(
+      "export function",
+    );
+    await expect
+      .poll(async () => {
+        const tops = await page
+          .locator(".monaco-editor .view-lines .view-line")
+          .evaluateAll((lines) =>
+            lines.map((line) => line.getBoundingClientRect().top).sort((a, b) => a - b),
+          );
+        const box = (await card.boundingBox())!;
+        return tops[0]! < box.y && box.y + box.height <= tops[1]!;
+      })
+      .toBe(true);
+  };
+  await underFirstLine();
+
+  await clickIntoEditor(page);
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("// added below");
+  await underFirstLine();
+
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("ControlOrMeta+Shift+k");
+  await expect(page.locator(".monaco-editor .view-line").first()).toContainText("// added below");
+  await page.keyboard.press("ControlOrMeta+z");
+  await underFirstLine();
 });

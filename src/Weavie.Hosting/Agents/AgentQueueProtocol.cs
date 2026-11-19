@@ -6,10 +6,10 @@ namespace Weavie.Hosting.Agents;
 internal static class AgentQueueProtocol {
 	public static AgentQueueMessage Message(IReadOnlyList<AgentTurnSubmission> queued) {
 		ArgumentNullException.ThrowIfNull(queued);
-		return new([.. queued.Select(submission => new AgentQueuedWire(submission.Text, submission.Attachments.Count, submission.Sender))]);
+		return new([.. queued.Select(submission => new AgentQueuedWire(submission.Id, submission.Text, submission.Attachments.Count, submission.Sender))]);
 	}
 }
 
 internal sealed record AgentQueueMessage(IReadOnlyList<AgentQueuedWire> Queued);
 
-internal sealed record AgentQueuedWire(string Text, int Attachments, AgentMessageSender? Sender);
+internal sealed record AgentQueuedWire(string Id, string Text, int Attachments, AgentMessageSender? Sender);

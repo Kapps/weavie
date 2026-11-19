@@ -47,11 +47,13 @@ internal sealed class AcpSubmissionQueue {
 		return null;
 	}
 
-	/// <summary>Drops every waiting submission.</summary>
-	public void Clear() {
-		if (_items.Count == 0) return;
+	/// <summary>Drops every waiting submission and returns them.</summary>
+	public AgentTurnSubmission[] Clear() {
+		var dropped = Snapshot();
+		if (dropped.Length == 0) return dropped;
 		_items.Clear();
 		Version++;
+		return dropped;
 	}
 
 	/// <summary>The waiting submissions, in delivery order.</summary>

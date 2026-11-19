@@ -49,6 +49,8 @@ export interface AgentPaneModel {
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
   readonly session: ClientSession;
   readonly transcript: Accessor<AgentTranscriptSnapshot>;
+  /** The transcript holding every reply, whatever `agent.progressDisplay` folds away. */
+  readonly unfolded: Accessor<AgentTranscriptSnapshot>;
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
   conversation(id: string): AgentTranscriptEntry | undefined;
@@ -309,6 +311,7 @@ export function createAgentPaneModel(
     session,
     turnStartedAt,
     transcript: main.transcript,
+    unfolded: main.unfolded,
     turnActive: () => main.transcript().turnActive,
     pendingRequestKind: () => request()?.kind ?? null,
     keyboardRequestKey: () => request()?.key ?? null,

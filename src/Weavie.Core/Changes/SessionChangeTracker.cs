@@ -33,6 +33,9 @@ public sealed partial class SessionChangeTracker {
 	private readonly TrackedSet _missingAcceptedAnchor;
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly TrackedMap<string> _preEdit;
+	// The running tool's pre-edit capture per path, so its completion holds the right before even if a git review
+	// closed between the two.
+	private readonly Dictionary<string, (string Text, bool Exists)> _toolCapture = new(PathIdentity.Comparer);
 	// Binary contents are never stored; an earlier text review remains retained but unavailable.
 	private readonly Dictionary<string, FileStat> _nonText = new(PathIdentity.Comparer);
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
@@ -168,6 +171,7 @@ public sealed partial class SessionChangeTracker {
 	private void CaptureBaselineLocked(string path, string content, bool existed) {
 		CaptureProvenanceBaseline(path, content);
 		_preEdit[path] = content;
+		_toolCapture[path] = (content, existed);
 		// A git review's befores come from git; the edit joins it once reported.
 		if (_review is not null) {
 			Checkpoint();
@@ -218,19 +222,17 @@ public sealed partial class SessionChangeTracker {
 				} else {
 					reviewRemoved = false;
 					nonTextChanged = false;
-					// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
-					if (_reviewBaseline.TryAdd(path, string.Empty)) {
-						_missingReviewBaseline.Add(path);
-					}
-
-					if (_acceptedAnchor.TryAdd(path, string.Empty)) {
-						_missingAcceptedAnchor.Add(path);
+					// An unheld file takes this tool's pre-edit capture as its before; with none, it appeared this session.
+					if (!_acceptedAnchor.ContainsKey(path)) {
+						var (text, exists) = _toolCapture.GetValueOrDefault(path, (string.Empty, false));
+						HoldBefore(path, text, exists);
 					}
 					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
 					string reviewCurrent = _current.GetValueOrDefault(path, before);
 					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent, _conversationPrompts.GetValueOrDefault(conversationId));
 				}
 			}
+			_toolCapture.Remove(path);
 			Checkpoint();
 		}
 
@@ -344,6 +346,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
+			if (!ShownMatchesDisk([path])) return RevertHunkOutcome.GuardMismatch;
 			ReconcilePath(path);
 			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
@@ -367,6 +370,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		ReviewHistoryResult result;
 		lock (_gate) {
+			if (!ShownMatchesDisk(_acceptedAnchor.Keys)) return ReviewHistoryResult.Blocked(true);
 			ReconcileReviewDisk();
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
@@ -499,7 +503,8 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		lock (_gate) {
-			ReconcilePath(path);
+			// A git review keeps what it shows; a change it hasn't listed yet stays pending.
+			if (_review is null) ReconcilePath(path);
 			if (!_nonText.ContainsKey(path) && _current.ContainsKey(path)) KeepLocked([path]);
 			// A keep retried after its save failed finds the review already scrapped in memory; this saves that.
 			else Checkpoint();
@@ -509,7 +514,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Keeps every listed file as one undoable step.</summary>
 	public void KeepAll() {
 		lock (_gate) {
-			ReconcileReviewDisk();
+			if (_review is null) ReconcileReviewDisk();
 			KeepLocked([.. TurnChangesLocked().Select(change => change.Path)]);
 		}
 	}

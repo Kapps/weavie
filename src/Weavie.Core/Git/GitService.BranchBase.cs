@@ -60,15 +60,16 @@ public sealed partial class GitService {
 	}
 
 	/// <summary>
-	/// Whether a git operation is under way: a rebase, <c>git am</c>, or bisect (each detaches HEAD from its branch), a
-	/// stopped merge, or any command holding the index lock while it rewrites the working tree.
+	/// The git operation under way: a rebase, <c>git am</c>, bisect (each detaches HEAD from its branch) or a merge
+	/// stopped on conflicts, else a command holding the index lock while it rewrites the working tree.
 	/// </summary>
-	public async Task<bool> IsOperationInProgressAsync(string directory, CancellationToken ct = default) {
+	public async Task<GitOperation> ReadOperationAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var paths = await RunCheckedAsync(directory, ["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply",
-			"--git-path", "BISECT_LOG", "--git-path", "MERGE_HEAD", "--git-path", "index.lock"], ct)
+		var paths = await RunCheckedAsync(directory, ["rev-parse", "--git-path", "index.lock", "--git-path", "rebase-merge",
+			"--git-path", "rebase-apply", "--git-path", "BISECT_LOG", "--git-path", "MERGE_HEAD"], ct)
 			.ConfigureAwait(false);
-		return Lines(paths.StdOut).Any(path => Path.Exists(Path.GetFullPath(path, directory)));
+		bool[] exists = [.. Lines(paths.StdOut).Select(path => Path.Exists(Path.GetFullPath(path, directory)))];
+		return exists.Skip(1).Any(stopped => stopped) ? GitOperation.Stopped : exists[0] ? GitOperation.Locked : GitOperation.None;
 	}
 
 	/// <summary>Records <paramref name="parent"/> as the branch <paramref name="branch"/> was created from.</summary>

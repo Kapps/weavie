@@ -12,6 +12,8 @@ public sealed class ReviewRequest(bool relist) {
 
 public sealed partial class SessionChangeTracker {
 	private ReviewRequest? _reviewRequest;
+	// Paths the open git review never holds (ignored), so their saves stop asking git for a before.
+	private readonly HashSet<string> _unjoinable = new(PathIdentity.Comparer);
 
 	/// <summary>Raised under the tracker's lock when the review's source changes; handlers may only signal.</summary>
 	public event Action? ReviewChanged;
@@ -72,12 +74,12 @@ public sealed partial class SessionChangeTracker {
 		foreach (string path in _acceptedAnchor.Keys.ToArray()) {
 			if (accepted) SetAllPending(path, false);
 			ForgetReview(path);
-			if (!_provenance.TryGetValue(path, out var provenance) || !provenance.HasPending) {
-				_provenance.Remove(path);
-				_preEdit.Remove(path);
-			}
+		}
+		foreach (var (path, provenance) in _provenance.ToArray()) {
+			if (!provenance.HasPending) _provenance.Remove(path);
 		}
 		_nonText.Clear();
+		_unjoinable.Clear();
 		_undoStack.Clear();
 		_redoStack.Clear();
 		SetReview(null);
@@ -97,6 +99,7 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			if (!ReferenceEquals(_reviewRequest, request)) return null;
 			_reviewRequest = null;
+			_unjoinable.Clear();
 			var listed = new HashSet<string>(PathIdentity.Comparer);
 			foreach (var seed in seeds) {
 				string path = NormalizePath(seed.Path);
@@ -124,13 +127,16 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Refreshes a path <paramref name="expected"/> holds from disk. False when the review is no longer expected or doesn't
-	/// hold the path yet, so the caller reads its before and calls <see cref="JoinReview"/>.
+	/// Refreshes a path <paramref name="expected"/> holds from disk. False when the caller must read the path's before
+	/// from git and call <see cref="JoinReview"/>: the review isn't the expected one, or it neither holds the path nor
+	/// knows it can't.
 	/// </summary>
 	public bool RefreshReviewPath(ReviewContext expected, string path) {
 		path = NormalizePath(path);
 		lock (_gate) {
-			if (_review != expected || !_acceptedAnchor.ContainsKey(path)) return false;
+			if (_review != expected) return false;
+			if (_unjoinable.Contains(path)) return true;
+			if (!_acceptedAnchor.ContainsKey(path)) return false;
 			_reviewRequest?.Joined.Add(path);
 			ReconcilePath(path);
 			Checkpoint();
@@ -145,10 +151,14 @@ public sealed partial class SessionChangeTracker {
 	public bool JoinReview(ReviewContext expected, string path, string before, bool beforeExists) {
 		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(before);
-		if (!_isInScope(path) || !PathBoundary.Contains(_workspaceRoot, path)
-			|| !beforeExists && _ignoredAmong([path]).Count > 0) return true;
+		bool joinable = _isInScope(path) && PathBoundary.Contains(_workspaceRoot, path)
+			&& (beforeExists || _ignoredAmong([path]).Count == 0);
 		lock (_gate) {
 			if (_review != expected) return false;
+			if (!joinable) {
+				_unjoinable.Add(path);
+				return true;
+			}
 			_reviewRequest?.Joined.Add(path);
 			if (!_acceptedAnchor.ContainsKey(path)) HoldBefore(path, before, beforeExists);
 			ReconcilePath(path);
@@ -164,13 +174,21 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			foreach (string raw in paths) {
 				string path = NormalizePath(raw);
-				if (!_current.TryGetValue(path, out string? current)) return false;
-				bool exists = _fileSystem.FileExists(path);
-				if (exists == _missingCurrent.Contains(path)
-					|| exists && (!_fileSystem.TryReadAllText(path, out string actual) || actual != current)) return false;
+				if (!_current.ContainsKey(path) || !ShowsDisk(path)) return false;
 			}
 			return true;
 		}
+	}
+
+	// Whether a git review's held paths still show what disk holds, so a whole-file action acts only on what the user
+	// saw; the default review always reconciles first. Caller holds _gate.
+	private bool ShownMatchesDisk(IEnumerable<string> paths) =>
+		_review is null || paths.All(path => !_current.ContainsKey(path) || ShowsDisk(path));
+
+	private bool ShowsDisk(string path) {
+		bool exists = _fileSystem.FileExists(path);
+		return exists != _missingCurrent.Contains(path)
+			&& (!exists || _fileSystem.TryReadAllText(path, out string actual) && actual == _current[path]);
 	}
 
 	private void HoldBefore(string path, string before, bool exists) {

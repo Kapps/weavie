@@ -157,11 +157,14 @@ public sealed partial class HostCore {
 			var befores = await git
 				.ReadFilesAtRefsAsync(review.Worktree, [.. changes.Select(change => (review.MergeBase, change.Path))], ct)
 				.ConfigureAwait(false);
-			var seeds = new ReviewSeed[changes.Count];
-			for (int i = 0; i < seeds.Length; i++) {
+			var seeds = new List<ReviewSeed>(changes.Count);
+			for (int i = 0; i < changes.Count; i++) {
 				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, changes[i].Path));
-				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
-				seeds[i] = new ReviewSeed(absolute, befores[i].Content, current.Content, befores[i].Exists, current.Exists);
+				bool exists = session.FileSystem.FileExists(absolute);
+				string current = string.Empty;
+				// Binary files aren't reviewed as text, the same as an agent's binary edit.
+				if (exists && !session.FileSystem.TryReadAllText(absolute, out current)) continue;
+				seeds.Add(new ReviewSeed(absolute, befores[i].Content, current, befores[i].Exists, exists));
 			}
 
 			bool moved = session.ReviewListing.HeadMovedSince(start);
@@ -170,7 +173,7 @@ public sealed partial class HostCore {
 			finished = true;
 			if (moved) return Listed.HeadMoved;
 
-			var joined = await _ui.InvokeAsync(() => Task.FromResult(ReplaceReviewOnUi(session, review, seeds, request)), ct)
+			var joined = await _ui.InvokeAsync(() => Task.FromResult(ReplaceReviewOnUi(session, review, [.. seeds], request)), ct)
 				.ConfigureAwait(false);
 			if (joined is null) return Listed.NotReplaced;
 			if (joined.Count > 0) {
@@ -229,14 +232,6 @@ public sealed partial class HostCore {
 			if (session.Changes.JoinReview(review, path, before.Content, before.Exists)) return;
 		}
 	}
-
-	/// <summary>Reads a worktree file's current content while preserving absence as review data.</summary>
-	private static async Task<WorktreeFileSnapshot> ReadWorktreeAsync(string absolutePath, CancellationToken ct) =>
-		File.Exists(absolutePath)
-			? new WorktreeFileSnapshot(true, await File.ReadAllTextAsync(absolutePath, ct).ConfigureAwait(false))
-			: new WorktreeFileSnapshot(false, string.Empty);
-
-	private readonly record struct WorktreeFileSnapshot(bool Exists, string Content);
 
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
 }

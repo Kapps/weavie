@@ -1,3 +1,4 @@
+using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Xunit;
 
@@ -15,7 +16,7 @@ public sealed class ReviewHeadReaderTests {
 			_ => Task.FromResult(branch),
 			_ => {
 				branch = "topic";
-				return Task.FromResult(false);
+				return Task.FromResult(GitOperation.None);
 			},
 			_ => Task.FromResult<string?>("new-base"),
 			CancellationToken.None);
@@ -31,7 +32,7 @@ public sealed class ReviewHeadReaderTests {
 			Review,
 			default,
 			_ => Task.FromResult(branch),
-			_ => Task.FromResult(false),
+			_ => Task.FromResult(GitOperation.None),
 			_ => Task.FromResult<string?>("their-base"),
 			CancellationToken.None);
 
@@ -44,7 +45,7 @@ public sealed class ReviewHeadReaderTests {
 			Review,
 			default,
 			_ => Task.FromResult<string?>(null),
-			_ => Task.FromResult(true),
+			_ => Task.FromResult(GitOperation.Stopped),
 			_ => Task.FromResult<string?>("mid-rebase"),
 			CancellationToken.None);
 
@@ -59,7 +60,7 @@ public sealed class ReviewHeadReaderTests {
 			Review,
 			new ListingState(0, 0, 0, stale),
 			_ => Task.FromResult<string?>("topic"),
-			_ => Task.FromResult(true),
+			_ => Task.FromResult(GitOperation.Stopped),
 			_ => Task.FromResult<string?>(mergeBase),
 			CancellationToken.None);
 
@@ -77,5 +78,20 @@ public sealed class ReviewHeadReaderTests {
 			CancellationToken.None);
 
 		Assert.Equal(new ReviewHeadSnapshot(Review, "topic", "old-base", default), snapshot);
+	}
+
+	[Fact]
+	public async Task AHeldIndexLock_IsWaitedOut() {
+		var operations = new Queue<GitOperation>([GitOperation.Locked, GitOperation.Locked, GitOperation.None]);
+		var snapshot = await HostCore.ReadReviewHeadAsync(
+			Review,
+			new ListingState(1, 0, 0, true),
+			_ => Task.FromResult<string?>("topic"),
+			_ => Task.FromResult(operations.Dequeue()),
+			_ => Task.FromResult<string?>("old-base"),
+			CancellationToken.None);
+
+		Assert.Empty(operations);
+		Assert.Equal(new ReviewHeadSnapshot(Review, "topic", "old-base", new ListingState(1, 0, 0, true)), snapshot);
 	}
 }

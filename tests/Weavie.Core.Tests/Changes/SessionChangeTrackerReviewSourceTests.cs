@@ -253,4 +253,49 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		Assert.Equal("agent", edit.Before);
 		Assert.Equal("user", edit.After);
 	}
+
+	[Fact]
+	public void AnEditUnderWayWhenTheReviewCloses_KeepsTheBeforeItCaptured() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "original\n");
+		tracker.CaptureBaseline(Other);
+		_files.WriteAllText(Other, "agent\n");
+		tracker.CloseReview();
+
+		tracker.RecordChange(Other);
+
+		var turn = tracker.GetTurn(Other)!;
+		Assert.Equal("original\n", turn.AcceptedBaselineText);
+		Assert.True(turn.AcceptedBaselineExists);
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile(Other));
+		Assert.Equal("original\n", _files.ReadAllText(Other));
+	}
+
+	[Fact]
+	public void AnIgnoredPath_IsRememberedSoItsSavesDontAskGitAgain() {
+		_files.WriteAllText(File, "A\nspace\nB\n");
+		var tracker = new SessionChangeTracker(_files, NoopFileActivitySink.Instance, Root,
+			path => Path.GetDirectoryName(path) == Root, paths => paths.ToHashSet(), _persistence);
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+		_files.WriteAllText(Other, "ignored\n");
+		Assert.False(tracker.RefreshReviewPath(Review, Other));
+
+		Assert.True(tracker.JoinReview(Review, Other, string.Empty, false));
+
+		Assert.True(tracker.RefreshReviewPath(Review, Other));
+		Assert.Null(tracker.GetTurn(Other));
+	}
+
+	[Fact]
+	public void AGitReview_KeepsWhatItShows_AndRefusesToRevertOverAnUnlistedChange() {
+		var tracker = Reviewing();
+		_files.WriteAllText(File, "A\nspace\nB\nunseen\n");
+
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, tracker.RevertFile(File));
+		Assert.True(tracker.RevertAll().WasBlocked);
+		tracker.KeepAll();
+
+		Assert.Equal("A\nspace\nB\nunseen\n", _files.ReadAllText(File));
+		Assert.Equal("A\nspace\nB\n", tracker.GetTurn(File)!.BaselineText);
+	}
 }

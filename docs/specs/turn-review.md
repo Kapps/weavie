@@ -242,7 +242,7 @@ baseline instead of the *baseline* lines into the file:
    pending change of a turn review closes it; a git review stays open with everything kept
    ([review-state.md](review-state.md)).
 
-**Keep file** and **Keep-all** keep the remaining changes as one undoable step.
+**Keep file** and **Keep-all** keep the remaining changes as one step, undoable while the review stays open.
 
 ### The faded "accepted" band: Keep fades a hunk, it doesn't hide it
 
@@ -251,7 +251,7 @@ The accepted anchor retains the original review content:
 - **Pending (bright)** = review baseline → current.
 - **Kept (faded)** = accepted anchor → review baseline.
 
-Both bands survive new prompts, Keep-all, unload, and restart. New edits over kept
+Both bands survive new prompts, unload, and restart. New edits over kept
 regions become pending; earlier decisions never silently approve later proposals.
 
 **Inline ↶ undo (un-keep).** Each faded hunk carries an inline **↶ undo** beside it (and `Ctrl+Shift+Enter`

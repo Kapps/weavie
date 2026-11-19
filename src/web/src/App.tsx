@@ -1308,7 +1308,7 @@ export default function App(): JSX.Element {
                   <button
                     type="button"
                     class="editor-review-action editor-review-close ui-button"
-                    title={`Close diff${keyHint(CommandIds.reviewClose)}`}
+                    title={`Close Diff${keyHint(CommandIds.reviewClose)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
                   >
                     <span class="ui-icon">

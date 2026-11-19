@@ -154,4 +154,12 @@ public sealed class GitReviewListingTests {
 
 		Assert.Equal(["big.md +1 -0", "readme.txt +1 -0"], (await ReviewAsync(host)).Order().ToList());
 	}
+
+	[Fact]
+	public async Task ABinaryFile_IsLeftOutOfTheListing() {
+		await using var host = await StartWithDocAsync();
+		File.WriteAllBytes(Path.Combine(host.RepoRoot, "image.png"), [0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0x00]);
+
+		Assert.Equal(["readme.txt +1 -0"], await ReviewAsync(host));
+	}
 }

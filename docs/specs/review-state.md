@@ -65,23 +65,30 @@ git is recorded on that re-list and applied again after it.
 |---|---|
 | Watcher invalidation the tracker cannot account for | coalesced re-list |
 | Git metadata change (HEAD, index, refs) | re-resolve; re-list when the base moved or invalidations are pending |
-| Index lock held, or a rebase, merge or bisect in progress | wait until it finishes |
-| Branch checkout | close |
+| Rebase, `git am`, bisect or conflicted merge stopped mid-way | wait until it finishes |
+| Index lock held | poll until it is released (a read-only command releases it with no event) |
+| Branch checkout, or the target no longer shares history with HEAD | close |
+
+A path the review can't hold (ignored, outside the worktree) is remembered until the next listing, so its saves
+don't ask git again. Binary files are left out of the listing, as an agent's binary edit is.
 
 A watcher invalidation never joins a path. The watcher also echoes Weavie's own saves and agent edits: an
 invalidation is an echo when the tracker holds the path and disk equals its current, and an echo does
 nothing. A re-list resolves its base when it runs, never from the trigger.
 
-### Keep
+### Keep and revert
 
-Keep, Keep File and Keep All advance kept and are undoable. Keeping the last pending change of a git
+Keep, Keep File and Keep All advance kept and are undoable. In a git review they keep what the review shows; a
+change it hasn't listed yet stays pending. Revert File and Revert All refuse while a file on disk differs from
+what the review shows, so they never overwrite a change the user hasn't seen. Keeping the last pending change of a git
 review leaves it open with every change kept. In the default mode it scraps the review, as an accepted
 review has nothing left to show.
 
 ### Close
 
 Closing drops every review entry, both undo stacks, and the review identity. Agent provenance with lines
-still pending stays, so later edits over them are still corrections.
+still pending stays, so later edits over them are still corrections. An agent edit already under way when a
+review closes keeps the before it captured when it started, so a file it changes never reads as created.
 
 ## Cost
 

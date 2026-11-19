@@ -107,7 +107,8 @@ composer is deferred until it moves to an app-level overlay outside the view-zon
   deleted and empty-file snapshots, **a `revert-file` restoring the ref content on disk** (the accept/reject
   unification), unknown ref, empty-diff retraction, merge-base semantics.
 - `SessionChangeTrackerReviewSourceTests` (Weavie.Core.Tests): replacing, carry-over, joins, close.
-- `ReviewPhantomReproTests` (Weavie.Hosting.Tests): a review lists only files git says changed.
+- `GitReviewListingTests` / `GitReviewLiveTests` (Weavie.Hosting.Tests): a review lists only files git says
+  changed, and stays git's answer as the worktree changes under it.
 - `diff-against.spec.ts` / `open-pr.spec.ts` (Playwright): the user journeys — Diff Against HEAD with a Reject
   that backs the edit out, the ref prompt + multi-file walk, the no-changes toast, and a PR's Keep/Revert +
   Comment coexisting on the one toolbar (render + reply; authoring is `test.fixme`, #218).

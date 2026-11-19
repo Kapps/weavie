@@ -51,9 +51,9 @@ public sealed partial class HostCore {
 		WorkspaceInventorySnapshot snapshot;
 		try {
 			snapshot = await session.FileActivity.InventorySnapshotAsync(cancellation.Token).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-			session.EndIfWorkspaceRootIsGone($"Couldn't load workspace files: {ex.Message}");
-			throw;
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException
+			&& session.EndIfWorkspaceRootIsGone($"Couldn't load workspace files: {ex.Message}")) {
+			return false;
 		}
 
 		// The watcher's snapshot outlives a deleted root until the deletion's own events arrive.

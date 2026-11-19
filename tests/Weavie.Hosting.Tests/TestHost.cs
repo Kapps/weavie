@@ -494,6 +494,10 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Publishes a session event from the test client.</summary>
+	/// <summary>What a page downloading <paramref name="session"/>'s file list gets: false for "not found".</summary>
+	public Task<bool> RequestFileListAsync(HostSession session) =>
+		Core.WriteFileIndexAsync(session.Address, null, Stream.Null, CancellationToken.None);
+
 	public void SessionEvent(HostSession session, string feature, string name, object payload) {
 		var element = JsonSerializer.SerializeToElement(payload, JsonOptions);
 		if (feature == "editor"

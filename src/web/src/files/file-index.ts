@@ -178,7 +178,10 @@ registerSessionFeature((session) => {
     void load(current.signal).catch((error: unknown) => {
       if (current.signal.aborted) return;
       sync.abandon();
-      notify("error", `Couldn't load the file list: ${String(error)}`, errorKey);
+      notify("error", `Couldn't load the file list: ${String(error)}`, errorKey, {
+        label: "Retry",
+        run: download,
+      });
     });
   };
 

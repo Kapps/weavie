@@ -210,7 +210,9 @@ export function rankFiles(
   const needle = query.toLowerCase();
   const matched: PreFiltered[] = [];
   let matchCount = 0;
-  for (const entry of finder.entries) {
+  // Indexed on purpose: this scans every listed file on each keystroke.
+  for (let index = 0; index < finder.entries.length; index++) {
+    const entry = finder.entries[index] as FileEntry;
     const pre = preFilter(entry.lower, needle, entry.row.leafStart);
     if (pre >= 0) {
       matchCount++;

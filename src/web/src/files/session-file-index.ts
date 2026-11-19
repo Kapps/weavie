@@ -37,6 +37,7 @@ registerSessionFeature((session) => {
     const current = new AbortController();
     abort = current;
     sync.begin();
+    index.setDownloading(false);
     void load(current.signal).catch((error: unknown) => {
       if (current.signal.aborted) return;
       const reason = error instanceof Error ? error.message : String(error);
@@ -44,6 +45,7 @@ registerSessionFeature((session) => {
         label: "Retry",
         run: download,
       });
+      index.setDownloading(true);
       sync.abandon();
     });
   };
@@ -58,21 +60,23 @@ registerSessionFeature((session) => {
       sync.abandon();
       return;
     }
+    // Read to the end of the response, so a complete download never ends as a cancelled request.
+    let last: IndexBatch | null = null;
     for await (const batch of readJsonStream<IndexBatch>(response)) {
       signal.throwIfAborted();
+      if (last?.complete === true) throw new Error("The file list continued past its end.");
       for (const path of batch.paths) listing.add(path);
-      if (!batch.complete) continue;
-      if (!batch.unchanged) {
-        if (listing.entries.length !== batch.count) {
-          throw new Error("The file list has an incorrect path count.");
-        }
-        index.install(listing);
-      }
-      clearNotification(errorKey);
-      sync.complete(batch.revision, !batch.unchanged);
-      return;
+      last = batch;
     }
-    throw new Error("The file list ended before completion.");
+    if (last?.complete !== true) throw new Error("The file list ended before completion.");
+    if (!last.unchanged) {
+      if (listing.entries.length !== last.count) {
+        throw new Error("The file list has an incorrect path count.");
+      }
+      index.install(listing);
+    }
+    clearNotification(errorKey);
+    sync.complete(last.revision, !last.unchanged);
   };
 
   const sync = new FileIndexSync((change) => index.apply(change), download);

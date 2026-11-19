@@ -4,6 +4,7 @@ import { formatKey } from "../commands/keybindings";
 import type { CommandInfo } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
+import type { FileIndex } from "../files/file-index";
 import { PathTreeRowLabel } from "../files/PathTreeRowLabel";
 import type { PathTreeRow } from "../files/path-tree";
 import type { ListRowProps } from "../list-navigation";
@@ -32,7 +33,7 @@ export function OmnibarResults(props: {
   /** The navigation's own per-row props: hover moves the highlight, and the row is scrollable-to. */
   rowProps: (index: number) => ListRowProps;
   hiddenCount: () => number;
-  filesPending: boolean;
+  index: FileIndex;
   currentFile: string | null;
 
   pathRows: () => DirEntry[];
@@ -157,7 +158,7 @@ export function OmnibarResults(props: {
       <Match when={props.mode() === "tree"}>
         <Show
           when={props.treeRows().length > 0}
-          fallback={<Empty>{props.filesPending ? "Loading files…" : "No files"}</Empty>}
+          fallback={<Empty>{props.index.emptyText("No files")}</Empty>}
         >
           <List label="Files">
             <For each={props.treeRows()}>
@@ -189,7 +190,7 @@ export function OmnibarResults(props: {
       <Match when={props.mode() === "search"}>
         <Show
           when={props.fileRows().length > 0}
-          fallback={<Empty>{props.filesPending ? "Loading files…" : "No matching files"}</Empty>}
+          fallback={<Empty>{props.index.emptyText("No matching files")}</Empty>}
         >
           <List label="Files">
             <For each={props.fileRows()}>

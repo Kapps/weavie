@@ -84,7 +84,7 @@ export class FileIndex {
   private readonly workspaceSignal = createSignal<{ root: string; home: string | null } | null>(
     null,
   );
-  private readonly pendingSignal = createSignal(true);
+  private readonly statusSignal = createSignal<"loading" | "failed" | "listed">("loading");
   private readonly versionSignal = createSignal(0);
 
   get root(): string | null {
@@ -98,7 +98,22 @@ export class FileIndex {
 
   /** True until the first list has arrived. */
   get pending(): boolean {
-    return this.pendingSignal[0]();
+    return this.statusSignal[0]() === "loading";
+  }
+
+  /** What a surface with no files to show says: why there are none yet, or `none` once the list is in hand. */
+  emptyText(none: string): string {
+    const status = this.statusSignal[0]();
+    return status === "loading"
+      ? "Loading files…"
+      : status === "failed"
+        ? "Couldn't load files"
+        : none;
+  }
+
+  /** A download started or failed; either matters only while there is no list to show. */
+  setDownloading(failed: boolean): void {
+    if (this.listing === null) this.statusSignal[1](failed ? "failed" : "loading");
   }
 
   get version(): number {
@@ -133,7 +148,7 @@ export class FileIndex {
 
   install(listing: FileListing): void {
     this.listing = listing;
-    this.pendingSignal[1](false);
+    this.statusSignal[1]("listed");
     this.versionSignal[1]((version) => version + 1);
   }
 

@@ -94,7 +94,7 @@ export function BrowserFilter(props: {
         </button>
         <Show when={needle().length > 0}>
           <span class="browser-filter-count" role="status">
-            {props.index.pending ? "Loading files…" : `${search.total()} matches`}
+            {props.index.emptyText(`${search.total()} matches`)}
           </span>
         </Show>
       </div>
@@ -131,11 +131,7 @@ export function BrowserFilter(props: {
         <Show when={needle().length > 0}>
           <Show
             when={matches().length > 0}
-            fallback={
-              <div class="browser-empty">
-                {props.index.pending ? "Loading files…" : "No matching files"}
-              </div>
-            }
+            fallback={<div class="browser-empty">{props.index.emptyText("No matching files")}</div>}
           >
             <div id={listId} role="listbox" aria-label="Matching files">
               <For each={matches()}>

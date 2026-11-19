@@ -13,12 +13,26 @@ function indexOf(root: string, paths: string[]) {
 const listed = (index: FileIndex): string[] => index.entries.map((entry) => entry.row.rel).sort();
 
 describe("FileIndex", () => {
-  it("is pending until its first list is installed", () => {
+  it("says why it has no files until its first list is installed", () => {
     const index = new FileIndex();
     index.setWorkspace("/repo", null);
     expect(index.pending).toBe(true);
+    expect(index.emptyText("No files")).toBe("Loading files…");
+    index.setDownloading(true);
+    expect(index.pending).toBe(false);
+    expect(index.emptyText("No files")).toBe("Couldn't load files");
+    index.setDownloading(false);
+    expect(index.emptyText("No files")).toBe("Loading files…");
     index.install(index.newListing());
     expect(index.pending).toBe(false);
+    expect(index.emptyText("No files")).toBe("No files");
+  });
+
+  it("keeps showing the list it holds when a later download fails", () => {
+    const index = indexOf("/repo", ["a.ts"]);
+    index.setDownloading(true);
+    expect(index.emptyText("No files")).toBe("No files");
+    expect(listed(index)).toEqual(["a.ts"]);
   });
 
   it("refuses a list before its workspace and a change before its list", () => {

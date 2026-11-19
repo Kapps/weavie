@@ -688,7 +688,7 @@ export function Omnibar(props: {
             onSelect={setSelected}
             rowProps={nav.row}
             hiddenCount={hiddenCount}
-            filesPending={props.index.pending}
+            index={props.index}
             currentFile={props.currentFile}
             pathRows={pathView}
             pathError={pathError}

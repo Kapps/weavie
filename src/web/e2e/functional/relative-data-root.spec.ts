@@ -17,7 +17,7 @@ test("a relative data root keeps Claude's configuration readable from its worksp
     automaticInference: false,
     setupCompleted: true,
     markdownView: "source",
-    reviewFilesAhead: 2,
+    reviewScreensAhead: 2,
   });
   const proc = spawn(headlessProgram.command, headlessProgram.args, {
     cwd: fake.home,

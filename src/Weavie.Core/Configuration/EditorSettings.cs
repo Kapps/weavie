@@ -118,8 +118,8 @@ public static class EditorSettings {
 	/// <summary>Whether a prompt sent from an editor selection shows the agent's reply under that selection.</summary>
 	public const string InlineReplies = "editor.inlineReplies";
 
-	/// <summary>How many files past the ones on screen the unified review mounts while it rests.</summary>
-	public const string ReviewFilesAhead = "editor.reviewFilesAhead";
+	/// <summary>How many screens of files past the ones on screen the unified review mounts while it rests.</summary>
+	public const string ReviewScreensAhead = "editor.reviewScreensAhead";
 
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
@@ -129,7 +129,7 @@ public static class EditorSettings {
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks, FullscreenCenter,
-		ReviewComments, ReviewHints, ReviewStepSettled, ReviewFilesAhead, InlineReplies,
+		ReviewComments, ReviewHints, ReviewStepSettled, ReviewScreensAhead, InlineReplies,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -154,8 +154,8 @@ public static class EditorSettings {
 	// Sticky scroll asks the language server for every symbol in the file after each typing pause: 151 MB and ~8s for
 	// a 260k-line generated file.
 	private const long DefaultStickyScrollMaxLines = 5000;
-	private const long DefaultReviewFilesAhead = 2;
-	private const long MaxReviewFilesAhead = 6;
+	private const long DefaultReviewScreensAhead = 3;
+	private const long MaxReviewScreensAhead = 6;
 	private const long MaxFileLineLimit = 10_000_000;
 
 	private const long DefaultMouseWheelScrollSensitivity = 1;
@@ -352,12 +352,13 @@ public static class EditorSettings {
 			"Show the agent's reply under an editor selection after sending a comment on it, as well as in the agent pane.",
 			["inline replies", "inline reply", "inline response", "reply in editor", "answer next to code"], true));
 
-		registry.Register(Ranged(ReviewFilesAhead,
-			"How many files past the ones on screen the unified review prepares while it rests, so scrolling into "
-				+ "them builds nothing mid-scroll. 0 prepares a file only as it nears the screen.",
-			["review files ahead", "review preload", "review scroll stutter", "preload review files",
-				"review scroll stalls"],
-			DefaultReviewFilesAhead, 0, MaxReviewFilesAhead, "files"));
+		registry.Register(Ranged(ReviewScreensAhead,
+			"How many screens of files past the ones on screen the unified review prepares while it rests, at most "
+				+ "eight files a side, so scrolling into them builds nothing mid-scroll. 0 prepares a file only as it "
+				+ "nears the screen.",
+			["review screens ahead", "review files ahead", "review preload", "review scroll stutter",
+				"preload review files", "review scroll stalls"],
+			DefaultReviewScreensAhead, 0, MaxReviewScreensAhead, "screens"));
 	}
 
 	/// <summary>
@@ -406,7 +407,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("reviewComments", store.RequireBool(ReviewComments));
 		writer.WriteBoolean("reviewHints", store.RequireBool(ReviewHints));
 		writer.WriteBoolean("reviewStepSettled", store.RequireBool(ReviewStepSettled));
-		writer.WriteNumber("reviewFilesAhead", store.RequireInt(ReviewFilesAhead));
+		writer.WriteNumber("reviewScreensAhead", store.RequireInt(ReviewScreensAhead));
 		writer.WriteBoolean("inlineReplies", store.RequireBool(InlineReplies));
 		writer.WriteEndObject();
 	}

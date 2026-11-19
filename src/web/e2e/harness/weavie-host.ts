@@ -63,8 +63,8 @@ export interface LaunchOptions {
   setupCompleted: boolean;
   /** The seeded `editor.markdownView`. */
   markdownView: "preview" | "source";
-  /** The seeded `editor.reviewFilesAhead`. */
-  reviewFilesAhead: number;
+  /** The seeded `editor.reviewScreensAhead`. */
+  reviewScreensAhead: number;
   /** Remote agents the host starts registered with, as a native app that has added a runner. */
   remoteAgents?: { name: string; url: string; token: string }[];
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
@@ -220,7 +220,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   // Most journeys drive Monaco on the seeded README.md, so they pin source; preview specs opt back in.
   await writeFile(
     join(weavieRoot, "settings.toml"),
-    `[editor]\nmarkdownView = "${options.markdownView}"\nreviewFilesAhead = ${options.reviewFilesAhead}\n${options.setupCompleted ? "[gettingStarted]\ncompleted = true\n" : ""}`,
+    `[editor]\nmarkdownView = "${options.markdownView}"\nreviewScreensAhead = ${options.reviewScreensAhead}\n${options.setupCompleted ? "[gettingStarted]\ncompleted = true\n" : ""}`,
   );
   if (options.remoteAgents) {
     await writeFile(

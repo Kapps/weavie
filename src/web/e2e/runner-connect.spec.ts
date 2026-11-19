@@ -11,7 +11,7 @@ test.describe("runner browser entry", () => {
       inference: "disabled",
       automaticInference: false,
       setupCompleted: true,
-      reviewFilesAhead: 2,
+      reviewScreensAhead: 2,
       workspaceSeed: null,
     });
     try {

@@ -15,7 +15,7 @@ const content = Array.from(
 
 test.use({
   // These journeys unmount a file by scrolling one file away.
-  reviewFilesAhead: 0,
+  reviewScreensAhead: 0,
   fakeScript: {
     steps: [
       ...paths.flatMap((path) => appliedEdit(path, content)),

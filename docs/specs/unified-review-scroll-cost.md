@@ -422,18 +422,34 @@ stylesheet changes and the restyle is confined to the new subtree, so nothing re
 the work has to move off the gesture.
 
 `review-mount-window.ts` is the virtualizer's range extractor. The overscan of one file is always mounted. Once the
-scroll position has held for 200 ms it mounts one more file on each side, and another 150 ms later, up to
-`editor.reviewFilesAhead` (default 2, 0 to 6). A step takes about 350 ms when a file mounted above the viewport
-corrects the scroll position, because that moves it. A scroll keeps what is mounted, and two files past that reach,
-so crossing into a neighbouring file builds and removes nothing; the next rest prunes back to the reach.
+scroll position has held for 200 ms it mounts one more file on each side, then one more every 50 ms, until each side
+holds `editor.reviewScreensAhead` screens of files (default 3, 0 to 6) by their measured or estimated heights, and at
+least two files and at most eight. The floor keeps a review of tall files as it was: three screens can be a single
+file there. A scroll unmounts nothing, up to eight files past that reach on each side; each step of the
+next rest lets one of them go.
+
+The reach was a file count, two by default. That held for a review of a few long files and failed for one of many
+short ones: two 40-line files are less than a screen, so one flick ran past them, the 350 ms refill restored one
+file per short pause at most, and a scroll unmounted files two past the reach mid-gesture. 90 files of 40 lines,
+900 notches in bursts of 45:
+
+| pause between bursts | 2 files, 200/150 ms (before) | 3 screens, 200/50 ms (after) |
+|---|---|---|
+| 0.7 s | 14 built, 12 removed mid-scroll | 0-1 built, 0 removed |
+| 0.3 s | 28 built, 26 removed | 0-2 built, 1-2 removed |
+
+A pause under about 0.2 s refills nothing, as before: a jump's own files build in that time, and the files ahead
+must not pile onto them. A review of 24 files of 240 lines builds nothing mid-scroll either way. The first version
+of this change had no two-file floor; on files as tall as three screens it kept one file ahead, and a 100-notch
+scroll built the next mid-gesture, dropping a quarter of the wheel events.
 
 The rest only extends files already rendered around the visible ones. Where none carries over (a jump, a new file
 list, a hidden tab shown again) only the overscan mounts and the rest starts over, so none of those builds more
 editors at once than before. Nothing is deferred or withheld, which is what broke navigation in the three deferrals
 above.
 
-Measured in headless WebKit on a loaded build server, so the figures are relative: 900 notches in bursts of 45 with
-0.85 s pauses, the setting at 0 and at 2 alternating on one build.
+The first version, a reach of two files, measured in headless WebKit on a loaded build server, so the figures are
+relative: 900 notches in bursts of 45 with 0.85 s pauses, the setting at 0 and at 2 alternating on one build.
 
 | per run | light review, 0 | light review, 2 | heavy review, 0 | heavy review, 2 |
 |---|---|---|---|---|
@@ -445,7 +461,7 @@ Measured in headless WebKit on a loaded build server, so the figures are relativ
 The heavy review has blame on every line, a review hint on every hunk and 600-line files. Nothing on screen moves
 when a section mounts during a rest (0.0 px across every run). Keeping up to seven sections mounted instead of
 three adds about a third of a millisecond per frame. A continuous scroll through more files than the reach still
-mounts mid-gesture, as before.
+mounts mid-gesture: about 55 builds across 90 short files with no pause.
 
 ## Mounting mid-scroll: what it costs, and what was tried
 

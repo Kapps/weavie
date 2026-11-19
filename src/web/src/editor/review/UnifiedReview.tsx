@@ -135,8 +135,10 @@ export function UnifiedReview(props: {
     setOverviewHeight(height);
     measureTitle();
     const owner = scroll()!;
-    if (owner.getScrollTop() > previous) owner.shift(height - previous, virtualizer.getTotalSize());
-    else sizeVirtualList(virtualizer.getTotalSize());
+    if (owner.getScrollTop() > previous) {
+      mountWindow.corrected(height - previous);
+      owner.shift(height - previous, virtualizer.getTotalSize());
+    } else sizeVirtualList(virtualizer.getTotalSize());
   };
   const itemKey = (index: number): string | number => {
     const path = files()[index]?.summary().path;
@@ -145,6 +147,10 @@ export function UnifiedReview(props: {
   const mountWindow = createMountWindow({
     keyAt: (index) => untrack(() => itemKey(index)),
     rendered: () => untrack(() => rows().length > 0),
+    // The virtualizer's size cache, current as soon as a file is measured, unlike its measurements list.
+    sizeAt: (index) =>
+      virtualizer.itemSizeCache.get(itemKey(index)) ?? virtualizer.options.estimateSize(index),
+    screen: () => virtualizer.scrollRect?.height ?? 0,
   });
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
@@ -212,6 +218,7 @@ export function UnifiedReview(props: {
       const owner = scroll()!;
       // A size correction above the viewport carries any wheel glide along instead of cancelling it.
       if (options.adjustments !== undefined) {
+        mountWindow.corrected(options.adjustments);
         owner.shift(options.adjustments, instance.getTotalSize());
         return;
       }
@@ -225,7 +232,10 @@ export function UnifiedReview(props: {
             instance.options.getItemKey(instance.indexFromElement(element)),
           ) ?? element.getBoundingClientRect().height)
         : entry.borderBoxSize[0]!.blockSize,
-    onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
+    onChange: (instance) => {
+      sizeVirtualList(instance.getTotalSize());
+      mountWindow.changed();
+    },
     overscan: 1,
     get rangeExtractor() {
       return mountWindow.extractor();

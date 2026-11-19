@@ -12,7 +12,7 @@ const options: LaunchOptions = {
   automaticInference: false,
   setupCompleted: true,
   markdownView: "source",
-  reviewFilesAhead: 2,
+  reviewScreensAhead: 2,
   workspaceSeed: null,
 };
 

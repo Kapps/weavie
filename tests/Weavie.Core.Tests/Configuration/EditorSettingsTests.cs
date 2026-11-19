@@ -15,13 +15,13 @@ public sealed class EditorSettingsTests {
 	}
 
 	[Fact]
-	public void ReviewFilesAhead_IsInTheOptionsPayload() {
+	public void ReviewScreensAhead_IsInTheOptionsPayload() {
 		using var directory = new TempDirectory("weavie-editor-settings");
 		using var store = CoreSettings.CreateStore(directory.Combine("settings.toml"), enableWatcher: false);
-		store.Set(EditorSettings.ReviewFilesAhead, JsonDocument.Parse("4").RootElement.Clone());
+		store.Set(EditorSettings.ReviewScreensAhead, JsonDocument.Parse("4").RootElement.Clone());
 		using var options = JsonDocument.Parse(EditorSettings.BuildJson(store));
 
-		Assert.Equal(4, options.RootElement.GetProperty("reviewFilesAhead").GetInt64());
+		Assert.Equal(4, options.RootElement.GetProperty("reviewScreensAhead").GetInt64());
 	}
 
 	[Fact]

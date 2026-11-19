@@ -50,7 +50,7 @@ const texts: string[] = [];
 test.describe.configure({ timeout: 180_000 });
 test.use({
   // The budgets cover the switch itself; the files a resting review then mounts ahead are not part of it.
-  reviewFilesAhead: 0,
+  reviewScreensAhead: 0,
   trace: { mode: "retain-on-failure", snapshots: false },
   preNavigate: {
     run: async (page) => {

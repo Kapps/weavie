@@ -1,4 +1,4 @@
-import { createVirtualizer } from "@tanstack/solid-virtual";
+import { createVirtualizer, observeElementRect } from "@tanstack/solid-virtual";
 import {
   batch,
   createEffect,
@@ -135,10 +135,9 @@ export function UnifiedReview(props: {
     setOverviewHeight(height);
     measureTitle();
     const owner = scroll()!;
-    if (owner.getScrollTop() > previous) {
-      mountWindow.corrected(height - previous);
-      owner.shift(height - previous, virtualizer.getTotalSize());
-    } else sizeVirtualList(virtualizer.getTotalSize());
+    if (owner.getScrollTop() > previous)
+      mountWindow.correcting(() => owner.shift(height - previous, virtualizer.getTotalSize()));
+    else sizeVirtualList(virtualizer.getTotalSize());
   };
   const itemKey = (index: number): string | number => {
     const path = files()[index]?.summary().path;
@@ -164,6 +163,12 @@ export function UnifiedReview(props: {
     },
     getItemKey: itemKey,
     getScrollElement: () => scroll()?.viewport ?? null,
+    // A taller viewport fits more files in the screens ahead, with no range change to say so.
+    observeElementRect: (instance, callback) =>
+      observeElementRect(instance, (rect) => {
+        callback(rect);
+        mountWindow.changed();
+      }),
     // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
     // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
     // entry instead of a `getBoundingClientRect` that forces a layout mid-gesture. Claiming a settled scroll, as
@@ -217,9 +222,9 @@ export function UnifiedReview(props: {
     scrollToFn: (offset, options, instance) => {
       const owner = scroll()!;
       // A size correction above the viewport carries any wheel glide along instead of cancelling it.
-      if (options.adjustments !== undefined) {
-        mountWindow.corrected(options.adjustments);
-        owner.shift(options.adjustments, instance.getTotalSize());
+      const adjustments = options.adjustments;
+      if (adjustments !== undefined) {
+        mountWindow.correcting(() => owner.shift(adjustments, instance.getTotalSize()));
         return;
       }
       sizeVirtualList(instance.getTotalSize());

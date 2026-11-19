@@ -14,48 +14,10 @@ vi.mock("../../editor-options", () => ({
   },
 }));
 
-import { createMountWindow, mountedSpan } from "./review-mount-window";
+import { createMountWindow } from "./review-mount-window";
 
-const visible = (startIndex: number, endIndex: number): Range => ({
-  startIndex,
-  endIndex,
-  overscan: 1,
-  count: 20,
-});
-
-const reach = (before: number, after: number) => ({ before, after });
-
-describe("mountedSpan", () => {
-  it("reaches one file further on each side per rested step, within the file list", () => {
-    expect(mountedSpan(visible(5, 5), 1, reach(2, 2), [4, 6]).span).toEqual([3, 7]);
-    expect(mountedSpan(visible(0, 0), 2, reach(2, 2), [0, 1]).span).toEqual([0, 3]);
-    expect(mountedSpan(visible(19, 19), 2, reach(2, 2), [18, 19]).span).toEqual([16, 19]);
-  });
-
-  it("reaches each side as far as its own count", () => {
-    expect(mountedSpan(visible(5, 5), 3, reach(1, 3), [4, 6]).span).toEqual([3, 9]);
-  });
-
-  it("keeps what was mounted, past the reach too", () => {
-    expect(mountedSpan(visible(7, 7), 0, reach(2, 2), [2, 8]).span).toEqual([2, 8]);
-  });
-
-  it("mounts only the overscan when nothing mounted carries over, however long the review rested", () => {
-    expect(mountedSpan(visible(5, 5), 2, reach(2, 2), undefined)).toEqual({
-      span: [4, 6],
-      fresh: true,
-    });
-    expect(mountedSpan(visible(9, 9), 2, reach(2, 2), [2, 5])).toEqual({
-      span: [8, 10],
-      fresh: true,
-    });
-    expect(mountedSpan(visible(5, 5), 2, reach(2, 2), [4, 6]).fresh).toBe(false);
-  });
-
-  it("is the plain overscan with no reach", () => {
-    expect(mountedSpan(visible(6, 6), 0, reach(0, 0), [5, 7]).span).toEqual([5, 7]);
-  });
-});
+const span = (from: number, to: number): number[] =>
+  Array.from({ length: to - from + 1 }, (_, index) => from + index);
 
 describe("createMountWindow", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -64,38 +26,52 @@ describe("createMountWindow", () => {
     options.reviewScreensAhead = 2;
   });
 
-  // A review of twenty files, each `height(index)` tall, on a `screen` px viewport; `mount(at)` shows file `at`.
-  function review(height: (index: number) => number = () => 1000) {
-    let files = Array.from({ length: 20 }, (_, index) => `file${index}`);
+  // `count` files, each `height(index)` tall, on a `screen` px viewport; `mount(at)` shows file `at`.
+  function review(height: (index: number) => number = () => 1000, count = 20) {
+    let files = Array.from({ length: count }, (_, index) => `file${index}`);
     let shown = false;
     let screen = 1000;
     return createRoot((dispose) => {
       const window = createMountWindow({
         keyAt: (index) => files[index],
         rendered: () => shown,
-        sizeAt: height,
+        sizeAt: (index) => height(index),
         screen: () => screen,
       });
+      const visible = (at: number): Range => ({
+        startIndex: at,
+        endIndex: at,
+        overscan: 1,
+        count: files.length,
+      });
       const mount = (at: number): number[] => {
-        const mounted = window.extractor()(visible(at, at));
+        const mounted = window.extractor()(visible(at));
         shown = true;
         return mounted;
       };
       return {
         dispose,
         mount,
+        // Lets the rest run its course, the virtualizer recomputing its files after every step.
+        settle: (at: number): number[] => {
+          for (let step = 0; step < 20; step++) {
+            vi.advanceTimersByTime(200);
+            mount(at);
+          }
+          return mount(at);
+        },
         hide: (): void => {
           shown = false;
         },
         replace: (next: (files: string[]) => string[]): void => {
           files = next(files);
         },
-        scrolled: window.scrolled,
-        corrected: window.corrected,
-        changed: window.changed,
         resize: (height: number): void => {
           screen = height;
         },
+        scrolled: window.scrolled,
+        correcting: window.correcting,
+        changed: window.changed,
       };
     });
   }
@@ -106,77 +82,88 @@ describe("createMountWindow", () => {
     vi.advanceTimersByTime(199);
     expect(page.mount(5)).toEqual([4, 5, 6]);
     vi.advanceTimersByTime(1);
-    expect(page.mount(5)).toEqual([3, 4, 5, 6, 7]);
+    expect(page.mount(5)).toEqual(span(3, 7));
     vi.advanceTimersByTime(50);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(page.mount(5)).toEqual(span(2, 8));
+    vi.advanceTimersByTime(50);
+    expect(page.mount(5)).toEqual(span(2, 8));
+    expect(vi.getTimerCount()).toBe(0);
     page.dispose();
   });
 
   it("mounts as many short files as fill the screens ahead, up to eight a side", () => {
     const short = review(() => 400);
-    short.mount(10);
-    vi.advanceTimersByTime(200 + 4 * 50);
-    expect(short.mount(10)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(short.settle(10)).toEqual(span(4, 16));
     short.dispose();
     const tiny = review(() => 100);
-    tiny.mount(10);
-    vi.advanceTimersByTime(200 + 7 * 50);
-    expect(tiny.mount(10)).toEqual(Array.from({ length: 19 }, (_, index) => index + 1));
+    expect(tiny.settle(10)).toEqual(span(1, 19));
     tiny.dispose();
   });
 
-  it("unmounts nothing through a scroll, then lets go of a file per step of rest", () => {
-    const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    page.mount(5);
-    for (let at = 6; at <= 12; at++) {
-      page.scrolled(at * 100);
-      expect(page.mount(at)[0]).toBe(2);
-    }
-    vi.advanceTimersByTime(200);
-    expect(page.mount(12)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-    vi.advanceTimersByTime(50);
-    expect(page.mount(12)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
-    for (let step = 0; step < 5; step++) {
-      vi.advanceTimersByTime(50);
-      page.mount(12);
-    }
-    expect(page.mount(12)).toEqual([9, 10, 11, 12, 13, 14, 15]);
-    expect(vi.getTimerCount()).toBe(0);
-    page.dispose();
-  });
-
-  it("reaches each side by its own files' heights", () => {
+  it("reaches each side by its own files' heights, at least two files however tall", () => {
     const page = review((index) => (index < 10 ? 250 : 3000));
-    page.mount(10);
-    vi.advanceTimersByTime(200 + 7 * 50);
-    // Eight short files above; below, the two files every side keeps however tall.
-    expect(page.mount(10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
-    page.dispose();
-  });
-
-  it("steps on when files measure shorter than estimated after the rest has settled", () => {
-    let height = 1000;
-    const page = review(() => height);
-    page.mount(5);
-    vi.advanceTimersByTime(200 + 8 * 50);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
-    expect(vi.getTimerCount()).toBe(0);
-    height = 250;
-    page.changed();
-    vi.advanceTimersByTime(6 * 50);
-    expect(page.mount(5)).toEqual(Array.from({ length: 15 }, (_, index) => index));
-    expect(vi.getTimerCount()).toBe(0);
+    expect(page.settle(10)).toEqual(span(1, 13));
     page.dispose();
   });
 
   it("keeps two files a side before the screen has a height", () => {
     const page = review();
     page.resize(0);
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(page.settle(5)).toEqual(span(2, 8));
+    page.dispose();
+  });
+
+  it("moves each side to a reach that changed after the rest settled, a file per step", () => {
+    let below = 1000;
+    let above = 1000;
+    const page = review((index) => (index < 10 ? above : below));
+    expect(page.settle(10)).toEqual(span(7, 13));
+    expect(vi.getTimerCount()).toBe(0);
+    // Shorter files below: only that side reaches further.
+    below = 250;
+    page.changed();
+    vi.advanceTimersByTime(50);
+    expect(page.mount(10)).toEqual(span(7, 14));
+    expect(page.settle(10)).toEqual(span(7, 19));
+    // A taller screen above files that grew past it: the side above lets files go.
+    above = 4000;
+    page.changed();
+    expect(page.settle(10)).toEqual(span(7, 19));
+    page.dispose();
+  });
+
+  it("steps on when the viewport grows, with no range change to report it", () => {
+    const page = review(() => 400);
+    page.resize(300);
+    expect(page.settle(5)).toEqual(span(2, 8));
+    page.resize(1000);
+    page.changed();
+    expect(page.settle(5)).toEqual(span(0, 11));
+    page.dispose();
+  });
+
+  it("steps on when files join a settled list", () => {
+    const page = review(() => 400, 4);
+    expect(page.settle(0)).toEqual(span(0, 3));
+    page.replace((files) => [...files, "file4", "file5", "file6", "file7"]);
+    page.mount(0);
+    expect(page.settle(0)).toEqual(span(0, 6));
+    page.dispose();
+  });
+
+  it("unmounts nothing through a scroll, then lets go of a file per step of rest", () => {
+    const page = review();
+    expect(page.settle(5)).toEqual(span(2, 8));
+    for (let at = 6; at <= 12; at++) {
+      page.scrolled(at * 100);
+      expect(page.mount(at)).toEqual(span(2, at + 1 > 8 ? at + 1 : 8));
+    }
+    vi.advanceTimersByTime(200);
+    expect(page.mount(12)).toEqual(span(3, 14));
+    vi.advanceTimersByTime(50);
+    expect(page.mount(12)).toEqual(span(4, 15));
+    expect(page.settle(12)).toEqual(span(9, 15));
+    expect(vi.getTimerCount()).toBe(0);
     page.dispose();
   });
 
@@ -185,28 +172,15 @@ describe("createMountWindow", () => {
     page.scrolled(500);
     page.mount(5);
     vi.advanceTimersByTime(200);
-    page.corrected(40);
-    page.scrolled(540);
+    expect(page.mount(5)).toEqual(span(3, 7));
+    // Whatever position the correction lands on, clamped or not.
+    page.correcting(() => page.scrolled(0));
     vi.advanceTimersByTime(50);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(page.mount(5)).toEqual(span(2, 8));
     page.scrolled(600);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(page.mount(5)).toEqual(span(2, 8));
     vi.advanceTimersByTime(199);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
-    page.dispose();
-  });
-
-  it("holds the rested files through a scroll and mounts nothing new until it rests again", () => {
-    const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    page.mount(5);
-    page.scrolled(100);
-    expect(page.mount(6)).toEqual([2, 3, 4, 5, 6, 7, 8]);
-    page.scrolled(200);
-    expect(page.mount(7)).toEqual([2, 3, 4, 5, 6, 7, 8]);
-    vi.advanceTimersByTime(250);
-    expect(page.mount(7)).toEqual([4, 5, 6, 7, 8, 9, 10]);
+    expect(page.mount(5)).toEqual(span(2, 8));
     page.dispose();
   });
 
@@ -219,64 +193,54 @@ describe("createMountWindow", () => {
     page.scrolled(100);
     expect(page.mount(5)).toEqual([4, 5, 6]);
     vi.advanceTimersByTime(1);
-    expect(page.mount(5)).toEqual([3, 4, 5, 6, 7]);
+    expect(page.mount(5)).toEqual(span(3, 7));
     page.dispose();
   });
 
   it("mounts only the overscan after a jump from rest, then rests up again", async () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    page.mount(5);
+    page.settle(5);
     expect(page.mount(15)).toEqual([14, 15, 16]);
     await Promise.resolve();
     expect(page.mount(15)).toEqual([14, 15, 16]);
-    vi.advanceTimersByTime(250);
-    expect(page.mount(15)).toEqual([12, 13, 14, 15, 16, 17, 18]);
+    expect(page.settle(15)).toEqual(span(12, 18));
     page.dispose();
   });
 
   it("mounts only the overscan when a rested page comes back with nothing rendered", async () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    page.mount(5);
+    page.settle(5);
     page.hide();
     expect(page.mount(5)).toEqual([4, 5, 6]);
     await Promise.resolve();
+    expect(page.mount(5)).toEqual([4, 5, 6]);
     vi.advanceTimersByTime(200);
-    expect(page.mount(5)).toEqual([3, 4, 5, 6, 7]);
+    expect(page.mount(5)).toEqual(span(3, 7));
     page.dispose();
   });
 
   it("mounts only the overscan of a replaced list once, then rests on it", async () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    page.mount(5);
+    page.settle(5);
     page.replace((files) => files.map((file) => `other/${file}`));
     expect(page.mount(5)).toEqual([4, 5, 6]);
     await Promise.resolve();
-    vi.advanceTimersByTime(250);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(page.settle(5)).toEqual(span(2, 8));
     page.dispose();
   });
 
   it("carries the mounted files over when the list shifts them to other indexes", () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    expect(page.mount(5)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    page.settle(5);
     page.replace((files) => files.slice(1));
     page.scrolled(100);
-    expect(page.mount(4)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(page.mount(4)).toEqual(span(1, 7));
     page.dispose();
   });
 
   it("does not rest again once disposed", async () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
+    page.settle(5);
     page.hide();
     page.mount(5);
     page.dispose();
@@ -284,15 +248,12 @@ describe("createMountWindow", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("follows the setting live, and mounts nothing ahead at 0", () => {
+  it("follows the setting live, and lets everything past the overscan go at 0", () => {
     const page = review();
-    page.mount(5);
-    vi.advanceTimersByTime(250);
-    expect(page.mount(5)).toHaveLength(7);
+    expect(page.settle(5)).toHaveLength(7);
     options.changed({ reviewScreensAhead: 0 });
-    expect(page.mount(5)).toEqual([4, 5, 6]);
-    vi.advanceTimersByTime(1000);
-    expect(page.mount(5)).toEqual([4, 5, 6]);
+    expect(page.mount(5)).toEqual(span(2, 8));
+    expect(page.settle(5)).toEqual([4, 5, 6]);
     page.dispose();
   });
 });

@@ -1,18 +1,18 @@
 import type { Range } from "@tanstack/solid-virtual";
-import { type Accessor, batch, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
 
 /** The first and last mounted file. */
 export type Span = readonly [number, number];
 
-/** How many files past the overscan a rested review mounts on each side. */
-export interface Reach {
+/** How many files past the overscan are mounted on each side. */
+interface Reach {
   readonly before: number;
   readonly after: number;
 }
 
-// A review rests once it has held still for REST_MS, past a jump's own builds; then it mounts one more file on each
-// side per step, quickly enough that a short pause refills what a flick used.
+// A review rests once it has held still for REST_MS, past a jump's own builds; then each side moves one file
+// toward its reach per step, quickly enough that a short pause refills what a flick used.
 const REST_MS = 200;
 const STEP_MS = 50;
 // One side's reach holds at least two files, however tall, and at most eight, however short; eight is also the
@@ -28,24 +28,7 @@ const around = (range: Range, before: number, after: number): Span => [
   Math.min(range.count - 1, range.endIndex + range.overscan + after),
 ];
 
-/**
- * The files to mount around `range`: those `kept` from before, with `rested` more on each side as far as the
- * `reach`. `fresh` when none are kept (a jump, a new file list, a tab shown again): then only the overscan mounts,
- * whatever the rest.
- */
-export function mountedSpan(
-  range: Range,
-  rested: number,
-  reach: Reach,
-  kept: Span | undefined,
-): { span: Span; fresh: boolean } {
-  const overscan = around(range, 0, 0);
-  // Files apart from the overscan would mount every file between.
-  if (kept === undefined || kept[0] > overscan[1] + 1 || kept[1] < overscan[0] - 1)
-    return { span: overscan, fresh: true };
-  const [from, to] = around(range, Math.min(rested, reach.before), Math.min(rested, reach.after));
-  return { span: [Math.min(from, kept[0]), Math.max(to, kept[1])], fresh: false };
-}
+const toward = (from: number, to: number): number => from + Math.sign(to - from);
 
 /** The review's files as the mount window needs them. */
 export interface MountedPage {
@@ -60,27 +43,28 @@ export interface MountedPage {
 }
 
 /**
- * Mounts the files ahead while a review rests: `editor.reviewScreensAhead` screens of them past its overscan, so
- * scrolling into a neighbouring file builds no editor. A scroll unmounts nothing; the next rest lets go of what
- * it left behind.
+ * Mounts the files ahead while a review rests: `editor.reviewScreensAhead` screens of them on each side of its
+ * overscan, so scrolling into a neighbouring file builds no editor. A scroll unmounts nothing; the next rest lets
+ * go of what it left behind, one file per step.
  */
 export function createMountWindow(page: MountedPage): {
   /** The virtualizer's range extractor. */
   extractor: Accessor<(range: Range) => number[]>;
   /** Reports the scroll position, in one batch with the virtualizer hearing of it. */
   scrolled(position: number): void;
-  /** Reports a scroll by `delta` that only keeps the page in place as a file above it was sized: not a move. */
-  corrected(delta: number): void;
-  /** Reports that the virtualizer's sizes or range changed, so the screens ahead may hold other files. */
+  /** Runs `shift`, which only keeps the page in place as something above it was sized: not a move. */
+  correcting(shift: () => void): void;
+  /** Reports that sizes, the viewport or the range changed, so each side's reach may have moved. */
   changed(): void;
 } {
   const [screens, setScreens] = createSignal(currentEditorOptions().reviewScreensAhead);
-  const [rested, setRested] = createSignal(0);
-  // Files past the reach that stay mounted: all a scroll left, then one fewer per step of rest.
-  const [spare, setSpare] = createSignal(0);
-  // The range the extractor last saw, and the files it left mounted past the reach.
-  let shown: Range | undefined;
-  let excess = 0;
+  // While resting, the files held past the overscan on each side; undefined while scrolling keeps all mounted.
+  const [held, setHeld] = createSignal<Reach | undefined>(undefined);
+  // What the extractor last returned, for the rest to step from.
+  let shown: { range: Range; span: Span } | undefined;
+  let keys = new Set<unknown>();
+  let position: number | undefined;
+  let correcting = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   // The files past the overscan on each side that fill the screens ahead, by their heights as they stand.
@@ -105,30 +89,33 @@ export function createMountWindow(page: MountedPage): {
     };
     return { before: filling(low - 1, -1), after: filling(high + 1, 1) };
   };
-  // Whether a step of rest would still mount a file or let one go.
-  const unsettled = (): boolean => {
-    const reach = shown === undefined ? { before: 0, after: 0 } : reachOf(shown);
-    return rested() < Math.max(reach.before, reach.after) || spare() > 0;
+  // Each side one file nearer its reach, or undefined once both are there.
+  const next = (): Reach | undefined => {
+    if (shown === undefined) return undefined;
+    const [low, high] = around(shown.range, 0, 0);
+    const before = low - shown.span[0];
+    const after = shown.span[1] - high;
+    const reach = reachOf(shown.range);
+    const step = { before: toward(before, reach.before), after: toward(after, reach.after) };
+    return step.before === before && step.after === after ? undefined : step;
   };
   // The one place a step is scheduled, so a step never runs twice over.
   const stepIn = (ms: number | undefined): void => {
     clearTimeout(timer);
-    timer = ms === undefined || disposed || screens() === 0 ? undefined : setTimeout(step, ms);
+    timer = ms === undefined || disposed ? undefined : setTimeout(step, ms);
   };
   const step = (): void => {
     timer = undefined;
-    if (!unsettled()) return;
-    batch(() => {
-      setRested((level) => level + 1);
-      setSpare((left) => Math.max(0, Math.min(left, excess) - 1));
-    });
-    stepIn(unsettled() ? STEP_MS : undefined);
+    const reach = next();
+    if (reach === undefined) return;
+    setHeld(reach);
+    stepIn(STEP_MS);
+  };
+  const changed = (): void => {
+    if (timer === undefined && next() !== undefined) stepIn(STEP_MS);
   };
   const rest = (): void => {
-    batch(() => {
-      setRested(0);
-      setSpare(screens() > 0 ? MOST_FILES : 0);
-    });
+    setHeld(undefined);
     stepIn(REST_MS);
   };
   onCleanup(
@@ -142,49 +129,52 @@ export function createMountWindow(page: MountedPage): {
     stepIn(undefined);
   });
   rest();
-  let position: number | undefined;
-  // The files last mounted, by key: a file keeps its editor when the list shifts it to another index.
-  let keys = new Set<unknown>();
+  // The files last mounted within `window`, by key: a file keeps its editor when the list shifts its index.
   const carried = (window: Span): Span | undefined => {
     if (!page.rendered()) return undefined;
-    const held = indexes(window).filter((index) => keys.has(page.keyAt(index)));
-    return held.length === 0 ? undefined : [held[0]!, held.at(-1)!];
+    const kept = indexes(window).filter((index) => keys.has(page.keyAt(index)));
+    return kept.length === 0 ? undefined : [kept[0]!, kept.at(-1)!];
   };
   return {
     extractor: () => {
       // A new extractor per step, so the virtualizer recomputes its files.
-      rested();
-      spare();
+      const holding = held();
       screens();
       return (range) => {
-        shown = range;
         const overscan = around(range, 0, 0);
         const reach = reachOf(range);
-        // Read as the range is computed: a scroll reported in the same batch has already ended the rest.
-        const kept = carried(around(range, reach.before + spare(), reach.after + spare()));
-        const { span, fresh } = mountedSpan(range, rested(), reach, kept);
-        // The rest was earned by files that are gone, so it starts over for these.
-        if (fresh && rested() > 0) queueMicrotask(rest);
-        excess = Math.max(
-          0,
-          overscan[0] - reach.before - span[0],
-          span[1] - overscan[1] - reach.after,
-        );
+        const kept = carried(around(range, reach.before + MOST_FILES, reach.after + MOST_FILES));
+        let span: Span;
+        // Nothing kept beside the overscan (a jump, a new file list, a tab shown again): it mounts alone, and the
+        // rest starts over from it.
+        if (kept === undefined || kept[0] > overscan[1] + 1 || kept[1] < overscan[0] - 1) {
+          span = overscan;
+          if (holding !== undefined) queueMicrotask(rest);
+        } else if (holding === undefined) {
+          span = [Math.min(kept[0], overscan[0]), Math.max(kept[1], overscan[1])];
+        } else {
+          span = around(range, holding.before, holding.after);
+        }
+        shown = { range, span };
         const files = indexes(span);
         keys = new Set(files.map(page.keyAt));
+        changed();
         return files;
       };
     },
     scrolled: (top) => {
       if (top === position) return;
       position = top;
-      rest();
+      if (!correcting) rest();
     },
-    corrected: (delta) => {
-      if (position !== undefined) position += delta;
+    correcting: (shift) => {
+      correcting = true;
+      try {
+        shift();
+      } finally {
+        correcting = false;
+      }
     },
-    changed: () => {
-      if (timer === undefined && unsettled()) stepIn(STEP_MS);
-    },
+    changed,
   };
 }

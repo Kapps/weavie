@@ -72,8 +72,13 @@ noise directories and follows no directory link, and each repository beneath it 
 git, so its ignore rules decide its files. A change re-lists only the changed paths through whichever of the two
 owns them; a `.git` entry arriving or leaving, or an ignore-rule edit, re-lists the folder that holds it.
 
+Every refresh returns what it changed (files created and deleted, directories added and removed), and the
+watcher records its invalidations from that, so a refresh costs what it lists and never the size of the
+workspace. Each non-empty change is one revision of the inventory.
+
 Its registered projections:
 
+- the file list a page holds is stepped by each inventory change (see File list below);
 - file-provider change events refresh matching Monaco working copies;
 - LSP `workspace/didChangeWatchedFiles` updates that session's servers;
 - review presentation follows already-updated tracker state.
@@ -81,6 +86,40 @@ Its registered projections:
 Facts carry no actor or cause. A provider-reported change and a later watcher invalidation can coexist without
 inference or deduplication. No callback scans or routes through the selected workspace. Session teardown
 flushes watcher admission and drains file activity before its worktree can be removed.
+
+## File list
+
+A page holds each loaded session's file list, which Go to File, the file filter and recent files search. It is
+never sent whole over the message bus.
+
+```mermaid
+sequenceDiagram
+    participant P as Page
+    participant H as Host
+    H->>P: files.workspace { root, home } (every sync)
+    P->>H: GET /weavie-file-index?knownRevision
+    H-->>P: batches of relative paths at revision R, or "unchanged"
+    H->>P: files.indexChanged { revision R+1, added, removed }
+    H->>P: files.indexReplaced { revision } (a change too large to step)
+    P->>H: GET /weavie-file-index
+```
+
+- The list downloads as a gzipped stream of newline-delimited batches from the session's own address, so the
+  host never builds it as one message and a slow page applies backpressure.
+- A page gets the first listing as soon as its watches are armed. The pass that verifies it reports anything it
+  finds as a change; a reader that looks once (path recovery) waits for that pass.
+- Each inventory change is published once as the step from the revision before it. A page applies a step only as
+  the exact next revision. A step it already holds is ignored, steps that arrive during a download wait for it,
+  and anything else makes the page download again.
+- A change touching more paths than `MaxFileIndexChangePaths` is announced without its paths, and the page
+  downloads the list.
+- A reconnecting page asks with the revision it holds and is told "unchanged" when the list is.
+- Paths are relative to the workspace root; the page spells the absolute path once per file, with the
+  separator the host names.
+- The page keeps each folder's own files and child folders, so Go to File's tree lists only the levels that are
+  open.
+- A download that fails leaves the surfaces saying so, with Retry on the error; Reload File List
+  (`weavie.files.reloadList`) downloads again for the session it is run in.
 
 ## Persistence
 

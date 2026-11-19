@@ -105,57 +105,6 @@ public sealed partial class HostCore {
 	private static void PushLspConfigToWeb(HostSession session, MessageTarget target) =>
 		target.Feature("lsp").PublishJson("config", session.LspConfigJson);
 
-	/// <summary>
-	/// Publishes one session's file index from the inventory its watcher keeps current. An invalidating refresh first clears only
-	/// that session's prior index; a slow result remains addressed to the same owner.
-	/// </summary>
-	private void PushFileIndexToWeb(HostSession session, bool invalidate) =>
-		PushFileIndexToWeb(session, invalidate, session.Bus.BroadcastTarget);
-
-	private void PushFileIndexToWeb(
-		HostSession session,
-		bool invalidate,
-		MessageTarget target) {
-		if (invalidate) {
-			target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: true));
-		}
-
-		_ = session.Background.Run(async ct => {
-			await session.FileIndexGate.WaitAsync(ct).ConfigureAwait(false);
-			try {
-				IReadOnlyList<string> files;
-				try {
-					files = (await session.FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false)).Files;
-					// The watcher's snapshot outlives a deleted root until the deletion's own events arrive.
-					if (session.EndIfWorkspaceRootIsGone($"Couldn't load workspace files: {session.WorkspaceRoot} no longer exists.")) {
-						target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
-						return;
-					}
-				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-					target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
-					string failure = $"Couldn't load workspace files: {ex.Message}";
-					if (!session.EndIfWorkspaceRootIsGone(failure)) {
-						Notify(session, "error", failure);
-					}
-
-					return;
-				}
-
-				ct.ThrowIfCancellationRequested();
-				target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, files, pending: false));
-			} finally {
-				session.FileIndexGate.Release();
-			}
-		});
-	}
-
-	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
-	private static FileIndexWire FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new(
-		Path.GetFullPath(session.WorkspaceRoot),
-		Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-		files,
-		pending);
-
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
 	// omnibar renders the top few as its Recent section.
 	private const int RecentFilesPushCount = 50;
@@ -764,4 +713,3 @@ internal sealed record RecentFilesChanged(string Repo, IReadOnlyList<string> Fil
 
 internal sealed record FileProviderChanged(IReadOnlyList<FileProviderChange> Changes);
 
-internal sealed record FileIndexWire(string Root, string Home, IReadOnlyList<string> Files, bool Pending);

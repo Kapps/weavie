@@ -9,7 +9,8 @@ The vocabulary is deliberately generic:
 - `BufferSaved` — a host-backed editor save completed, including its resulting stat;
 - `FileChanged` — a producer now knows the completed path state and resulting stat;
 - `FileDeleted` — a producer now knows the path is absent;
-- `FilesInvalidated` — the owned workspace watcher observed a debounced native-path batch.
+- `FilesInvalidated` — the owned workspace watcher observed a debounced native-path batch;
+- `InventoryChanged` — the workspace inventory lists different files or directories than it did.
 
 These facts do not say who caused a disk transition. Provider-reported changes, review reverts, and later
 watcher invalidations may describe the same transition independently; the activity stream does not infer,

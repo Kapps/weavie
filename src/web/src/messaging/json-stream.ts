@@ -1,10 +1,11 @@
 /** Reads newline-delimited JSON without buffering the complete response. */
 export async function* readJsonStream<T>(response: Response): AsyncGenerator<T> {
   if (!response.ok) {
-    throw new Error(`History request failed (HTTP ${response.status}).`);
+    const reason = (await response.text()).trim();
+    throw new Error(reason.length > 0 ? reason : `The request failed (HTTP ${response.status}).`);
   }
   if (response.body === null) {
-    throw new Error("History response has no stream.");
+    throw new Error("The response has no stream.");
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -23,7 +24,7 @@ export async function* readJsonStream<T>(response: Response): AsyncGenerator<T> 
       parts.push(lines.at(-1)!);
       if (done) {
         if (parts.some((part) => part.length > 0)) {
-          throw new Error("History response ended in an incomplete record.");
+          throw new Error("The response ended in an incomplete record.");
         }
         return;
       }

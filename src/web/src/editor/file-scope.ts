@@ -1,4 +1,4 @@
-import { selectedFileIndex } from "../files/session-files";
+import { selectedFileIndex } from "../files/session-file-index";
 import { isOutsideWorkspace } from "./fs-path";
 import { activePath, openTabs } from "./session-store";
 import { isFileTab } from "./tab-entry";

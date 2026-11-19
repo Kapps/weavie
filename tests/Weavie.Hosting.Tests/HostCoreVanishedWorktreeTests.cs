@@ -32,7 +32,7 @@ public sealed class HostCoreVanishedWorktreeTests {
 		host.Bridge.Clear();
 
 		Directory.Delete(worktree, recursive: true);
-		host.SessionEvent(session, "files", "refreshIndex", new { });
+		Assert.False(await host.RequestFileListAsync(session));
 
 		await Wait.UntilAsync(() => NotificationMessages(host).Contains(closed));
 		AssertReportedOnce(host, closed);
@@ -51,10 +51,9 @@ public sealed class HostCoreVanishedWorktreeTests {
 		Directory.Delete(Path.Combine(root, ".git"), recursive: true);
 		await session.Inventory.RefreshAsync();
 		Directory.Delete(root, recursive: true);
-		host.SessionEvent(session, "files", "refreshIndex", new { });
+		Assert.False(await host.RequestFileListAsync(session));
 		await Wait.UntilAsync(() => NotificationMessages(host).Contains(gone));
-		host.SessionEvent(session, "files", "refreshIndex", new { });
-		await Wait.UntilAsync(() => host.Bridge.PostedEvents("files", "index").Count() > 1);
+		Assert.False(await host.RequestFileListAsync(session));
 
 		AssertReportedOnce(host, gone);
 		Assert.Same(session, host.WorkspaceSession);

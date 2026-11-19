@@ -28,10 +28,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private HashSet<string> _dirtyPaths = new(PathIdentity.Comparer);
 	private bool _dirtyAll;
 	private readonly CancellationTokenSource _stopping = new();
+	private readonly TaskCompletionSource _listed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
-	private IReadOnlySet<string> _files;
-	private IReadOnlySet<string> _listedGitDirectories = new HashSet<string>();
 	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
 	private Task? _stopTask;
@@ -113,7 +112,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				OnRenamed,
 				OnError,
 				recursive: false);
-		_files = new HashSet<string>(PathIdentity.Comparer);
 	}
 
 	/// <summary>Completes when the initial inventory is loaded and platform watches are installed.</summary>
@@ -123,16 +121,25 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	/// The inventory this watcher keeps current, once its initial load completes; a fresh listing when
 	/// observation failed or ended, since nothing then keeps the snapshot current.
 	/// </summary>
-	public async Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) {
+	public Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) => SnapshotAsync(_ready.Task, ct);
+
+	/// <summary>
+	/// As <see cref="SnapshotAsync(CancellationToken)"/>, but as soon as the first listing has its watches armed.
+	/// For a reader that follows <see cref="WorkspaceInventory.Changed"/>: what moved while they were being armed
+	/// reaches it as a change.
+	/// </summary>
+	public Task<WorkspaceInventorySnapshot> ListedSnapshotAsync(CancellationToken ct) => SnapshotAsync(_listed.Task, ct);
+
+	private async Task<WorkspaceInventorySnapshot> SnapshotAsync(Task loaded, CancellationToken ct) {
 		try {
-			await _ready.Task.WaitAsync(ct).ConfigureAwait(false);
+			await loaded.WaitAsync(ct).ConfigureAwait(false);
 		} catch (Exception) when (!ct.IsCancellationRequested) {
 			// The observation failure reaches the user through the run loop; the listing below reports its own.
 		}
 
 		return !_finished.Task.IsCompleted && _inventory.LastSnapshot is { } snapshot
 			? snapshot
-			: await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+			: (await _inventory.RefreshAsync(ct).ConfigureAwait(false)).Snapshot;
 	}
 
 	/// <summary>
@@ -155,7 +162,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
 			lock (_flushLock) {
 				if (_disposed) {
-					_ready.TrySetException(new ObjectDisposedException(nameof(WorkspaceInvalidationWatcher)));
+					EndLoading(loading => loading.TrySetException(new ObjectDisposedException(nameof(WorkspaceInvalidationWatcher))));
 					return;
 				}
 				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
@@ -177,9 +184,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 			}
 		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
-			_ready.TrySetCanceled(_stopping.Token);
+			EndLoading(loading => loading.TrySetCanceled(_stopping.Token));
 		} catch (Exception ex) {
-			_ready.TrySetException(ex);
+			EndLoading(loading => loading.TrySetException(ex));
 			throw;
 		} finally {
 			_directoryWatchers.Dispose();
@@ -206,7 +213,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 
 		timer?.Dispose();
-		_ready.TrySetCanceled();
+		EndLoading(loading => loading.TrySetCanceled());
 		_stopping.Cancel();
 		_directoryWatchers.Dispose();
 		_refreshSignals.Writer.TryComplete();
@@ -217,6 +224,11 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		_stopping.Dispose();
 	}
 
+	private void EndLoading(Action<TaskCompletionSource> end) {
+		end(_listed);
+		end(_ready);
+	}
+
 	// Spacing re-enumerations by the previous pass keeps a burst (a checkout, an install) under half this loop.
 	private TimeSpan CooldownAfter(TimeSpan lastRefresh) => lastRefresh > _debounce ? lastRefresh : _debounce;
 
@@ -225,33 +237,25 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		scope = scope is null ? null : _inventory.CoveringScope(scope);
 		bool watchesChanged;
 		do {
-			var previous = _inventory.LastSnapshot;
-			var snapshot = scope is null
+			var change = scope is null
 				? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
 				: await _inventory.RefreshAsync(scope, ct).ConfigureAwait(false);
-			if (!initial && ReferenceEquals(snapshot, previous)) {
-				return;
-			}
-
-			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 			if (!initial) {
-				foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
-					Record(path, FileInvalidationKind.Created);
-				}
-
-				foreach (string path in _files.Except(nextFiles, PathIdentity.Comparer)) {
+				// Deletions first: where paths compare without case, a renamed file is both, and it exists.
+				foreach (string path in change.DeletedFiles) {
 					Record(path, FileInvalidationKind.Deleted);
 				}
+
+				foreach (string path in change.CreatedFiles) {
+					Record(path, FileInvalidationKind.Created);
+				}
 			}
 
-			Volatile.Write(ref _files, nextFiles);
-			var listedGitDirectories = snapshot.Directories
-				.Where(directory => Path.GetFileName(directory) == ".git")
-				.ToHashSet(PathIdentity.CanonicalComparer);
-			// Events inside a `.git` were dropped until this pass listed it, so it is listed once more.
-			bool gitDirectoryListed = !listedGitDirectories.IsSubsetOf(Volatile.Read(ref _listedGitDirectories));
-			Volatile.Write(ref _listedGitDirectories, listedGitDirectories);
-			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories) | gitDirectoryListed;
+			// Watches follow directories, so a change to files alone leaves them as they are. Events inside a
+			// `.git` were dropped until this pass listed it, so it is listed once more.
+			watchesChanged = (initial || change.AddedDirectories.Count + change.RemovedDirectories.Count > 0)
+				&& (_directoryWatchers.Reconcile(change.Snapshot.Directories)
+					| change.AddedDirectories.Any(directory => Path.GetFileName(directory) == ".git"));
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");
@@ -260,6 +264,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			if (watchesChanged) {
 				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 			}
+			_listed.TrySetResult();
 			initial = false;
 			// Snapshot after installing new watches so changes during discovery cannot fall into an unwatched gap.
 		} while (watchesChanged);
@@ -272,7 +277,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		int git = Array.IndexOf(segments, ".git");
 		if (git >= 0) {
 			string gitDirectory = Path.Combine([_inventory.Root, .. segments[..(git + 1)]]);
-			if (git < segments.Length - 1 && !Volatile.Read(ref _listedGitDirectories).Contains(gitDirectory)) {
+			if (git < segments.Length - 1 && _inventory.LastSnapshot?.Directories.Contains(gitDirectory) != true) {
 				return;
 			}
 

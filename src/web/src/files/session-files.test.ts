@@ -40,7 +40,7 @@ function owner() {
     feature,
     invalidate: () => handlers.get("changed")?.({ changes: [{ path: "/repo" }] }),
     changed: (path: string) => handlers.get("changed")?.({ changes: [{ path }] }),
-    index: (pending: boolean) => handlers.get("index")?.({ root: "/repo", files: [], pending }),
+    resync: () => handlers.get("workspace")?.({ root: "/repo", home: "" }),
     close: () => {
       Object.defineProperty(session, "closed", { value: true });
       for (const release of cleanup) release();
@@ -51,7 +51,6 @@ function owner() {
 it("retains row identity and follows ancestor invalidation during a listing", async () => {
   const first = owner();
   selected = first.session;
-  first.index(false);
   const folder: DirEntry = { path: "/repo/docs/nested", name: "nested", isDir: true };
   const listing = acquireDirectory(first.session, "/repo/docs");
   first.pending[0]!.resolve({ path: "/repo/docs", entries: [folder] });
@@ -69,7 +68,7 @@ it("retains row identity and follows ancestor invalidation during a listing", as
   await first.pending[2]!.promise;
   const state = selectedDirectoryListings()["/repo/docs"];
   expect(state?.status === "ready" && state.entries[0] === folder).toBe(true);
-  first.index(true);
+  first.resync();
   expect(first.feature.request).toHaveBeenCalledTimes(4);
   first.pending[3]!.resolve({ path: "/repo/docs", entries: [] });
   await first.pending[3]!.promise;

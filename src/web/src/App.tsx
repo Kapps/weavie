@@ -175,12 +175,8 @@ import { tabCommandBindings } from "./editor/tab-command-bindings";
 import { cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
 
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
-import {
-  refreshSelectedFileIndex,
-  revealSelectedFile,
-  selectedDirectoryListings,
-  selectedFileIndex,
-} from "./files/session-files";
+import { selectedFileIndex } from "./files/session-file-index";
+import { revealSelectedFile, selectedDirectoryListings } from "./files/session-files";
 import { GettingStartedModal } from "./getting-started/GettingStarted";
 import { createFullscreenColumn } from "./layout/fullscreen-column";
 import { ThemePicker } from "./theme/ThemePicker";
@@ -701,9 +697,7 @@ export default function App(): JSX.Element {
   };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
-  const fileIndex = (): string[] => selectedFileIndex().files;
   const indexRoot = (): string | null => selectedFileIndex().root;
-  const indexPending = (): boolean => selectedFileIndex().pending;
   const [browserFilterRequest, setBrowserFilterRequest] = createSignal<{
     session: ClientSession;
   } | null>(null);
@@ -1293,8 +1287,7 @@ export default function App(): JSX.Element {
                   <FileBrowser
                     root={indexRoot()!}
                     session={selectedSession()}
-                    files={fileIndex()}
-                    pending={indexPending()}
+                    index={selectedFileIndex()}
                     filterRequest={browserFilterRequest()}
                     onFilterRequestHandled={() => setBrowserFilterRequest(null)}
                     listings={dirListings()}
@@ -1683,7 +1676,6 @@ export default function App(): JSX.Element {
         if (session === null) throw new Error("Select a session to filter files.");
         await toolPanels.open("files");
         if (selectedSession() === session) {
-          refreshSelectedFileIndex();
           setBrowserFilterRequest({ session });
         }
       }),
@@ -2034,12 +2026,10 @@ export default function App(): JSX.Element {
               chrome={chrome()}
               maximized={windowMaximized()}
               focused={hostWindowFocused()}
-              files={fileIndex()}
-              filesPending={indexPending()}
+              index={selectedFileIndex()}
               root={indexRoot()}
               currentFile={currentFile()}
               onOpenFile={(path, line) => revealSelectedFile(path, line)}
-              onRequestIndex={refreshSelectedFileIndex}
               symbols={editor.symbols}
             />
             <Show when={chrome().resizeHandles}>

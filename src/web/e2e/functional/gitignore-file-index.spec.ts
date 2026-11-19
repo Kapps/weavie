@@ -21,7 +21,6 @@ test("Go-to-File omits gitignored files but keeps tracked + untracked ones", asy
   const input = page.locator(".tb-omnibar-input");
   const rows = page.locator(".tb-omnibar-list .tb-omnibar-row");
 
-  // Focusing the omnibar fires request-file-index, so the freshly-written files are in the pushed index.
   await input.click();
 
   // The gitignored file must be absent — the search resolves to the empty state.

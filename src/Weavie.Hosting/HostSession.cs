@@ -461,8 +461,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
 
-	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
-
 	/// <summary>The session's authoritative file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }
 

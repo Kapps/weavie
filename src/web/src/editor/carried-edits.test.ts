@@ -60,6 +60,8 @@ describe("carried edits when storage is full", () => {
 });
 
 describe("carried edits when storage refuses to remove them", () => {
+  beforeEach(() => window.sessionStorage.clear());
+
   it("are forgotten for the departed slot all the same, and removed at the next cleanup", () => {
     storeCarriedEdits(incarnation("old"), { "c.ts": "text" });
     const removeItem = window.sessionStorage.removeItem;
@@ -71,8 +73,24 @@ describe("carried edits when storage refuses to remove them", () => {
     expect(carriedEdits(incarnation("new"))).toEqual({});
 
     clearSlotDrafts("local", "other");
-    expect(
-      Object.keys(window.sessionStorage).filter((key) => key.startsWith("weavie-session-draft")),
-    ).toEqual([]);
+    expect(stored()).toEqual([]);
+  });
+
+  it("keep what a slot in use again writes, and nothing from before it departed", () => {
+    storeCarriedEdits(incarnation("old"), { "c.ts": "text" });
+    const removeItem = window.sessionStorage.removeItem;
+    window.sessionStorage.removeItem = () => {
+      throw new Error("denied");
+    };
+    clearSlotDrafts("local", "slot");
+    window.sessionStorage.removeItem = removeItem;
+
+    storeCarriedEdits(incarnation("reused"), { "d.ts": "new" });
+    clearSlotDrafts("local", "other");
+    expect(stored()).toEqual(["weavie-session-draft:editor-edits:local:slot"]);
+    expect(carriedEdits(incarnation("next"))).toEqual({ "d.ts": "new" });
   });
 });
+
+const stored = (): string[] =>
+  Object.keys(window.sessionStorage).filter((key) => key.startsWith("weavie-session-draft"));

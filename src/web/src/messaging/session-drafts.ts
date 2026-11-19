@@ -29,6 +29,10 @@ export function persistSessionDraft(session: ClientSession, kind: string, value:
   const key = draftKey(session, kind);
   memory.set(key, value);
   try {
+    // A slot back in use first loses what it held when it departed.
+    if (uncleared.has(slotSuffix(session.connection.id, session.address.slot))) {
+      removeDeparted();
+    }
     if (value.length === 0) {
       window.sessionStorage.removeItem(key);
     } else {
@@ -50,15 +54,20 @@ export function clearSlotDrafts(connectionId: string, slot: string): void {
   }
   uncleared.add(suffix);
   try {
-    for (const key of Object.keys(window.sessionStorage)) {
-      if (key.startsWith(PREFIX) && [...uncleared].some((departed) => key.endsWith(departed))) {
-        window.sessionStorage.removeItem(key);
-      }
-    }
-    uncleared.clear();
+    removeDeparted();
   } catch (error) {
     reportStorageError(`${PREFIX}${suffix}`, error);
   }
+}
+
+// Removes the stored drafts of every departed slot; while storage refuses, they stay departed.
+function removeDeparted(): void {
+  for (const key of Object.keys(window.sessionStorage)) {
+    if (key.startsWith(PREFIX) && [...uncleared].some((departed) => key.endsWith(departed))) {
+      window.sessionStorage.removeItem(key);
+    }
+  }
+  uncleared.clear();
 }
 
 const slotSuffix = (connectionId: string, slot: string): string => `:${connectionId}:${slot}`;

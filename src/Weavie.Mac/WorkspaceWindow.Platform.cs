@@ -33,7 +33,13 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 
 	IApplicationMenu IHostPlatform.ApplicationMenu => _applicationMenu;
 
-	void IShellMenuActions.CloseWindow() => Window.PerformClose(null);
+	/// <summary>True when File ▸ Close Window closed this window, so the last one returns to the welcome window.</summary>
+	internal bool ClosedToWelcome { get; private set; }
+
+	void IShellMenuActions.CloseWindow() {
+		ClosedToWelcome = true;
+		Window.PerformClose(null);
+	}
 
 	void IShellMenuActions.Quit() {
 		var app = NSApplication.SharedApplication;

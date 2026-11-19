@@ -42,12 +42,12 @@ request, or it is two settings.
 
 ## Classification
 
-99 settings: 64 device, 26 machine, 9 repo.
+99 settings: 63 device, 27 machine, 9 repo.
 
 | Owner | Keys |
 |---|---|
-| Device | `font.*`, `editor.font.*`, `terminal.font.*`, `interface.font.*`, `prose.font.family`; every `editor.*` option including `editor.spellCheckLocale`; `notifications.*`; `theme.*`; `agent.replyStartOffset`, `agent.thoughtDisplay`, `agent.progressDisplay`; `gettingStarted.completed`; `developer.webInspector` |
-| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.paneCoalesceMs`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds` |
+| Device | `font.*`, `editor.font.*`, `terminal.font.*`, `interface.font.*`, `prose.font.family`; every `editor.*` option including `editor.spellCheckLocale`; `notifications.*`; `theme.*`; `agent.replyStartOffset`, `agent.thoughtDisplay`, `agent.progressDisplay`; `gettingStarted.completed` |
+| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.paneCoalesceMs`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds`; `developer.webInspector` |
 | Repo | `worktree.setupCommand`, `worktree.teardownCommand`, `test.profile`, `lsp.<id>.command`, `workflow.default` |
 
 Settings that change sides:
@@ -112,8 +112,7 @@ sequenceDiagram
 - Every write says where it applied, `on this device (cachy)` or `on this machine (remdeb)`, and `listSettings`
   names both.
 - With no page from the device's home connected, the tool fails naming the device. It never writes the
-  session host's own file instead. A request to a connected page has no deadline of its own; it ends when the
-  page answers or its connection drops.
+  session host's own file instead. A page that doesn't answer within the operation deadline fails the tool the same way.
 - A request goes to the page that made the claim when it is still connected, otherwise to any page from that
   home, and is never replayed through a second page.
 

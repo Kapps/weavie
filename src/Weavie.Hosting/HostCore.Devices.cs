@@ -48,11 +48,17 @@ public sealed partial class HostCore {
 					$"{home.Name} isn't connected to {core._settingsTools.HostName}, so its device settings can't be read or changed from this session.");
 			}
 
+			var deadline = TimeSpan.FromSeconds(core._settings.RequireInt(MessageSettings.OperationDeadlineSeconds));
+			using var timeout = new CancellationTokenSource(deadline, core._time);
+			using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
 			try {
 				return await core._messages.Host.RequestAsync(
-					page, "device", "settings", WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply, request, ct).ConfigureAwait(false);
+					page, "device", "settings", WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply, request, either.Token).ConfigureAwait(false);
 			} catch (InvalidOperationException) when (core._messages.Homes.Of(page) is null) {
 				throw new DeviceUnavailableException($"{home.Name} disconnected before it answered; the setting may or may not have changed.");
+			} catch (OperationCanceledException) when (timeout.IsCancellationRequested && !ct.IsCancellationRequested) {
+				throw new DeviceUnavailableException(
+					$"{home.Name} didn't answer within {deadline.TotalSeconds:0} seconds; the setting may or may not have changed.");
 			}
 		}
 	}

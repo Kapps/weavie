@@ -100,6 +100,19 @@ public sealed class HostCoreDeviceSettingsTests {
 	}
 
 	[Fact]
+	public async Task APageThatNeverAnswers_FailsTheRequestAtTheOperationDeadline() {
+		await using var host = await TestHost.StartAsync();
+		ConnectFromLaptop(host, Visitor);
+		Type(host, Visitor, host.WorkspaceSession);
+
+		var pending = host.WorkspaceSession.DeviceSettings.RequestAsync(SetFontSize, CancellationToken.None);
+		host.Time.Advance(TimeSpan.FromSeconds(MessageSettings.DefaultOperationDeadlineSeconds));
+
+		var silent = await Assert.ThrowsAsync<DeviceUnavailableException>(() => pending);
+		Assert.StartsWith("laptop didn't answer within 60 seconds", silent.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task TheDevice_SurvivesAHostRestart() {
 		await using var host = await TestHost.StartAsync();
 		ConnectFromLaptop(host, Visitor);

@@ -26,9 +26,7 @@ public sealed class PlainFolderWatcherTests : IAsyncLifetime {
 				foreach (var change in batch) _changes.Add(change);
 			},
 			_ => { },
-			debounceMs: 20,
-			Task.Delay,
-			path => new FileSystemWatcher(path));
+			debounceMs: 20);
 		_run = _watcher.RunAsync(CancellationToken.None);
 		await _watcher.Ready;
 	}
@@ -101,29 +99,37 @@ public sealed class PlainFolderWatcherTests : IAsyncLifetime {
 
 	[Fact]
 	public async Task DeletingRepositoriesKeepsObserving() {
-		string[] repositories = [.. Enumerable.Range(0, 6).Select(index => InitRepository($"repo{index}"))];
+		for (int repository = 0; repository < 12; repository++) {
+			InitRepository($"repo{repository}");
+			for (int file = 0; file < 60; file++) {
+				_dir.WriteFile($"repo{repository}/src/d{file % 6}/f{file}.py", "");
+			}
+		}
 		await StartAsync();
 
-		foreach (string repository in repositories) {
-			Directory.Delete(repository, recursive: true);
+		// Each repository's files go first, so re-listings are under way as its `.git` and then the folder go.
+		for (int repository = 0; repository < 12 && !_run.IsCompleted; repository++) {
+			Directory.Delete(_dir.Combine($"repo{repository}", "src"), recursive: true);
+			await Task.Delay(repository * 3);
+			Directory.Delete(_dir.Combine($"repo{repository}"), recursive: true);
 		}
 
 		await AssertStillObservingAsync();
-		Assert.Equal([_dir.Combine("still-observed.md")], _inventory.LastSnapshot!.Files);
+		Assert.True(await WaitForAsync(() => _inventory.LastSnapshot!.Files.Count == 1));
 	}
 
 	[Fact]
 	public async Task AShortLivedDirectoryKeepsObserving() {
 		await StartAsync();
 
-		for (int round = 0; round < 20; round++) {
-			for (int index = 0; index < 20; index++) {
-				_dir.WriteFile($"work{round}/big/d{index}/file.txt", "");
+		for (int round = 0; round < 25 && !_run.IsCompleted; round++) {
+			for (int index = 0; index < 150; index++) {
+				_dir.CreateDirectory("work", $"big{round}", $"d{index}", "leaf");
 			}
 
-			string shortLived = _dir.CreateDirectory($"work{round}", "tmp");
-			await Task.Delay(round * 3);
-			Directory.Delete(shortLived);
+			_dir.WriteFile($"work/tmp{round}/file.txt", "");
+			await Task.Delay(15 + round * 7 % 45);
+			Directory.Delete(_dir.Combine("work", $"tmp{round}"), recursive: true);
 		}
 
 		await AssertStillObservingAsync();

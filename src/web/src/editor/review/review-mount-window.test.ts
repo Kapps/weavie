@@ -69,6 +69,11 @@ describe("createMountWindow", () => {
         resize: (height: number): void => {
           screen = height;
         },
+        // An extractor taken now and run later, as the virtualizer may within one batch.
+        held: () => {
+          const extract = window.extractor();
+          return (at: number) => extract(visible(at));
+        },
         scrolled: window.scrolled,
         correcting: window.correcting,
         changed: window.changed,
@@ -181,6 +186,53 @@ describe("createMountWindow", () => {
     expect(page.mount(5)).toEqual(span(2, 8));
     vi.advanceTimersByTime(199);
     expect(page.mount(5)).toEqual(span(2, 8));
+    page.dispose();
+  });
+
+  it("reads the scroll that ended the rest through an extractor taken before it", () => {
+    const page = review();
+    expect(page.settle(10)).toEqual(span(7, 13));
+    const extract = page.held();
+    page.scrolled(100);
+    expect(extract(11)).toEqual(span(7, 13));
+    page.dispose();
+  });
+
+  it("stops stepping while the review renders nothing, and rests afresh when shown", async () => {
+    const page = review();
+    page.mount(5);
+    await Promise.resolve();
+    vi.advanceTimersByTime(200);
+    expect(page.mount(5)).toEqual(span(3, 7));
+    page.hide();
+    vi.advanceTimersByTime(5000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(page.mount(5)).toEqual([4, 5, 6]);
+    await Promise.resolve();
+    expect(page.settle(5)).toEqual(span(2, 8));
+    page.dispose();
+  });
+
+  it("gives a late first render the whole rest before mounting ahead", async () => {
+    const page = review();
+    vi.advanceTimersByTime(1000);
+    expect(page.mount(5)).toEqual([4, 5, 6]);
+    await Promise.resolve();
+    vi.advanceTimersByTime(199);
+    expect(page.mount(5)).toEqual([4, 5, 6]);
+    vi.advanceTimersByTime(1);
+    expect(page.mount(5)).toEqual(span(3, 7));
+    page.dispose();
+  });
+
+  it("keeps a fresh span through another extraction before its rest starts over", async () => {
+    const page = review();
+    page.settle(5);
+    page.hide();
+    expect(page.mount(5)).toEqual([4, 5, 6]);
+    expect(page.held()(5)).toEqual([4, 5, 6]);
+    await Promise.resolve();
+    expect(page.mount(5)).toEqual([4, 5, 6]);
     page.dispose();
   });
 

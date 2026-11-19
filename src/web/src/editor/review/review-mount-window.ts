@@ -58,8 +58,11 @@ export function createMountWindow(page: MountedPage): {
   changed(): void;
 } {
   const [screens, setScreens] = createSignal(currentEditorOptions().reviewScreensAhead);
+  // Bumped per step, so the virtualizer recomputes its files.
+  const [steps, setSteps] = createSignal(0);
   // While resting, the files held past the overscan on each side; undefined while scrolling keeps all mounted.
-  const [held, setHeld] = createSignal<Reach | undefined>(undefined);
+  // Read as each range is computed: a scroll reported in the same batch has already ended the rest.
+  let held: Reach | undefined;
   // What the extractor last returned, for the rest to step from.
   let shown: { range: Range; span: Span } | undefined;
   let keys = new Set<unknown>();
@@ -106,16 +109,19 @@ export function createMountWindow(page: MountedPage): {
   };
   const step = (): void => {
     timer = undefined;
+    // A hidden or emptied review extracts nothing to step from; showing it extracts afresh.
+    if (!page.rendered()) return;
     const reach = next();
     if (reach === undefined) return;
-    setHeld(reach);
+    held = reach;
+    setSteps((count) => count + 1);
     stepIn(STEP_MS);
   };
   const changed = (): void => {
-    if (timer === undefined && next() !== undefined) stepIn(STEP_MS);
+    if (timer === undefined && page.rendered() && next() !== undefined) stepIn(STEP_MS);
   };
   const rest = (): void => {
-    setHeld(undefined);
+    held = undefined;
     stepIn(REST_MS);
   };
   onCleanup(
@@ -137,28 +143,25 @@ export function createMountWindow(page: MountedPage): {
   };
   return {
     extractor: () => {
-      // A new extractor per step, so the virtualizer recomputes its files.
-      const holding = held();
+      steps();
       screens();
       return (range) => {
         const overscan = around(range, 0, 0);
         const reach = reachOf(range);
         const kept = carried(around(range, reach.before + MOST_FILES, reach.after + MOST_FILES));
-        let span: Span;
-        // Nothing kept beside the overscan (a jump, a new file list, a tab shown again): it mounts alone, and the
-        // rest starts over from it.
-        if (kept === undefined || kept[0] > overscan[1] + 1 || kept[1] < overscan[0] - 1) {
-          span = overscan;
-          if (holding !== undefined) queueMicrotask(rest);
-        } else if (holding === undefined) {
-          span = [Math.min(kept[0], overscan[0]), Math.max(kept[1], overscan[1])];
-        } else {
-          span = around(range, holding.before, holding.after);
-        }
+        // Nothing kept beside the overscan (a first render, a jump, a new file list, a tab shown again): it mounts
+        // alone, and the whole rest starts over from it.
+        const fresh = kept === undefined || kept[0] > overscan[1] + 1 || kept[1] < overscan[0] - 1;
+        if (fresh) rest();
+        const span: Span = fresh
+          ? overscan
+          : held === undefined
+            ? [Math.min(kept[0], overscan[0]), Math.max(kept[1], overscan[1])]
+            : around(range, held.before, held.after);
         shown = { range, span };
         const files = indexes(span);
         keys = new Set(files.map(page.keyAt));
-        changed();
+        if (!fresh) changed();
         return files;
       };
     },

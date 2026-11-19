@@ -1,7 +1,7 @@
-import { createMemo } from "solid-js";
-import { selectedSession } from "../bridge";
+import { type Accessor, createMemo, createRoot } from "solid-js";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 import type { FileIndex } from "../files/file-index";
-import { selectedFileIndex } from "../files/session-file-index";
+import { fileIndexFor } from "../files/session-file-index";
 import { repoStateOf } from "../repo-state";
 
 /** The listed files a repo's checkout-relative history names, in history order. */
@@ -24,17 +24,33 @@ export interface RecentFilesState {
   hasHistory: boolean;
 }
 
+const NONE: RecentFilesState = { files: [], loading: false, hasHistory: false };
+const projections = new Map<ClientSession, Accessor<RecentFilesState>>();
+
+// One projection per session, shared by every reader: a search reads it per keystroke without rebuilding it.
+registerSessionFeature((session) =>
+  createRoot((dispose) => {
+    projections.set(
+      session,
+      createMemo(() => project(session)),
+    );
+    return () => {
+      projections.delete(session);
+      dispose();
+    };
+  }),
+);
+
 /**
- * Selected-checkout paths in its repo's frecency order, intersected with its exact file index. The history is
- * checkout-relative, so recency follows a file across the repo's sessions.
+ * `session`'s checkout paths in its repo's frecency order, intersected with its exact file index. The history
+ * is checkout-relative, so recency follows a file across the repo's sessions. A closed session has none.
  */
-export const recentFilesState = createMemo<RecentFilesState>(() => {
-  const session = selectedSession();
-  if (session === null) {
-    return { files: [], loading: false, hasHistory: false };
-  }
+export const recentFilesOf = (session: ClientSession | null): RecentFilesState =>
+  (session === null ? undefined : projections.get(session)?.()) ?? NONE;
+
+function project(session: ClientSession): RecentFilesState {
   const history = repoStateOf(session).recentFiles;
-  const index = selectedFileIndex();
+  const index = fileIndexFor(session);
   if (index.root === null || index.pending) {
     return { files: [], loading: true, hasHistory: history.length > 0 };
   }
@@ -44,6 +60,4 @@ export const recentFilesState = createMemo<RecentFilesState>(() => {
     loading: false,
     hasHistory: history.length > 0,
   };
-});
-
-export const recentFiles = createMemo<readonly string[]>(() => recentFilesState().files);
+}

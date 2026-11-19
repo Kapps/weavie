@@ -71,7 +71,14 @@ const [localSelectionReady, setLocalSelectionReady] = createSignal(false);
 let selectionChosenBeforeRestore = false;
 
 export const connectedBackends = backendList;
+/** The session on screen: where a render or a command starts. `lint/selected-session.grit` limits who reads it. */
 export const selectedSession = selected;
+/** Whether `session` is the one on screen. Selection gates rendering; it never names an action's target. */
+export const isSelected = (session: ClientSession): boolean => selected() === session;
+/** Refuses, visibly, an action that needs `session` on screen once it no longer is. */
+export function requireOnScreen(session: ClientSession): void {
+  if (!isSelected(session)) throw new Error("That session is no longer on screen.");
+}
 
 /** Whether the selected owner matches the restored selection, including a remote still connecting. */
 export function selectionRestored(): boolean {
@@ -83,7 +90,10 @@ export function selectionRestored(): boolean {
     (preferred === null || sameSelection(preferred, selectionLocation(owner)))
   );
 }
-export const activeBackendId = (): string => selected()?.connection.id ?? LOCAL_BACKEND_ID;
+/** The backend a session belongs to; the page's own host with no session. */
+export const backendIdOf = (session: ClientSession | null): string =>
+  session?.connection.id ?? LOCAL_BACKEND_ID;
+export const activeBackendId = (): string => backendIdOf(selected());
 
 export function clientSession(backendId: string, slot: string): ClientSession | undefined {
   return hostConnection(backendId)?.sessionForSlot(slot);
@@ -737,16 +747,18 @@ export function requestDiffRefs(
 export function requestPullRequests(
   session: ClientSession,
   query: string,
+  signal: AbortSignal,
 ): Promise<PullRequestInfo[]> {
-  return session.feature("pullRequests").request("list", { query });
+  return session.feature("pullRequests").request("list", { query }, signal);
 }
 
 /** The pull request `target` names in `session`'s repo, or null. */
 export function resolvePullRequest(
   session: ClientSession,
   target: { number: number; owner: string; repo: string },
+  signal: AbortSignal,
 ): Promise<PullRequestInfo | null> {
-  return session.feature("pullRequests").request("resolve", target);
+  return session.feature("pullRequests").request("resolve", target, signal);
 }
 
 export function sessionResourceUrl(session: ClientSession, resource: string): URL {

@@ -1,4 +1,4 @@
-import { selectedSession } from "../../bridge";
+import { type ClientSession, isSelected } from "../../bridge";
 import type { CommandCapture, CommandHandler } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { EditorController } from "../editor-controller";
@@ -24,9 +24,10 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       return () => {
         if (run === undefined || presentation === undefined) return false;
         if (
+          session === null ||
           presentation.signal.aborted ||
-          selectedSession() !== session ||
-          activeTabFor(session!) !== tab
+          !isSelected(session) ||
+          activeTabFor(session) !== tab
         )
           throw new Error("The review connection for this command is no longer displayed.");
         return run();
@@ -35,7 +36,7 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
   const forSession =
     (
       action: (
-        session: NonNullable<ReturnType<typeof selectedSession>>,
+        session: ClientSession,
         path: string | undefined,
         args: unknown,
       ) => ReturnType<CommandHandler>,
@@ -55,17 +56,15 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       const presentation = tab?.presentation;
       const run = inner(context, args);
       return () =>
+        session !== null &&
         presentation !== undefined &&
         !presentation.signal.aborted &&
-        selectedSession() === session &&
-        activeTabFor(session!) === tab &&
+        isSelected(session) &&
+        activeTabFor(session) === tab &&
         run(args, context);
     };
   const atUnifiedFile = (
-    action: (
-      session: NonNullable<ReturnType<typeof selectedSession>>,
-      path: string | undefined,
-    ) => boolean,
+    action: (session: ClientSession, path: string | undefined) => boolean,
   ): CommandCapture => whileDisplayed(forSession(action));
   return [
     ...(

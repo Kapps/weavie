@@ -5,12 +5,10 @@ import type { HostHello } from "../messaging/host-connection";
 vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 const bridgeHarness = vi.hoisted(() => ({
-  activeBackendId: "local",
   installer: undefined as ((connection: HostConnection) => undefined | (() => void)) | undefined,
 }));
 vi.mock("../bridge", () => ({
   LOCAL_BACKEND_ID: "local",
-  activeBackendId: () => bridgeHarness.activeBackendId,
   registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
     bridgeHarness.installer = installer;
     return () => {};
@@ -33,6 +31,9 @@ vi.stubGlobal("window", {
 });
 
 const store = await import("./update-store");
+// The backend the assertions look at.
+let viewed = "local";
+const shown = () => store.updateStateOf(viewed);
 
 interface ConnectionHandlers {
   id: string;
@@ -92,7 +93,7 @@ function deliverHello(connection: ConnectionHandlers, buildNumber: string): void
 
 describe("update-store", () => {
   beforeEach(() => {
-    bridgeHarness.activeBackendId = local.id;
+    viewed = local.id;
     session.clear();
     deliverHello(local, "0.1.100");
     deliverRestarting(local);
@@ -105,24 +106,24 @@ describe("update-store", () => {
   });
 
   it("tracks pending holds and the restarting commit", () => {
-    expect(store.updateHolds()).toBeNull();
+    expect(shown().holds).toBeNull();
 
     deliverPending(local, [{ session: "main", reason: "working" }]);
-    expect(store.updateHolds()).toEqual([{ session: "main", reason: "working" }]);
-    expect(store.updateRestarting()).toBe(false);
+    expect(shown().holds).toEqual([{ session: "main", reason: "working" }]);
+    expect(shown().restarting).toBe(false);
 
     // A session waiting on a scheduled task holds the update the same way a working one does.
     deliverPending(local, [{ session: "loop", reason: "waiting-on-task" }]);
-    expect(store.updateHolds()).toEqual([{ session: "loop", reason: "waiting-on-task" }]);
+    expect(shown().holds).toEqual([{ session: "loop", reason: "waiting-on-task" }]);
 
     deliverRestarting(local);
-    expect(store.updateRestarting()).toBe(true);
+    expect(shown().restarting).toBe(true);
   });
 
   it("surfaces recent keyboard input as an automatic-update hold", () => {
     deliverPending(local, [{ session: "main", reason: "recent-input" }]);
 
-    expect(store.updateHolds()).toEqual([{ session: "main", reason: "recent-input" }]);
+    expect(shown().holds).toEqual([{ session: "main", reason: "recent-input" }]);
   });
 
   it("announces once when an update first stages, then refreshes holds silently", () => {
@@ -146,9 +147,9 @@ describe("update-store", () => {
     // A reconnect hello clears holds before the host re-pushes the pending
     // state. The episode latch must survive that transient clear so the re-push does not re-announce.
     deliverHello(local, "0.1.100");
-    expect(store.updateHolds()).toBeNull();
+    expect(shown().holds).toBeNull();
     deliverPending(local, [{ session: "main", reason: "working" }]);
-    expect(store.updatePending()).toBe(true);
+    expect(shown().pending).toBe(true);
     expect(notifySpy).toHaveBeenCalledTimes(1);
   });
 
@@ -157,7 +158,7 @@ describe("update-store", () => {
     notifySpy.mockClear(); // ignore the first-pending toast; this asserts the clear path itself is silent
 
     deliverHello(local, "0.1.100");
-    expect(store.updateHolds()).toBeNull();
+    expect(shown().holds).toBeNull();
     expect(reload).not.toHaveBeenCalled();
     expect(notifySpy).not.toHaveBeenCalled();
   });
@@ -166,12 +167,12 @@ describe("update-store", () => {
     deliverRestarting(local);
 
     deliverHello(local, "0.1.100");
-    expect(store.updateRestarting()).toBe(false);
+    expect(shown().restarting).toBe(false);
     expect(notifySpy).toHaveBeenCalledWith("warn", expect.stringContaining("didn't apply"));
   });
 
   it("recognizes a changed remote build as a successful update without reloading", () => {
-    bridgeHarness.activeBackendId = remote.id;
+    viewed = remote.id;
     deliverPending(remote, [{ session: "remote", reason: "working" }]);
     deliverRestarting(remote);
     notifySpy.mockClear();
@@ -179,52 +180,52 @@ describe("update-store", () => {
     deliverHello(remote, "0.1.201");
 
     expect(reload).not.toHaveBeenCalled();
-    expect(store.updateHolds()).toBeNull();
-    expect(store.updatePending()).toBe(false);
-    expect(store.updateRestarting()).toBe(false);
+    expect(shown().holds).toBeNull();
+    expect(shown().pending).toBe(false);
+    expect(shown().restarting).toBe(false);
     expect(notifySpy).toHaveBeenCalledWith("info", "Weavie updated to build 0.1.201.");
     expect(notifySpy).not.toHaveBeenCalledWith("warn", expect.any(String));
   });
 
   it("reports a remote backend running another build, and nothing while the builds agree", () => {
-    bridgeHarness.activeBackendId = remote.id;
+    viewed = remote.id;
     deliverHello(remote, "0.1.200");
-    expect(store.activeBackendBuildMismatch()).toEqual({ client: "0.1.100", backend: "0.1.200" });
+    expect(store.backendBuildMismatch(viewed)).toEqual({ client: "0.1.100", backend: "0.1.200" });
 
     deliverHello(remote, "0.1.100");
-    expect(store.activeBackendBuildMismatch()).toBeNull();
+    expect(store.backendBuildMismatch(viewed)).toBeNull();
 
     // A local dev build has no release identity on either side, so it never mismatches.
     deliverHello(remote, "0.1.0.0");
-    expect(store.activeBackendBuildMismatch()).toBeNull();
+    expect(store.backendBuildMismatch(viewed)).toBeNull();
     deliverHello(local, "0.1.0.0");
     deliverHello(remote, "0.2.24.2117");
-    expect(store.activeBackendBuildMismatch()).toBeNull();
+    expect(store.backendBuildMismatch(viewed)).toBeNull();
 
     // The local host serves the client, so it is never the mismatched side.
-    bridgeHarness.activeBackendId = local.id;
+    viewed = local.id;
     deliverHello(local, "0.1.100");
-    expect(store.activeBackendBuildMismatch()).toBeNull();
+    expect(store.backendBuildMismatch(viewed)).toBeNull();
   });
 
   it("warns when a remote worker returns on its previous build", () => {
-    bridgeHarness.activeBackendId = remote.id;
+    viewed = remote.id;
     deliverRestarting(remote);
 
     deliverHello(remote, "0.1.200");
 
     expect(reload).not.toHaveBeenCalled();
-    expect(store.updateRestarting()).toBe(false);
+    expect(shown().restarting).toBe(false);
     expect(notifySpy).toHaveBeenCalledWith("warn", expect.stringContaining("didn't apply"));
   });
 
   it("keeps update state isolated by backend", () => {
     deliverPending(local, [{ session: "local", reason: "shell-job" }]);
-    expect(store.updateHolds()).toEqual([{ session: "local", reason: "shell-job" }]);
+    expect(shown().holds).toEqual([{ session: "local", reason: "shell-job" }]);
 
-    bridgeHarness.activeBackendId = remote.id;
+    viewed = remote.id;
     deliverPending(remote, [{ session: "remote", reason: "needs-input" }]);
-    expect(store.updateHolds()).toEqual([{ session: "remote", reason: "needs-input" }]);
+    expect(shown().holds).toEqual([{ session: "remote", reason: "needs-input" }]);
   });
 
   it("reloads a stale tab, leaving the updated-to marker for the fresh page", () => {

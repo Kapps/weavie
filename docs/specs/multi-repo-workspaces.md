@@ -45,6 +45,32 @@ the Sessions composer, Diff Against) is opened for a `ClientSession` and sends e
 names its repo in the request; nothing resolves a session or a repo from the selection at request time, because
 the selection can change while the surface is open.
 
+The selection chooses what is rendered and never the target of an action. `selectedSession` is read only where
+a render or a command starts: `App.tsx` (the top-level render, which hands the session down as props and holds
+the session Sessions was opened from), the command registry's scope capture, and an OS-forwarded open. Everything
+else receives its session: a parameter or prop, the command's `context.session`, or the session captured when the
+surface opened. A surface opened for a session closes, and says so, when that session ends (`createOwnedSurface`);
+an action that needs its session on screen refuses visibly once it is not (`requireOnScreen`). "Am I the one on
+screen" is `isSelected(session)`. Work that runs only for the session on screen, such as Find in Files' one
+projected result set or a `when` key (`onScreenContext`), is a `whileOnScreen` scope.
+
+Three lint rules fail `biome check` on any other mention, each with its own allowlist in `biome.json`:
+`selected-session.grit` (`selectedSession`), `selection-listener.grit` (`onSelectedSession`: also the rail, which
+ends its pending highlight on a commit, and the editor, whose one Monaco host presents the session on screen) and
+`active-backend.grit` (`activeBackendId`; given a session, its backend is `backendIdOf(session)`). Each rule matches
+the name as an identifier, an import or export name, or a string or template literal, so an alias, a re-export and
+`bridge["selectedSession"]` all fail; `src/selection-lint.test.ts` runs Biome over those fixtures. Unlinted, because
+they name no session or address: `isSelected`, `requireOnScreen`, `registerViewFeature` and `whileOnScreen`
+(scoped to the session they install for), and `activeBackendPhase`/`activeBackendOffline` (the status shown for
+the backend on screen). The registry's session-less dispatchers (`dispatchCommand`, `runCommandWithFeedback`,
+`captureCommandRunner`) capture the selection as a command starts; a surface that holds a session dispatches in
+it instead.
+
+The rules are syntactic, so they cannot see a value once it has left an allowed file: a session `App.tsx` passes
+down, or one a view-feature installer receives, can still be kept past its scope and used as a target later; an
+allowed file can export a new accessor; and a property name computed at run time (`bridge[name]`) names nothing to
+match. Those stay review's to catch.
+
 The repo of a worktree is git's answer (`git worktree list` from that worktree), never a stored copy. Restoring
 a workspace asks it for each saved session outside the home repo, all of them side by side. A saved session git
 can't place, whose worktree is still on disk, stays listed with a startup notice that says why, and can't be

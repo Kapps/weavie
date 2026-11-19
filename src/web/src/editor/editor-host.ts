@@ -15,7 +15,7 @@ import {
   ITextFileService,
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
-import { type ClientSession, log, selectedSession } from "../bridge";
+import { type ClientSession, isSelected, log } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
@@ -424,13 +424,12 @@ export async function createEditorHost(
     signal: AbortSignal,
   ): Promise<EditorShowResult> => {
     const owner = sessionForUri(uri);
-    if (signal.aborted || owner === undefined || selectedSession() !== owner) {
+    if (signal.aborted || owner === undefined || !isSelected(owner)) {
       return { kind: "superseded" };
     }
     const token = ++openSeq;
     try {
-      const valid = (): boolean =>
-        !signal.aborted && token === openSeq && selectedSession() === owner;
+      const valid = (): boolean => !signal.aborted && token === openSeq && isSelected(owner);
       const ref = await acquireRef(refs, uri, valid);
       if (ref === undefined || !valid()) return { kind: "superseded" };
       editor.setModel(ref.object.textEditorModel);
@@ -709,7 +708,7 @@ export async function createEditorHost(
       if (connection === undefined) return null;
       if (!sessionOwnsUri(connection.session, input.resource)) return null;
       const session = connection.session;
-      if (selectedSession() !== session) return null;
+      if (!isSelected(session)) return null;
       const destination = await onOpenEditor({
         session,
         source: connection,
@@ -725,7 +724,7 @@ export async function createEditorHost(
                 endColumn: input.options.selection.endColumn ?? input.options.selection.startColumn,
               },
       });
-      if (selectedSession() !== session) return null;
+      if (!isSelected(session)) return null;
       return destination !== undefined && editorContexts.live(destination)
         ? destination.editor
         : null;

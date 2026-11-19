@@ -9,24 +9,20 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { selectedSession } from "../bridge";
+import { backendIdOf, type ClientSession } from "../bridge";
 import { evaluateWhen, paneFocusContext, setContext } from "../commands/context";
 import { rankCommands } from "../commands/ranking";
-import {
-  captureCommandRunner,
-  getActiveCatalogBackendId,
-  getCommands,
-  onCommandsChanged,
-} from "../commands/registry";
+import { captureCommandRunner, getCommands, onCommandsChanged } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
 import { captureCommandUsage, commandUsage } from "../commands/usage-store";
 import { canonicalFsPath, repoRelativePath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import type { FileIndex } from "../files/file-index";
 import { type PathTreeRow, pathAncestorKeys, visiblePathTreeRows } from "../files/path-tree";
-import { selectedFileIndex } from "../files/session-file-index";
-import { acquireDirectory, selectedDirectoryListings } from "../files/session-files";
+import { acquireDirectory, directoryListingsFor } from "../files/session-files";
 import { createListNavigation } from "../list-navigation";
+import { whileOnScreen } from "../messaging/on-screen";
+import { notify } from "../notify/notify";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import { createFileSearch, FILE_SEARCH_VIEW_CAP as VIEW_CAP } from "./create-file-search";
@@ -35,7 +31,7 @@ import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest, setOmnibarRoot } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
-import { recentFiles } from "./recent-files-store";
+import { recentFilesOf } from "./recent-files-store";
 
 // The leading character that selects each mode (empty = the file tree/list).
 const MODE_PREFIX: Record<OmnibarMode, string> = {
@@ -57,16 +53,18 @@ const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
 // The center omnibar quick-open: file tree when the query is empty, fuzzy-ranked flat list when typing, and a
 // command palette when the query leads with ">".
 export function Omnibar(props: {
+  // The session on screen: `index` is its file list, and its listings and symbols are the ones searched.
+  session: ClientSession | null;
   index: FileIndex;
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
   onOpenFile: (abs: string, line: number | undefined) => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
-  symbols: () => SymbolActions;
+  symbols: (session: ClientSession | null) => SymbolActions;
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
-  const [open, setOpen] = createSignal(false);
+  const [open, setShown] = createSignal(false);
   createEffect(() => setContext("omnibarOpen", open()));
   const nav = createListNavigation({
     count: () => activeLen(),
@@ -87,8 +85,22 @@ export function Omnibar(props: {
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
   let priorFocus: HTMLElement | null = null;
+  // The omnibar belongs to the session it opened for: its commands and symbols act there, and it closes when that
+  // session leaves the screen, so its rows and what they run are always that session's.
+  let owner: ClientSession | null = null;
   let runCapturedCommand = captureCommandRunner();
-  let capturedSymbols = props.symbols();
+  let capturedSymbols = props.symbols(props.session);
+  const capture = (): void => {
+    owner = props.session;
+    runCapturedCommand = captureCommandRunner();
+    capturedSymbols = props.symbols(props.session);
+  };
+  // Every open goes through here, so the session it captures is the one its rows and commands belong to.
+  const show = (): void => {
+    if (open()) return;
+    capture();
+    setShown(true);
+  };
 
   // The 1-based line an open from this omnibar session reveals — a host-driven request resolving an
   // ambiguous `file:line` link carries the link's line, applied to whichever candidate the user picks.
@@ -103,7 +115,7 @@ export function Omnibar(props: {
   // symbols, empty → the file tree, otherwise the fuzzy file list.
   type Mode = "command" | "docSymbol" | "wsSymbol" | "tree" | "search" | "path";
   const pathQuery = createMemo(() =>
-    parsePathQuery(query(), { root: props.root ?? "", home: selectedFileIndex().home }),
+    parsePathQuery(query(), { root: props.root ?? "", home: props.index.home }),
   );
   const mode = createMemo<Mode>(() => {
     const q = query();
@@ -124,7 +136,7 @@ export function Omnibar(props: {
   const pathDir = createMemo(() => pathQuery()?.dir ?? null);
   createEffect(() => {
     const dir = pathDir();
-    const session = selectedSession();
+    const session = props.session;
     if (open() && dir !== null && session !== null) {
       const lease = untrack(() => acquireDirectory(session, dir));
       onCleanup(lease.release);
@@ -132,7 +144,7 @@ export function Omnibar(props: {
   });
   const pathListing = () => {
     const dir = pathDir();
-    return dir === null ? undefined : selectedDirectoryListings()[dir];
+    return dir === null ? undefined : directoryListingsFor(props.session)[dir];
   };
   // A directory that can't be listed says why — an empty row list would read as an empty directory.
   const pathError = (): string | null => {
@@ -153,7 +165,7 @@ export function Omnibar(props: {
   const fileSearch = createFileSearch({
     index: () => props.index,
     query: () => (searchMode() ? query() : ""),
-    recent: recentFiles,
+    recent: () => recentFilesOf(props.session).files,
     currentFile: () => props.currentFile,
   });
   const view = fileSearch.view;
@@ -203,7 +215,7 @@ export function Omnibar(props: {
         metadata: cmd.category ?? "",
       })),
       q,
-      commandUsage(getActiveCatalogBackendId()),
+      commandUsage(backendIdOf(props.session)),
     ).map((row) => ({
       cmd: row.item,
       ...(row.positions === undefined ? {} : { positions: row.positions }),
@@ -321,10 +333,6 @@ export function Omnibar(props: {
         if (request === null) {
           return;
         }
-        if (!open()) {
-          runCapturedCommand = captureCommandRunner();
-          capturedSymbols = props.symbols();
-        }
         setQuery(MODE_PREFIX[request.mode] + request.query);
         pendingLine = request.line;
         // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
@@ -333,7 +341,7 @@ export function Omnibar(props: {
         if (active !== null && active !== document.body && !rootRef.contains(active)) {
           priorFocus = active;
         }
-        setOpen(true);
+        show();
         queueMicrotask(() => {
           inputRef.focus();
           // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
@@ -360,7 +368,7 @@ export function Omnibar(props: {
   };
 
   const close = (): void => {
-    setOpen(false);
+    setShown(false);
     setQuery("");
     pendingLine = undefined;
     restorePriorFocus();
@@ -370,12 +378,24 @@ export function Omnibar(props: {
   // it belongs wherever the user moved it. Resets state so a reopen starts clean (the old path leaked query +
   // priorFocus and used an uncleared timer).
   const dismiss = (): void => {
-    setOpen(false);
+    setShown(false);
     setQuery("");
     pendingLine = undefined;
     priorFocus = null;
   };
   onCleanup(onModalOpened(dismiss));
+  // It closes as its session leaves the screen: quietly when the user switched, with a reason when the session
+  // ended. Opened with no session on screen (the page still loading), it takes the first one to arrive.
+  onCleanup(
+    whileOnScreen((session) => {
+      if (open() && owner === null) capture();
+      onCleanup(() => {
+        if (!open() || owner !== session) return;
+        dismiss();
+        if (session.signal.aborted) notify("warn", "Command bar closed: its session ended.");
+      });
+    }),
+  );
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
@@ -393,7 +413,7 @@ export function Omnibar(props: {
     }
     // The omnibar's own focus commands just re-aim it at a mode — do that in place (the input already has focus)
     // rather than close()+re-open, which races the reset and lands in plain file mode.
-    const backend = getActiveCatalogBackendId();
+    const backend = backendIdOf(props.session);
     const learnedQuery = query().slice(1).trim();
     const record = captureCommandUsage(backend, cmd.id, learnedQuery);
     const focusMode = FOCUS_COMMAND_MODE[cmd.id];
@@ -541,8 +561,9 @@ export function Omnibar(props: {
     }
   };
 
+  // A closed bar's list is not its session's to act on: typing reopens it first.
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (nav.onKeyDown(e)) {
+    if (!open() || nav.onKeyDown(e)) {
       return;
     }
     if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && treeMode()) {
@@ -639,21 +660,20 @@ export function Omnibar(props: {
           spellcheck={false}
           placeholder={props.workspaceLabel}
           value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
+          onInput={(e) => {
+            show();
+            setQuery(e.currentTarget.value);
+          }}
           onFocus={(e) => {
-            if (!open()) {
-              runCapturedCommand = captureCommandRunner();
-              capturedSymbols = props.symbols();
-            }
             // Remember the element we're stealing focus from so close can hand it back. Ignore a target
             // inside the omnibar itself so re-entry never overwrites it.
             const from = e.relatedTarget as HTMLElement | null;
             if (from !== null && !rootRef.contains(from)) {
               priorFocus = from;
             }
-            setOpen(true);
+            show();
           }}
-          onClick={() => setOpen(true)}
+          onClick={show}
           onKeyDown={onKeyDown}
         />
         <button

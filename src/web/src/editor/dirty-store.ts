@@ -1,18 +1,16 @@
-import { type ClientSession, selectedSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { createSessionOwnedState } from "../messaging/session-owned-state";
 import { normalizePath } from "./fs-path";
 
 const EMPTY = new Set<string>();
 const bySession = createSessionOwnedState<ReadonlySet<string>>(() => EMPTY);
 
-export const dirtyPaths = (): ReadonlySet<string> => bySession.get(selectedSession()) ?? EMPTY;
-
-export function dirtyPathsFor(session: ClientSession): ReadonlySet<string> {
+export function dirtyPathsFor(session: ClientSession | null): ReadonlySet<string> {
   return bySession.get(session) ?? EMPTY;
 }
 
-export function isDirtyPath(path: string): boolean {
-  return dirtyPaths().has(normalizePath(path));
+export function isDirtyPath(session: ClientSession | null, path: string): boolean {
+  return dirtyPathsFor(session).has(normalizePath(path));
 }
 
 export function setDirtyPath(session: ClientSession, path: string, isDirty: boolean): void {

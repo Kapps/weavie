@@ -1,4 +1,4 @@
-import { type ClientSession, selectedSession } from "../bridge";
+import { type ClientSession, isSelected } from "../bridge";
 import { writeClipboard } from "../clipboard";
 import type { CommandCapture, CommandHandler } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -84,8 +84,7 @@ export function tabCommandBindings(editor: EditorController): [string, CommandCa
         toggleViewMode(tab.session, tab.entry.path);
         return Promise.resolve().then(async () => {
           const presentation = await tab.wait(tab.signal);
-          if (selectedSession() === tab.session && activeTabFor(tab.session) === tab)
-            presentation.focus();
+          if (isSelected(tab.session) && activeTabFor(tab.session) === tab) presentation.focus();
         });
       }),
     ],

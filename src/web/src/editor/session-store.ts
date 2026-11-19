@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 import { samePath } from "./fs-path";
 import type {
   EditorSession,
@@ -462,13 +462,8 @@ registerSessionFeature((owner) => {
   };
 });
 
-function selectedState(): OwnedEditorSession | undefined {
-  const owner = selectedSession();
+function stateFor(owner: ClientSession | null): OwnedEditorSession | undefined {
   return owner === null ? undefined : states.get(owner);
-}
-
-function stateFor(owner: ClientSession): OwnedEditorSession | undefined {
-  return states.get(owner);
 }
 
 function nearestSurvivor(
@@ -523,26 +518,17 @@ export interface CloseResult {
   next: ActivateResult | null;
 }
 
-export const editorSession = (): EditorSession | null => selectedState()?.current() ?? null;
-export const editorSessionFor = (owner: ClientSession): EditorSession | null =>
+export const editorSessionFor = (owner: ClientSession | null): EditorSession | null =>
   stateFor(owner)?.current() ?? null;
 export const pendingLineFor = (owner: ClientSession, path: string): number | undefined =>
   stateFor(owner)?.pendingLine(path);
 export function onEditorSessionChanged(owner: ClientSession, listener: () => void): () => void {
   return stateFor(owner)?.subscribeStructure(listener) ?? (() => {});
 }
-export const openTabs = (): EditorSessionEntry[] => editorSession()?.open ?? [];
-export const openTabsFor = (owner: ClientSession): EditorSessionEntry[] =>
+export const openTabsFor = (owner: ClientSession | null): EditorSessionEntry[] =>
   editorSessionFor(owner)?.open ?? [];
-export const activePath = (): string | null => editorSession()?.active ?? null;
-export const activePathFor = (owner: ClientSession): string | null =>
+export const activePathFor = (owner: ClientSession | null): string | null =>
   editorSessionFor(owner)?.active ?? null;
-export const editorBackendId = (): string | null => selectedSession()?.connection.id ?? null;
-export const editorOwner = (): string | null => selectedSession()?.address.incarnation ?? null;
-
-export function flushEditorSession(): void {
-  selectedState()?.flush();
-}
 
 export function flushEditorSessionFor(owner: ClientSession): void {
   stateFor(owner)?.flush();
@@ -566,25 +552,6 @@ export function onHostEditorEdit<T>(
     );
 }
 
-export function openTab(
-  path: string,
-  opts: {
-    line?: number;
-    column?: number;
-    focus?: boolean;
-    preview?: boolean;
-    scratch?: boolean;
-    kind?: TabKind;
-  } = {},
-): ActivateResult {
-  return (
-    selectedState()?.openTab(path, opts) ?? {
-      path,
-      placement: { line: opts.line ?? 1 },
-    }
-  );
-}
-
 export function openTabFor(
   owner: ClientSession,
   path: string,
@@ -606,44 +573,29 @@ export function openTabFor(
   );
 }
 
-export const activateTab = (path: string): ActivateResult | null =>
-  selectedState()?.activate(path) ?? null;
 export const activateTabFor = (owner: ClientSession, path: string): ActivateResult | null =>
   stateFor(owner)?.activate(path) ?? null;
-export const closeTab = (path: string): CloseResult | null => selectedState()?.close(path) ?? null;
 export const closeTabFor = (owner: ClientSession, path: string): CloseResult | null =>
   stateFor(owner)?.close(path) ?? null;
-export const dropReviewTab = (path: string, fallback: string | null): void =>
-  selectedState()?.dropReview(path, fallback);
 export const dropReviewTabFor = (
   owner: ClientSession,
   path: string,
   fallback: string | null,
 ): void => stateFor(owner)?.dropReview(path, fallback);
-export const convertScratch = (scratchPath: string, savedPath: string): ActivateResult | null =>
-  selectedState()?.convertScratch(scratchPath, savedPath) ?? null;
 export const convertScratchFor = (
   owner: ClientSession,
   scratchPath: string,
   savedPath: string,
 ): ActivateResult | null => stateFor(owner)?.convertScratch(scratchPath, savedPath) ?? null;
-export const closeMany = (
-  predicate: (entry: EditorSessionEntry) => boolean,
-): { disposed: string[]; next: ActivateResult | null } =>
-  selectedState()?.closeMany(predicate) ?? { disposed: [], next: null };
 export const closeManyFor = (
   owner: ClientSession,
   predicate: (entry: EditorSessionEntry) => boolean,
 ): { disposed: string[]; next: ActivateResult | null } =>
   stateFor(owner)?.closeMany(predicate) ?? { disposed: [], next: null };
-export const togglePin = (path: string): void => selectedState()?.togglePin(path);
 export const togglePinFor = (owner: ClientSession, path: string): void =>
   stateFor(owner)?.togglePin(path);
-export const promote = (path: string): void => selectedState()?.promote(path);
 export const promoteFor = (owner: ClientSession, path: string): void =>
   stateFor(owner)?.promote(path);
-export const captureViewState = (path: string, viewState: EditorViewState | null): void =>
-  selectedState()?.captureViewState(path, viewState);
 export const captureReviewFor = (owner: ClientSession, review: ReviewResume): void =>
   stateFor(owner)?.captureReview(review);
 export const captureViewStateFor = (

@@ -3,7 +3,7 @@
 // buttons are built with plain DOM because both bodies are sanitized raw HTML, not JSX.
 
 import { createSignal } from "solid-js";
-import { type ClientSession, onSelectedSession, selectedSession } from "../../bridge";
+import { type ClientSession, isSelected, registerViewFeature } from "../../bridge";
 import { modalActive } from "../../chrome/modal-state";
 import { formatKey } from "../../commands/keybindings";
 import { findCommand } from "../../commands/registry";
@@ -20,9 +20,10 @@ export interface EmbedZoomState {
 
 const [zoomedEmbed, setZoomedEmbed] = createSignal<EmbedZoomState | null>(null);
 
-onSelectedSession((session) => {
-  setZoomedEmbed((state) => (state !== null && state.session !== session ? null : state));
-});
+// A lightbox closes as its session leaves the screen.
+registerViewFeature(
+  (session) => () => setZoomedEmbed((state) => (state?.session === session ? null : state)),
+);
 
 /** The open lightbox state (null when closed); the app-level lightbox controller observes it. */
 export { zoomedEmbed };
@@ -112,22 +113,23 @@ function zoomButton(
   return button;
 }
 
-/** Opens the first preview embed or advances an open lightbox; declines when no embed is available. */
-export function zoomActiveEmbed(): boolean {
-  if (zoomedEmbed() !== null) {
+/** Opens the first embed of `session`'s preview or advances its open lightbox; declines unless it is on screen. */
+export function zoomActiveEmbed(session: ClientSession | null): boolean {
+  const open = zoomedEmbed();
+  if (open !== null) {
+    if (open.session !== session) return false;
     stepEmbedZoom(1);
     return true;
   }
   if (modalActive()) {
     return false;
   }
-  const session = selectedSession();
   const root =
     document.querySelector(".editor-preview-body") ??
     document.querySelector(".editor-source")?.shadowRoot ??
     null;
   const targets = root === null ? [] : zoomables(root);
-  if (session === null || targets.length === 0) {
+  if (session === null || !isSelected(session) || targets.length === 0) {
     return false;
   }
   setZoomedEmbed({ session, targets, index: 0 });

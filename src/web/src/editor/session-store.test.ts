@@ -21,7 +21,7 @@ interface FakeSession {
 
 const bridgeState = vi.hoisted(() => ({
   installer: undefined as ((session: ClientSession) => undefined | (() => void)) | undefined,
-  selected: null as ClientSession | null,
+  seeded: null as ClientSession | null,
   sessions: new Map<string, FakeSession>(),
   posted: [] as Posted[],
 }));
@@ -31,10 +31,10 @@ vi.mock("../bridge", () => ({
     bridgeState.installer = installer;
     return () => {};
   },
-  selectedSession: () => bridgeState.selected,
 }));
 
 const store = await import("./session-store");
+const seeded = (): ClientSession => bridgeState.seeded!;
 
 type Entry = EditorSessionEntry;
 
@@ -81,10 +81,10 @@ function fakeSession(backendId: string, owner: string): FakeSession {
   return fake;
 }
 
-// Restore one session-owned editor store and select it for the convenience exports.
+// Restore one session-owned editor store; `seeded()` is the session it restored.
 function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
   const fake = fakeSession(backendId, owner);
-  bridgeState.selected = fake.client;
+  bridgeState.seeded = fake.client;
   fake.restore?.({ session: { active, open }, revision: 1 });
   bridgeState.posted.length = 0;
 }
@@ -93,7 +93,7 @@ const openEditorsPushes = (): Posted[] =>
   bridgeState.posted.filter(
     (message) => message.feature === "editor" && message.name === "openEditorsChanged",
   );
-const paths = (): string[] => store.openTabs().map((entry) => entry.path);
+const paths = (): string[] => store.openTabsFor(seeded()).map((entry) => entry.path);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -106,10 +106,10 @@ afterEach(() => {
 describe("openTab", () => {
   it("an open that keeps the user in place leaves their preview tab and adds beside it", () => {
     seed([], null);
-    store.openTab("/mine.md", { preview: true });
-    store.openTabFor(bridgeState.selected!, "/agent.md", { preview: true, activate: false });
-    expect(store.activePath()).toBe("/mine.md");
-    expect(store.openTabs().map((tab) => [tab.path, tab.preview === true])).toEqual([
+    store.openTabFor(seeded(), "/mine.md", { preview: true });
+    store.openTabFor(seeded(), "/agent.md", { preview: true, activate: false });
+    expect(store.activePathFor(seeded())).toBe("/mine.md");
+    expect(store.openTabsFor(seeded()).map((tab) => [tab.path, tab.preview === true])).toEqual([
       ["/mine.md", false],
       ["/agent.md", true],
     ]);
@@ -117,50 +117,50 @@ describe("openTab", () => {
 
   it("opens a fresh persistent tab, activates it, and pushes the new tab set", () => {
     seed([], null);
-    const res = store.openTab("/a.ts", { line: 5 });
+    const res = store.openTabFor(seeded(), "/a.ts", { line: 5 });
     expect(res).toEqual({ path: "/a.ts", placement: { line: 5 } });
-    expect(store.activePath()).toBe("/a.ts");
+    expect(store.activePathFor(seeded())).toBe("/a.ts");
     expect(openEditorsPushes()).toHaveLength(1);
   });
 
   it("reuses the single preview slot instead of stacking preview tabs", () => {
     seed([], null);
-    store.openTab("/p1.ts", { preview: true });
-    store.openTab("/p2.ts", { preview: true });
+    store.openTabFor(seeded(), "/p1.ts", { preview: true });
+    store.openTabFor(seeded(), "/p2.ts", { preview: true });
     expect(paths()).toEqual(["/p2.ts"]);
-    expect(store.openTabs()[0]?.preview).toBe(true);
+    expect(store.openTabsFor(seeded())[0]?.preview).toBe(true);
   });
 
   it("promotes a preview tab to persistent on a non-preview open", () => {
     seed([{ path: "/p.ts", viewState: null, preview: true }], "/p.ts");
-    store.openTab("/p.ts");
-    expect(store.openTabs()[0]?.preview).toBeFalsy();
+    store.openTabFor(seeded(), "/p.ts");
+    expect(store.openTabsFor(seeded())[0]?.preview).toBeFalsy();
   });
 
   it("activates an already-open tab, restoring its view state when no line is given", () => {
     seed([{ path: "/a.ts", viewState: { scroll: 9 } }], "/a.ts");
-    const res = store.openTab("/a.ts");
+    const res = store.openTabFor(seeded(), "/a.ts");
     expect(res).toEqual({ path: "/a.ts", placement: { viewState: { scroll: 9 } } });
   });
 
   it("reveals an explicit line 1 in an already-open tab (a created file's whole diff)", () => {
     seed([{ path: "/new.ts", viewState: { scroll: 9 } }], "/new.ts");
-    const res = store.openTab("/new.ts", { line: 1 });
+    const res = store.openTabFor(seeded(), "/new.ts", { line: 1 });
     expect(res).toEqual({ path: "/new.ts", placement: { line: 1 } });
   });
 
   it("keeps a scratch buffer as a persistent tab, never a preview", () => {
     seed([], null);
-    store.openTab("/tmp/Untitled-1", { preview: true, scratch: true });
-    expect(store.openTabs()[0]).toMatchObject({ scratch: true });
-    expect(store.openTabs()[0]?.preview).toBeFalsy();
+    store.openTabFor(seeded(), "/tmp/Untitled-1", { preview: true, scratch: true });
+    expect(store.openTabsFor(seeded())[0]).toMatchObject({ scratch: true });
+    expect(store.openTabsFor(seeded())[0]?.preview).toBeFalsy();
   });
 
   it("keeps a plan out of agent file context while preserving it in the session snapshot", () => {
     seed([], null);
-    store.openTab("agent-plan:1", { kind: "plan" });
+    store.openTabFor(seeded(), "agent-plan:1", { kind: "plan" });
 
-    expect(store.openTabs()[0]).toMatchObject({ path: "agent-plan:1", kind: "plan" });
+    expect(store.openTabsFor(seeded())[0]).toMatchObject({ path: "agent-plan:1", kind: "plan" });
     expect(openEditorsPushes().at(-1)?.payload.editors).toEqual([]);
 
     vi.advanceTimersByTime(300);
@@ -248,7 +248,7 @@ describe("closeTab", () => {
       ],
       "/b.ts",
     );
-    const res = store.closeTab("/b.ts");
+    const res = store.closeTabFor(seeded(), "/b.ts");
     expect(res?.disposed).toBe("/b.ts");
     expect(res?.next?.path).toBe("/c.ts");
     expect(paths()).toEqual(["/a.ts", "/c.ts"]);
@@ -262,17 +262,17 @@ describe("closeTab", () => {
       ],
       "/b.ts",
     );
-    expect(store.closeTab("/b.ts")?.next?.path).toBe("/a.ts");
+    expect(store.closeTabFor(seeded(), "/b.ts")?.next?.path).toBe("/a.ts");
   });
 
   it("returns null next when the last open tab is closed", () => {
     seed([{ path: "/only.ts", viewState: null }], "/only.ts");
-    expect(store.closeTab("/only.ts")).toEqual({ disposed: "/only.ts", next: null });
+    expect(store.closeTabFor(seeded(), "/only.ts")).toEqual({ disposed: "/only.ts", next: null });
   });
 
   it("returns null for a tab that isn't open", () => {
     seed([{ path: "/a.ts", viewState: null }], "/a.ts");
-    expect(store.closeTab("/missing.ts")).toBeNull();
+    expect(store.closeTabFor(seeded(), "/missing.ts")).toBeNull();
   });
 });
 
@@ -286,7 +286,7 @@ describe("closeMany", () => {
       ],
       "/c.ts",
     );
-    const res = store.closeMany(() => true);
+    const res = store.closeManyFor(seeded(), () => true);
     expect(res.disposed.sort()).toEqual(["/b.ts", "/c.ts"]);
     expect(paths()).toEqual(["/pin.ts"]);
     expect(res.next?.path).toBe("/pin.ts");
@@ -294,7 +294,10 @@ describe("closeMany", () => {
 
   it("is a no-op when nothing matches", () => {
     seed([{ path: "/a.ts", viewState: null }], "/a.ts");
-    expect(store.closeMany((e) => e.path === "/nope")).toEqual({ disposed: [], next: null });
+    expect(store.closeManyFor(seeded(), (e) => e.path === "/nope")).toEqual({
+      disposed: [],
+      next: null,
+    });
   });
 });
 
@@ -307,17 +310,17 @@ describe("togglePin", () => {
       ],
       "/a.ts",
     );
-    store.togglePin("/b.ts");
+    store.togglePinFor(seeded(), "/b.ts");
     expect(paths()).toEqual(["/b.ts", "/a.ts"]);
-    expect(store.openTabs()[0]).toMatchObject({ pinned: true });
-    expect(store.openTabs()[0]?.preview).toBeFalsy();
-    expect(store.activePath()).toBe("/a.ts");
+    expect(store.openTabsFor(seeded())[0]).toMatchObject({ pinned: true });
+    expect(store.openTabsFor(seeded())[0]?.preview).toBeFalsy();
+    expect(store.activePathFor(seeded())).toBe("/a.ts");
   });
 
   it("unpins without touching preview", () => {
     seed([{ path: "/a.ts", viewState: null, pinned: true }], "/a.ts");
-    store.togglePin("/a.ts");
-    expect(store.openTabs()[0]?.pinned).toBeFalsy();
+    store.togglePinFor(seeded(), "/a.ts");
+    expect(store.openTabsFor(seeded())[0]?.pinned).toBeFalsy();
   });
 });
 
@@ -330,10 +333,10 @@ describe("convertScratch", () => {
       ],
       "/tmp/U1",
     );
-    const res = store.convertScratch("/tmp/U1", "/proj/real.ts");
+    const res = store.convertScratchFor(seeded(), "/tmp/U1", "/proj/real.ts");
     expect(res).toEqual({ path: "/proj/real.ts", placement: { line: 1 } });
     expect(paths()).toEqual(["/x.ts", "/proj/real.ts"]);
-    expect(store.openTabs()[1]?.scratch).toBeFalsy();
+    expect(store.openTabsFor(seeded())[1]?.scratch).toBeFalsy();
   });
 
   it("drops the scratch and activates the existing tab when the save target is already open", () => {
@@ -344,14 +347,14 @@ describe("convertScratch", () => {
       ],
       "/tmp/U1",
     );
-    const res = store.convertScratch("/tmp/U1", "/proj/real.ts");
+    const res = store.convertScratchFor(seeded(), "/tmp/U1", "/proj/real.ts");
     expect(res).toEqual({ path: "/proj/real.ts", placement: { viewState: { v: 1 } } });
     expect(paths()).toEqual(["/proj/real.ts"]);
   });
 
   it("returns null when the scratch tab isn't open", () => {
     seed([], null);
-    expect(store.convertScratch("/tmp/U1", "/proj/real.ts")).toBeNull();
+    expect(store.convertScratchFor(seeded(), "/tmp/U1", "/proj/real.ts")).toBeNull();
   });
 });
 
@@ -364,16 +367,16 @@ describe("dropReviewTab", () => {
       ],
       "weavie-review:1",
     );
-    store.dropReviewTab("weavie-review:1", "/a.ts");
+    store.dropReviewTabFor(seeded(), "weavie-review:1", "/a.ts");
     expect(paths()).toEqual(["/a.ts"]);
-    expect(store.activePath()).toBe("/a.ts");
+    expect(store.activePathFor(seeded())).toBe("/a.ts");
   });
 });
 
 describe("captureViewState", () => {
   it("records view state without re-pushing the tab set (no structure change)", () => {
     seed([{ path: "/a.ts", viewState: null }], "/a.ts");
-    store.captureViewState("/a.ts", { scroll: 3 });
+    store.captureViewStateFor(seeded(), "/a.ts", { scroll: 3 });
     expect(openEditorsPushes()).toHaveLength(0);
     // The data-only change still reaches the host as a debounced editor-session-changed.
     vi.advanceTimersByTime(300);
@@ -386,20 +389,10 @@ describe("captureViewState", () => {
 });
 
 describe("session ownership", () => {
-  it("flushEditorSession sends the pending change on the owning session bus", () => {
+  it("flushEditorSessionFor drains the exact owner after another session opens", () => {
     seed([], null, "sess-A");
-    store.openTab("/a.ts");
-    bridgeState.posted.length = 0;
-    store.flushEditorSession();
-    const changed = bridgeState.posted.find((message) => message.name === "sessionChanged");
-    expect(changed).toMatchObject({ backendId: "local", slot: "sess-A" });
-    expect(store.editorOwner()).toBe("sess-A");
-  });
-
-  it("flushEditorSessionFor drains the exact owner even while another session is selected", () => {
-    seed([], null, "sess-A");
-    const first = bridgeState.selected!;
-    store.openTab("/a.ts");
+    const first = seeded();
+    store.openTabFor(seeded(), "/a.ts");
     seed([{ path: "/b.ts", viewState: null }], "/b.ts", "sess-B");
     bridgeState.posted.length = 0;
 
@@ -411,28 +404,21 @@ describe("session ownership", () => {
     });
   });
 
-  it("keeps a pending debounced send on its owner when another session is selected", () => {
+  it("keeps a pending debounced send on its owner when another session opens", () => {
     seed([], null, "sess-A");
-    store.openTab("/a.ts"); // schedules a debounced send for sess-A
+    store.openTabFor(seeded(), "/a.ts"); // schedules a debounced send for sess-A
     seed([{ path: "/b.ts", viewState: null }], "/b.ts", "sess-B");
     vi.advanceTimersByTime(300);
     expect(bridgeState.posted.find((message) => message.name === "sessionChanged")).toMatchObject({
       backendId: "local",
       slot: "sess-A",
     });
-    expect(store.editorOwner()).toBe("sess-B");
-  });
-
-  it("publishes backend and session ownership together", () => {
-    seed([], null, "sess-remote", "remote:devbox");
-    expect(store.editorBackendId()).toBe("remote:devbox");
-    expect(store.editorOwner()).toBe("sess-remote");
   });
 
   it("keeps a debounced session update on its editor owner during cross-host selection", () => {
     seed([], null, "sess-remote", "remote:devbox");
 
-    store.openTab("/remote/a.ts");
+    store.openTabFor(seeded(), "/remote/a.ts");
     vi.advanceTimersByTime(300);
 
     expect(bridgeState.posted.find((message) => message.name === "sessionChanged")).toMatchObject({
@@ -444,21 +430,21 @@ describe("session ownership", () => {
 
 it("preserves the tab owner through metadata changes and retires it on close or kind replacement", () => {
   seed([], null);
-  const session = bridgeState.selected!;
-  store.openTab("https://example.test", { kind: "web", preview: true });
+  const session = seeded();
+  store.openTabFor(seeded(), "https://example.test", { kind: "web", preview: true });
   const first = store.activeTabFor(session)!;
   store.captureViewStateFor(session, first.entry.path, { reading: 12 });
   store.togglePinFor(session, first.entry.path);
   expect(store.activeTabFor(session)).toBe(first);
   expect(first.signal.aborted).toBe(false);
-  store.openTab(first.entry.path, { kind: "source" });
+  store.openTabFor(seeded(), first.entry.path, { kind: "source" });
   const replacement = store.activeTabFor(session)!;
   expect(replacement).not.toBe(first);
   expect(first.signal.aborted).toBe(true);
-  expect(store.openTabs()).toHaveLength(1);
+  expect(store.openTabsFor(seeded())).toHaveLength(1);
   expect(replacement.entry.kind).toBe("source");
   store.closeTabFor(session, replacement.entry.path);
-  store.openTab(replacement.entry.path, { kind: "source" });
+  store.openTabFor(seeded(), replacement.entry.path, { kind: "source" });
   expect(store.activeTabFor(session)).not.toBe(replacement);
   expect(replacement.signal.aborted).toBe(true);
 });
@@ -472,7 +458,7 @@ it("closing a captured batch never adopts tabs opened or reopened during its con
     ],
     "/scratch",
   );
-  const session = bridgeState.selected!;
+  const session = seeded();
   let confirm!: (accepted: boolean) => void;
   const pending = new Promise<boolean>((resolve) => {
     confirm = resolve;
@@ -509,7 +495,7 @@ it("a tab menu retains its owner across selection and rejects pinning a reopened
     ],
     "/a",
   );
-  const session = bridgeState.selected!;
+  const session = seeded();
   const first = store.activeTabFor(session)!;
   store.activateTabFor(session, "/b");
   first.assertLive();

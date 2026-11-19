@@ -11,16 +11,20 @@ const host = vi.hoisted(() => ({
   owned: undefined as string | undefined,
   select: (_session: unknown): void => {},
 }));
-vi.mock("../../bridge", async () => {
-  const solid = await vi.importActual<typeof import("solid-js")>("solid-js/dist/solid.js");
-  const [selected, select] = solid.createSignal<unknown>(null);
-  host.select = select;
+vi.mock("../../bridge", () => {
+  let leave = (): void => {};
   return {
     registerSessionFeature: (installer: (session: unknown) => undefined | (() => void)) => {
       host.installers.push(installer);
       return () => {};
     },
-    selectedSession: selected,
+    registerViewFeature: (installer: (session: unknown) => () => void) => {
+      host.select = (session) => {
+        leave();
+        leave = session === null ? () => {} : installer(session);
+      };
+      return () => {};
+    },
   };
 });
 vi.mock("../../commands/registry", () => ({

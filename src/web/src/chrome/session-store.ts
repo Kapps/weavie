@@ -1,9 +1,10 @@
-import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import {
   backendName,
   backendPhase,
   type ClientSession,
   connectedBackends,
+  isSelected,
   onBackendDisconnected,
   onBackendPhase,
   onSelectedSession,
@@ -12,8 +13,8 @@ import {
   type SessionChip,
   type SessionRun,
   type SessionStatusName,
-  selectedSession,
 } from "../bridge";
+import { whileOnScreen } from "../messaging/on-screen";
 import { clearSlotDrafts } from "../messaging/session-drafts";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 import { windowFocused } from "./window-state";
@@ -201,26 +202,22 @@ onBackendPhase((backendId, phase) => {
 
 onSelectedSession(() => setPendingSelection(null));
 
-const chipOf = (session: ClientSession | null): BackendSession | undefined =>
-  session === null
-    ? undefined
-    : byBackend()
-        .get(session.connection.id)
-        ?.find((chip) => chip.owner === session);
+const chipOf = (session: ClientSession): BackendSession | undefined =>
+  byBackend()
+    .get(session.connection.id)
+    ?.find((chip) => chip.owner === session);
 
 // The session the user is looking at is seen: its owner clears the host's flag for every client.
-createRoot(() => {
-  const watchedUnseen = createMemo(() => {
-    const selected = selectedSession();
-    return chipOf(selected)?.unseen === true && windowFocused() ? selected : null;
+whileOnScreen((session) => {
+  const unseen = createMemo(() => chipOf(session)?.unseen === true && windowFocused());
+  createEffect(() => {
+    if (unseen()) session.feature("attention").publish("seen", {});
   });
-  createEffect(() => watchedUnseen()?.feature("attention").publish("seen", {}));
 });
 
 // Every backend's chips, local first. A chip is active only when its backend is the one driving the page,
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
-  const selected = selectedSession();
   const pending = pendingSessions();
   // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
@@ -233,8 +230,7 @@ const merged = createMemo<RailSession[]>(() => {
     const offline = backendPhase(backendId) !== "online";
     const manyRepos = new Set(chips.map((chip) => chip.repo)).size > 1;
     for (const chip of chips) {
-      // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
-      const active = chip.owner !== null && selected === chip.owner;
+      const active = chip.owner !== null && isSelected(chip.owner);
       out.push({
         ...chip,
         backendId,
@@ -299,10 +295,9 @@ export const railSessions = createMemo<RailSession[]>(() => {
  * backend with no docked chip — it recovers to the near end (first for next, last for prev).
  */
 export function stepRailTarget(list: RailSession[], delta: number): RailSession | null {
-  const onScreen = selectedSession();
   const active = list.findIndex((s) => s.active);
   const from =
-    active >= 0 || onScreen === null ? active : list.findIndex((s) => s.owner === onScreen);
+    active >= 0 ? active : list.findIndex((s) => s.owner !== null && isSelected(s.owner));
   if (from >= 0) {
     return list.length < 2 ? null : (list[(from + delta + list.length) % list.length] ?? null);
   }

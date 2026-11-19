@@ -34,6 +34,44 @@
     {
       "path": "./lint/icon-size.grit",
       "includes": ["**/src/**/*.tsx"]
+    },
+    {
+      "path": "./lint/selected-session.grit",
+      "includes": [
+        "**/src/**/*.ts",
+        "**/src/**/*.tsx",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/src/bridge.ts",
+        "!**/src/App.tsx",
+        "!**/src/commands/registry.ts",
+        "!**/src/files/open-path.ts"
+      ]
+    },
+    {
+      "path": "./lint/selection-listener.grit",
+      "includes": [
+        "**/src/**/*.ts",
+        "**/src/**/*.tsx",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/src/bridge.ts",
+        "!**/src/commands/registry.ts",
+        "!**/src/chrome/session-store.ts",
+        "!**/src/editor/editor-controller.ts"
+      ]
+    },
+    {
+      "path": "./lint/active-backend.grit",
+      "includes": [
+        "**/src/**/*.ts",
+        "**/src/**/*.tsx",
+        "!**/*.test.ts",
+        "!**/*.test.tsx",
+        "!**/src/bridge.ts",
+        "!**/src/App.tsx",
+        "!**/src/commands/registry.ts"
+      ]
     }
   ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

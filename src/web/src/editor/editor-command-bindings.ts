@@ -1,5 +1,5 @@
 import type * as monaco from "monaco-editor";
-import { type ClientSession, selectedSession } from "../bridge";
+import { type ClientSession, isSelected } from "../bridge";
 import type { ContextMenuContent, ContextMenuState } from "../chrome/ContextMenu";
 import {
   type CommandHandler,
@@ -30,7 +30,7 @@ export function captureConnectionCommand(connection: TextEditorConnection | unde
     if (
       presentation?.signal.aborted ||
       !editorContexts.displayed(connection) ||
-      selectedSession() !== connection.session
+      !isSelected(connection.session)
     ) {
       throw new Error("The editor connection for this command is no longer displayed.");
     }

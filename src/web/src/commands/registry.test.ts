@@ -107,6 +107,7 @@ vi.mock("../bridge", () => ({
     return () => {};
   },
   selectedSession: () => env.selected,
+  activeBackendId: () => env.selected?.connection.id ?? "local",
   waitForClientSession: (
     backendId: string,
     address: { slot: string; incarnation: string },

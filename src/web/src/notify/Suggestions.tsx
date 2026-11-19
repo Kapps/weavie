@@ -2,6 +2,7 @@ import { For, type JSX } from "solid-js";
 import type { ClientSession, Suggestion, SuggestionAction } from "../bridge";
 import { keyHint } from "../commands/key-hint";
 import { runCommandInSessionWithFeedback } from "../commands/registry";
+import { repoStateOf } from "../repo-state";
 
 // A RunCommand button's label with its command's effective shortcut appended ("Yes (Ctrl+…)"); an unbound or
 // non-command action shows just the label.
@@ -15,11 +16,9 @@ function actionLabel(action: SuggestionAction): string {
 // A bottom-right stack of dismissible suggestion cards: contextual nudges (e.g. configure a worktree setup
 // command). Distinct from the top-center transient toasts — these persist until acted on or dismissed. A card's
 // action and its dismissal go to the session the cards were shown for, since the same card exists per repo.
-export function Suggestions(props: {
-  cards: { session: ClientSession | null; items: Suggestion[] };
-}): JSX.Element {
+export function Suggestions(props: { session: ClientSession | null }): JSX.Element {
   const onAction = (suggestion: Suggestion, action: SuggestionAction): void => {
-    const session = props.cards.session;
+    const session = props.session;
     if (session === null) {
       return;
     }
@@ -36,7 +35,7 @@ export function Suggestions(props: {
   };
   return (
     <div class="suggestions">
-      <For each={props.cards.items}>
+      <For each={repoStateOf(props.session).suggestions}>
         {(suggestion) => (
           <div class="suggestion" role="note">
             <div class="suggestion-title">{suggestion.title}</div>

@@ -1,5 +1,5 @@
 import type * as monaco from "monaco-editor";
-import { type ClientSession, selectedSession } from "../bridge";
+import { type ClientSession, isSelected } from "../bridge";
 import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { createSymbolSource } from "../symbols/symbol-source";
 import { activeEditorMessage } from "./active-editor-message";
@@ -56,7 +56,7 @@ export function connectTextEditor(options: {
       session.feature("editor").publish("activeChanged", activeEditorMessage(model, selection));
     }
     const position = editor.getPosition();
-    if (selectedSession() === session && position !== null) {
+    if (isSelected(session) && position !== null) {
       setEditorStatus(connection, {
         line: position.lineNumber,
         column: position.column,

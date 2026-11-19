@@ -1,9 +1,4 @@
-import {
-  type ClientSession,
-  registerSessionFeature,
-  selectedSession,
-  sessionResourceUrl,
-} from "../bridge";
+import { type ClientSession, registerSessionFeature, sessionResourceUrl } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { readJsonStream } from "../messaging/json-stream";
@@ -17,7 +12,6 @@ const indexes = createSessionOwnedState(() => new FileIndex());
 
 export const fileIndexFor = (session: ClientSession | null): FileIndex =>
   indexes.get(session) ?? NO_SESSION;
-export const selectedFileIndex = (): FileIndex => fileIndexFor(selectedSession());
 
 // Each loaded session's own download, so Reload File List reaches the session it was run for.
 const reloads = new Map<ClientSession, () => void>();

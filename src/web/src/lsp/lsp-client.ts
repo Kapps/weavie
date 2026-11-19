@@ -1,5 +1,5 @@
 import * as monaco from "monaco-editor";
-import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 import { isUnderRoot } from "../editor/fs-path";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "../editor/session-uri";
 import { initEditorServices } from "../editor/vscode-services";
@@ -11,10 +11,6 @@ export type { WeavieLspConfig, WeavieLspServer } from "./types";
 let servicesStarted = false;
 let hooksInstalled = false;
 const languageClientStartedListeners = new Set<() => void>();
-
-export function currentWorkspaceRoot(): string | undefined {
-  return selectedSession()?.state.lsp.current?.workspace;
-}
 
 export function onLanguageClientStarted(listener: () => void): () => void {
   languageClientStartedListeners.add(listener);

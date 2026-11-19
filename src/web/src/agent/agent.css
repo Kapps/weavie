@@ -648,17 +648,21 @@ a:has(> .agent-path-dir) {
   color: var(--warn);
 }
 
+/* Visible the moment it opens, so what it holds can take focus at once; hidden only once it has folded. */
 .agent-card-content {
   display: grid;
   grid-template-rows: 1fr;
   transition:
     grid-template-rows 120ms ease-out,
-    visibility 120ms;
+    visibility 0s;
 }
 
 .agent-card-content.collapsed {
   grid-template-rows: 0fr;
   visibility: hidden;
+  transition:
+    grid-template-rows 120ms ease-out,
+    visibility 0s 120ms;
 }
 
 .agent-card-content > div {
@@ -937,6 +941,7 @@ a:has(> .agent-path-dir) {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-card-content,
+  .agent-card-content.collapsed,
   .agent-disclosure-icon > svg {
     transition: none;
   }

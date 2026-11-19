@@ -119,6 +119,39 @@ public sealed class PlainFolderWatcherTests : IAsyncLifetime {
 	}
 
 	[Fact]
+	public async Task ALinkToARepositoryIsNotListedAndKeepsObserving() {
+		if (OperatingSystem.IsWindows()) return;
+		string repository = InitRepository("repo");
+		await StartAsync();
+
+		Directory.CreateSymbolicLink(_dir.Combine("current"), repository);
+
+		await AssertStillObservingAsync();
+		Assert.False(Lists("current", "src", "a.py"));
+	}
+
+	[Fact]
+	public async Task ARepositoryThatStopsBeingOneMidListingKeepsObserving() {
+		for (int repository = 0; repository < 12; repository++) {
+			InitRepository($"repo{repository}");
+			for (int file = 0; file < 60; file++) {
+				_dir.WriteFile($"repo{repository}/src/d{file % 6}/f{file}.py", "");
+			}
+		}
+		await StartAsync();
+
+		// Files go first so re-listings are under way, then git stops accepting the folder while it still exists.
+		for (int repository = 0; repository < 12 && !_run.IsCompleted; repository++) {
+			Directory.Delete(_dir.Combine($"repo{repository}", "src"), recursive: true);
+			await Task.Delay(repository * 2);
+			File.Delete(_dir.Combine($"repo{repository}", ".git", "HEAD"));
+			await Task.Delay(40);
+		}
+
+		await AssertStillObservingAsync();
+	}
+
+	[Fact]
 	public async Task AShortLivedDirectoryKeepsObserving() {
 		await StartAsync();
 

@@ -40,20 +40,29 @@ internal sealed class WorkspaceListing(string root) {
 
 		var paths = new List<string>();
 		var plain = new List<string>();
-		foreach (var owned in known.Concat(discovered).GroupBy(Owner, PathIdentity.CanonicalComparer)) {
-			if (owned.Key.Length == 0) {
-				continue;
+		var rejected = new HashSet<string>(PathIdentity.CanonicalComparer);
+		// A `.git` that git rejects owns nothing: its paths go to the next repository down, or to the walk.
+		for (string[] unowned = [.. known, .. discovered]; unowned.Length > 0;) {
+			var retry = new List<string>();
+			foreach (var owned in unowned.GroupBy(path => Owner(path, rejected), PathIdentity.CanonicalComparer)) {
+				if (owned.Key.Length == 0) {
+					continue;
+				}
+
+				(string[], string[])? scope = owned.Contains(owned.Key, PathIdentity.CanonicalComparer)
+					? null
+					: ([.. owned.Where(known.Contains)], [.. owned.Where(path => !known.Contains(path))]);
+				if (PathIdentity.CanonicalComparer.Equals(owned.Key, root)) {
+					plain.AddRange(owned);
+				} else if (await ListRepositoryAsync(owned.Key, scope, ct).ConfigureAwait(false) is { } listed) {
+					paths.AddRange(listed);
+				} else {
+					rejected.Add(owned.Key);
+					retry.AddRange(owned);
+				}
 			}
 
-			(string[], string[])? scope = owned.Contains(owned.Key, PathIdentity.CanonicalComparer)
-				? null
-				: ([.. owned.Where(known.Contains)], [.. owned.Where(path => !known.Contains(path))]);
-			if (PathIdentity.CanonicalComparer.Equals(owned.Key, root)
-				|| await ListRepositoryAsync(owned.Key, scope, ct).ConfigureAwait(false) is not { } listed) {
-				plain.AddRange(owned);
-			} else {
-				paths.AddRange(listed);
-			}
+			unowned = [.. retry];
 		}
 
 		// Each path is listed as its parent's walk would list it, so a scoped listing agrees with a full one.
@@ -76,18 +85,19 @@ internal sealed class WorkspaceListing(string root) {
 		return paths;
 	}
 
-	// The folder that lists `path`: the first repository on the way down to it, the root for a path the plain
-	// walk reaches, or nothing for a path at or beneath a directory that walk skips.
-	private string Owner(string path) {
+	// The folder that lists `path`: the first repository on the way down to it that is not `rejected`, the root
+	// for a path the plain walk reaches, or nothing for a path at or beneath a directory that walk never enters.
+	private string Owner(string path, HashSet<string> rejected) {
 		string[] segments = Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar);
 		string directory = root;
 		for (int index = 0; index < segments.Length; index++) {
 			directory = Path.Combine(directory, segments[index]);
-			if (WorkspacePaths.IsIgnoredSegment(segments[index]) && (index < segments.Length - 1 || Directory.Exists(directory))) {
+			if ((index < segments.Length - 1 || Directory.Exists(directory))
+				&& (WorkspacePaths.IsIgnoredSegment(segments[index]) || new DirectoryInfo(directory).LinkTarget is not null)) {
 				return string.Empty;
 			}
 
-			if (HoldsGit(directory)) {
+			if (!rejected.Contains(directory) && HoldsGit(directory)) {
 				return directory;
 			}
 		}

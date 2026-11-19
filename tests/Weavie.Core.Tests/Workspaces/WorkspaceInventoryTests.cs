@@ -246,6 +246,43 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ScopedRefreshNeverListsThroughALinkToARepository() {
+		if (OperatingSystem.IsWindows()) return;
+		InitRepository("repo");
+		_root.WriteFile("repo/src/a.py", "");
+		var inventory = new WorkspaceInventory(_root.Path);
+		await inventory.RefreshAsync();
+
+		Directory.CreateSymbolicLink(_root.Combine("current"), _root.Combine("repo"));
+		var scoped = await inventory.RefreshAsync([_root.Combine("current"), _root.Combine("current", "src", "a.py")]);
+
+		Assert.Equal(Paths("repo/src/a.py"), scoped.Files);
+		Assert.Equal((await new WorkspaceInventory(_root.Path).RefreshAsync()).Directories, scoped.Directories);
+	}
+
+	[Fact]
+	public async Task ScopedRefreshBeneathAGitEntryGitRejectsStillAsksTheRepositoriesBelowIt() {
+		_root.CreateDirectory("odd", ".git");
+		InitRepository(Path.Combine("odd", "sub"));
+		_root.WriteFile("odd/sub/.gitignore", "build/\n");
+		_root.WriteFile("odd/sub/src/a.c", "");
+		var inventory = new WorkspaceInventory(_root.Path);
+		await inventory.RefreshAsync();
+
+		_root.WriteFile("odd/sub/build/out.o", "");
+		_root.WriteFile("odd/sub/src/b.c", "");
+		var scoped = await inventory.RefreshAsync(
+			[_root.Combine("odd", "sub", "build", "out.o"), _root.Combine("odd", "sub", "src", "b.c")]);
+		var whole = await inventory.RefreshAsync([_root.Combine("odd", "sub")]);
+
+		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		Assert.Equal(Paths("odd/sub/.gitignore", "odd/sub/src/a.c", "odd/sub/src/b.c"), full.Files);
+		Assert.Equal(full.Files, scoped.Files);
+		Assert.Equal(full.Files, whole.Files);
+		Assert.Equal(full.Directories, whole.Directories);
+	}
+
+	[Fact]
 	public async Task ScopedPlainFolderRefreshMatchesFullRefresh() {
 		_root.WriteFile("plain/a.txt", "");
 		_root.WriteFile("plain/gone.txt", "");

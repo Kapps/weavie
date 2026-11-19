@@ -245,10 +245,13 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			}
 
 			Volatile.Write(ref _files, nextFiles);
-			Volatile.Write(ref _listedGitDirectories, snapshot.Directories
+			var listedGitDirectories = snapshot.Directories
 				.Where(directory => Path.GetFileName(directory) == ".git")
-				.ToHashSet(PathIdentity.CanonicalComparer));
-			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
+				.ToHashSet(PathIdentity.CanonicalComparer);
+			// Events inside a `.git` were dropped until this pass listed it, so it is listed once more.
+			bool gitDirectoryListed = !listedGitDirectories.IsSubsetOf(Volatile.Read(ref _listedGitDirectories));
+			Volatile.Write(ref _listedGitDirectories, listedGitDirectories);
+			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories) | gitDirectoryListed;
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");

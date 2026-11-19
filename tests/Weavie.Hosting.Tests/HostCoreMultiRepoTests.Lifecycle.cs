@@ -114,6 +114,19 @@ public sealed partial class HostCoreMultiRepoTests {
 		Assert.True(InfraEntry(host, "deploy").GetProperty("loaded").GetBoolean());
 	}
 
+	// A branch with no commit yet has no name git can report, and its worktree is still its repo's.
+	[Fact]
+	public async Task ASessionOnABranchGitCannotNameStaysInItsRepo() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		string worktree = InfraEntry(host, "deploy").GetProperty("worktree").GetString()!;
+
+		await host.RestartAsync(() => TempGitRepo.Run(worktree, "checkout", "--quiet", "--orphan", "unborn"));
+
+		Assert.Equal(InfraOf(host.RepoRoot), InfraEntry(host, "deploy").GetProperty("repo").GetString());
+		Assert.False(Toasted(host, "can't find its repository"));
+	}
+
 	[Fact]
 	public async Task ASessionWhoseRepositoryIsGoneCanBeDeletedAndItsFolderIsKept() {
 		await using var host = await StartWithInfraAsync(_ => { });

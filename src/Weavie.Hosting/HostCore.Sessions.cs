@@ -235,11 +235,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Creates the session on the home folder, which has none.</summary>
+	/// <summary>Creates the session on the home folder, which has none; a failure leaves none behind.</summary>
 	private SessionSlot OpenHomeSession(string providerId) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
-		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 		var slot = new SessionSlot {
 			Label = _workspaceSessionLabel,
 			Device = NewDevice(null),
@@ -247,16 +246,22 @@ public sealed partial class HostCore {
 			WorktreePath = HomeFolder,
 			AgentProviderId = providerId,
 			EditorSession = EditorSession.Empty,
-			ShellTerminals = shellTerminals,
+			ShellTerminals = [ShellTerminalId.New()],
 		};
-		var session = slot.Session = CreateSession(slot);
-		sessions.Add(slot);
-		session.Scratch.GarbageCollect([]);
-		ActivateSessionRuntimeAndMessages(session);
-		PushSessionList();
-		_sessionStore.HomeClosed = false;
-		PersistSessionState();
-		return slot;
+		bool closed = _sessionStore.HomeClosed;
+		try {
+			var session = slot.Session = CreateSession(slot);
+			sessions.Add(slot);
+			session.Scratch.GarbageCollect([]);
+			ActivateSessionRuntimeAndMessages(session);
+			PushSessionList();
+			_sessionStore.HomeClosed = false;
+			PersistSessionState();
+			return slot;
+		} catch (Exception error) {
+			_sessionStore.HomeClosed = closed;
+			throw RollbackSessionLoad(slot, slot.Session, removeSlot: true, error);
+		}
 	}
 
 	/// <summary>Brings back the home folder's session after it was deleted, or loads the one that is there.</summary>
@@ -264,19 +269,21 @@ public sealed partial class HostCore {
 		GatedAsync(_sessionCatalog, () => OpenHomeSessionCoreAsync(ResolveNewSessionProvider(null), ct), ct);
 
 	// Under the catalog gate. The provider is only for a session created now: one that is there keeps its own.
-	private Task<CommandResult> OpenHomeSessionCoreAsync(string providerId, CancellationToken ct) {
+	private async Task<CommandResult> OpenHomeSessionCoreAsync(string providerId, CancellationToken ct) {
 		if (_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout) is { } existing) {
-			return LoadExistingAsync(existing, existing.Label, ct);
+			return await LoadExistingAsync(existing, existing.Label, ct).ConfigureAwait(false);
 		}
 
 		try {
 			_agentProviders.RequireAvailable(providerId);
 		} catch (InvalidOperationException ex) {
-			return Task.FromResult(CommandResult.Failure(ex.Message));
+			return CommandResult.Failure(ex.Message);
 		}
 
-		return _ui.InvokeAsync(() => Task.FromResult(CommandResult.Success(
-			$"Opened the session on {HomeFolder}.", CreatedSessionActivationJson(OpenHomeSession(providerId)))), ct);
+		// The branch checked out there may have changed while it had no session.
+		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(new GitService(), Home.Worktrees is not null).ConfigureAwait(false);
+		return await _ui.InvokeAsync(() => Task.FromResult(CommandResult.Success(
+			$"Opened the session on {HomeFolder}.", CreatedSessionActivationJson(OpenHomeSession(providerId)))), ct).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -854,16 +861,24 @@ public sealed partial class HostCore {
 	private Task<CommandResult> DeleteSessionAsync(
 		HostSession? source,
 		string? sessionId,
-		bool force,
+		SessionDeleteConsent consent,
 		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
 		RunSlotLifecycleAsync(
 			sessionId,
 			NoSuchSession(sessionId),
-			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
-				? Task.FromResult(refusal)
-				: DeleteSessionAfterValidationAsync(source, target, force, context, ct),
+			target => {
+				// The slot confirmed as keeping its folder may since have been replaced by one on a worktree.
+				if (consent == SessionDeleteConsent.KeepFolder && !KeepsFolder(target)) {
+					return Task.FromResult(CommandResult.Failure(
+						$"'{NameOf(target)}' has changed since its delete was confirmed: deleting it now would remove its worktree. Try again."));
+				}
+
+				return BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
+					? Task.FromResult(refusal)
+					: DeleteSessionAfterValidationAsync(source, target, consent == SessionDeleteConsent.LoseWork, context, ct);
+			},
 			ct);
 
 	// Nothing keeps this checkout's commits when it has no branch: a detached HEAD, or a checkout git can no

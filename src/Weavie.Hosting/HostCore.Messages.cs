@@ -242,7 +242,7 @@ public sealed partial class HostCore {
 			SessionCommands.DeleteSession => await DeleteSessionAsync(
 				null,
 				id,
-				ReadBool(args, "force"),
+				SessionCommands.DeleteConsent(ReadBool(args, "force"), ReadBool(args, "keepFolder")),
 				ReadBool(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),

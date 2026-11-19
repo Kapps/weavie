@@ -295,11 +295,11 @@ public sealed partial class HostCore {
 
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			SessionDeleteConsent consent,
 			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct) =>
-			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), force, stopBackgroundWork, context, ct);
+			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), consent, stopBackgroundWork, context, ct);
 
 		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
 			_core.ClassifyDeleteAsync(TargetOrSource(sessionId), ct);

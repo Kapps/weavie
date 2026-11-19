@@ -101,7 +101,8 @@ registerHostFeature((connection) =>
     ) {
       setPendingSelection(null);
     }
-    if (catalog.length > 0) {
+    // A disconnect empties the catalog without any session having left the host.
+    if (connection.currentHello !== null) {
       const live = new Set(catalog.map((entry) => entry.id));
       const departed = (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
       for (const chip of departed) {

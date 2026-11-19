@@ -108,14 +108,16 @@ public interface ISessionHost {
 
 	/// <summary>
 	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
-	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A session
-	/// on a folder Weavie did not make (the home folder) is dropped and its folder kept. A blank id is
+	/// the branch. <paramref name="consent"/> bounds what it may cost: uncommitted changes need
+	/// <see cref="SessionDeleteConsent.LoseWork"/>, and <see cref="SessionDeleteConsent.KeepFolder"/> refuses a
+	/// worktree it would remove. A session on its repo's own folder (the home folder) is dropped and its folder
+	/// kept. A blank id is
 	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
 	/// Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
 	/// </summary>
 	Task<CommandResult> DeleteSessionAsync(
 		string? sessionId,
-		bool force,
+		SessionDeleteConsent consent,
 		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct = default);

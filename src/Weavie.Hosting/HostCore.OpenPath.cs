@@ -1,3 +1,4 @@
+using Weavie.Core.Commands;
 using Weavie.Hosting.Desktop;
 using Weavie.Hosting.Messaging;
 
@@ -24,6 +25,17 @@ public sealed partial class HostCore {
 	private void FlushPendingOpens() {
 		var pending = _pendingOpens.Drain();
 		if (pending.Count == 0) {
+			return;
+		}
+
+		// No session here can show a file of this machine, and holding it would open it in whichever comes next.
+		if (LoadedSessions().Count == 0) {
+			foreach (string path in pending) {
+				Notify(
+					"warn", $"Couldn't open {path}: this window has no loaded session to show it in.", $"open-path:{path}",
+					"Open Home Folder Session", SessionCommands.OpenHomeSession, null);
+			}
+
 			return;
 		}
 

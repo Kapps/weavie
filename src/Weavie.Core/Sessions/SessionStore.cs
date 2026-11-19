@@ -198,7 +198,9 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			Items = [.. entries.Select(ParseEntry)],
 			ShellColumns = document.ShellCols,
 			ShellRows = document.ShellRows,
-			Repos = document.Repos ?? [],
+			Repos = document.Repos is { } repos && repos.Any(string.IsNullOrWhiteSpace)
+				? throw new JsonException("A remembered repo has no path.")
+				: document.Repos ?? [],
 			HomeClosed = document.HomeClosed,
 		};
 	}

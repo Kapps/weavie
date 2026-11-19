@@ -13,6 +13,8 @@ vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 const harness = vi.hoisted(() => ({
   hostInstallers: [] as Array<(connection: HostConnection) => undefined | (() => void)>,
+  // Backends whose connection is down: their catalog is emptied without a session having left.
+  disconnected: new Set<string>(),
   sessionInstallers: [] as Array<(session: ClientSession) => undefined | (() => void)>,
   connections: new Map<
     string,
@@ -113,6 +115,9 @@ function connection(backendId: string): {
       session: (address: { slot: string }) =>
         harness.sessions.get(`${backendId}\u0000${address.slot}`)?.client,
       onHello: () => () => {},
+      get currentHello() {
+        return harness.disconnected.has(backendId) ? null : {};
+      },
       host: {
         feature: () => ({
           on: () => () => {},
@@ -373,15 +378,22 @@ describe("session drafts", () => {
     return cleared;
   };
 
-  it("survive the empty catalog a page starts with, and go only with their slot", () => {
+  it("survive the empty catalog of a disconnect, and go with their slot, the last one included", () => {
     const cleared = drafts();
-    deliverCatalog("drafts", []);
+    onTestFinished(() => harness.disconnected.clear());
     deliverCatalog("drafts", ["gone", "kept"]);
+    harness.disconnected.add("drafts");
     deliverCatalog("drafts", []);
     expect(cleared).toEqual([]);
+    harness.disconnected.clear();
     deliverCatalog("drafts", ["gone", "kept"]);
     deliverCatalog("drafts", ["kept"]);
     expect(cleared).toEqual(["weavie-session-draft:composer:drafts:gone"]);
+    deliverCatalog("drafts", []);
+    expect(cleared).toEqual([
+      "weavie-session-draft:composer:drafts:gone",
+      "weavie-session-draft:composer:drafts:kept",
+    ]);
   });
 });
 

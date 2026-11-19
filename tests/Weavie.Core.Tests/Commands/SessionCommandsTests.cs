@@ -207,6 +207,15 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
+	public async Task Delete_ConfirmedAsKeepingItsFolder_AsksForThatOnly() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"force\":true,\"keepFolder\":true}", CancellationToken.None);
+
+		Assert.Equal(SessionDeleteConsent.KeepFolder, host.LastDeleteConsent);
+	}
+
+	[Fact]
 	public async Task Delete_NoForce_DefaultsFalse_AndCoercesStringForce() {
 		var (dispatcher, host) = NewWired();
 
@@ -262,6 +271,8 @@ public sealed class SessionCommandsTests {
 
 		public bool LastDeleteForce { get; private set; }
 
+		public SessionDeleteConsent LastDeleteConsent { get; private set; }
+
 		public bool DeleteCalled { get; private set; }
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct = default) {
@@ -314,13 +325,14 @@ public sealed class SessionCommandsTests {
 
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			SessionDeleteConsent consent,
 			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct = default) {
 			DeleteCalled = true;
 			LastDeletedId = sessionId;
-			LastDeleteForce = force;
+			LastDeleteForce = consent == SessionDeleteConsent.LoseWork;
+			LastDeleteConsent = consent;
 			return Task.FromResult(CommandResult.Success("deleted"));
 		}
 

@@ -394,11 +394,13 @@ public static class SessionCommands {
 			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
-				+ "removed but its branch is kept, whoever created that worktree. The session on the workspace's own "
-				+ "checkout can't be deleted — unload it instead. "
+				+ "removed but its branch is kept, whoever created that worktree. A session on its repo's own folder (the "
+				+ "workspace's home folder, or a worktree whose repository is gone) is dropped and its folder kept; "
+				+ "weavie.session.openHome brings the home folder's session back. "
 				+ "Refuses a locked worktree outright, and refuses a worktree "
 				+ "with uncommitted changes or no branch unless 'force' is true. With "
-				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
+				+ "'classify' true it deletes nothing and instead returns the worktree's state "
+				+ "(clean/untracked/modified, or kept when the folder stays) "
 				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
 				+ "'Delete Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
@@ -406,6 +408,7 @@ public static class SessionCommands {
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the invoking session\"},"
 				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
+				+ "\"keepFolder\":{\"type\":\"boolean\",\"description\":\"Refuse unless the session's folder is kept (a 'kept' classification)\"},"
 				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"},"
 				+ StopBackgroundWorkArg + "}",
 		});
@@ -531,7 +534,7 @@ public static class SessionCommands {
 				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
 				: host.DeleteSessionAsync(
 					GetString(argsJson, "id"),
-					GetBool(argsJson, "force"),
+					DeleteConsent(GetBool(argsJson, "force"), GetBool(argsJson, "keepFolder")),
 					GetBool(argsJson, "stopBackgroundWork"),
 					context,
 					ct)),
@@ -586,6 +589,10 @@ public static class SessionCommands {
 			_ => prop.GetRawText(),
 		};
 	}
+
+	/// <summary>The consent a delete's <c>force</c> and <c>keepFolder</c> args give.</summary>
+	public static SessionDeleteConsent DeleteConsent(bool force, bool keepFolder) =>
+		keepFolder ? SessionDeleteConsent.KeepFolder : force ? SessionDeleteConsent.LoseWork : SessionDeleteConsent.Clean;
 
 	private static bool GetBool(JsonElement args, string name) {
 		if (!args.TryGetProperty(name, out var prop)) {

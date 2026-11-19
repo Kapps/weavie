@@ -165,6 +165,17 @@ public sealed class SessionStoreTests {
 		Assert.Empty(reloaded.Repos);
 	}
 
+	[Theory]
+	[InlineData("\"\"")]
+	[InlineData("null")]
+	public void ARememberedRepoWithNoPath_IsMalformed(string repo) {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(StorePath, $$"""{"version":4,"repos":[{{repo}}],"sessions":[]}""");
+
+		Assert.Empty(new SessionStore(fs, StorePath).Repos);
+		Assert.True(fs.FileExists(StorePath + ".bad"));
+	}
+
 	[Fact]
 	public void Strict_snapshot_read_rejects_malformed_state_without_repairing_it() {
 		var fs = new InMemoryFileSystem();

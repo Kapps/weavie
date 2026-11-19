@@ -64,9 +64,13 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure($"'{root}' isn't a repo this workspace remembers."));
 		}
 
-		PersistSessionState();
-		PublishKnownRepos();
-		return Task.FromResult(CommandResult.Success($"Forgot '{root}'."));
+		// The names of the repos left are told apart without it, on the chips as in the list.
+		return _ui.InvokeAsync(() => {
+			PersistSessionState();
+			PublishKnownRepos();
+			PushSessionList();
+			return Task.FromResult(CommandResult.Success($"Forgot '{root}'."));
+		}, ct);
 	}, ct);
 
 	/// <summary>The repos a settings change reaches: the one whose overlay changed, or all for a user-level change.</summary>

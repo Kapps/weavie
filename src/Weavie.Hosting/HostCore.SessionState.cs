@@ -39,10 +39,10 @@ public sealed partial class HostCore {
 		}
 
 		var saved = _sessionStore.Items;
-		var foreign = await PlaceForeignSessionsAsync(saved.Where(item =>
+		var foreign = await PlaceForeignSessionsAsync([.. saved.Where(item =>
 			_sessions.Find(SessionSlot.IdFor(item.WorktreePath)) is null
 			&& !IsWorkspaceCheckout(item.WorktreePath)
-			&& Directory.Exists(item.WorktreePath))).ConfigureAwait(false);
+			&& Directory.Exists(item.WorktreePath))]).ConfigureAwait(false);
 		var toLoad = new List<SessionSlot>();
 		foreach (var item in saved) {
 			foreign.TryGetValue(item.WorktreePath, out var placed);
@@ -110,10 +110,14 @@ public sealed partial class HostCore {
 	// Where git places each saved session outside the home repo: its repo, opened once however many of its
 	// sessions are saved, and its branch now. One git can't place stays listed on its own folder, with git's reason.
 	private async Task<IReadOnlyDictionary<string, (Repo Repo, string Label, string? Lost)>> PlaceForeignSessionsAsync(
-		IEnumerable<SessionDescriptor> items) {
+		IReadOnlyList<SessionDescriptor> items) {
 		var git = new GitService();
 		var repos = new ConcurrentDictionary<string, Lazy<Task<Repo>>>(PathIdentity.Comparer);
 		var placed = new ConcurrentDictionary<string, (Repo, string, string?)>(PathIdentity.Comparer);
+		if (items.Count == 0) {
+			return placed;
+		}
+
 		try {
 			// Asked once here, not once by each of the sessions placed side by side.
 			await HomeMainWorktreeAsync(git, CancellationToken.None).ConfigureAwait(false);
@@ -125,15 +129,27 @@ public sealed partial class HostCore {
 			items,
 			new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentSessionRestores },
 			async (item, ct) => {
+				Repo repo;
 				try {
 					string root = await RepoRootAsync(item.WorktreePath, ct).ConfigureAwait(false);
-					var repo = await repos.GetOrAdd(root, _ => new(() => RepoAtAsync(root, CancellationToken.None))).Value.ConfigureAwait(false);
-					placed[item.WorktreePath] = (repo, await git.GetCurrentBranchAsync(item.WorktreePath, ct).ConfigureAwait(false) ?? item.Label, null);
+					repo = await repos.GetOrAdd(root, _ => new(() => RepoAtAsync(root, CancellationToken.None))).Value.ConfigureAwait(false);
 				} catch (GitException ex) {
 					placed[item.WorktreePath] = (OpenRepo(item.WorktreePath, git, isRepository: false), item.Label, ex.Message);
+					return;
 				}
+
+				placed[item.WorktreePath] = (repo, await BranchLabelAsync(git, item, ct).ConfigureAwait(false), null);
 			}).ConfigureAwait(false);
 		return placed;
+	}
+
+	// The branch git has checked out there now, or the saved label where it names none (detached, or not yet born).
+	private static async Task<string> BranchLabelAsync(GitService git, SessionDescriptor item, CancellationToken ct) {
+		try {
+			return await git.GetCurrentBranchAsync(item.WorktreePath, ct).ConfigureAwait(false) ?? item.Label;
+		} catch (GitException) {
+			return item.Label;
+		}
 	}
 
 	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, LostRepository? lost) => new() {

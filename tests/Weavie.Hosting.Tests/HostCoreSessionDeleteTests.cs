@@ -681,6 +681,22 @@ public sealed class HostCoreSessionDeleteTests {
 	private static Task<JsonElement> OpenHomeAsync(TestHost host) => host.HostRequestAsync<JsonElement>(
 		"sessions", "invoke", new { id = SessionCommands.OpenHomeSession, args = new { } });
 
+	// A confirm that promised to keep the folder never removes a worktree, should the slot be one by then.
+	[Fact]
+	public async Task ADeleteConfirmedAsKeepingItsFolderRefusesAWorktree() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+
+		var result = await host.InvokeCommandAsync(
+			host.WorkspaceSession.SlotId,
+			SessionCommands.DeleteSession,
+			new { id = host.SlotId("feature"), force = true, keepFolder = true },
+			CancellationToken.None);
+
+		Assert.Contains("deleting it now would remove its worktree", result.Error);
+		Assert.Contains("feature", host.SessionLabels);
+	}
+
 	// The session deleting itself is torn down after its own reply.
 	[Fact]
 	public async Task TheHomeFolderSessionCanDeleteItself() {
@@ -691,6 +707,11 @@ public sealed class HostCoreSessionDeleteTests {
 
 		await Wait.UntilAsync(() => !SessionIds(host).Contains(homeId));
 		Assert.Empty(host.SessionCatalog);
+
+		// A file the OS hands over has no session to open in, and says so instead of waiting for the next one.
+		host.Core.RequestOpenPath(Path.Combine(host.RepoRoot, "hello.ts"));
+		await Wait.UntilAsync(() => NotificationMessages(host).Any(message => message.Contains("this window has no loaded session")));
+		Assert.Empty(host.Bridge.PostedEvents("files", "openPath"));
 	}
 
 	// A dormant home session keeps its own provider, and is loaded and selected.
@@ -717,10 +738,12 @@ public sealed class HostCoreSessionDeleteTests {
 		host.SelectSession(host.SlotId("feature"));
 		Assert.True((await host.DeleteSessionAsync(homeId, force: false, classify: false)).Ok);
 
-		var opened = await host.CreateSessionAsync(new NewSessionRequest { Branch = "main", Existing = true });
+		// It is named for the branch checked out there now, not the one the host started on.
+		TempGitRepo.Run(host.RepoRoot, "checkout", "--quiet", "-b", "release");
+		var opened = await host.CreateSessionAsync(new NewSessionRequest { Branch = "release", Existing = true });
 
 		Assert.True(opened.Ok, opened.Error);
-		Assert.Contains(homeId, SessionIds(host));
+		Assert.Equal("release", host.SessionCatalog.Single(entry => entry.GetProperty("id").GetString() == homeId).GetProperty("label").GetString());
 	}
 
 	// A workspace whose stored catalog covers only worktree sessions, with the home folder's never deleted, gets

@@ -20,9 +20,10 @@ flowchart LR
 
 The host journals a submitted prompt's text with `ItemId` set to the client's submission id, so the transcript
 row that holds it carries `submissionId`. `submissionReply(snapshot, id, followUps)` reads the card's rows from
-the pane's own transcript: everything after that row and its attachments, up to the user's next input that is
-not one of the card's follow-ups. A `/btw` asked meanwhile is another conversation and is left out. The reply
-is still being written while that span is the transcript's last and the turn is active. Output the agent adds
+the pane's own transcript: what follows that row, and each follow-up's row, up to the user's next unrelated
+input. Turns the user had with the agent in between are gaps, not the end of the card. A prompt's own
+attachments and a `/btw` asked meanwhile are left out. The reply is still being written while the transcript
+ends inside one of those spans and the turn is active. Output the agent adds
 to the turn later with no new user input, such as after a background task finishes, continues the card as it
 continues the turn.
 
@@ -33,7 +34,8 @@ The host reports a submission's fate on `submissionState`: `accepted`, `rejected
 when an accepted prompt leaves the queue and never reaches the transcript: Restart Agent or `/clear` with it
 queued or steering unanswered, or a delivery that fails before the prompt is journaled. A steer the agent has
 not answered returns to the queue when its conversation ends, so it is dropped or handed to the successor
-with the rest. `dropped` is an event, so a page disconnected when it is sent keeps the card until dismissed.
+with the rest; the old process may already have injected it, so the agent can see such a steer twice.
+`dropped` is an event, so a page disconnected when it is sent keeps the card until dismissed.
 
 ## The card
 
@@ -47,8 +49,10 @@ instead of covering it. It is the pane's own card, not a second renderer:
 - **Body:** `NestedTranscript` over the card's rows, so markdown, tool activity, thinking, earlier-update
   folding, charts, tables, approvals and questions render and act as they do in the pane. It scrolls inside
   itself past 60% of the editor's height.
-- **Reply:** the `/btw` reply box over `followUpComposer`. It opens holding the card's selection, sends to the
-  main conversation, and its prompt joins the card as a follow-up, shown as the user's row.
+- **Reply:** the card reply box (`AgentCardReplyBox`, as a `/btw` uses) over `followUpComposer`. It opens
+  holding the card's code as it stands now, sends to the main conversation, and its prompt joins the card as
+  a follow-up, shown as the user's row without Rewind. It counts as a comment box, so typing in it never
+  acts on the editor's review.
 
 A refused first prompt shows the host's reason in the card and returns its comment and excerpt to the
 composer; a refused follow-up shows the reason in its box.
@@ -59,7 +63,8 @@ it); a comment being written stays through all of them.
 ## Commands
 
 All web-run, unbound, and offered only while the session has an inline reply (`agentInlineReplies`). Each of
-the first three acts on the reply named by `id`, else the one at or nearest above the cursor.
+the first three acts on the reply named by `id`, else the one in view nearest the cursor. The card's head and
+✕ show the bound shortcut.
 
 | Id | Title |
 |---|---|
@@ -70,12 +75,13 @@ the first three acts on the reply named by `id`, else the one at or nearest abov
 
 ## Lifetime
 
-Inline replies are client state owned by the session. Each holds a decoration on the text model that follows
-its line through edits. A reply ends when:
+Inline replies are client state owned by the session. Each holds a decoration on the text model over the
+code it is about, which follows that code through edits; the card sits under its last line. A reply ends when:
 
 - the user dismisses it (the card's ✕ or a Dismiss command),
 - its model is disposed (the file's last tab closes) or its whole text is replaced, which discards the mark,
-- its prompt leaves the loaded transcript (`/clear`, Rewind),
+- its first prompt leaves the loaded transcript (`/clear`, Rewind); a follow-up that leaves only drops out
+  of the card,
 - the host drops its first prompt undelivered (a dropped follow-up only leaves the card),
 - the page reloads.
 

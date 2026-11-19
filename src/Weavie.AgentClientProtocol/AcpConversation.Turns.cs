@@ -48,16 +48,17 @@ internal sealed partial class AcpConversation {
 		bool steer = false;
 		lock (_gate) {
 			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
-				|| (_steer is not null || _promptDeliveryActive) && !_promptActive) {
+				|| (_steering || _promptDeliveryActive) && !_promptActive) {
 				return;
 			}
 			threadId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
 			if (_promptActive) {
-				if (!_features.Steering || _steer is not null || _steeringRefused) return;
+				if (!_features.Steering || _steering || _steeringRefused) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
 				submission = _pendingSubmissions.TakeFirst(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
 				if (submission is null) return;
 				steer = true;
+				_steering = true;
 				_steer = submission;
 			} else {
 				submission = _pendingSubmissions.Dequeue();
@@ -92,7 +93,6 @@ internal sealed partial class AcpConversation {
 
 	private async Task DeliverSteeringAsync(AgentTurnSubmission submission) {
 		bool retryAsPrompt = false;
-		bool settled = false;
 		try {
 			Task<JsonElement> request;
 			PreparedPrompt prompt;
@@ -115,16 +115,17 @@ internal sealed partial class AcpConversation {
 				switch (RequiredString(result, "outcome", "_session/steering response")) {
 					case "injected":
 						EmitSubmitted(submission, "user-steer", prompt.Images);
-						settled = true;
+						lock (_gate) _steer = null;
 						break;
 					case "promptRequired":
-						lock (_gate) _pendingSubmissions.Requeue(submission);
+						lock (_gate) {
+							_pendingSubmissions.Requeue(submission);
+							_steer = null;
+						}
 						retryAsPrompt = true;
-						settled = true;
 						break;
 					case "failed":
 						RefuseSteering(submission);
-						settled = true;
 						break;
 					case "startedNewTurn":
 						throw new AcpProtocolException(
@@ -138,7 +139,6 @@ internal sealed partial class AcpConversation {
 				if (!Live) return;
 				_log($"[acp:{Definition.Id}] {ex.Message}");
 				RefuseSteering(submission);
-				settled = true;
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -150,9 +150,10 @@ internal sealed partial class AcpConversation {
 			bool dispatch;
 			bool lost;
 			lock (_gate) {
-				// Ending the conversation took the steer back; otherwise an unsettled one went nowhere.
-				lost = !settled && ReferenceEquals(_steer, submission);
-				if (ReferenceEquals(_steer, submission)) _steer = null;
+				// Settling it or ending the conversation released the steer; one still held went nowhere.
+				lost = ReferenceEquals(_steer, submission);
+				if (lost) _steer = null;
+				if (Live) _steering = false;
 				dispatch = Live && (!retryAsPrompt || !_promptActive);
 			}
 			if (lost) _port.SubmissionsDropped([submission]);
@@ -166,6 +167,7 @@ internal sealed partial class AcpConversation {
 	private void RefuseSteering(AgentTurnSubmission submission) {
 		lock (_gate) {
 			_pendingSubmissions.Requeue(submission);
+			_steer = null;
 			_steeringRefused = true;
 		}
 	}

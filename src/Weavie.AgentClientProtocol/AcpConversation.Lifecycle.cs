@@ -77,6 +77,7 @@ internal sealed partial class AcpConversation {
 	private void RequeueSteerLocked() {
 		if (_steer is { } steer) _pendingSubmissions.Requeue(steer);
 		_steer = null;
+		_steering = false;
 	}
 
 	/// <summary>Stops live work for a restart, settling everything it published.</summary>

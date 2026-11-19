@@ -4,7 +4,7 @@ import { currentEditorOptions } from "../editor-options";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { addInlineReply } from "./inline-replies/inline-replies-store";
 import { monaco } from "./monaco-setup";
-import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri";
+import { lastLineOf, selectionExcerpt } from "./selection-excerpt";
 
 /** Positions actions only on completed gestures; typing and scroll frames never measure layout. */
 export function connectSelectionActions(connection: TextEditorConnection): () => void {
@@ -30,27 +30,16 @@ export function connectSelectionActions(connection: TextEditorConnection): () =>
     }
     const position = editor.getScrolledVisiblePosition(selection.getPosition());
     if (position === null) return;
-    const path =
-      model.uri.scheme === SESSION_FILE_SCHEME ? sessionUriHostPath(model.uri) : model.uri.path;
-    const range = `${selection.startLineNumber}:${selection.startColumn}-${selection.endLineNumber}:${selection.endColumn}`;
-    const source = `${path}:${range}`;
-    const label = `${path.split(/[\\/]/).at(-1)}:${range}`;
-    const text = model.getValueInRange(selection);
     const rect = host.getBoundingClientRect();
-    // A selection ending at a line's start covers the line above it.
     shownTop = top(selection.getPosition().lineNumber);
-    const lastLine =
-      selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
-        ? selection.endLineNumber - 1
-        : selection.endLineNumber;
-    const excerpt = { label, text: `${source}\n${text}` };
     actions.show(
-      excerpt,
+      selectionExcerpt(model, selection),
       { x: rect.left + position.left, y: rect.top + position.top + position.height },
       (id, comment) => {
         if (!currentEditorOptions().inlineReplies) return;
-        addInlineReply(session, model, lastLine, id, comment, excerpt);
-        // The reply opens below the line, so a line low in the view moves up to leave it room.
+        addInlineReply(session, model, selection, id, comment);
+        // The reply opens below the selection, so one low in the view moves up to leave it room.
+        const lastLine = lastLineOf(selection);
         const { height } = editor.getLayoutInfo();
         if (editor.getTopForLineNumber(lastLine) - editor.getScrollTop() > height / 2)
           editor.revealLineInCenter(lastLine, monaco.editor.ScrollType.Smooth);

@@ -4,20 +4,19 @@
   margin: 0;
 }
 
-[data-inline-reply] .agent-aside-head {
-  align-items: center;
-}
-
-/* The question names the card, so it reads as text, not as a caption, and an open card shows all of it. */
+/* The question names the card, so it reads as text, not as a caption. */
 [data-inline-reply] .agent-aside-toggle-label {
   color: var(--fg);
 }
 
-[data-inline-reply] .agent-aside-toggle[aria-expanded="true"] {
-  height: auto;
-  font: var(--font-chrome-body-wrap);
-  white-space: normal;
-  text-align: start;
+[data-inline-reply] .ui-row-stack > .agent-aside-toggle-label {
+  overflow: visible;
+}
+
+/* One line tall beside the question's first line, however far the question wraps. */
+[data-inline-reply] .agent-aside-head > .ui-icon-button {
+  --icon-button-size: var(--font-chrome-line);
+  align-self: flex-start;
 }
 
 .inline-reply-body {
@@ -27,6 +26,11 @@
 
 [data-inline-reply] .agent-markdown {
   max-width: none;
+}
+
+/* Rewinding the conversation is the pane's act; a follow-up's row under code does not offer it. */
+[data-inline-reply] .agent-entry-rewind:not(.agent-entry-open) {
+  display: none;
 }
 
 .inline-reply-error {

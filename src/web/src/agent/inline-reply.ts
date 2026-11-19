@@ -3,8 +3,9 @@ import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneT
 /** What the agent has done about one prompt and the follow-ups asked under it. */
 export interface SubmissionReply {
   /**
-   * The pane's rows from the prompt to the user's next unrelated input: the agent's work, and each follow-up
-   * as the user's row. Other conversations' cards and the prompts' own attachments are left out.
+   * The pane's rows that answer the prompt and each follow-up, a follow-up as the user's row: what follows
+   * each up to the user's next unrelated input. Other conversations' cards and the prompts' own attachments
+   * are left out.
    */
   readonly entries: readonly AgentTranscriptEntry[];
   /** Whether the agent may still add to them. */
@@ -29,16 +30,18 @@ export function submissionReply(
   let index = all.findLastIndex((entry) => entry.submissionId === id);
   if (index < 0) return null;
   const entries: AgentTranscriptEntry[] = [];
+  // Whether the rows being read answer one of the card's prompts, and whether they directly follow it.
+  let answering = true;
   let afterPrompt = true;
   for (index += 1; index < all.length; index += 1) {
     const entry = all[index]!;
     if (afterPrompt && attached(entry)) continue;
     afterPrompt = false;
     if (entry.tone === "user") {
-      if (entry.submissionId === undefined || !followUps.includes(entry.submissionId)) break;
-      entries.push(entry);
-      afterPrompt = true;
-    } else if (entry.kind !== "aside") entries.push(entry);
+      answering = entry.submissionId !== undefined && followUps.includes(entry.submissionId);
+      afterPrompt = answering;
+    }
+    if (answering && entry.kind !== "aside") entries.push(entry);
   }
-  return { entries, working: index === all.length && snapshot.turnActive };
+  return { entries, working: answering && snapshot.turnActive };
 }

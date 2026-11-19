@@ -140,4 +140,24 @@ describe("the reply to one submission", () => {
     });
     expect(reply(followed, "ask")).toEqual({ said: ["It backs off."], working: false });
   });
+
+  it("picks a follow-up up again after the user spoke to the agent about something else", () => {
+    const interleaved = [
+      ...asked,
+      said("1", "a", "It backs off."),
+      turn("turn-completed", "1"),
+      turn("turn-started", "2"),
+      row("user-message", "2", "other", "rename the file"),
+      said("2", "b", "Renamed."),
+      turn("turn-completed", "2"),
+      turn("turn-started", "3"),
+      row("user-message", "3", "more", "and on a timeout?"),
+      said("3", "c", "Then it gives up."),
+      turn("turn-completed", "3"),
+    ];
+    expect(thread(interleaved, "ask", ["more"])).toEqual({
+      said: ["It backs off.", "and on a timeout?", "Then it gives up."],
+      working: false,
+    });
+  });
 });

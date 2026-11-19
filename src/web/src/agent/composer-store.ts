@@ -38,12 +38,15 @@ export const sendAgentSelection = (
 
 type PreparedSubmission = NonNullable<ReturnType<typeof state.prepareSubmission>>;
 
-// A reply box's composer: its own draft and attachments, sent by `deliver`.
+// A reply box's composer: its own draft and attachments under `key`, sent by `deliver`. It is its owner's for
+// good: a transcript reload replaces every reply composer, and a captured one then does nothing.
 function boxComposer(
-  owner: state.ComposerOwner,
-  opening: () => void,
-  deliver: (submission: PreparedSubmission) => void,
+  session: ClientSession,
+  key: string,
+  opening: (owner: state.ComposerOwner) => void,
+  deliver: (owner: state.ComposerOwner, submission: PreparedSubmission) => void,
 ) {
+  const owner = state.composerOwner(session, key);
   return {
     state: () => state.composerState(owner),
     setDraft: (draft: string) => state.setComposerDraft(owner, draft),
@@ -54,7 +57,7 @@ function boxComposer(
     removeAttachment: (id: string) => state.removeComposerAttachment(owner, id),
     setOpen: (open: boolean) => {
       state.setReplyOpen(owner, open);
-      if (open) opening();
+      if (open) opening(owner);
     },
     submit: (): boolean => {
       const submission = state.prepareSubmission(
@@ -63,7 +66,7 @@ function boxComposer(
         null,
       );
       if (submission === null) return false;
-      deliver(submission);
+      deliver(owner, submission);
       return true;
     },
   };
@@ -72,38 +75,37 @@ function boxComposer(
 export type ReplyComposer = ReturnType<typeof boxComposer>;
 
 /** The composer of a BTW's reply box. */
-export function replyComposer(session: ClientSession, conversationId: string): ReplyComposer {
-  const owner = state.composerOwner(session, conversationId);
-  return boxComposer(
-    owner,
+export const replyComposer = (session: ClientSession, conversationId: string): ReplyComposer =>
+  boxComposer(
+    session,
+    conversationId,
     () => {},
-    (submission) => state.publishAgent(owner, "replyAside", { conversationId, submission }),
+    (owner, submission) => state.publishAgent(owner, "replyAside", { conversationId, submission }),
   );
-}
 
 /**
  * The composer of a follow-up box keyed `key`: each prompt goes to the main conversation, and the box opens
- * holding `selection` so the follow-up is about the same code. `sent` receives each submission's id.
+ * holding what `selection` is now, so the follow-up is about the same code. `sent` receives each submission's id.
  */
-export function followUpComposer(
+export const followUpComposer = (
   session: ClientSession,
   key: string,
-  selection: AgentSelection,
+  selection: () => AgentSelection | null,
   sent: (submissionId: string) => void,
-): ReplyComposer {
-  const owner = state.composerOwner(session, key);
-  return boxComposer(
-    owner,
-    () => {
-      if (state.composerState(owner).attachments.length === 0)
-        state.attachSelection(owner, selection);
+): ReplyComposer =>
+  boxComposer(
+    session,
+    key,
+    (owner) => {
+      const excerpt = selection();
+      if (excerpt !== null && state.composerState(owner).attachments.length === 0)
+        state.attachSelection(owner, excerpt);
     },
-    (submission) => {
+    (owner, submission) => {
       state.publishAgent(owner, "submit", submission);
       sent(submission.id);
     },
   );
-}
 
 export function submitAgentTurn(
   session: ClientSession,

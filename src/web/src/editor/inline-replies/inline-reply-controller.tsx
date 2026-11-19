@@ -5,7 +5,7 @@ import { type Accessor, createEffect, createMemo, createRoot, onCleanup } from "
 import type { ClientSession } from "../../bridge";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { InlineReplyCard } from "./InlineReplyCard";
-import { type InlineReply, inlineReplies } from "./inline-replies-store";
+import { type InlineReply, inlineReplies, inlineReplyLine } from "./inline-replies-store";
 import "./inline-replies.css";
 
 export function createInlineReplies(
@@ -25,7 +25,7 @@ export function createInlineReplies(
       const cards = createMemo((): ZoneCard<InlineReply>[] => {
         version();
         return replies().flatMap((reply) => {
-          const line = model.getDecorationRange(reply.mark)?.startLineNumber;
+          const line = inlineReplyLine(reply);
           return line === undefined ? [] : [{ key: reply.id, afterLine: line, data: reply }];
         });
       });

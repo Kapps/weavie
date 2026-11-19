@@ -134,6 +134,11 @@ export function createZoneCards<T>(
     }
     return false;
   };
+  // Cards move with the code, so what follows scrolling inside one (a popover on its text) hears the editor's.
+  const onScroll = editor.onDidScrollChange((event) => {
+    if (slots.size > 0 && (event.scrollTopChanged || event.scrollLeftChanged))
+      layer.dispatchEvent(new Event("scroll"));
+  });
   const container = editor.getContainerDomNode();
   container.insertBefore(layer, container.firstChild);
   const unmount = render(
@@ -169,6 +174,7 @@ export function createZoneCards<T>(
 
   return () => {
     onLayout.dispose();
+    onScroll.dispose();
     unmount();
     layer.remove();
     editor.changeViewZones((accessor) => {

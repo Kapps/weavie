@@ -1,6 +1,8 @@
 import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
+import { keyHint } from "../commands/key-hint";
+import { CommandIds } from "../commands/types";
+import { AgentCardReplyBox } from "./AgentCardReplyBox";
 import { AgentCardTabFrame } from "./AgentCardTabFrame";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -41,10 +43,11 @@ export default function AgentConversationTab(props: {
             session={props.session}
           />
           <Show when={props.kind === "aside" && card().asideReplyable !== false}>
-            <AgentAsideReplyBox
+            <AgentCardReplyBox
               session={props.session}
               composer={replyComposer(props.session, card().conversationId!)}
               label="Reply to BTW"
+              hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
               disabled={card().asideActive === true}
             />
           </Show>

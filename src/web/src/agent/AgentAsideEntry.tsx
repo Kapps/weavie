@@ -1,10 +1,11 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { keyHint } from "../commands/key-hint";
 import { liveKeyHint } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
 import { AgentCardOpenButton } from "./AgentCardOpenButton";
+import { AgentCardReplyBox } from "./AgentCardReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -26,6 +27,7 @@ export function AsideEntry(props: {
     throw new Error("An aside entry requires a conversation id.");
   }
   const card = { kind: "aside", conversationId } as const;
+  const composer = replyComposer(props.session, conversationId);
   const collapsed = () => props.entry.asideCollapsed === true;
   const toggle = () => setCardCollapsed(props.session, card, !collapsed());
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
@@ -40,6 +42,7 @@ export function AsideEntry(props: {
           <small>{props.entry.status}</small>
         </Show>
       }
+      wrapLabel={false}
       onToggle={toggle}
       toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
       actions={<AgentCardOpenButton card={card} />}
@@ -57,10 +60,11 @@ export function AsideEntry(props: {
       />
       <CollapsibleCardContent collapsed={collapsed()}>
         <Show when={props.entry.asideReplyable !== false}>
-          <AgentAsideReplyBox
+          <AgentCardReplyBox
             session={props.session}
-            composer={replyComposer(props.session, conversationId)}
+            composer={composer}
             label="Reply to BTW"
+            hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
             disabled={props.entry.asideActive === true}
           />
         </Show>

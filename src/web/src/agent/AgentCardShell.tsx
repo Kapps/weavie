@@ -9,6 +9,8 @@ export function AgentCardShell(props: {
   collapsed: boolean;
   /** Whether the card shows its head alone, with no divider or body under it. */
   headOnly: boolean;
+  /** Whether an open card's label wraps to show all of it; a collapsed one is always a single line. */
+  wrapLabel: boolean;
   meta: JSX.Element;
   onToggle: () => void;
   /** The shortcut that toggles this card, as a tooltip suffix; empty when none reaches it. */
@@ -31,6 +33,7 @@ export function AgentCardShell(props: {
         <button
           type="button"
           class="ui-row agent-aside-toggle"
+          classList={{ "ui-row-stack": props.wrapLabel && !props.collapsed }}
           aria-label={toggleLabel()}
           aria-expanded={!props.collapsed}
           title={`${toggleLabel()}${props.toggleHint}`}

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { createAcpSession, setFakeAcpMode, submitAcpDraft } from "../harness/acp-session";
@@ -51,7 +51,7 @@ test("a comment sent from an editor selection is answered under that selection",
       .evaluate((element) => Number.parseFloat(getComputedStyle(element).maxHeight)),
   ).toBeCloseTo(editorHeight * 0.6, 0);
 
-  await card.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await card.getByRole("button", { name: "Dismiss Inline Reply", exact: true }).click();
   await expect(card).toHaveCount(0);
   await expect(
     surface.locator(".agent-markdown", { hasText: "echo: why this line" }),
@@ -182,7 +182,12 @@ test("a card folds to its question, takes a follow-up, and answers to its comman
   await head.click();
   await expect(card.locator(".agent-markdown")).toBeVisible();
 
-  // The follow-up is about the same selection, and its answer joins the card.
+  // The follow-up is about the same selection, and its answer joins the card even after other talk in the pane.
+  await submitAcpDraft(surface, "something else");
+  await expect(
+    surface.locator(".agent-markdown", { hasText: "echo: something else" }),
+  ).toBeVisible();
+  await expect(card).not.toContainText("something else");
   await card.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = card.getByRole("textbox", { name: "Reply", exact: true });
   await expect(reply).toBeFocused();
@@ -197,7 +202,7 @@ test("a card folds to its question, takes a follow-up, and answers to its comman
     surface.locator(".agent-markdown", { hasText: "echo: and the next one" }),
   ).toBeVisible();
 
-  // The card commands act on the card at or nearest above the cursor.
+  // The card commands act on the card in view nearest the cursor.
   await clickIntoEditor(page);
   await runCommand(page, "Toggle Inline Reply");
   await expect(head).toHaveAttribute("aria-expanded", "false");
@@ -211,6 +216,33 @@ test("a card folds to its question, takes a follow-up, and answers to its comman
   await expect(card).toHaveCount(0);
 });
 
+test("review chords pressed in a card's reply box leave the pending change alone", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "inline-reply-review");
+  const file = join(sessionWorktrees(weavie.workspace)[0]!, "notes.txt");
+  await submitAcpDraft(surface, `fs:${file}`);
+  await expect(surface).toContainText("fs: written through ACP");
+  await openFile(page, "notes.txt");
+  const pending = page.locator(".weavie-inline-added");
+  await expect(pending).toHaveCount(1);
+  await askAboutFirstLine(page, "why this line");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = card.getByRole("textbox", { name: "Reply", exact: true });
+  await expect(reply).toBeFocused();
+  await page.keyboard.type("keep typing");
+  await page.keyboard.press("ControlOrMeta+Backspace");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(reply).not.toHaveValue("keep typing");
+  await expect(pending).toHaveCount(1);
+  await expect(page.locator(".weavie-inline-accepted")).toHaveCount(0);
+  expect(await readFile(file, "utf8")).toBe("written through ACP");
+});
+
 test.describe("with permissions asked", () => {
   test.use({
     fakeScript: {
@@ -222,12 +254,14 @@ test.describe("with permissions asked", () => {
 
   test("a request the agent makes is answered from the card, with the agent pane hidden", async ({
     page,
+    weavie,
   }) => {
     await createAcpSession(page, "inline-reply-approval");
     await openFile(page, "notes.txt");
     await clickIntoEditor(page);
     await runCommand(page, "Toggle Fullscreen Pane");
-    await askAboutFirstLine(page, "permission");
+    await writeFile(join(sessionWorktrees(weavie.workspace)[0]!, "next-instruction"), "permission");
+    await askAboutFirstLine(page, "run the tests for this");
 
     const card = page.locator("[data-inline-reply]");
     await expect(card.locator(".agent-working")).toContainText("Waiting on your approval");

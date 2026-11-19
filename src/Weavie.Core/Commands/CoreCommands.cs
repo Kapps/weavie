@@ -187,13 +187,13 @@ public static partial class CoreCommands {
 	/// <summary>Removes every inline reply from the session's editors (web-handled).</summary>
 	public const string DismissInlineReplies = "weavie.agent.dismissInlineReplies";
 
-	/// <summary>Removes the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	/// <summary>Removes the inline reply named by <c>id</c>, else the one in view nearest the cursor (web-handled).</summary>
 	public const string DismissInlineReply = "weavie.agent.dismissInlineReply";
 
-	/// <summary>Collapses or expands the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	/// <summary>Collapses or expands the inline reply named by <c>id</c>, else the one in view nearest the cursor (web-handled).</summary>
 	public const string ToggleInlineReply = "weavie.agent.toggleInlineReply";
 
-	/// <summary>Opens the follow-up box of the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	/// <summary>Opens the follow-up box of the inline reply named by <c>id</c>, else the one in view nearest the cursor (web-handled).</summary>
 	public const string ReplyToInlineReply = "weavie.agent.replyToInlineReply";
 
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
@@ -1326,8 +1326,8 @@ public static partial class CoreCommands {
 				Title = title,
 				RunsIn = CommandLocation.Web,
 				Category = "Agent",
-				Description = $"{description} the agent reply shown under an editor selection: the one at or nearest above the cursor, or the one named by id.",
-				ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"The inline reply's id; the one at or nearest above the cursor when omitted\"}}",
+				Description = $"{description} the agent reply shown under an editor selection: the one in view nearest the cursor, or the one named by id.",
+				ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"The inline reply's id; the one in view nearest the cursor when omitted\"}}",
 				Aliases = aliases,
 				When = "agentInlineReplies",
 			});

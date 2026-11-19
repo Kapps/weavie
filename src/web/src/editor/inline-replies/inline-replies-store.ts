@@ -1,5 +1,5 @@
 import { createEffect, createRoot, createSignal } from "solid-js";
-import type { AgentSelection, SubmissionState } from "../../agent/composer-state";
+import type { SubmissionState } from "../../agent/composer-state";
 import {
   clearReplyComposer,
   followUpComposer,
@@ -15,17 +15,16 @@ import { createSessionOwnedResource } from "../../messaging/session-owned-state"
 import { notify } from "../../notify/notify";
 import { editorContexts } from "../editor-context";
 import { monaco } from "../monaco-setup";
+import { lastLineOf, selectionExcerpt } from "../selection-excerpt";
 
 /** A prompt sent from an editor selection, answered under the line it was sent from. */
 export interface InlineReply {
   /** The submission's id, which its prompt carries in the transcript. */
   readonly id: string;
   readonly model: monaco.editor.ITextModel;
-  /** The model decoration that follows the line the reply sits under. */
+  /** The model decoration that follows the code the question is about; the reply sits under its last line. */
   readonly mark: string;
   readonly question: string;
-  /** What the question is about, attached again to each follow-up. */
-  readonly selection: AgentSelection;
   /** The submissions asked from this card after the first, oldest first. */
   readonly followUps: readonly string[];
   /** Why the host refused the prompt. */
@@ -48,8 +47,8 @@ const owned = createSessionOwnedResource(
         const leaving = list().filter(gone);
         if (leaving.length === 0) return;
         const kept = list().filter((reply) => !leaving.includes(reply));
-        for (const { id, model, mark } of leaving) {
-          delivered.delete(id);
+        for (const { id, followUps, model, mark } of leaving) {
+          for (const prompt of [id, ...followUps]) delivered.delete(prompt);
           clearReplyComposer(session, composerKey(id));
           if (!model.isDisposed()) model.deltaDecorations([mark], []);
           if (kept.some((reply) => reply.model === model)) continue;
@@ -94,16 +93,26 @@ const owned = createSessionOwnedResource(
           else if (status === "dropped") remove((reply) => reply.id === id);
           else patch(id, () => ({ error }));
         });
-      // A prompt that left the transcript was cleared or rewound away, and its reply went with it.
+      // A prompt that left the transcript was cleared or rewound away: a follow-up leaves its card, and a
+      // card goes with its first prompt.
       createEffect(() => {
         const pane = agentPaneModel(session);
         if (pane === null || !pane.historyComplete() || list().length === 0) return;
         const snapshot = pane.transcript();
-        remove((reply) => {
-          if (!hasSubmission(snapshot, reply.id)) return delivered.has(reply.id);
-          delivered.add(reply.id);
+        const gone = (id: string): boolean => {
+          if (!hasSubmission(snapshot, id)) return delivered.has(id);
+          delivered.add(id);
           return false;
-        });
+        };
+        for (const { id, followUps } of list()) {
+          const lost = followUps.filter(gone);
+          for (const prompt of lost) delivered.delete(prompt);
+          if (lost.length > 0)
+            patch(id, (reply) => ({
+              followUps: reply.followUps.filter((prompt) => !lost.includes(prompt)),
+            }));
+        }
+        remove((reply) => gone(reply.id));
       });
       return {
         list,
@@ -124,38 +133,39 @@ const owned = createSessionOwnedResource(
 export const inlineReplies = (session: ClientSession | null): readonly InlineReply[] =>
   owned.get(session)?.list() ?? EMPTY;
 
-/** Shows the reply to submission `id` under `line` of `model`, for as long as the model lives. */
+/** The code `reply` is about as it stands now, or null once it has been deleted. */
+function codeOf(reply: InlineReply): monaco.Range | null {
+  const range = reply.model.getDecorationRange(reply.mark);
+  return range === null || range.isEmpty() ? null : range;
+}
+
+/** The line `reply` sits under, or undefined when its mark is gone. */
+export function inlineReplyLine(reply: InlineReply): number | undefined {
+  const range = reply.model.getDecorationRange(reply.mark);
+  return range === null ? undefined : lastLineOf(range);
+}
+
+/** Shows the reply to submission `id` under `code` in `model`, for as long as the model lives. */
 export function addInlineReply(
   session: ClientSession,
   model: monaco.editor.ITextModel,
-  line: number,
+  code: monaco.IRange,
   id: string,
   question: string,
-  selection: AgentSelection,
 ): void {
   const state = owned.get(session);
   if (state === undefined) return;
-  const end = model.getLineMaxColumn(line);
   const [mark] = model.deltaDecorations(
     [],
     [
       {
-        range: new monaco.Range(line, end, line, end),
-        // Text typed at the line's end, a new line included, goes after the mark.
+        range: code,
+        // Text typed at the code's end, a new line included, goes after the mark.
         options: { stickiness: monaco.editor.TrackedRangeStickiness.GrowsOnlyWhenTypingBefore },
       },
     ],
   );
-  state.add({
-    id,
-    model,
-    mark: mark!,
-    question,
-    selection,
-    followUps: [],
-    error: null,
-    collapsed: false,
-  });
+  state.add({ id, model, mark: mark!, question, followUps: [], error: null, collapsed: false });
 }
 
 export function setInlineReplyCollapsed(
@@ -172,13 +182,20 @@ export function dismissInlineReply(session: ClientSession, id: string): void {
 
 /** The composer of `reply`'s follow-up box, whose prompts join the card. */
 export const inlineFollowUp = (session: ClientSession, reply: InlineReply): ReplyComposer =>
-  followUpComposer(session, composerKey(reply.id), reply.selection, (followUp) =>
-    owned.get(session)?.patch(reply.id, (current) => ({
-      followUps: [...current.followUps, followUp],
-    })),
+  followUpComposer(
+    session,
+    composerKey(reply.id),
+    () => {
+      const code = codeOf(reply);
+      return code === null ? null : selectionExcerpt(reply.model, code);
+    },
+    (followUp) =>
+      owned.get(session)?.patch(reply.id, (current) => ({
+        followUps: [...current.followUps, followUp],
+      })),
   );
 
-// The reply a command names by `id`, else the one at or nearest above the cursor in the session's editor.
+// The reply a command names by `id`, else the one in view nearest the cursor in the session's editor.
 function target(session: ClientSession, args: unknown): InlineReply | undefined {
   const replies = inlineReplies(session);
   const id = (args as { id?: unknown } | null | undefined)?.id;
@@ -190,11 +207,16 @@ function target(session: ClientSession, args: unknown): InlineReply | undefined 
   const connection = editorContexts.get(session);
   const cursor = connection?.editor.getPosition()?.lineNumber;
   if (connection === undefined || cursor === undefined) return undefined;
-  const line = (reply: InlineReply): number =>
-    reply.model.getDecorationRange(reply.mark)?.startLineNumber ?? Number.POSITIVE_INFINITY;
+  const inView = (line: number): boolean =>
+    connection.editor
+      .getVisibleRanges()
+      .some((range) => range.startLineNumber <= line && line <= range.endLineNumber);
   return replies
-    .filter((reply) => reply.model === connection.model && line(reply) <= cursor)
-    .sort((a, b) => line(b) - line(a))[0];
+    .flatMap((reply) => {
+      const line = reply.model === connection.model ? inlineReplyLine(reply) : undefined;
+      return line !== undefined && inView(line) ? [{ reply, away: Math.abs(line - cursor) }] : [];
+    })
+    .sort((a, b) => a.away - b.away)[0]?.reply;
 }
 
 const onTarget =
@@ -202,7 +224,7 @@ const onTarget =
   (args, { session }) => {
     const reply = session === null ? undefined : target(session, args);
     if (session === null || reply === undefined) {
-      notify("info", "There's no inline reply at or above the cursor.", "inline-replies");
+      notify("info", "There's no inline reply in view.", "inline-replies");
       return;
     }
     act(session, reply);

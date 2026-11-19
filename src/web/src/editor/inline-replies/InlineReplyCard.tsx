@@ -1,6 +1,6 @@
 import { X } from "lucide-solid";
 import { createMemo, type JSX, Match, Show, Switch } from "solid-js";
-import { AgentAsideReplyBox } from "../../agent/AgentAsideReplyBox";
+import { AgentCardReplyBox } from "../../agent/AgentCardReplyBox";
 import { AgentCardShell } from "../../agent/AgentCardShell";
 import { NestedTranscript } from "../../agent/AgentNestedCard";
 import { hasPendingRequest } from "../../agent/AgentPendingRequests";
@@ -12,6 +12,8 @@ import { hasSubmission, submissionReply } from "../../agent/inline-reply";
 import { createNestedExpansion } from "../../agent/nested-expansion";
 import { agentPaneModel } from "../../agent/pane-store";
 import type { ClientSession } from "../../bridge";
+import { liveKeyHint } from "../../commands/keys-live";
+import { CommandIds } from "../../commands/types";
 import {
   dismissInlineReply,
   type InlineReply,
@@ -57,6 +59,11 @@ export function InlineReplyCard(props: {
   const queued = () =>
     agentQueuedSubmissions(props.session).some((waiting) => undelivered().includes(waiting.id));
   const collapsed = () => props.reply.collapsed;
+  // A transcript reload replaces every reply composer, so the box takes a new one with each generation.
+  const followUp = createMemo(() => {
+    pane()?.generation();
+    return inlineFollowUp(props.session, props.reply);
+  });
   return (
     <AgentCardShell
       label={props.reply.question}
@@ -88,14 +95,15 @@ export function InlineReplyCard(props: {
           </Match>
         </Switch>
       }
+      wrapLabel={true}
       onToggle={() => setInlineReplyCollapsed(props.session, props.reply.id, !collapsed())}
-      toggleHint=""
+      toggleHint={liveKeyHint(CommandIds.toggleInlineReply)}
       actions={
         <button
           type="button"
           class="ui-icon-button"
-          aria-label="Dismiss"
-          title="Dismiss"
+          aria-label="Dismiss Inline Reply"
+          title={`Dismiss Inline Reply${liveKeyHint(CommandIds.dismissInlineReply)}`}
           onClick={() => dismissInlineReply(props.session, props.reply.id)}
         >
           <X aria-hidden="true" />
@@ -124,12 +132,16 @@ export function InlineReplyCard(props: {
       </div>
       <Show when={answer() !== null}>
         <CollapsibleCardContent collapsed={collapsed()}>
-          <AgentAsideReplyBox
-            session={props.session}
-            composer={inlineFollowUp(props.session, props.reply)}
-            label="Reply"
-            disabled={false}
-          />
+          {/* A comment box, so typing in it never acts on the editor's review. */}
+          <div data-comment-box>
+            <AgentCardReplyBox
+              session={props.session}
+              composer={followUp()}
+              label="Reply"
+              hint="Paste text or images"
+              disabled={false}
+            />
+          </div>
         </CollapsibleCardContent>
       </Show>
     </AgentCardShell>

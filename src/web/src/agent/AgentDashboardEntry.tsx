@@ -32,6 +32,7 @@ export function AgentDashboardEntry(props: {
           <small>{dashboardMeta(props.session, blocks())}</small>
         </Show>
       }
+      wrapLabel={false}
       onToggle={toggle}
       toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
       actions={<AgentCardOpenButton card={card} />}

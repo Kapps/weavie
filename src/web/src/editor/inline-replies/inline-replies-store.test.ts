@@ -38,6 +38,10 @@ vi.mock("../../agent/composer-store", () => ({
 }));
 vi.mock("../../notify/notify", () => ({ notify: () => {} }));
 vi.mock("../editor-context", () => ({ editorContexts: { get: () => host.connection } }));
+vi.mock("../selection-excerpt", () => ({
+  lastLineOf: (range: { endLineNumber: number }) => range.endLineNumber,
+  selectionExcerpt: () => ({ label: "notes.txt:1:1-1:8", text: "retry()" }),
+}));
 vi.mock("../monaco-setup", () => ({
   monaco: {
     Range: class {
@@ -64,7 +68,12 @@ import {
   inlineReplies,
 } from "./inline-replies-store";
 
-const EXCERPT = { label: "notes.txt:1:1-1:8", text: "retry()" };
+const onLine = (line: number) => ({
+  startLineNumber: line,
+  startColumn: 1,
+  endLineNumber: line,
+  endColumn: 8,
+});
 
 function openSession() {
   const handlers = new Map<string, (payload: unknown) => void>();
@@ -109,7 +118,7 @@ function openSession() {
 
 function openModel() {
   const marks = new Set<string>();
-  const lines = new Map<string, number>();
+  const lines = new Map<string, ReturnType<typeof onLine> & { isEmpty(): boolean }>();
   let disposed = false;
   const listeners = new Map<string, (event: { isFlush: boolean }) => void>();
   const listen = (name: string, listener: (event: { isFlush: boolean }) => void) => {
@@ -118,14 +127,14 @@ function openModel() {
   };
   const model = {
     getLineMaxColumn: () => 8,
-    // Each mark sits on the line it was made for.
-    getDecorationRange: (mark: string) => ({ startLineNumber: lines.get(mark)! }),
-    deltaDecorations: (old: string[], added: { range: { startLineNumber: number } }[]) => {
+    // Each mark stays on the code it was made for.
+    getDecorationRange: (mark: string) => lines.get(mark) ?? null,
+    deltaDecorations: (old: string[], added: { range: ReturnType<typeof onLine> }[]) => {
       for (const mark of old) marks.delete(mark);
       return added.map(({ range }) => {
         const mark = `mark-${lines.size}`;
         marks.add(mark);
-        lines.set(mark, range.startLineNumber);
+        lines.set(mark, { ...range, isEmpty: () => false });
         return mark;
       });
     },
@@ -157,7 +166,7 @@ describe("inline replies", () => {
   it("keeps a reply under its line until it is dismissed", () => {
     const { session } = openSession();
     const { model, marks } = openModel();
-    addInlineReply(session, model, 3, "ask", "why?", EXCERPT);
+    addInlineReply(session, model, onLine(3), "ask", "why?");
     expect(inlineReplies(session)).toMatchObject([{ id: "ask", question: "why?", error: null }]);
     expect(marks.size).toBe(1);
 
@@ -169,18 +178,18 @@ describe("inline replies", () => {
 
   it("carries the reason a prompt was refused, and ends when the agent drops it undelivered", () => {
     const { session, settle } = openSession();
-    addInlineReply(session, openModel().model, 1, "ask", "why?", EXCERPT);
+    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
     settle("ask", "rejected", "Agent input is paused while Weavie restarts.");
     expect(inlineReplies(session)[0]?.error).toBe("Agent input is paused while Weavie restarts.");
 
-    addInlineReply(session, openModel().model, 1, "queued", "and this?", EXCERPT);
+    addInlineReply(session, openModel().model, onLine(1), "queued", "and this?");
     settle("queued", "dropped", "");
     expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["ask"]);
   });
 
   it("keeps the follow-ups asked from a card, less any that went nowhere", () => {
     const { session, settle } = openSession();
-    addInlineReply(session, openModel().model, 1, "ask", "why?", EXCERPT);
+    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
     const sent = (id: string) =>
       (
         inlineFollowUp(session, inlineReplies(session)[0]!) as unknown as {
@@ -195,28 +204,50 @@ describe("inline replies", () => {
     expect(inlineReplies(session)).toMatchObject([{ id: "ask", followUps: ["more"], error: null }]);
   });
 
-  it("is collapsed and dismissed by command, at or nearest above the cursor", () => {
+  it("drops a follow-up that was rewound away, and keeps its card", () => {
+    const { session, show } = openSession();
+    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
+    const follow = inlineFollowUp(session, inlineReplies(session)[0]!) as unknown as {
+      sent(id: string): void;
+    };
+    follow.sent("more");
+    show("ask", "more");
+    show("ask");
+    expect(inlineReplies(session)).toMatchObject([{ id: "ask", followUps: [] }]);
+  });
+
+  it("is collapsed and dismissed by command: the one named, else the one in view nearest the cursor", () => {
     const { session } = openSession();
     const { model } = openModel();
-    addInlineReply(session, model, 2, "upper", "why?", EXCERPT);
-    addInlineReply(session, model, 9, "lower", "why?", EXCERPT);
-    host.connection = { model, editor: { getPosition: () => ({ lineNumber: 5 }) } };
+    addInlineReply(session, model, onLine(2), "upper", "why?");
+    addInlineReply(session, model, onLine(9), "lower", "why?");
+    addInlineReply(session, model, onLine(40), "offscreen", "why?");
+    let cursor = 7;
+    host.connection = {
+      model,
+      editor: {
+        getPosition: () => ({ lineNumber: cursor }),
+        getVisibleRanges: () => [{ startLineNumber: 1, endLineNumber: 30 }],
+      },
+    };
     const run = (id: string, args: unknown) => host.commands.get(id)!(args, { session });
+    const collapsed = () => inlineReplies(session).map((reply) => reply.collapsed);
 
     run(CommandIds.toggleInlineReply, undefined);
-    expect(inlineReplies(session).map((reply) => reply.collapsed)).toEqual([true, false]);
-    run(CommandIds.toggleInlineReply, { id: "lower" });
-    expect(inlineReplies(session).map((reply) => reply.collapsed)).toEqual([true, true]);
+    expect(collapsed()).toEqual([false, true, false]);
+    run(CommandIds.toggleInlineReply, { id: "upper" });
+    expect(collapsed()).toEqual([true, true, false]);
+    cursor = 38;
     run(CommandIds.dismissInlineReply, undefined);
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["lower"]);
+    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["upper", "offscreen"]);
     expect(() => run(CommandIds.dismissInlineReply, { id: "gone" })).toThrow("no inline reply");
   });
 
   it("drops a reply whose prompt left the loaded transcript, and keeps one still on its way", () => {
     const { session, show, setHistoryComplete } = openSession();
     const { model } = openModel();
-    addInlineReply(session, model, 1, "answered", "why?", EXCERPT);
-    addInlineReply(session, model, 2, "queued", "and this?", EXCERPT);
+    addInlineReply(session, model, onLine(1), "answered", "why?");
+    addInlineReply(session, model, onLine(2), "queued", "and this?");
     show("answered");
     // A reloading transcript is not a cleared one.
     setHistoryComplete(false);
@@ -233,10 +264,10 @@ describe("inline replies", () => {
     const closing = openModel();
     const replaced = openModel();
     const { model, marks, listening } = openModel();
-    addInlineReply(session, closing.model, 1, "closed", "why?", EXCERPT);
-    addInlineReply(session, replaced.model, 1, "replaced", "why?", EXCERPT);
-    addInlineReply(session, model, 1, "first", "why?", EXCERPT);
-    addInlineReply(session, model, 2, "second", "why?", EXCERPT);
+    addInlineReply(session, closing.model, onLine(1), "closed", "why?");
+    addInlineReply(session, replaced.model, onLine(1), "replaced", "why?");
+    addInlineReply(session, model, onLine(1), "first", "why?");
+    addInlineReply(session, model, onLine(2), "second", "why?");
     closing.dispose();
     replaced.replaceText();
     expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["first", "second"]);

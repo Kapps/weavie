@@ -1,24 +1,25 @@
 import { type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { keyHint } from "../commands/key-hint";
-import { CommandIds } from "../commands/types";
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
 import { registerComposerPasteTarget } from "./composer-clipboard";
 import type { ReplyComposer } from "./composer-store";
 import { agentImageBlob } from "./pasted-images";
 
-export function AgentAsideReply(props: {
+export function AgentCardReply(props: {
   session: ClientSession;
   composer: ReplyComposer;
   label: string;
+  /** The input's tooltip: pasting, with the shortcut where it reaches this box. */
+  hint: string;
   /** Whether the box takes focus as it opens: only in the view where Reply was pressed. */
   autofocus: boolean;
   onClose: () => void;
 }): JSX.Element {
-  const composer = props.composer;
+  // Read where it is used: its host hands over a new one when the transcript reloads.
+  const composer = () => props.composer;
   let textarea!: HTMLTextAreaElement;
   const canSubmit = () => {
-    const state = composer.state();
+    const state = composer().state();
     return (
       state.pendingSubmission === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
@@ -29,9 +30,9 @@ export function AgentAsideReply(props: {
     onCleanup(
       registerComposerPasteTarget(textarea, () => ({
         session: props.session,
-        draft: () => composer.state().draft,
-        setDraft: composer.setDraft,
-        pasteImage: (mime, dataB64) => composer.uploadImage(agentImageBlob(mime, dataB64)),
+        draft: () => composer().state().draft,
+        setDraft: (draft) => composer().setDraft(draft),
+        pasteImage: (mime, dataB64) => composer().uploadImage(agentImageBlob(mime, dataB64)),
       })),
     );
     if (props.autofocus) {
@@ -41,15 +42,15 @@ export function AgentAsideReply(props: {
     }
   });
   const submit = (): void => {
-    if (canSubmit()) composer.submit();
+    if (canSubmit()) composer().submit();
   };
 
   return (
     <div class="agent-aside-reply">
-      <Show when={composer.state().attachments.length > 0}>
+      <Show when={composer().state().attachments.length > 0}>
         <AgentAttachmentStrip
-          attachments={composer.state().attachments}
-          onRemove={composer.removeAttachment}
+          attachments={composer().state().attachments}
+          onRemove={(id) => composer().removeAttachment(id)}
         />
       </Show>
       <textarea
@@ -57,11 +58,11 @@ export function AgentAsideReply(props: {
         class="ui-field ui-field-content"
         data-agent-paste-target
         aria-label={props.label}
-        title={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
+        title={props.hint}
         rows={2}
-        value={composer.state().draft}
-        onInput={(event) => composer.setDraft(event.currentTarget.value)}
-        onPaste={composer.captureImagePaste}
+        value={composer().state().draft}
+        onInput={(event) => composer().setDraft(event.currentTarget.value)}
+        onPaste={(event) => composer().captureImagePaste(event)}
         // On the element itself: a card between editor lines keeps key events from reaching the document.
         on:keydown={(event) => {
           if (event.key === "Escape") {
@@ -73,15 +74,15 @@ export function AgentAsideReply(props: {
           }
         }}
       />
-      <Show when={composer.state().error !== null}>
-        <div class="agent-compose-error">{composer.state().error}</div>
+      <Show when={composer().state().error !== null}>
+        <div class="agent-compose-error">{composer().state().error}</div>
       </Show>
       <div class="agent-aside-reply-actions">
         <button type="button" class="ui-button" onClick={props.onClose}>
           Cancel
         </button>
         <button type="button" class="ui-button" disabled={!canSubmit()} onClick={submit}>
-          {composer.state().pendingSubmission !== null ? "Sending…" : "Reply"}
+          {composer().state().pendingSubmission !== null ? "Sending…" : "Reply"}
         </button>
       </div>
     </div>

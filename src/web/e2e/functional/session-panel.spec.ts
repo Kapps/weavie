@@ -120,6 +120,10 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   expect(resized).toBeGreaterThan(360);
 
   await page.reload();
+  // Flaked 2026-11-19 01:21 UTC on Linux CI (https://github.com/Kapps/weavie/actions/runs/44434557272): the pinned
+  // panel renders at its 300px default under the splash before the hello applies the saved width. Fix: measure
+  // once the splash clears, which follows the hello's rail state by construction.
+  await expect(page.locator("#splash")).toHaveCount(0);
   await expect(pinned).toBeVisible();
   expect((await pinned.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
   await page.keyboard.press("Escape");

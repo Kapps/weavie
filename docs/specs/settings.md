@@ -153,7 +153,7 @@ default, docs, validation, env var, and how a change applies. Core registers its
 startup; plugins (future) contribute additional definitions the same way.
 
 ```csharp
-public enum SettingKind { String, Bool, Int, Number, Path }
+public enum SettingKind { String, Bool, Int, Number, Path, Json }
 
 // How a changed value takes effect — reported to Claude by setSetting, and the contract the
 // host's change-reaction wiring honors.
@@ -190,6 +190,9 @@ structured constraint — **not** a kind.
 - `String` / `Bool` / `Int` / `Number` — distinct parsing of the env-var string / JSON value. ✅ kinds.
 - `Path` — earns its place through path *behavior*: `~` expansion and resolving a relative path
   against the workspace. (Without that behavior it would just be `String` + a validator.)
+- `Json` — JSON text (a list or structure, e.g. a command and its arguments), held and stored as a string.
+  It earns its place at the MCP boundary: a client that parses the tool's untyped `value` sends the JSON
+  itself, which a `String` rejects.
 - ~~`Enum`~~ — deliberately **not** a kind. An enum has no distinct parse behavior; it is `String`
   parsing plus a set membership constraint. It is expressed as a `String` with `AllowedValues`.
 
@@ -216,11 +219,12 @@ Values arrive as untyped strings (env vars) or JSON (MCP) and are coerced to the
 mismatches are rejected, never guessed:
 
 - **From an env-var string:** `Bool` accepts `true`/`false` (case-insensitive); `Int` is an
-  invariant integer parse; `Number` parses a finite double with invariant culture; `String`/`Path` are taken verbatim. Then `Path` normalization and any
+  invariant integer parse; `Number` parses a finite double with invariant culture; `String`/`Path`/`Json` are taken verbatim. Then `Path` normalization and any
   `AllowedValues`/`Validate` checks run. A value that fails to parse is a loud error.
 - **From an MCP JSON value:** `String`/`Path` expect a JSON string, `Bool` a JSON bool, `Int` a JSON
   number with no fractional part, and `Number` a finite JSON number. Numeric strings use the same
-  invariant parsing convention for tool calls. A type mismatch is rejected by `setSetting`.
+  invariant parsing convention for tool calls. `Json` takes a JSON string as the text, and any other JSON
+  value as its own text. A type mismatch is rejected by `setSetting`.
 - **TOML and catalog JSON:** `Number` values remain numeric, including fractional values; integer TOML
   values are accepted as numbers. Ranges such as workflow confidence `[0, 1]` belong to validators.
 

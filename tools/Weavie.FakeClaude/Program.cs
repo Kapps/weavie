@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Weavie.Core.Hooks;
+using Weavie.Fakes;
 
 // Fake `claude` for integration tests. Weavie spawns it in place of the real CLI (via the claude.path
 // setting), so a journey through the whole stack stays deterministic and spends no model usage. With no
@@ -37,7 +38,7 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	if (mode is "workflow" or "success" or "needsDetail" && query.Contains("\"choices\":", StringComparison.Ordinal)) {
 		string answer;
 		if (mode == "workflow") {
-			await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
+			await InferenceReceipt.WriteAsync(Environment.CurrentDirectory, query).ConfigureAwait(false);
 			if (File.Exists("inference-reject")) return 7;
 			answer = File.Exists("inference-answer.json")
 				? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)

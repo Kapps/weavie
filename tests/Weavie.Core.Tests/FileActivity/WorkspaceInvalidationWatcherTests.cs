@@ -245,6 +245,19 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task RootDeletedBeforeItsWatchIsArmedEndsObservation() {
+		string root = _dir.CreateDirectory("worktree");
+		var inventory = new WorkspaceInventory(root, _ => {
+			Directory.Delete(root);
+			return Task.FromResult<IReadOnlyList<string>?>(["readme.txt"]);
+		});
+		using var watcher = new WorkspaceInvalidationWatcher(inventory, _ => { }, _ => { }, debounceMs: 1);
+
+		await Assert.ThrowsAsync<DirectoryNotFoundException>(
+			() => watcher.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+	}
+
+	[Fact]
 	public async Task DiscoversFileCreatedBeforeDirectoryWatchIsArmed() {
 		bool created = false;
 		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

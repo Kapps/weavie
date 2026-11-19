@@ -249,6 +249,11 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				.Where(directory => Path.GetFileName(directory) == ".git")
 				.ToHashSet(PathIdentity.CanonicalComparer));
 			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
+			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
+			if (!Directory.Exists(_inventory.Root)) {
+				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");
+			}
+
 			if (watchesChanged) {
 				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 			}

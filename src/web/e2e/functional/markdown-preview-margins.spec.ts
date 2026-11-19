@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { EOL } from "node:os";
 import { join } from "node:path";
 import { openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -81,7 +82,9 @@ test("blank documents and the space below the text remain editable", async ({ pa
   await input.fill("Second paragraph");
   await page.keyboard.press("Escape");
   await expect(body.locator("p")).toHaveText(["First paragraph", "Second paragraph"]);
+  // Flaked 2026-11-14 08:56 UTC (https://github.com/Kapps/weavie/actions/runs/43576857190, Windows): a blank document
+  // takes the OS line ending, CRLF on Windows, but the test expected LF. Expect the OS line ending.
   await expect
     .poll(() => readFile(join(weavie.workspace, "blank.md"), "utf8"))
-    .toContain("First paragraph\n\nSecond paragraph");
+    .toContain(`First paragraph${EOL}${EOL}Second paragraph`);
 });

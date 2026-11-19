@@ -149,12 +149,28 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(6, "tools/call",
-			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"lsp.csharp.command\",\"value\":\"[\\\"my-ls\\\"]\"}}"));
+			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"lsp.csharp.command\",\"value\":[\"my-ls\"]}}"));
 		using var response = await ReceiveAsync(ws);
 
 		Assert.EndsWith(
 			" Run weavie.lsp.restart to apply it to running language servers.",
 			response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+	}
+
+	[Fact]
+	public async Task SetSetting_TestProfile_TakesTheRuleArrayItself() {
+		using var store = NewStore();
+		await using var server = NewServer(store);
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+		const string rules = "[{\"glob\":\"**/*.test.ts\",\"symbol\":\"^it\",\"runOne\":\"vitest ${file} -t ${name}\"}]";
+
+		await SendAsync(ws, Request(7, "tools/call",
+			$"{{\"name\":\"setSetting\",\"arguments\":{{\"key\":\"test.profile\",\"value\":{rules}}}}}"));
+		using var response = await ReceiveAsync(ws);
+
+		Assert.False(response.RootElement.GetProperty("result").TryGetProperty("isError", out var isError) && isError.GetBoolean());
+		Assert.Equal(rules, store.RequireString(TestSettings.Profile, _dir.Path));
 	}
 
 	[Fact]

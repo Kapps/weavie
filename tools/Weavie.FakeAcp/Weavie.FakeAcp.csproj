@@ -8,5 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Weavie.Core/Weavie.Core.csproj" />
+    <Compile Include="../Weavie.FakeShared/InferenceReceipt.cs" />
   </ItemGroup>
 </Project>

@@ -14,7 +14,9 @@
   margin-bottom: 1.2em;
 }
 
+/* Spans the row whatever its text measures, so the finish-review panel under the byline gets its full width. */
 .session-overview-name {
+  flex: 1;
   min-width: 0;
 }
 
@@ -74,10 +76,6 @@
 }
 
 /* The panel opens under the byline from its left edge, wherever the wrapping row leaves the button. */
-.session-overview-byline .finish-review {
-  position: static;
-}
-
 .session-overview-byline .finish-review-panel {
   right: auto;
   left: 0;

@@ -38,6 +38,7 @@
    it lines up with the text by construction. */
 .unified-review-header {
   --icon-button-size: var(--control-height);
+  position: relative;
   z-index: 3;
   font: var(--font-chrome-body);
   min-width: 0;
@@ -91,6 +92,12 @@
 .unified-review-header-actions {
   flex: none;
   gap: 2px;
+}
+
+/* The finish-review panel hangs from the header inside its side padding. */
+.unified-review-header .finish-review-panel {
+  right: 8px;
+  max-width: calc(100% - 16px);
 }
 
 .unified-review-header-rule {
@@ -375,6 +382,12 @@
 
   .unified-review-header-actions {
     flex-wrap: wrap;
+  }
+
+  /* The stacked header's actions start at its left edge, and so does the panel under them. */
+  .unified-review-header .finish-review-panel {
+    right: auto;
+    left: 8px;
   }
 
   .unified-review-file-header {

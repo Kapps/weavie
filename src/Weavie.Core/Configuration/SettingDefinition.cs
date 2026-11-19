@@ -20,6 +20,9 @@ public enum SettingKind {
 
 	/// <summary>A filesystem path: <c>~</c> is expanded and a relative path is resolved against the workspace.</summary>
 	Path,
+
+	/// <summary>JSON text, held as a string; a tool call may send the JSON value itself.</summary>
+	Json,
 }
 
 /// <summary>

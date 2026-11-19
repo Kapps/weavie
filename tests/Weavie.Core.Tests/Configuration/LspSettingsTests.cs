@@ -33,6 +33,8 @@ public sealed class LspSettingsTests : IDisposable {
 
 	private static JsonElement Json(string argv) => JsonSerializer.SerializeToElement(argv);
 
+	private static JsonElement Raw(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
 	private ServerLaunchCandidate Configured(string worktree) =>
 		Assert.Single(LspSettings.Effective(Recipe, _store, _repo, worktree).Candidates);
 
@@ -56,6 +58,27 @@ public sealed class LspSettingsTests : IDisposable {
 	public void RejectsAnythingButAnArgvArray(string value) {
 		Assert.Throws<SettingValidationException>(() => _store.Set(Key, Json(value), _repo));
 		Assert.Same(Recipe, LspSettings.Effective(Recipe, _store, _repo, _repo));
+	}
+
+	[Theory]
+	[InlineData("{}")]
+	[InlineData("[]")]
+	[InlineData("[\"tsgo\",1]")]
+	[InlineData("5")]
+	[InlineData("null")]
+	[InlineData("\"\\\"[\\\\\\\"tsgo\\\\\\\"]\\\"\"")]
+	public void RejectsAJsonValueThatIsNotAnArgvArray(string json) {
+		Assert.Throws<SettingValidationException>(() => _store.Set(Key, Raw(json), _repo));
+		Assert.Same(Recipe, LspSettings.Effective(Recipe, _store, _repo, _repo));
+	}
+
+	[Fact]
+	public void TheArrayItselfIsStoredAsItsText() {
+		_store.Set(Key, Raw("[\"my-ls\", \"--stdio\"]"), _repo);
+
+		Assert.Equal("[\"my-ls\", \"--stdio\"]", _store.RequireString(Key, _repo));
+		Assert.Equal("my-ls", Configured(_repo).Command);
+		Assert.Equal(["--stdio"], Configured(_repo).Arguments);
 	}
 
 	[Fact]

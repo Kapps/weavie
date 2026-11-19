@@ -14,7 +14,7 @@ test.use({
       {
         op: "mcp",
         tool: "setSetting",
-        args: { key: "lsp.csharp.command", value: '["tools/configured-ls"]' },
+        args: { key: "lsp.csharp.command", value: ["tools/configured-ls"] },
       },
       { op: "edit", path: "{{WORKSPACE}}/configured", content: "" },
     ],

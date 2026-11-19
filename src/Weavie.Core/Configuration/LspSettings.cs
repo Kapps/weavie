@@ -18,7 +18,7 @@ public static class LspSettings {
 				: $"the first of {string.Join(", ", descriptor.Candidates.Select(c => c.Command))} found";
 			registry.Register(new SettingDefinition {
 				Key = CommandKey(descriptor.Id),
-				Kind = SettingKind.String,
+				Kind = SettingKind.Json,
 				Scope = SettingScope.Workspace,
 				Description = $"The {descriptor.DisplayName} language server to run: a JSON array of the executable and its "
 					+ "arguments, e.g. [\"node_modules/.bin/server\",\"--stdio\"]. A bare name is found on PATH; a path is "

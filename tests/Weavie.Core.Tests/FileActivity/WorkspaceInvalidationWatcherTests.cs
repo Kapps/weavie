@@ -249,7 +249,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		string root = _dir.CreateDirectory("worktree");
 		var inventory = new WorkspaceInventory(root, _ => {
 			Directory.Delete(root);
-			return Task.FromResult<IReadOnlyList<string>?>(["readme.txt"]);
+			return Task.FromResult<IReadOnlyList<string>>(["readme.txt"]);
 		});
 		using var watcher = new WorkspaceInvalidationWatcher(inventory, _ => { }, _ => { }, debounceMs: 1);
 

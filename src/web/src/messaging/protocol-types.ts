@@ -415,7 +415,7 @@ export interface EditorOptionsSpec {
   reviewStepSettled: boolean;
   inlineReplies: boolean;
   /** Files past the ones on screen the unified review mounts while it rests. */
-  reviewFilesAhead: number;
+  reviewScreensAhead: number;
   spellCheck: boolean;
   /** The dictionary every spelling request names; the session's host installs one it lacks. */
   spellCheckLocale: string;

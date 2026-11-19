@@ -1,4 +1,4 @@
-import { createVirtualizer } from "@tanstack/solid-virtual";
+import { createVirtualizer, observeElementRect } from "@tanstack/solid-virtual";
 import {
   batch,
   createEffect,
@@ -135,7 +135,8 @@ export function UnifiedReview(props: {
     setOverviewHeight(height);
     measureTitle();
     const owner = scroll()!;
-    if (owner.getScrollTop() > previous) owner.shift(height - previous, virtualizer.getTotalSize());
+    if (owner.getScrollTop() > previous)
+      mountWindow.correcting(() => owner.shift(height - previous, virtualizer.getTotalSize()));
     else sizeVirtualList(virtualizer.getTotalSize());
   };
   const itemKey = (index: number): string | number => {
@@ -145,6 +146,10 @@ export function UnifiedReview(props: {
   const mountWindow = createMountWindow({
     keyAt: (index) => untrack(() => itemKey(index)),
     rendered: () => untrack(() => rows().length > 0),
+    // The virtualizer's size cache, current as soon as a file is measured, unlike its measurements list.
+    sizeAt: (index) =>
+      virtualizer.itemSizeCache.get(itemKey(index)) ?? virtualizer.options.estimateSize(index),
+    screen: () => virtualizer.scrollRect?.height ?? 0,
   });
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
@@ -158,6 +163,12 @@ export function UnifiedReview(props: {
     },
     getItemKey: itemKey,
     getScrollElement: () => scroll()?.viewport ?? null,
+    // A taller viewport fits more files in the screens ahead, with no range change to say so.
+    observeElementRect: (instance, callback) =>
+      observeElementRect(instance, (rect) => {
+        callback(rect);
+        mountWindow.changed();
+      }),
     // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
     // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
     // entry instead of a `getBoundingClientRect` that forces a layout mid-gesture. Claiming a settled scroll, as
@@ -211,8 +222,9 @@ export function UnifiedReview(props: {
     scrollToFn: (offset, options, instance) => {
       const owner = scroll()!;
       // A size correction above the viewport carries any wheel glide along instead of cancelling it.
-      if (options.adjustments !== undefined) {
-        owner.shift(options.adjustments, instance.getTotalSize());
+      const adjustments = options.adjustments;
+      if (adjustments !== undefined) {
+        mountWindow.correcting(() => owner.shift(adjustments, instance.getTotalSize()));
         return;
       }
       sizeVirtualList(instance.getTotalSize());
@@ -225,7 +237,10 @@ export function UnifiedReview(props: {
             instance.options.getItemKey(instance.indexFromElement(element)),
           ) ?? element.getBoundingClientRect().height)
         : entry.borderBoxSize[0]!.blockSize,
-    onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
+    onChange: (instance) => {
+      sizeVirtualList(instance.getTotalSize());
+      mountWindow.changed();
+    },
     overscan: 1,
     get rangeExtractor() {
       return mountWindow.extractor();

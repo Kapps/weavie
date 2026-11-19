@@ -209,7 +209,7 @@ test.describe("a decorated multi-file review", () => {
   }
 
   test.describe("with no files mounted ahead", () => {
-    test.use({ reviewFilesAhead: 0 });
+    test.use({ reviewScreensAhead: 0 });
 
     test("scrolling reads layout only to mount each file, down and back up @perf", async ({
       page,

@@ -18,7 +18,7 @@ const filler = Array.from({ length: 80 }, (_, index) => `filler ${index}`).join(
 
 test.use({
   // These journeys unmount a file by scrolling one file away.
-  reviewFilesAhead: 0,
+  reviewScreensAhead: 0,
   fakeScript: {
     steps: [
       { op: "edit", path: `{{WORKSPACE}}/${largeName}`, content: baseline.join("\n") },

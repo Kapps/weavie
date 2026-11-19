@@ -218,6 +218,7 @@ public sealed partial class HostCore {
 				null, id, ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.OpenHomeSession => await OpenHomeSessionAsync(ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
 				id,
@@ -334,6 +335,7 @@ public sealed partial class HostCore {
 			BuildSearchSnapshot(),
 			BuildReviewOverviewSnapshot(),
 			RepoStates(),
+			KnownRepos(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
 			BuildCommandUsage(),
@@ -418,6 +420,7 @@ public sealed partial class HostCore {
 		SearchSnapshot Search,
 		ReviewOverviewSnapshot ReviewOverview,
 		RepoState[] Repos,
+		KnownRepo[] KnownRepos,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);

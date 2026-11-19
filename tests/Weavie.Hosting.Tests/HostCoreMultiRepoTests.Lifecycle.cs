@@ -25,21 +25,64 @@ public sealed partial class HostCoreMultiRepoTests {
 	}
 
 	[Fact]
-	public async Task ASessionGitCannotPlaceAtStartupIsKeptForALaterStart() {
+	public async Task ARepoTheWorkspaceHasUsedIsStillOfferedAfterItsLastSessionAndARestart() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		string home = Path.GetFileName(host.RepoRoot);
+		Assert.Equal([home], await OfferedReposAsync(host));
+
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		Assert.Equal([home, "infra"], host.Bridge.LastEvent("repos", "known")!.Value.EnumerateArray()
+			.Select(repo => repo.GetProperty("label").GetString()));
+
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync(
+			InfraEntry(host, "deploy").GetProperty("id").GetString()!, force: false, classify: false)).Ok);
+		await host.RestartAsync();
+		Assert.Equal([home, "infra"], await OfferedReposAsync(host));
+
+		// A repo whose folder is gone is no longer offered.
+		await host.RestartAsync(() => Directory.Delete(InfraOf(host.RepoRoot), recursive: true));
+		Assert.Equal([home], await OfferedReposAsync(host));
+	}
+
+	[Fact]
+	public async Task ASessionGitCannotPlaceStaysListedUnloadedAndReturnsToItsRepoWhenItIsBack() {
 		await using var host = await StartWithInfraAsync(_ => { });
 		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		string worktree = InfraEntry(host, "deploy").GetProperty("worktree").GetString()!;
 		string infra = InfraOf(host.RepoRoot);
 		string away = infra + "-away";
 
 		// The repository is unreachable while its worktree is still on disk.
 		await host.RestartAsync(() => Directory.Move(infra, away));
-		Assert.DoesNotContain("deploy", host.SessionLabels);
-		Assert.True(Toasted(host, "The session 'deploy' wasn't restored"));
-		// Its workflow documents would otherwise be cleaned up as unowned.
-		Assert.True(Toasted(host, "automatic cleanup is stopped"));
+		Assert.Equal(worktree, host.CatalogEntry("deploy").GetProperty("repo").GetString());
+		Assert.False(host.CatalogEntry("deploy").GetProperty("loaded").GetBoolean());
+		Assert.True(Toasted(host, "The session 'deploy' can't find its repository"));
+		Assert.False(Toasted(host, "Couldn't restore the session"));
+		// It is still a session, so its workflow documents stay owned.
+		Assert.False(Toasted(host, "automatic cleanup is stopped"));
 
 		await host.RestartAsync(() => Directory.Move(away, infra));
-		Assert.True(InfraEntry(host, "deploy").GetProperty("loaded").GetBoolean());
+		Assert.Equal(infra, InfraEntry(host, "deploy").GetProperty("repo").GetString());
+	}
+
+	[Fact]
+	public async Task ASessionWhoseRepositoryIsGoneCanBeDeletedAndItsFolderIsKept() {
+		await using var host = await StartWithInfraAsync(_ => { });
+		Assert.True((await CreateInInfraAsync(host, "deploy")).Ok);
+		string worktree = InfraEntry(host, "deploy").GetProperty("worktree").GetString()!;
+		await host.RestartAsync(() => Directory.Delete(InfraOf(host.RepoRoot), recursive: true));
+
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync(
+			host.CatalogEntry("deploy").GetProperty("id").GetString()!, force: false, classify: false)).Ok);
+		await Wait.UntilAsync(() => !host.SessionLabels.Contains("deploy"));
+		Assert.True(Directory.Exists(worktree));
+
+		host.Bridge.Clear();
+		await host.RestartAsync();
+		Assert.DoesNotContain("deploy", host.SessionLabels);
+		Assert.False(Toasted(host, "can't find its repository"));
 	}
 
 	[Fact]
@@ -118,6 +161,6 @@ public sealed partial class HostCoreMultiRepoTests {
 		Assert.Equal("nested/repo", host.CatalogEntry("deploy").GetProperty("repoLabel").GetString());
 		Assert.Equal(
 			$"{Path.GetFileName(Path.GetDirectoryName(host.RepoRoot))}/repo",
-			host.SessionCatalog.First(entry => entry.GetProperty("workspaceCheckout").GetBoolean()).GetProperty("repoLabel").GetString());
+			host.CatalogEntry("main").GetProperty("repoLabel").GetString());
 	}
 }

@@ -87,5 +87,5 @@ public sealed class HostCoreSessionActivityTests {
 
 	private static JsonElement WorkspaceEntry(TestHost host) =>
 		host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray()
-			.Single(entry => entry.GetProperty("workspaceCheckout").GetBoolean());
+			.Single(entry => entry.GetProperty("id").GetString() == host.WorkspaceSession.SlotId);
 }

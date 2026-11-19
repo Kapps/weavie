@@ -90,6 +90,9 @@ public interface ISessionHost {
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
 	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
 
+	/// <summary>Opens the session on the workspace's home folder when there is none, and loads it.</summary>
+	Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct = default);
+
 	/// <summary>
 	/// Unloads the invoking session, or the given <paramref name="sessionId"/>, into a dormant chip while keeping its
 	/// worktree. Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
@@ -102,8 +105,8 @@ public interface ISessionHost {
 
 	/// <summary>
 	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
-	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>, and always
-	/// refuses the workspace's own checkout — that session is a catalog invariant. A blank id is
+	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A session
+	/// on a folder Weavie did not make (the home folder) is dropped and its folder kept. A blank id is
 	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
 	/// Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
 	/// </summary>

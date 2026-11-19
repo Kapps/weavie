@@ -32,8 +32,7 @@ public sealed partial class HostCore {
 
 		Log($"[sessions] '{slot.Label}' lost its working directory {slot.WorktreePath}: {session.WorkspaceRootGoneCause}");
 
-		// The workspace's own checkout is a catalog invariant Weavie re-creates, so closing it would only loop.
-		// It is the whole workspace that is gone, and the user is the only one who can act on that.
+		// With the home folder it is the whole workspace that is gone, and only the user can act on that.
 		if (IsWorkspaceCheckout(slot)) {
 			session.ReportWorkspaceRootGone(
 				$"This workspace's folder no longer exists: {slot.WorktreePath}. Open a workspace that does.");

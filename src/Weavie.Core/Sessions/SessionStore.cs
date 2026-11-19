@@ -19,6 +19,8 @@ public sealed partial class SessionStore : JsonDocumentStore {
 	// Last real shell-terminal size (fitted, active-pane term-resize); 0 = never recorded. See ShellSize.
 	private int _shellCols;
 	private int _shellRows;
+	private List<string> _repos = [];
+	private bool _homeClosed;
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
 	/// <param name="fileSystem">The filesystem the overlay persists through.</param>
@@ -59,6 +61,48 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			lock (Gate) {
 				return _shellCols > 0 && _shellRows > 0 ? (_shellCols, _shellRows) : null;
 			}
+		}
+	}
+
+	/// <summary>The roots of the repos the workspace has had sessions in.</summary>
+	public IReadOnlyList<string> Repos {
+		get {
+			lock (Gate) {
+				return [.. _repos];
+			}
+		}
+	}
+
+	/// <summary>
+	/// True once the user deleted the session on the home folder, so it is not offered again. Set in memory and
+	/// persisted by the next <see cref="Save"/>.
+	/// </summary>
+	public bool HomeClosed {
+		get {
+			lock (Gate) {
+				return _homeClosed;
+			}
+		}
+		set {
+			lock (Gate) {
+				_homeClosed = value;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Remembers <paramref name="root"/> as a repo the workspace has had a session in, persisted by the next
+	/// <see cref="Save"/>. False when it was already remembered.
+	/// </summary>
+	public bool RememberRepo(string root) {
+		ArgumentException.ThrowIfNullOrEmpty(root);
+		lock (Gate) {
+			if (_repos.Any(known => PathIdentity.Equals(known, root))) {
+				return false;
+			}
+
+			_repos.Add(root);
+			return true;
 		}
 	}
 
@@ -120,6 +164,8 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		_items = snapshot is null ? [] : [.. snapshot.Items];
 		_shellCols = snapshot?.ShellColumns ?? 0;
 		_shellRows = snapshot?.ShellRows ?? 0;
+		_repos = [.. snapshot?.Repos ?? []];
+		_homeClosed = snapshot?.HomeClosed ?? false;
 	}
 
 	/// <inheritdoc/>
@@ -127,6 +173,8 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		Items = _items,
 		ShellColumns = _shellCols,
 		ShellRows = _shellRows,
+		Repos = _repos,
+		HomeClosed = _homeClosed,
 	});
 
 	private static SessionStoreSnapshot ParseSnapshot(string text) {
@@ -141,6 +189,8 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			Items = [.. entries.Select(ParseEntry)],
 			ShellColumns = document.ShellCols,
 			ShellRows = document.ShellRows,
+			Repos = document.Repos ?? [],
+			HomeClosed = document.HomeClosed,
 		};
 	}
 
@@ -184,6 +234,8 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			Version = 4,
 			ShellCols = snapshot.ShellColumns,
 			ShellRows = snapshot.ShellRows,
+			Repos = [.. snapshot.Repos],
+			HomeClosed = snapshot.HomeClosed,
 			Sessions = [.. snapshot.Items.Select(ToEntry)],
 		},
 		SessionStoreJson.Default.SessionsDocument);
@@ -210,6 +262,12 @@ public sealed partial class SessionStore : JsonDocumentStore {
 
 		[JsonPropertyName("shellRows")]
 		public int ShellRows { get; set; }
+
+		[JsonPropertyName("repos")]
+		public List<string>? Repos { get; set; }
+
+		[JsonPropertyName("homeClosed")]
+		public bool HomeClosed { get; set; }
 
 		[JsonPropertyName("sessions")]
 		public List<SessionEntry?>? Sessions { get; set; }

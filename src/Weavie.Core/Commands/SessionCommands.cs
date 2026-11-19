@@ -86,7 +86,10 @@ public static class SessionCommands {
 	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; the workspace's own checkout is refused.</summary>
+	/// <summary>Opens the session on the workspace's home folder: the way back after that session was deleted.</summary>
+	public const string OpenHomeSession = "weavie.session.openHome";
+
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; a folder Weavie did not make is kept.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
@@ -331,6 +334,19 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = OpenHomeSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
+			Title = "Open Home Folder Session",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Session",
+			Description = "Open the session on the workspace's home folder, the folder the window was opened on. A "
+				+ "workspace starts with one; this brings it back after it was deleted, or loads it when it is dormant.",
+			Aliases = ["open home session", "home folder session", "restore home session", "main checkout session"],
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = UnloadSession,
 			SharedExecutionLane = LifecycleExecutionLane,
 			LanePerSession = true,
@@ -445,9 +461,6 @@ public static class SessionCommands {
 				+ "worktree and escalates the confirm when there are untracked files or uncommitted changes. The "
 				+ "interactive counterpart of weavie.session.delete.",
 			Aliases = ["delete session", "remove session", "delete worktree"],
-			// Hidden while the selected session is the workspace's own checkout, which delete refuses; an explicit
-			// id from a session menu still dispatches, since When gates only palette/menu presentation.
-			When = "selectedSessionDeletable",
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the selected session\"}}",
 		});
 
@@ -488,6 +501,7 @@ public static class SessionCommands {
 				GetString(argsJson, "id"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
 			dispatcher.RegisterHandler(CancelOperation, (argsJson, _) => host.CancelOperationAsync(GetString(argsJson, "id"))),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(OpenHomeSession, (_, ct) => host.OpenHomeSessionAsync(ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,
 				(argsJson, context, ct) => host.UnloadSessionAsync(

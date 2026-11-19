@@ -1135,13 +1135,6 @@ export default function App(): JSX.Element {
   createEffect(() =>
     setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
   );
-  // The palette's Delete Session… acts on the selected session, so it hides for the one the host refuses.
-  createEffect(() =>
-    setContext(
-      "selectedSessionDeletable",
-      sessions().find((session) => session.active)?.workspaceCheckout === false,
-    ),
-  );
 
   // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
   // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning

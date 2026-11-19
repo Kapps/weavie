@@ -286,6 +286,8 @@ public sealed partial class HostCore {
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 			_core.LoadSessionAsync(sessionId, ct);
 
+		public Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct) => _core.OpenHomeSessionAsync(ct);
+
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
 			bool stopBackgroundWork,

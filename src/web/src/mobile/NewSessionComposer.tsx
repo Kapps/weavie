@@ -156,6 +156,16 @@ export function NewSessionComposer(props: {
     props.providerAvailable &&
     attachments().every((attachment) => attachment.status === "ready");
 
+  // Enter in the repo path asks for a start while that repo's workflows are still loading, when the disabled
+  // button swallows it: the start runs once it can, unless the form is touched first.
+  const [startAsked, setStartAsked] = createSignal(false);
+  createEffect(() => {
+    if (startAsked() && canStart()) {
+      setStartAsked(false);
+      void submitNew();
+    }
+  });
+
   createEffect(() => {
     if (!props.active) {
       setContext("newSessionPromptFocused", false);
@@ -200,7 +210,18 @@ export function NewSessionComposer(props: {
       // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
       // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on a
       // suggested field means the user is setting that one themselves.
+      onInput={() => setStartAsked(false)}
+      onChange={() => setStartAsked(false)}
+      onKeyUp={(event) =>
+        setStartAsked(
+          event.key === "Enter" &&
+            !props.busy &&
+            event.target instanceof Element &&
+            event.target.matches(".session-repo-path"),
+        )
+      }
       onFocusOut={(event) => {
+        setStartAsked(false);
         const next = event.relatedTarget;
         if (!(next instanceof Element) || !event.currentTarget.contains(next)) {
           return;

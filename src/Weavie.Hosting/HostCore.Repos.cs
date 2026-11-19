@@ -8,6 +8,7 @@ using Weavie.Core.Git;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -29,6 +30,16 @@ public sealed partial class HostCore {
 
 	private RepoState[] RepoStates() => [.. _repos.Values.Select(repo => new RepoState(
 		repo.Root, ResolvedTestProfile(repo), SuggestionWires(repo.Suggestions.Current), RecentFiles(repo)))];
+
+	/// <summary>A repo a session can be started in, with the name that tells it from the others.</summary>
+	internal sealed record KnownRepo(string Repo, string Label);
+
+	// The home folder's, then by name every repo the workspace has had sessions in that is still on disk.
+	private KnownRepo[] KnownRepos() {
+		string[] roots = [Home.Root, .. _sessionStore.Repos.Where(root => !PathIdentity.Equals(root, Home.Root) && Directory.Exists(root))];
+		return [.. roots.Select(root => new KnownRepo(root, RepoLabel(root, roots)))
+			.OrderByDescending(repo => repo.Repo == Home.Root).ThenBy(repo => repo.Label, StringComparer.OrdinalIgnoreCase)];
+	}
 
 	/// <summary>The repos a settings change reaches: the one whose overlay changed, or all for a user-level change.</summary>
 	private IEnumerable<Repo> ReposAffectedBy(SettingChange change) =>
@@ -76,8 +87,11 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>The repo containing <paramref name="path"/>: one of the workspace's, or one opened to join it.</summary>
-	private async Task<Repo> RepoForAsync(string path, CancellationToken ct) {
-		string root = await RepoRootAsync(path, ct).ConfigureAwait(false);
+	private async Task<Repo> RepoForAsync(string path, CancellationToken ct) =>
+		await RepoAtAsync(await RepoRootAsync(path, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+
+	/// <summary>The repo whose root is <paramref name="root"/>: one of the workspace's, or one opened to join it.</summary>
+	private async Task<Repo> RepoAtAsync(string root, CancellationToken ct) {
 		if (_repos.TryGetValue(WorkspaceId.ForPath(root), out var known)) {
 			return known;
 		}
@@ -93,6 +107,10 @@ public sealed partial class HostCore {
 			PushTestProfile(repo);
 			PushRecentFiles(repo);
 			repo.Suggestions.Start();
+			// A plain folder is never offered: only the home folder's session can be on one.
+			if (repo.Worktrees is not null && _sessionStore.RememberRepo(repo.Root)) {
+				_messages.Host.Feature("repos").Publish("known", WireJson.Default.KnownRepoArray, KnownRepos());
+			}
 		}
 	}
 

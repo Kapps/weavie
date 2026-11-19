@@ -131,7 +131,6 @@ registerHostFeature((connection) =>
             workflowProblem: owner === null ? "" : (carried.get(owner)?.workflowProblem ?? ""),
             lastActiveAt: entry.lastActiveAt,
             unseen: entry.unseen,
-            workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
             reloadRequired: entry.reloadRequired,
             repo: entry.repo,
@@ -249,20 +248,6 @@ const merged = createMemo<RailSession[]>(() => {
   }
   return out;
 });
-
-/** The repos a backend's sessions live in, each with the host's name for it: the home folder's, then by name. */
-export function backendRepos(backendId: string): { repo: string; label: string }[] {
-  const chips = byBackend().get(backendId) ?? [];
-  const home = chips.find((chip) => chip.workspaceCheckout)?.repo;
-  const labels = new Map(chips.map((chip) => [chip.repo, chip.repoLabel]));
-  return [...labels]
-    .map(([repo, label]) => ({ repo, label }))
-    .sort(
-      (left, right) =>
-        Number(right.repo === home) - Number(left.repo === home) ||
-        left.label.localeCompare(right.label),
-    );
-}
 
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;

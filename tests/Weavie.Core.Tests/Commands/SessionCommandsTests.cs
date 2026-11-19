@@ -187,6 +187,15 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
+	public async Task OpenHome_InvokesHost() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.OpenHomeSession, "{}", CancellationToken.None);
+
+		Assert.True(host.OpenHomeCalled);
+	}
+
+	[Fact]
 	public async Task Delete_ParsesId_AndForce() {
 		var (dispatcher, host) = NewWired();
 
@@ -241,6 +250,8 @@ public sealed class SessionCommandsTests {
 
 		public bool LoadCalled { get; private set; }
 
+		public bool OpenHomeCalled { get; private set; }
+
 		public string? LastUnloadedId { get; private set; }
 
 		public bool UnloadCalled { get; private set; }
@@ -277,6 +288,11 @@ public sealed class SessionCommandsTests {
 			LoadCalled = true;
 			LastLoadedId = sessionId;
 			return Task.FromResult(CommandResult.Success("loaded"));
+		}
+
+		public Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct = default) {
+			OpenHomeCalled = true;
+			return Task.FromResult(CommandResult.Success("opened"));
 		}
 
 		public Task<CommandResult> UnloadSessionAsync(

@@ -21,7 +21,6 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   title: id,
   lastActiveAt: null,
   unseen: false,
-  workspaceCheckout: false,
   external: false,
   reloadRequired: null,
   repo: "/repo",
@@ -55,6 +54,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   },
   reviewOverview: { collapsed: [] },
   repos: [],
+  knownRepos: [],
   sourceLinkHosts: [],
   agentDefaults: {
     defaultProvider: "acp",

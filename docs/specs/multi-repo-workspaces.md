@@ -46,19 +46,24 @@ names its repo in the request; nothing resolves a session or a repo from the sel
 the selection can change while the surface is open.
 
 The repo of a worktree is git's answer (`git worktree list` from that worktree), never a stored copy. Restoring
-a workspace asks it for each saved session outside the home repo. A saved session git can't answer for, whose
-worktree is still on disk, stays in the store for a later start and is named in a startup notice.
+a workspace asks it for each saved session outside the home repo, all of them side by side. A saved session git
+can't place, whose worktree is still on disk, stays listed and unloaded, with a startup notice that says why. It
+returns to its repo at a later start once git can place it, and deleting it drops the session and keeps the
+folder.
 
 ## Sessions
 
-- The home folder keeps one always-present session. When it is a repository, its existing worktrees are listed
-  as dormant sessions.
+- A workspace opens with a session on its home folder. Weavie did not make that folder, so deleting the session
+  drops it and keeps the folder; it stays deleted across restarts until Open Home Folder Session
+  (`weavie.session.openHome`) brings it back. When the home folder is a repository, its existing worktrees are
+  listed as dormant sessions.
 - Any other repo shows only the sessions created in this workspace.
 - `weavie.session.new` takes `repo`, the folder of any repository on the host or of one of its worktrees
   (relative to the invoking session's worktree, `~` allowed), defaulting to the invoking session's repo. A folder
   inside a repository names none, and a start from no session has to name its repo. An agent asked to "create a session for the
-  infra changes" passes the infra path. The new-session composer lists the workspace's repos, preselecting the
-  selected session's, and takes a typed path for any other; it always sends the repo it shows.
+  infra changes" passes the infra path. The new-session composer lists the home folder's repo and every repo the
+  workspace has had a session in while its folder exists, preselecting the selected session's, and takes a typed
+  path for any other; it always sends the repo it shows.
 - A repo joins the workspace once a session's worktree exists in it and leaves with its last session, so a
   refused start configures nothing.
 - Fork, Open PR, and `base: "source"` stay in the source session's repo.
@@ -105,6 +110,10 @@ through that repository's git, so what a repository ignores stays out of it.
 - a plain home folder hosts a session in a repository beneath it;
 - the first session in a repo runs its auto-configured setup command;
 - a refused start leaves the repo out of the workspace, and a repo leaves with its last session;
-- a saved session whose repo is unreachable at startup is restored by a later start;
+- a saved session whose repo is unreachable at startup stays listed, is deleted with its folder kept, and
+  returns to its repo at a later start;
+- the home folder's session is deleted with its folder kept, stays deleted across a restart, and is reopened by
+  command;
+- a repo is still offered for a new session after its last session and a restart, until its folder is gone;
 - repo labels appear on every chip with two repos and on none with one;
 - an agent creates a session in another repo with `weavie.session.new` and reads it through `listSessions`.

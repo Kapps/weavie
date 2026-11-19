@@ -3,7 +3,7 @@ import type { CommandInfo, ResolvedKeybinding } from "../commands/types";
 import { ClientSessionState } from "./client-session-state";
 import { MessageBus } from "./message-bus";
 import type { MessageEnvelope, SessionAddress } from "./message-envelope";
-import type { AgentDefaults, RepoState } from "./protocol-types";
+import type { AgentDefaults, KnownRepo, RepoState } from "./protocol-types";
 
 export interface SessionCatalogEntry {
   id: string;
@@ -17,7 +17,6 @@ export interface SessionCatalogEntry {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   lastActiveAt: number | null;
   unseen: boolean;
-  workspaceCheckout: boolean;
   external: boolean;
   reloadRequired: string | null;
   /** The root of the repo the session's checkout belongs to. */
@@ -52,6 +51,7 @@ export interface HostHello {
   };
   reviewOverview: { collapsed: string[] };
   repos: RepoState[];
+  knownRepos: KnownRepo[];
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
   commandUsage: CommandUsageSnapshot;

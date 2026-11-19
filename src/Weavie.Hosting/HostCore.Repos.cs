@@ -66,7 +66,14 @@ public sealed partial class HostCore {
 				return Task.FromResult(CommandResult.Failure($"'{root}' isn't a repo this workspace remembers."));
 			}
 
-			PersistSessionState();
+			try {
+				PersistSessionState();
+			} catch {
+				// Still remembered on disk, so still remembered here, and forgetting it can be tried again.
+				_sessionStore.RememberRepo(root);
+				throw;
+			}
+
 			PublishKnownRepos();
 			PushSessionList();
 			return Task.FromResult(CommandResult.Success($"Forgot '{root}'."));

@@ -40,7 +40,7 @@ public sealed partial class HostCore {
 
 	private static bool StopsBackgroundWork(string? argsJson) {
 		using var args = JsonDocument.Parse(argsJson ?? "{}");
-		return ReadBool(args.RootElement, "stopBackgroundWork");
+		return SessionCommands.Flag(args.RootElement, "stopBackgroundWork");
 	}
 
 	internal sealed record StopBackgroundTaskCommand(string? Id);

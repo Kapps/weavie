@@ -223,9 +223,9 @@ public sealed partial class HostCore {
 				? await NewSessionFromHostAsync(args, home, ct).ConfigureAwait(false)
 				: CommandResult.Failure("This page hasn't connected yet."),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
-				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+				null, id, ReadString(args, "agentProviderId"), SessionCommands.Flag(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.ReloadSession => await ReloadSessionAsync(
-				null, id, ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+				null, id, SessionCommands.Flag(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.OpenHomeSession => await OpenHomeSessionAsync(ct).ConfigureAwait(false),
@@ -233,7 +233,7 @@ public sealed partial class HostCore {
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
 				id,
-				ReadBool(args, "stopBackgroundWork"),
+				SessionCommands.Flag(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			SessionCommands.DeleteSession when SessionCommands.Flag(args, "classify") =>
@@ -307,11 +307,6 @@ public sealed partial class HostCore {
 		&& value.ValueKind == JsonValueKind.String
 			? value.GetString()
 			: null;
-
-	private static bool ReadBool(JsonElement? args, string name) =>
-		args is { ValueKind: JsonValueKind.Object } element
-		&& element.TryGetProperty(name, out var value)
-		&& value.ValueKind == JsonValueKind.True;
 
 	private async Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
 		HostBranchPreviewRequest message,

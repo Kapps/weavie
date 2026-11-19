@@ -606,6 +606,7 @@ public static class SessionCommands {
 		return prop.ValueKind switch {
 			JsonValueKind.True => true,
 			JsonValueKind.False => false,
+			// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary.
 			JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
 			JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
 			_ => false,
@@ -669,18 +670,7 @@ public static class SessionCommands {
 
 		try {
 			using var doc = JsonDocument.Parse(argsJson);
-			if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty(name, out var prop)) {
-				return false;
-			}
-
-			return prop.ValueKind switch {
-				JsonValueKind.True => true,
-				JsonValueKind.False => false,
-				// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary.
-				JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
-				JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
-				_ => false,
-			};
+			return Flag(doc.RootElement, name);
 		} catch (JsonException) {
 			return false;
 		}

@@ -58,3 +58,21 @@ describe("carried edits when storage is full", () => {
     expect(carriedEdits(incarnation("new"))).toEqual({ "b.ts": "large" });
   });
 });
+
+describe("carried edits when storage refuses to remove them", () => {
+  it("are forgotten for the departed slot all the same, and removed at the next cleanup", () => {
+    storeCarriedEdits(incarnation("old"), { "c.ts": "text" });
+    const removeItem = window.sessionStorage.removeItem;
+    window.sessionStorage.removeItem = () => {
+      throw new Error("denied");
+    };
+    expect(() => clearSlotDrafts("local", "slot")).not.toThrow();
+    window.sessionStorage.removeItem = removeItem;
+    expect(carriedEdits(incarnation("new"))).toEqual({});
+
+    clearSlotDrafts("local", "other");
+    expect(
+      Object.keys(window.sessionStorage).filter((key) => key.startsWith("weavie-session-draft")),
+    ).toEqual([]);
+  });
+});

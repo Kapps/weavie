@@ -10,6 +10,7 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
 import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { noteScroll } from "../../frame-work";
 import { registerTouchScroll } from "./review-touch-scroll";
 
 // Match Monaco's ViewLayout animation duration.
@@ -117,6 +118,8 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       String(Math.max(0, dimensions.scrollHeight - dimensions.height)),
     );
     const userInitiated = !updating;
+    // The review moves by transform, so a scrollbar drag, a key or a fling fires no scroll event.
+    if (userInitiated) noteScroll();
     for (const listener of listeners) listener(userInitiated);
   };
   const layout = (): void => {

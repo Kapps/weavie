@@ -135,9 +135,10 @@ test.describe("wrapped review construction", () => {
     expect(width).toBeGreaterThan(100);
     await expect(lines.nth(1)).toContainText("wrapped");
     await page.locator(".unified-review-map-file").last().click();
-    await expect(
-      page.locator('.unified-review-file[data-index="2"] .view-line').first(),
-    ).toBeInViewport();
+    const last = page.locator('.unified-review-file[data-index="2"]');
+    await expect(last.locator(".view-line").first()).toBeInViewport();
+    // Laid out at its own height, so End below lands on the real end.
+    await expect(last.locator(".unified-review-notice")).toHaveCount(0);
     // Centered navigation can leave the previous file visible and the first file in overscan.
     await scrollReview(page, "end");
     await expect(first).toHaveCount(0);

@@ -826,6 +826,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           cleared: () => activePreviewReview()?.clear(),
           toolbarItems: () => activePreviewReview()?.toolbarItems() ?? [],
           painted: () => {},
+          beforeFirstRender: () => undefined,
           updateGeometry: (change) => change(),
         });
         previewReviewSub = onPreviewPanesChanged(() => inlineDiff?.regroup());

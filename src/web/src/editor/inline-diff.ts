@@ -153,6 +153,11 @@ export interface InlineDiffPresentation {
   /** Whether `hunk` is on screen to act on; false shows it instead, so nothing is kept or reverted unseen. */
   confirmTarget(hunk: DiffHunk): boolean;
   painted(): void;
+  /**
+   * Awaited before a diff is drawn where none is showing, if the surface schedules that draw; `wanted` turns
+   * false once the draw is stale.
+   */
+  beforeFirstRender(wanted: () => boolean): Promise<void> | undefined;
   /** Keeps geometry-induced scroll changes inside the owning presentation. */
   updateGeometry(change: () => void): void;
 }
@@ -1120,14 +1125,17 @@ export function createInlineDiff(
       model,
     );
     const calculation = computation instanceof Promise ? await computation : computation;
-    if (
-      disposed ||
-      generation !== renderGeneration ||
-      editor.getModel() !== model ||
-      model.getVersionId() !== version ||
-      diffs.get(uriString) !== options
-    ) {
-      return;
+    const current = (): boolean =>
+      !disposed &&
+      generation === renderGeneration &&
+      editor.getModel() === model &&
+      model.getVersionId() === version &&
+      diffs.get(uriString) === options;
+    if (!current()) return;
+    const slot = renderedUri === uriString ? undefined : presentation.beforeFirstRender(current);
+    if (slot !== undefined) {
+      await slot;
+      if (!current()) return;
     }
     if (calculation.status === "failed") {
       log("error", `inline diff calculation failed: ${String(calculation.error)}`);

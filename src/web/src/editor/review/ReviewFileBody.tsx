@@ -10,6 +10,7 @@ import {
   untrack,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { afterFrame } from "../../frame-work";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
@@ -93,11 +94,16 @@ export function ReviewFileBody(props: {
       { defer: true },
     ),
   );
-  createEffect(() => {
-    const editor = mounted();
-    const value = diff();
-    if (editor !== undefined && value !== null) editor.update(value);
-  });
+  // An editor is built from the diff of that moment; only a later one is applied to it.
+  createEffect(
+    on(
+      diff,
+      (value) => {
+        if (value !== null) untrack(mounted)?.update(value);
+      },
+      { defer: true },
+    ),
+  );
   // A file whose diff has landed and holds nothing to show — including one kept all the way through, whose
   // diff is null precisely because it is done.
   const nothingLeft = (): boolean => {
@@ -128,9 +134,15 @@ export function ReviewFileBody(props: {
       return;
     }
     const token = ++resolution;
-    void props.openCopy(value).then(
+    // The editor is built in a frame slot of its own, so a file mounting mid-scroll holds no frame for long.
+    const wanted = (): boolean => !dropped && token === resolution;
+    const slotted = props.openCopy(value).then(async (copy) => {
+      if (wanted()) await afterFrame(wanted);
+      return copy;
+    });
+    void slotted.then(
       (copy) => {
-        if (dropped || token !== resolution || mount === undefined) return;
+        if (!wanted() || mount === undefined) return;
         const latest = diff();
         if (latest === null || !hasReviewChanges(latest)) return;
         const container = mount;

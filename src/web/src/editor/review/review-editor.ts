@@ -3,6 +3,7 @@ import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { interfaceLine } from "../../fonts";
+import { afterFrame } from "../../frame-work";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
 import { hiddenAreas } from "../hidden-areas";
@@ -223,6 +224,7 @@ export function createReviewEditor(options: {
       markers = next;
       applyContext();
     },
+    beforeFirstRender: afterFrame,
     painted: () => {
       if (loading.parentNode !== null) {
         loading.remove();

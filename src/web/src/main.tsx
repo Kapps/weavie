@@ -2,6 +2,7 @@ import { onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import App from "./App";
 import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./bridge";
+import { installIdleCallback } from "./frame-work";
 import { installNavigationGuard } from "./navigation";
 import { notifyReloadRequired } from "./notify/notify";
 import { onSplashDismissed } from "./splash";
@@ -50,6 +51,8 @@ import "./mobile/mobile-commands.css";
 import "./mobile/session-inbox.css";
 
 mark("module-eval");
+// Before the editor loads: Monaco picks its idle scheduler once, when its modules first run.
+installIdleCallback();
 onSplashDismissed(() => mark("splash-dismissed"));
 
 const root = document.getElementById("root");

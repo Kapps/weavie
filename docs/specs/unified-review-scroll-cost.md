@@ -447,6 +447,45 @@ when a section mounts during a rest (0.0 px across every run). Keeping up to sev
 three adds about a third of a millisecond per frame. A continuous scroll through more files than the reach still
 mounts mid-gesture, as before.
 
+## Mounting mid-scroll, one stage per frame
+
+A continuous scroll through more files than the reach still builds an editor mid-gesture. In headless WebKit that
+is about 65 ms of blocked main thread per file (about 27 ms in Chromium), as five tasks that ran back to back and
+so held two or three frames: building the editor (~8 ms), Monaco's first render (~9 ms), Monaco's idle work
+(~5 ms), drawing the diff with its collapsed context (~8 ms) and Monaco's render of that. Three suspects were
+measured and cleared: painting (hiding every section's pixels saves at most 8 ms), style and layout (a forced flush
+after each stage costs about 1.6 ms), and no single function dominates.
+
+`frame-work.ts` spreads those tasks over frames instead:
+
+- **Stages take a frame each.** `afterFrame()` resolves right after a frame has drawn, for one caller per frame.
+  `ReviewFileBody` builds the editor in one slot and the review's `beforeFirstRender` draws a file's first diff in
+  another, so neither shares a frame with the other or with a second file's. A stage whose file was scrolled past
+  or whose diff went stale is let go without taking a frame, so a fast traversal queues nothing ahead of where it
+  lands.
+- **Idle work waits for the scroll.** WebKit has no `requestIdleCallback`, so Monaco ran its idle work (an
+  editor's deferred contributions, background tokenizing) at once in 15 ms slices, mid-scroll included.
+  `installIdleCallback()` supplies one that runs in the frames no stage took, with 10 ms of each, and holds until
+  250 ms after the last wheel or touch move, or the review reporting that it moved (`noteScroll`: it scrolls by
+  transform, so a scrollbar drag or a key fires no scroll event), unless a callback's own timeout comes due.
+
+This is a bounded wait, one frame per stage, where the deferrals above waited for the scroll to stop. A reveal
+is itself a scroll, so those never released the section navigation was waiting for; here the section registers
+two frames later and the pending navigation settles on it then, as it already did for a diff still computing.
+
+Either half alone measured no better than before; together they remove most of the long frames. Headless WebKit on a
+loaded build server, 900 notches with no pause across 24 files, the two builds alternating:
+
+| per run | before | after |
+|---|---|---|
+| frames with the main thread blocked over 30 ms | 6-13 | 0-6 |
+| frames blocked over 15 ms | 17-31 | 13-32 |
+| blocked time per frame, p99 | 22-38 ms | 17-28 ms |
+| blocked time per frame, p50 | 5-6 ms | 5-6 ms |
+
+The work is the same and so is the count of frames it touches; each is shorter. A scroll with pauses is unchanged
+(no section mounts mid-scroll).
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

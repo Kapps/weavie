@@ -22,11 +22,13 @@ public sealed class HostCoreWorkflowAgentTests {
 			  gone: { provider: structured, model: GPT Gone }
 			stages:
 			  - id: build
-			    run: { prompt: "build it", agent: builder }
+			    agent: builder
+			    run: { prompt: "build it" }
 			  - id: ship
 			    run: { prompt: "ship it" }
 			  - id: broken
-			    run: { prompt: "never sent", agent: gone }
+			    agent: gone
+			    run: { prompt: "never sent" }
 			""");
 		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "foreign.yaml"), """
 			id: foreign
@@ -34,7 +36,8 @@ public sealed class HostCoreWorkflowAgentTests {
 			agents: { reviewer: { provider: other-acp } }
 			stages:
 			  - id: review
-			    run: { prompt: "review it", agent: reviewer }
+			    agent: reviewer
+			    run: { prompt: "review it" }
 			""");
 		TempGitRepo.Run(repo, "add", ".");
 		TempGitRepo.Run(repo, "commit", "-m", "agents");
@@ -110,7 +113,8 @@ public sealed class HostCoreWorkflowAgentTests {
 			agents: { planner: { provider: effort-acp, model: alpha, options: { effort: high } } }
 			stages:
 			  - id: plan
-			    run: { prompt: "never sent", agent: planner }
+			    agent: planner
+			    run: { prompt: "never sent" }
 			""");
 		await effort.SetAgentControlAsync("model", "beta");
 		await Eventually(() => Model(effort) == "beta");

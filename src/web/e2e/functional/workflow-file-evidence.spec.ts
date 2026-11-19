@@ -17,7 +17,7 @@ const SUMMARY = "Reviewed the supplied documents.";
 const REVIEW = `  - id: review
     run:
       prompt: Review the documents.
-      outputs: { documents: files, ignored: files, directory: text }
+    outputs: { documents: files, ignored: files, directory: text }
     then:
       ask: "${QUESTION} {{review.documents}}"
       choices: { accept: accepted, revise: review }
@@ -67,7 +67,8 @@ description: Judge explicit file evidence.
 inputs: { source: files }
 stages:
   - id: draft
-    run: { prompt: Gather the documents., outputs: { documents: files } }
+    run: { prompt: Gather the documents. }
+    outputs: { documents: files }
 ${REVIEW.replace(
   "    run:",
   '    if: "Are {{inputs.source}} and {{draft.documents}} ready?"\n    run:',
@@ -184,7 +185,8 @@ description: File deleted after validation.
 inputs: { source: files }
 stages:
   - id: draft
-    run: { prompt: Gather the documents., outputs: { documents: files } }
+    run: { prompt: Gather the documents. }
+    outputs: { documents: files }
   - id: edit
     run: { prompt: Edit the documents. }
   - id: review

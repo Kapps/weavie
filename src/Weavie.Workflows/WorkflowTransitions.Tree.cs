@@ -4,6 +4,7 @@ namespace Weavie.Workflows;
 internal sealed partial class WorkflowTransitions {
 	// Starts a stage whose if (if any) said yes: a repetition, its stages, or its work.
 	private WorkflowStep Begin(WorkflowRun run, WorkflowFrame frame, WorkflowStage stage) {
+		frame = run.FrameOf(frame.Id)!;
 		run = run with { Frame = frame.Id, Stage = stage.Id };
 		if (stage.Context == WorkflowContext.Fork && stage.Reuse is null) {
 			// A fork entered again copies its source again.
@@ -14,12 +15,11 @@ internal sealed partial class WorkflowTransitions {
 			if (!TryResolve(run, stage.Foreach!, out var list, out string missing)) return Pause(run, missing);
 			var items = list.Flat();
 			if (items.Count == 0) {
-				run = Store(run, frame, stage, stage.Outputs.ToDictionary(o => o.Name, _ => new WorkflowValue { Entries = [] }));
-				return Enter(run, run.FrameOf(frame.Id)!, Following(stage));
+				return Enter(Store(run, frame, stage, stage.Outputs.ToDictionary(o => o.Name, _ => new WorkflowValue { Entries = [] })), frame, Following(stage));
 			}
 
 			run = Update(run, frame.Id, f => f with { Loops = new(f.Loops) { [stage.Id] = new() { Items = items, Results = [] } } });
-			return StartEntry(run, run.FrameOf(frame.Id)!, stage, 1);
+			return StartEntry(run, frame, stage, 1);
 		}
 
 		if (stage.Stages.Count > 0) {
@@ -34,6 +34,7 @@ internal sealed partial class WorkflowTransitions {
 	}
 
 	private WorkflowStep StartEntry(WorkflowRun run, WorkflowFrame parent, WorkflowStage stage, int entry) {
+		parent = run.FrameOf(parent.Id)!;
 		(run, var frame) = AddFrame(run, parent, stage, entry, parent.Loops[stage.Id].Items[entry - 1]);
 		var step = stage.Stages.Count > 0 ? Enter(run, frame, stage.Stages[0].Id) : Open(run, frame, stage);
 		return step with { Effects = [new WorkflowEffect.EnterStage(), .. step.Effects] };
@@ -41,6 +42,7 @@ internal sealed partial class WorkflowTransitions {
 
 	// The record's list is done: the stage it is an instance of finishes with the outputs it copies.
 	private WorkflowStep Finish(WorkflowRun run, WorkflowFrame frame) {
+		frame = run.FrameOf(frame.Id)!;
 		if (frame.Parent.Length == 0) {
 			run = run with { Decision = null, Asked = null, PausedReason = null, Attempts = 0, Kickoff = null };
 			if (OwedTo(run, null).Length > 0) return Send(run with { Phase = WorkflowPhase.Done, Note = "" },
@@ -60,13 +62,13 @@ internal sealed partial class WorkflowTransitions {
 
 		var parent = run.FrameOf(frame.Parent)!;
 		run = Report(run with { Frame = parent.Id, Stage = stage.Id }, stage, frame.Entry > 0 ? frame : null, parent, values, run.Summary);
-		var step = frame.Entry > 0 ? EndEntry(run, run.FrameOf(frame.Id)!, values)
-			: Advance(Store(run, run.FrameOf(parent.Id)!, stage, values), run.FrameOf(parent.Id)!, stage);
+		var step = frame.Entry > 0 ? EndEntry(run, frame, values) : Advance(Store(run, parent, stage, values), parent, stage);
 		return step with { Effects = [new WorkflowEffect.EnterStage(), .. step.Effects] };
 	}
 
 	// An entry finished: its record and everything in it go, and the next entry starts or the repetition finishes.
 	private WorkflowStep EndEntry(WorkflowRun run, WorkflowFrame entry, Dictionary<string, WorkflowValue> values) {
+		entry = run.FrameOf(entry.Id)!;
 		var stage = definition.Stage(entry.Stage);
 		var loop = run.FrameOf(entry.Parent)!.Loops[stage.Id];
 		loop = loop with { Results = [.. loop.Results, values] };

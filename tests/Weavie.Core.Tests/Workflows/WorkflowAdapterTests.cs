@@ -94,7 +94,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		var run = runner.Start("flow", Json("{}"));
 		var asking = run with {
 			Phase = WorkflowPhase.Asking,
-			Asked = new WorkflowAsked { Question = "ship it?", Choices = ["yes", "no"], Reason = "the decision confidence 0.7 is below the required 0.8" },
+			Asked = new WorkflowAsked { Id = 1, Question = "ship it?", Choices = ["yes", "no"], Reason = "the decision confidence 0.7 is below the required 0.8" },
 		};
 		Assert.Equal("ship it? (the decision confidence 0.7 is below the required 0.8)", WorkflowRunSummary.From(asking, SessionStatus.Idle)!.Reason);
 		var paused = run with { Phase = WorkflowPhase.Paused, PausedReason = "stuck" };
@@ -121,7 +121,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}")) with {
 			Phase = phase,
-			Asked = new WorkflowAsked { Question = "q", Choices = ["a", "b"], Reason = "" },
+			Asked = new WorkflowAsked { Id = 1, Question = "q", Choices = ["a", "b"], Reason = "" },
 		};
 		Assert.Equal(state, WorkflowRunSummary.From(run, status)!.State);
 		Assert.Null(WorkflowRunSummary.From(run with { Phase = WorkflowPhase.Done }, status));
@@ -129,7 +129,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	[Fact]
 	public void AKickoffBecomesAnAgentTurnOfItsKind() {
-		var skill = new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" };
+		var skill = WorkflowKickoff.Prompt("/spec x") with { Command = "spec", Opens = "spec" };
 		var turn = skill.Submission([new WorkflowTurnImage("/documents/prompt/r-1/image-1.png", "image/png")]);
 		Assert.Equal(("/spec x", "spec", AgentTurnSubmissionKind.ProviderCommand), (turn.Text, turn.CommandName, turn.Kind));
 		var image = Assert.IsType<AgentInputAttachment.Image>(turn.Attachments[0]);
@@ -142,7 +142,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		WorkflowTurnImage[] images = [new("/documents/prompt/r-1/image-1.png", "image/png")];
 
 		Assert.Equal(["/spec x", images[0].Path],
-			new WorkflowKickoff { Context = WorkflowContext.Continue, Text = "/spec x", Command = "spec", Opens = "spec" }.Submission(images).TerminalParts());
+			(WorkflowKickoff.Prompt("/spec x") with { Command = "spec", Opens = "spec" }).Submission(images).TerminalParts());
 		Assert.Equal([images[0].Path, "go"], WorkflowKickoff.Prompt("go").Submission(images).TerminalParts());
 	}
 

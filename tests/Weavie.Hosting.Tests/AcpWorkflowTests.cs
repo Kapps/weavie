@@ -14,7 +14,7 @@ public sealed class AcpWorkflowTests {
 		  - id: build
 		    run:
 		      prompt: 'mcp:completeStage:{"outputs":{"pr":"https://example.test/pull/7"},"summary":"opened the PR"}'
-		      outputs: { pr: pr }
+		    outputs: { pr: pr }
 		""";
 
 	[Fact]
@@ -31,7 +31,7 @@ public sealed class AcpWorkflowTests {
 		await fixture.WaitForMessageAsync(message =>
 			message.Text?.StartsWith("completeStage: Complete. The workflow is finished.", StringComparison.Ordinal) == true);
 		Assert.Equal(WorkflowPhase.Done, fixture.Workflow.Current!.Phase);
-		Assert.Equal("https://example.test/pull/7", fixture.Workflow.Current.Outputs["build"]["pr"].Render());
+		Assert.Equal("https://example.test/pull/7", fixture.Workflow.Current.Frames[0].Outputs["build"]["pr"].Render());
 		string log = Path.Combine(fixture.FakeAcpStateDirectory, "assistant-context.log");
 		string context = File.ReadAllText(log);
 		Assert.Contains($"Run {run.Id} of workflow \"flow\" is at stage \"build\"", context, StringComparison.Ordinal);

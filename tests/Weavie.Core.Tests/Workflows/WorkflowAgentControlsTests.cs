@@ -44,8 +44,9 @@ public sealed class WorkflowAgentControlsTests {
 		SourceText = "",
 		Stages = [
 			new WorkflowStage {
-				Id = "build", If = null, Then = new WorkflowThen.Sequential(),
-				Run = new WorkflowWork { Context = WorkflowContext.Continue, Reuse = null, Prompt = WorkflowTemplate.Empty, Skill = null, Args = null, Outputs = [], Agent = "builder", Role = null },
+				Id = "build", If = null, Foreach = null, Then = new WorkflowThen.Sequential(), Context = WorkflowContext.Continue, Reuse = null,
+				Agent = "builder", Role = null, Stages = [], Outputs = [],
+				Run = new WorkflowWork { Prompt = WorkflowTemplate.Empty, Skill = null, Args = null },
 			},
 		],
 	};
@@ -87,7 +88,7 @@ public sealed class WorkflowAgentControlsTests {
 	private static WorkflowDefinition RoleDefinition() {
 		var pinned = Definition(Agent(null));
 		var stage = pinned.Stages[0];
-		return pinned with { Agents = [], Stages = [stage with { Run = stage.Run with { Agent = null, Role = "builder" } }] };
+		return pinned with { Agents = [], Stages = [stage with { Agent = null, Role = "builder" }] };
 	}
 
 	[Fact]

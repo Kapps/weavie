@@ -66,8 +66,9 @@ public sealed partial class WorkflowSuggester(IDecisionService decisions, Workfl
 			return new WorkflowSuggestion.Unchanged();
 		}
 
-		IReadOnlyList<string> prompts = [.. definition.Stages.Where(stage => stage.Run.Role == role)
-			.Select(stage => stage.Run.Prompt?.Source ?? $"/{stage.Run.Skill} {stage.Run.Args?.Source}".TrimEnd())];
+		IReadOnlyList<string> prompts = [.. definition.All.Where(stage => (definition.Opener(stage) ?? stage).Role == role)
+			.Select(stage => stage.Run).OfType<WorkflowWork>()
+			.Select(work => work.Prompt?.Source ?? $"/{work.Skill} {work.Args?.Source}".TrimEnd())];
 		return await AskAsync(decisions, history, Request(worktree, InferenceInvocationOrigin.Automatic,
 			JsonSerializer.SerializeToElement(new RoleEvidence(role, prompts), SuggestionJson.Default.RoleEvidence),
 			new(RoleInstructions, [.. offered.Select(model => new DecisionChoice(

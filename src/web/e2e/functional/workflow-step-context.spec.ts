@@ -16,7 +16,9 @@ test("a fresh workflow child keeps revisions and return visits while main receiv
 description: Review in a separate conversation.
 stages:
   - id: review
-    run: { context: fresh, prompt: Review cancellation, outputs: { note: text } }
+    context: fresh
+    run: { prompt: Review cancellation }
+    outputs: { note: text }
     then:
       ask: "Accept {{review.note}}?"
       by: user

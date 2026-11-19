@@ -225,6 +225,33 @@ public sealed class WorkflowNestedTransitionsTests {
 	}
 
 	[Fact]
+	public void AStageWithStagesCopiesItsOutputsAndTakesItsLastStagesSummary() {
+		var machine = TestWorkflows.Machine(Read("""
+			id: copy
+			description: Copies.
+			stages:
+			  - id: group
+			    outputs: { note: "{{write.note}}", missing: "{{skipped.note}}" }
+			    stages:
+			      - id: write
+			        run: { prompt: Write. }
+			        outputs: { note: text }
+			        then: done
+			      - id: skipped
+			        run: { prompt: Never. }
+			        outputs: { note: text }
+			  - id: read
+			    run: { prompt: "Read {{group.note}}." }
+			"""));
+		var run = machine.Start(TestWorkflows.Start).Run;
+		Assert.Equal(("write", null), (run.Stage, run.Kickoff!.Conversation));
+		run = machine.Complete(WorkflowTransitions.Claim(run, run.Kickoff), Json("""{"note":"written"}"""), "wrote it").Step.Run;
+		Assert.Equal(("read", "Read written.", "wrote it"), (run.Stage, run.Kickoff!.Text, run.Summary));
+		Assert.Equal(["note"], run.Frames[0].Outputs["group"].Keys);
+		Assert.Equal("", run.Frames[0].Owed.GetValueOrDefault("", ""));
+	}
+
+	[Fact]
 	public void TheRunDocumentKeepsItsRecords() {
 		var run = Complete(Complete(Machine.Start(TestWorkflows.Start).Run, """{"groups":["auth"]}"""), """{"tasks":["schema"]}""");
 		var read = WorkflowRunDocument.Read(WorkflowRunDocument.Write(run))!;

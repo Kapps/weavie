@@ -28,10 +28,12 @@ public static partial class CoreCommands {
 				+ "{{run.prompt}}; 'inputs' maps each declared input to its value.",
 				"\"workflow\":{\"type\":\"string\"},\"prompt\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"}"),
 			(WorkflowAnswer, "Answer Workflow Question", "Give the user's answer to the question a workflow run is asking. Only when the user explicitly answers; never answer for them.",
-				RunArg + ",\"choice\":{\"type\":\"string\",\"description\":\"One of the question's answers\"},"
+				RunArg + ",\"question\":{\"type\":\"integer\",\"description\":\"The question's number from the stage block\"},"
+				+ "\"choice\":{\"type\":\"string\",\"description\":\"One of the question's answers\"},"
 				+ "\"feedback\":{\"type\":\"string\",\"description\":\"The user's own words with their answer; empty when they gave none\"}"),
 			(WorkflowResume, "Resume Workflow", "Resume a paused workflow run: a paused question is asked again, otherwise the stage restarts.", RunArg),
-			(WorkflowJumpToStage, "Jump to Workflow Stage", "Move a workflow run to a stage, which opens regardless of its if.",
+			(WorkflowJumpToStage, "Jump to Workflow Stage", "Move a workflow run to a stage beside its current one, which opens regardless of its if, "
+				+ "or to done to finish the stages the current one is in.",
 				RunArg + ",\"stage\":{\"type\":\"string\"}"),
 			(WorkflowCancel, "Cancel Workflow", "Cancel a workflow run.", RunArg),
 			(WorkflowSetRole, "Set Workflow Role", "Set or clear, for every workspace, which model fills a workflow role (a step's 'role', e.g. planner) "

@@ -19,7 +19,8 @@ public sealed partial class RegistryMcpTests {
 			description: stage credential
 			stages:
 			  - id: a
-			    run: { context: fresh, prompt: complete this }
+			    context: fresh
+			    run: { prompt: complete this }
 			    then: {{(decision ? "{ ask: ready?, by: user, choices: { approve: done, revise: a } }" : "done")}}
 			""");
 		var workflows = NewWorkflows(personal, new GrantPort());
@@ -46,7 +47,7 @@ public sealed partial class RegistryMcpTests {
 		bool responseOutstandingAtRetirement = false;
 		runner.Changed += () => {
 			responseOutstandingAtRetirement |= execution.Retired.IsCompleted && !stage.CompletionResponses.IsCompleted;
-			if (runner.Current!.Phase == WorkflowPhase.Asking) runner.Answer(runner.Current.Id, "approve", "");
+			if (runner.Current!.Phase == WorkflowPhase.Asking) runner.Answer(runner.Current.Id, runner.Current!.Asked!.Id, "approve", "");
 		};
 		var closed = CloseAfterResponseAsync(execution, stage);
 
@@ -94,7 +95,7 @@ public sealed partial class RegistryMcpTests {
 			// Move between admission and handling, without sleeps or competing network requests.
 			if (revise) {
 				runner.CompleteStage(outputs.RootElement, "ready");
-				runner.Answer(run.Id, "revise", "change it");
+				runner.Answer(run.Id, runner.Current!.Asked!.Id, "revise", "change it");
 			} else {
 				runner.Jump(run.Id, "b");
 			}

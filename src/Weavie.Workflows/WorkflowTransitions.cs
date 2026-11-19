@@ -59,7 +59,7 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 		var entry = live.Stage == stage.Id && live.Entry > 0 ? live : null;
 		var sits = Scope(run);
 		run = Report(run with { Summary = summary, Attempts = 0, Kickoff = null }, stage, entry, sits, values, summary);
-		var step = entry is not null ? EndEntry(run, run.FrameOf(entry.Id)!, values) : Advance(Store(run, sits, stage, values), run.FrameOf(sits.Id)!, stage);
+		var step = entry is not null ? EndEntry(run, entry, values) : Advance(Store(run, sits, stage, values), sits, stage);
 		// A main-conversation caller receives its question in the completion reply; independent work reports to main.
 		return new WorkflowCompletion(!inMain || step.Run.Phase != WorkflowPhase.Asking ? step : new WorkflowStep(
 			step.Run with { Kickoff = null }, [.. step.Effects.Where(e => e is not WorkflowEffect.Kickoff)]), []);
@@ -234,7 +234,9 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 
 	private WorkflowStep Enter(WorkflowRun run, WorkflowFrame frame, string target) => Enter(run, frame, target, startsExecution: true);
 
+	// Every step reads its record afresh by id: the one it was handed may predate this run's changes.
 	private WorkflowStep Enter(WorkflowRun run, WorkflowFrame frame, string target, bool startsExecution) {
+		frame = run.FrameOf(frame.Id)!;
 		run = run with { Frame = frame.Id, Decision = null, Asked = null, PausedReason = null, Attempts = 0, Kickoff = null };
 		if (target == WorkflowSchema.Done) {
 			return Finish(run, frame);
@@ -249,18 +251,20 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 	}
 
 	private WorkflowStep Advance(WorkflowRun run, WorkflowFrame frame, WorkflowStage stage) {
+		frame = run.FrameOf(frame.Id)!;
 		run = run with { Frame = frame.Id, Stage = stage.Id };
 		return stage.Then switch {
 			WorkflowThen.Goto go => Enter(run, frame, go.Target),
 			WorkflowThen.Decide decide => Ask(
 				run, WorkflowDecisionKind.Then, decide.Question, [.. decide.Choices.Select(c => new WorkflowDecisionOption(c.Name, c.Description))],
-				run.FrameOf(frame.Id)!.Outputs.GetValueOrDefault(stage.Id, []).ToDictionary(o => o.Key, o => o.Value.Render())),
+				frame.Outputs.GetValueOrDefault(stage.Id, []).ToDictionary(o => o.Key, o => o.Value.Render())),
 			_ => Enter(run, frame, Following(stage)),
 		};
 	}
 
 	// Opens the stage's turn in record frame, prefixed by any feedback the user's last answer left for it.
 	private WorkflowStep Open(WorkflowRun run, WorkflowFrame frame, WorkflowStage stage) {
+		frame = run.FrameOf(frame.Id)!;
 		run = run with { Frame = frame.Id, Stage = stage.Id };
 		var work = stage.Run!;
 		if (!TryRender(run, work.Prompt ?? work.Args, out string rendered, out string missing)) {
@@ -271,7 +275,7 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			? WorkflowKickoff.Prompt($"/{skill} {Join(rendered, run.Note)}".TrimEnd()) with { Command = skill, Opens = stage.Id }
 			: WorkflowKickoff.Prompt(Join(run.Note, rendered)) with { Opens = stage.Id };
 		return Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" },
-			StageTurn(run, run.FrameOf(frame.Id)!, stage, kickoff));
+			StageTurn(run, frame, stage, kickoff));
 	}
 
 	private static WorkflowKickoff StageTurn(WorkflowRun run, WorkflowFrame frame, WorkflowStage stage, WorkflowKickoff turn) {

@@ -23,7 +23,8 @@ public sealed partial class HostCore {
 			return $"Started run {run.Id} of workflow {run.WorkflowId} at stage {run.Stage}.";
 		}, argsJson));
 		RegisterRunCommand(session, CoreCommands.WorkflowAnswer,
-			(run, args) => runner.Answer(run, WeavieWorkflows.Required(args, "choice"), args.GetStringOrEmpty("feedback")), "Answered; the run continues.");
+			(run, args) => runner.Answer(run, Question(args), WeavieWorkflows.Required(args, "choice"), args.GetStringOrEmpty("feedback")),
+			"Answered; the run continues.");
 		RegisterRunCommand(session, CoreCommands.WorkflowResume, (run, _) => runner.Resume(run), "Resumed the run.");
 		RegisterRunCommand(session, CoreCommands.WorkflowJumpToStage,
 			(run, args) => runner.Jump(run, WeavieWorkflows.Required(args, "stage")), "Moved the run.");
@@ -42,6 +43,11 @@ public sealed partial class HostCore {
 		runner.Changed += Publish;
 		session.Status.Changed += _ => Publish();
 	}
+
+	private static int Question(JsonElement args) =>
+		args.TryGetProperty("question", out var question) && question.ValueKind == JsonValueKind.Number && question.TryGetInt32(out int number)
+			? number
+			: throw new WorkflowException("'question' is required: the question number the run is asking, from its stage block.");
 
 	private static void RegisterRunCommand(
 		HostSession session, string command, Action<string, JsonElement> act, string success) =>

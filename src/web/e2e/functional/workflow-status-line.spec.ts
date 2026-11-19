@@ -18,7 +18,7 @@ stages:
   - id: implement
     run:
       prompt: completed-tool-then-hold
-      outputs: { videos: list }
+    outputs: { videos: list }
     then:
       ask: "${APPROVAL_QUESTION}"
       by: user

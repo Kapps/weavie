@@ -13,7 +13,8 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession {
 	private readonly IdleTurnDelivery<OwedWorkflowTurn> _workflowTurns;
 	private int _runtimeActivated;
-	private readonly Dictionary<string, WorkflowConversationOwner> _workflowConversations = new(StringComparer.Ordinal);
+	private readonly Dictionary<AgentConversationKey, WorkflowConversationOwner> _workflowConversations = [];
+	private IReadOnlySet<string> _liveWorkflowFrames = new HashSet<string>(StringComparer.Ordinal);
 
 	internal string? InheritedWorkflowDocuments { get; set; }
 
@@ -46,8 +47,8 @@ public sealed partial class HostSession {
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(OwedWorkflowTurn owed) {
 		var kickoff = owed.Kickoff;
-		if (kickoff.Context != WorkflowContext.Continue && Workflow.Execution is { Opener: { } opener } execution) {
-			var conversation = ConversationOwner(execution.RunId, opener);
+		if (kickoff.Conversation is { } key && Workflow.Execution is { } execution) {
+			var conversation = ConversationOwner(key);
 			_ = Background.Run(ct => conversation.SendAsync(execution, owed, ct));
 			return;
 		}
@@ -82,32 +83,41 @@ public sealed partial class HostSession {
 		}
 	}
 
-	private WorkflowConversationOwner ConversationOwner(string runId, WorkflowStage opener) {
+	// The owner of a stage conversation of the live run; described before the owners' lock, which comes after the runner's.
+	private WorkflowConversationOwner ConversationOwner(WorkflowConversationRef key) {
+		var description = Workflow.Conversation(key);
 		lock (_workflowConversations) {
-			if (_workflowConversations.TryGetValue(opener.Id, out var owner)) return owner;
-			if (_workflowConversations.Count == 0) ForgetWorkflowConversations(key => key.Scope != runId);
-			owner = new WorkflowConversationOwner(this, runId, opener, Workflow.AgentOf(opener.Id));
-			_workflowConversations.Add(opener.Id, owner);
+			if (_workflowConversations.TryGetValue(new(key.Frame, key.Opener), out var owner)) return owner;
+			if (_workflowConversations.Count == 0) {
+				var live = LiveWorkflowFrames();
+				ForgetWorkflowConversations(kept => !live.Contains(kept.Scope));
+			}
+			owner = new WorkflowConversationOwner(this, description);
+			_workflowConversations.Add(owner.Key, owner);
 			_ = Background.Run(owner.RunLifetimeAsync);
 			return owner;
 		}
 	}
 
-	// The run ended or was replaced: its conversations close, and any it kept that aren't live are forgotten.
+	// A conversation lives as long as the run record that owns it: an entry finishing, a jump out of it, or the run
+	// ending or being replaced closes it, and any kept one that isn't live is forgotten.
 	private void WireWorkflowConversations() => Workflow.Changed += () => {
-		string? live = Workflow.Current is { IsFinished: false } run ? run.Id : null;
+		var live = LiveWorkflowFrames();
 		lock (_workflowConversations) {
-			if (live is not null && _workflowConversations.Values.All(owner => owner.Key.Scope == live)) return;
-			EndWorkflowConversations();
+			if (live.SetEquals(_liveWorkflowFrames)) return;
+			_liveWorkflowFrames = live;
+			bool completed = Workflow.Current?.Phase != WorkflowPhase.Cancelled;
+			foreach (var owner in _workflowConversations.Values.Where(owner => !live.Contains(owner.Key.Scope)).ToList()) {
+				owner.End(completed);
+				_workflowConversations.Remove(owner.Key);
+			}
 		}
-		ForgetWorkflowConversations(key => key.Scope != live);
+		ForgetWorkflowConversations(kept => !live.Contains(kept.Scope));
 	};
 
-	private void EndWorkflowConversations() {
-		bool completed = Workflow.Current?.Phase == WorkflowPhase.Done;
-		foreach (var owner in _workflowConversations.Values) owner.End(completed);
-		_workflowConversations.Clear();
-	}
+	private HashSet<string> LiveWorkflowFrames() => Workflow.Current is { IsFinished: false } run
+		? run.Frames.Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal)
+		: new HashSet<string>(StringComparer.Ordinal);
 
 	// Runner callbacks hold its lock, which comes after the agent's; forgetting takes the agent's, so it runs apart.
 	private void ForgetWorkflowConversations(Func<AgentConversationKey, bool> owners) => _ = Background.Run(async _ => {
@@ -123,8 +133,8 @@ public sealed partial class HostSession {
 			// The runner's lock comes before the owners', so the visit is read before the owners are.
 			var execution = Workflow.Execution;
 			bool lent;
-			lock (_workflowConversations) lent = execution is { Opener: { } opener }
-				&& _workflowConversations.GetValueOrDefault(opener.Id)?.Lends(execution) == true;
+			lock (_workflowConversations) lent = execution is { Conversation: { } conversation }
+				&& _workflowConversations.GetValueOrDefault(new(conversation.Key.Frame, conversation.Key.Opener))?.Lends(execution) == true;
 			if (lent && Workflow.Current?.Kickoff is null) {
 				execution!.ConversationEnded("The stage conversation ended when the session unloaded. Resume to continue.");
 			}

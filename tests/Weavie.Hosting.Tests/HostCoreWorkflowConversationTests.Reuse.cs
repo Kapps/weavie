@@ -18,10 +18,14 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		      by: user
 		      choices: { review: review, recheck: recheck, finish: done }
 		  - id: review
-		    run: { context: CONTEXT, prompt: review the change, outputs: { note: text } }
+		    context: CONTEXT
+		    run: { prompt: review the change }
+		    outputs: { note: text }
 		    then: fix
 		  - id: recheck
-		    run: { context: { reuse: review }, prompt: recheck the change, outputs: { note: text } }
+		    context: { reuse: review }
+		    run: { prompt: recheck the change }
+		    outputs: { note: text }
 		    then: fix
 		""";
 
@@ -43,7 +47,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "review", "");
 		string child = await fixture.WaitForReviewAsync();
 		string thread = Thread(await fixture.ReplyAsync(child, "echo: review the change"));
 		Assert.DoesNotContain("opened again", Transcript(fixture, thread), StringComparison.Ordinal);
@@ -56,12 +60,12 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await fixture.ReplyAsync(child, "completeStage failed: This conversation does not own an open workflow stage.");
 		Assert.Equal("fix", workflow.Current!.Stage);
 
-		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 2), workflow.Current!.Asked!.Id, "review", "");
 		await Eventually(() => Transcript(fixture, thread).Contains("has opened again; your earlier work on it is above.", StringComparison.Ordinal));
 		fixture.Send(child, Completion);
 		await Eventually(() => workflow.Current!.Stage == "fix");
 
-		workflow.Answer(await FixedAsync(fixture, 3), "recheck", "");
+		workflow.Answer(await FixedAsync(fixture, 3), workflow.Current!.Asked!.Id, "recheck", "");
 		await Eventually(() => Transcript(fixture, thread).Contains("continues the conversation of stage", StringComparison.Ordinal));
 		Assert.Equal(thread, Thread(await fixture.ReplyAsync(child, "echo: recheck the change")));
 		fixture.Send(child, Completion);
@@ -69,7 +73,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		Assert.Single(fixture.Messages, message => Type(message) == "side-conversation-started");
 		Assert.DoesNotContain(fixture.Messages, message => Type(message) == "side-conversation-closed");
 
-		workflow.Answer(await FixedAsync(fixture, 4), "finish", "");
+		workflow.Answer(await FixedAsync(fixture, 4), workflow.Current!.Asked!.Id, "finish", "");
 		await fixture.ClosedAsync(child);
 	}
 
@@ -79,11 +83,11 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "review", "");
 		string first = await fixture.WaitForReviewAsync();
 		fixture.Send(first, Completion);
 		await Eventually(() => workflow.Current!.Stage == "fix");
-		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 2), workflow.Current!.Asked!.Id, "review", "");
 		await fixture.ClosedAsync(first);
 		var second = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Conversation(message) != first);
 		var reply = await fixture.ReplyAsync(Conversation(second), "echo: review the change");
@@ -97,7 +101,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "recheck", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "recheck", "");
 		await fixture.MessageAsync(message => Conversation(message) is null && Type(message) == "notice"
 			&& Text(message) == "Workflow: recheck opened a new conversation; stage \"review\" has no conversation to continue");
 		var started = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == "review");
@@ -105,7 +109,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		string thread = Thread(await fixture.ReplyAsync(child, "echo: recheck the change"));
 		fixture.Send(child, Completion);
 		await Eventually(() => workflow.Current!.Stage == "fix");
-		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 2), workflow.Current!.Asked!.Id, "review", "");
 		await Eventually(() => Transcript(fixture, thread).Contains("has opened again", StringComparison.Ordinal));
 		Assert.Single(fixture.Messages, message => Type(message) == "side-conversation-started");
 	}
@@ -116,7 +120,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		var run = workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "review", "");
 		string child = await fixture.WaitForReviewAsync();
 		fixture.Send(child, "hold");
 		await fixture.MessageAsync(message => Conversation(message) == child && Type(message) == "user-message" && Text(message) == "hold");
@@ -135,14 +139,14 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "review", "");
 		string child = await fixture.WaitForReviewAsync();
 		fixture.Send(child, Completion);
 		await Eventually(() => workflow.Current!.Stage == "fix");
 
 		await fixture.Session.SetAgentControlAsync("mode", "plan");
 		await Eventually(() => fixture.Session.Agent.Controls!.ControlState.Axes.Single(axis => axis.Id == "mode").Value == "plan");
-		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 2), workflow.Current!.Asked!.Id, "review", "");
 		await Eventually(() => fixture.Messages.Count(message => Conversation(message) == child
 			&& Type(message) == "item-completed" && Text(message) == "echo: review the change") == 2);
 		fixture.Send(child, "control-state");
@@ -166,7 +170,10 @@ public sealed partial class HostCoreWorkflowConversationTests {
 			agents: { checker: { provider: conversation-acp, model: beta, options: { effort: extreme } } }
 			stages:
 			  - id: review
-			    run: { context: fresh, agent: checker, prompt: review the change, outputs: { note: text } }
+			    agent: checker
+			    context: fresh
+			    run: { prompt: review the change }
+			    outputs: { note: text }
 			""");
 		var workflow = fixture.Session.Workflow;
 		var run = workflow.Start("conversation", Json("{}"));
@@ -188,7 +195,9 @@ public sealed partial class HostCoreWorkflowConversationTests {
 			stages:
 			  - id: review
 			    if: { ask: "Review now?", by: user }
-			    run: { context: fresh, prompt: review the change, outputs: { note: text } }
+			    context: fresh
+			    run: { prompt: review the change }
+			    outputs: { note: text }
 			""");
 		string runId = fixture.Session.Workflow.Start("conversation", Json("{}")).Id;
 		await fixture.ReplyAsync(null, "now asks the user: Review now?");
@@ -207,7 +216,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var workflow = fixture.Session.Workflow;
 		workflow.Start("conversation", Json("{}"));
 		await fixture.ReplyAsync(null, "fix the change");
-		workflow.Answer(await FixedAsync(fixture, 1), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 1), workflow.Current!.Asked!.Id, "review", "");
 		string child = await fixture.WaitForReviewAsync();
 		string thread = Thread(await fixture.ReplyAsync(child, "echo: review the change"));
 		fixture.Send(child, Completion);
@@ -218,7 +227,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await Eventually(() => fixture.Session.Agent.Controls!.ControlState.Ready);
 		Assert.Equal(WorkflowPhase.Open, workflow.Current!.Phase);
 		if (restoreFails) File.WriteAllText(Path.Combine(fixture.State("conversation-acp"), "fail-restore"), "");
-		workflow.Answer(await FixedAsync(fixture, 2), "review", "");
+		workflow.Answer(await FixedAsync(fixture, 2), workflow.Current!.Asked!.Id, "review", "");
 		if (restoreFails) {
 			await fixture.MessageAsync(message => Conversation(message) is null && Type(message) == "notice"
 				&& Text(message).StartsWith("Workflow: review opened a new conversation; its earlier one could not be restored:", StringComparison.Ordinal));

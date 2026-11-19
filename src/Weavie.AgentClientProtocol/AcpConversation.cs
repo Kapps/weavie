@@ -23,6 +23,7 @@ internal sealed partial class AcpConversation {
 	private readonly CancellationTokenSource _lifetime = new();
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
+	private readonly List<TaskCompletionSource> _idleWaiters = [];
 	private readonly Lock _turnTransitionGate;
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlRequest> _controlMutations = [];
@@ -115,6 +116,34 @@ internal sealed partial class AcpConversation {
 
 	internal bool GuidanceSent {
 		get { lock (_gate) return _guidanceSent; }
+	}
+
+	/// <summary>Whether the provider session holds turns to copy: its own, a fork's, or a restored session's.</summary>
+	internal bool HasHistory {
+		get { lock (_gate) return _turnNumber > 0 || _spec.Opening is ForkFromOpening || _spec.Seed.Continuation.SessionId is not null; }
+	}
+
+	/// <summary>Completes when no turn is running, being delivered, or queued, or when the conversation ends.</summary>
+	internal Task WhenIdleAsync(CancellationToken ct) {
+		TaskCompletionSource idle;
+		lock (_gate) {
+			if (IdleLocked) return Task.CompletedTask;
+			idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+			_idleWaiters.Add(idle);
+		}
+		return Task.WhenAny(idle.Task, _completion.Task).WaitAsync(ct);
+	}
+
+	private bool IdleLocked => !_promptActive && !_promptDeliveryActive && !_steering && _pendingSubmissions.Count == 0;
+
+	private void ReleaseIdleWaiters() {
+		TaskCompletionSource[] released;
+		lock (_gate) {
+			if (!IdleLocked || _idleWaiters.Count == 0) return;
+			released = [.. _idleWaiters];
+			_idleWaiters.Clear();
+		}
+		foreach (var waiter in released) waiter.TrySetResult();
 	}
 
 	internal string? ThreadId => SessionId();
@@ -268,6 +297,7 @@ internal sealed partial class AcpConversation {
 		bool terminal;
 		lock (_gate) terminal = _runtimeFailed;
 		_port.Settled(Continuation, terminal);
+		ReleaseIdleWaiters();
 	}
 
 	private void EmitFailure(Exception error) {

@@ -19,7 +19,8 @@ public sealed class HostCoreWorkflowRoleTests {
 			description: build on the builder, then ship on the session's own model
 			stages:
 			  - id: build
-			    run: { prompt: "build it", role: builder }
+			    role: builder
+			    run: { prompt: "build it" }
 			  - id: ship
 			    run: { prompt: "ship it" }
 			""");

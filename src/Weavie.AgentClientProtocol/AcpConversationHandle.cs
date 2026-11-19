@@ -3,7 +3,7 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>An owner's address for one controller; lifecycle and close state remain in the controller and runtime.</summary>
-internal sealed class AcpConversationHandle(AcpRuntime runtime, AcpConversation conversation, ConversationView view) : IAgentConversation {
+internal sealed class AcpConversationHandle(AcpAgentSession owner, AcpRuntime runtime, AcpConversation conversation, ConversationView view) : IAgentConversation {
 	internal AcpConversation Conversation => conversation;
 	public string Id => conversation.ConversationId;
 	public ConversationView View => view;
@@ -37,6 +37,10 @@ internal sealed class AcpConversationHandle(AcpRuntime runtime, AcpConversation 
 			return conversation.ApplyControlsAsync(values);
 		}
 	}
+
+	public Task<IAgentConversation> ForkAsync(AgentConversationBinding binding, CancellationToken ct) => owner.ForkOwnedAsync(conversation, binding, ct);
+
+	public Task WhenIdleAsync(CancellationToken ct) => conversation.WhenIdleAsync(ct);
 
 	public ValueTask DisposeAsync() => new(runtime.CloseAsync(conversation));
 

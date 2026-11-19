@@ -499,7 +499,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// </summary>
 	public async Task<bool> RequestFileListAsync(HostSession session) {
 		try {
-			return await Core.WriteFileIndexAsync(session.Address, null, Stream.Null, CancellationToken.None);
+			return await Core.WriteFileIndexAsync(session.Address, null, () => Stream.Null, CancellationToken.None);
 		} catch (OperationCanceledException) when (session.Background.Stopping.IsCancellationRequested) {
 			return false;
 		}

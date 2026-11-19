@@ -24,7 +24,6 @@ import { canonicalFsPath, repoRelativePath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import type { FileIndex } from "../files/file-index";
 import {
-  buildPathTree,
   type PathTreeNode,
   type PathTreeRow,
   pathAncestorKeys,
@@ -182,13 +181,9 @@ export function Omnibar(props: {
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  // The tree is every listed file, so it is built only while it is on screen.
   const treeNodes = createMemo<PathTreeNode<string>[]>(() => {
-    if (!open() || !treeMode()) {
-      return [];
-    }
     props.index.version;
-    return buildPathTree(props.index.entries.map(({ row }) => ({ path: row.rel, value: row.abs })));
+    return props.index.tree();
   });
   const visibleRows = createMemo<PathTreeRow<string>[]>(() => {
     if (!treeMode()) {

@@ -37,13 +37,13 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Streams one session's file list as newline-delimited batches of workspace-relative paths, or a single
-	/// "unchanged" line when the reader already holds <paramref name="knownRevision"/>. False when no loaded
-	/// session has that address or its folder is gone.
+	/// "unchanged" line when the reader already holds <paramref name="knownRevision"/>. False, with
+	/// <paramref name="open"/> never called, when no loaded session has that address or its folder is gone.
 	/// </summary>
 	internal async Task<bool> WriteFileIndexAsync(
 		SessionAddress address,
 		long? knownRevision,
-		Stream output,
+		Func<Stream> open,
 		CancellationToken ct) {
 		if (ExactSession(address) is not { } session) {
 			return false;
@@ -63,6 +63,7 @@ public sealed partial class HostCore {
 			return false;
 		}
 
+		var output = open();
 		if (knownRevision == snapshot.Revision) {
 			await WriteBatchAsync([], unchanged: true, complete: true).ConfigureAwait(false);
 			return true;

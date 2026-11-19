@@ -160,7 +160,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 			var cooldown = Task.CompletedTask;
 			await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
-			_ready.TrySetResult();
 			while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
 				// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
 				if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
@@ -246,6 +245,8 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			if (watchesChanged) {
 				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 			}
+			// The first listing is served once its watches are armed; the pass after it reports what moved meanwhile.
+			_ready.TrySetResult();
 			initial = false;
 			// Snapshot after installing new watches so changes during discovery cannot fall into an unwatched gap.
 		} while (watchesChanged);

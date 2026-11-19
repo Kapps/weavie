@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FileIndex } from "./file-index";
+import { buildPathTree, type PathTreeNode, visiblePathTreeRows } from "./path-tree";
 
 function indexOf(root: string, paths: string[]) {
   const index = new FileIndex();
@@ -12,7 +13,41 @@ function indexOf(root: string, paths: string[]) {
 
 const listed = (index: FileIndex): string[] => index.entries.map((entry) => entry.row.rel).sort();
 
+// Every row of a tree with all of its folders open, as "depth kind key".
+function unfolded(nodes: readonly PathTreeNode<string>[]): string[] {
+  const folders = new Set<string>();
+  const collect = (level: readonly PathTreeNode<string>[]): void => {
+    for (const node of level) {
+      if (node.kind === "directory") {
+        folders.add(node.key);
+        collect(node.children);
+      }
+    }
+  };
+  collect(nodes);
+  return visiblePathTreeRows(nodes, folders, Number.POSITIVE_INFINITY).map(
+    ({ node, depth }) => `${depth} ${node.kind} ${node.key}`,
+  );
+}
+
 describe("FileIndex", () => {
+  it("lists its tree one level at a time, matching a tree built from every file", () => {
+    const index = indexOf("/repo", ["b.ts", "a.ts", "src/z.ts", "src/deep/k.ts", "docs/d.md"]);
+    index.apply({ revision: 2, added: ["src/deep/er/m.ts", "new/n.ts"], removed: ["docs/d.md"] });
+    index.apply({ revision: 3, added: [], removed: ["src/deep/er/m.ts", "src/deep/k.ts"] });
+    const files = ["a.ts", "b.ts", "new/n.ts", "src/z.ts"];
+    expect(unfolded(index.tree())).toEqual(
+      unfolded(buildPathTree(files.map((path) => ({ path, value: `/repo/${path}` })))),
+    );
+    expect(index.tree().map((node) => node.name)).toEqual(["new", "src", "a.ts", "b.ts"]);
+    expect(index.tree().find((node) => node.kind === "file")).toEqual({
+      kind: "file",
+      name: "a.ts",
+      key: "a.ts",
+      value: "/repo/a.ts",
+    });
+  });
+
   it("says why it has no files until its first list is installed", () => {
     const index = new FileIndex();
     index.setWorkspace("/repo", null);

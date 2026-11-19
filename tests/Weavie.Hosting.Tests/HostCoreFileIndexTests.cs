@@ -12,7 +12,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class HostCoreFileIndexTests {
 	private static async Task<JsonElement[]> DownloadAsync(TestHost host, HostSession session, long? knownRevision) {
 		using var output = new MemoryStream();
-		Assert.True(await host.Core.WriteFileIndexAsync(session.Address, knownRevision, output, CancellationToken.None));
+		Assert.True(await host.Core.WriteFileIndexAsync(session.Address, knownRevision, () => output, CancellationToken.None));
 		return [.. Encoding.UTF8.GetString(output.ToArray())
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries)
 			.Select(line => JsonSerializer.Deserialize<JsonElement>(line))];
@@ -102,6 +102,7 @@ public sealed class HostCoreFileIndexTests {
 		await using var host = await TestHost.StartAsync();
 		var stale = new Messaging.SessionAddress(host.WorkspaceSession.Address.Slot, "not-this-one");
 
-		Assert.False(await host.Core.WriteFileIndexAsync(stale, null, Stream.Null, CancellationToken.None));
+		Assert.False(await host.Core.WriteFileIndexAsync(
+			stale, null, () => throw new InvalidOperationException("Nothing is written for an address nothing has."), CancellationToken.None));
 	}
 }

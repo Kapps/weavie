@@ -2,10 +2,21 @@ import { createSignal } from "solid-js";
 import { type FileEntry, type FileRow, fileRow } from "../chrome/file-search";
 import { canonicalFsPath } from "../editor/fs-path";
 import type { FileIndexChange } from "./file-index-sync";
+import type { PathTreeNode } from "./path-tree";
 
 interface Slotted extends FileEntry {
   slot: number;
+  folderSlot: number;
 }
+
+interface Folder {
+  /** The names of the folders directly inside this one. */
+  readonly folders: Set<string>;
+  readonly files: Slotted[];
+}
+
+const parentOf = (key: string): string => key.slice(0, Math.max(0, key.lastIndexOf("/")));
+const nameOf = (key: string): string => key.slice(key.lastIndexOf("/") + 1);
 
 // A POSIX file name can hold a backslash; a spelling from a Windows host uses one as its separator.
 const looseKey = (lower: string): string =>
@@ -16,6 +27,8 @@ export class FileListing {
   readonly entries: Slotted[] = [];
   // Keyed by lowercased, slash-separated path: one map answers exact lookups and a recent file's looser spelling.
   private readonly byLower = new Map<string, Slotted | Slotted[]>();
+  // Each folder's own files and child folder names, so a tree shows one level without visiting the rest.
+  private readonly folders = new Map<string, Folder>([["", { folders: new Set(), files: [] }]]);
   private readonly prefix: string;
   private readonly backslashed: boolean;
 
@@ -46,12 +59,60 @@ export class FileListing {
     return this.spellings(rel).some((entry) => entry.row.rel === rel);
   }
 
+  /** What sits directly inside the folder at `key` ("" is the root): folders first, each by name. */
+  children(key: string): PathTreeNode<string>[] {
+    const folder = this.folders.get(key);
+    if (folder === undefined) return [];
+    const below = key === "" ? "" : `${key}/`;
+    const children = (childKey: string) => this.children(childKey);
+    return [
+      ...[...folder.folders]
+        .sort((left, right) => left.localeCompare(right))
+        .map(
+          (name): PathTreeNode<string> => ({
+            kind: "directory",
+            name,
+            key: below + name,
+            // Read only for a folder the tree has expanded.
+            get children() {
+              return children(below + name);
+            },
+          }),
+        ),
+      ...folder.files
+        .map((entry) => entry.row)
+        .sort((left, right) => left.leaf.localeCompare(right.leaf))
+        .map(
+          (row): PathTreeNode<string> => ({
+            kind: "file",
+            name: row.leaf,
+            key: row.rel,
+            value: row.abs,
+          }),
+        ),
+    ];
+  }
+
+  private folder(key: string): Folder {
+    let folder = this.folders.get(key);
+    if (folder === undefined) {
+      folder = { folders: new Set(), files: [] };
+      this.folders.set(key, folder);
+      this.folder(parentOf(key)).folders.add(nameOf(key));
+    }
+    return folder;
+  }
+
   add(rel: string): void {
+    const row = fileRow(this.prefix + (this.backslashed ? rel.replaceAll("/", "\\") : rel), rel);
+    const folder = this.folder(row.dir);
     const entry: Slotted = {
-      row: fileRow(this.prefix + (this.backslashed ? rel.replaceAll("/", "\\") : rel), rel),
+      row,
       lower: rel.toLowerCase(),
       slot: this.entries.length,
+      folderSlot: folder.files.length,
     };
+    folder.files.push(entry);
     this.entries.push(entry);
     const key = looseKey(entry.lower);
     const existing = this.byLower.get(key);
@@ -67,6 +128,19 @@ export class FileListing {
     if (last !== entry) {
       last.slot = entry.slot;
       this.entries[entry.slot] = last;
+    }
+    let folder = this.folders.get(entry.row.dir) as Folder;
+    const lastInFolder = folder.files.pop() as Slotted;
+    if (lastInFolder !== entry) {
+      lastInFolder.folderSlot = entry.folderSlot;
+      folder.files[entry.folderSlot] = lastInFolder;
+    }
+    // A folder is listed only while a file sits somewhere beneath it.
+    for (let key = entry.row.dir; key !== "" && folder.files.length + folder.folders.size === 0; ) {
+      this.folders.delete(key);
+      folder = this.folders.get(parentOf(key)) as Folder;
+      folder.folders.delete(nameOf(key));
+      key = parentOf(key);
     }
     const rest = spellings.filter((candidate) => candidate !== entry);
     const key = looseKey(entry.lower);
@@ -122,6 +196,11 @@ export class FileIndex {
 
   get entries(): readonly FileEntry[] {
     return this.listing?.entries ?? [];
+  }
+
+  /** The top level of the file tree; each folder lists its own level only when read. */
+  tree(): PathTreeNode<string>[] {
+    return this.listing?.children("") ?? [];
   }
 
   /** The file at exactly this workspace-relative path. */

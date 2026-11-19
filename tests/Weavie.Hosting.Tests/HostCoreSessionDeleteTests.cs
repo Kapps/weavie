@@ -694,6 +694,13 @@ public sealed class HostCoreSessionDeleteTests {
 			CancellationToken.None);
 
 		Assert.Contains("deleting it now would remove its worktree", result.Error);
+
+		// The host's own entry reads the same args the same way, as an agent sends them.
+		var fromHost = await host.HostRequestAsync<JsonElement>("sessions", "invoke", new {
+			id = SessionCommands.DeleteSession,
+			args = new { id = host.SlotId("feature"), force = true, keepFolder = "true" },
+		});
+		Assert.Contains("deleting it now would remove its worktree", fromHost.GetProperty("error").GetString());
 		Assert.Contains("feature", host.SessionLabels);
 	}
 

@@ -101,14 +101,12 @@ registerHostFeature((connection) =>
     ) {
       setPendingSelection(null);
     }
+    const live = new Set(catalog.map((entry) => entry.id));
     // A disconnect empties the catalog without any session having left the host.
-    if (connection.currentHello !== null) {
-      const live = new Set(catalog.map((entry) => entry.id));
-      const departed = (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
-      for (const chip of departed) {
-        clearSlotDrafts(connection.id, chip.id);
-      }
-    }
+    const departed =
+      connection.currentHello === null
+        ? []
+        : (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
     setByBackend((prev) => {
       const next = new Map(prev);
       // Activity and run arrive on each session's own feed, so they carry across catalog pushes by owner.
@@ -141,6 +139,10 @@ registerHostFeature((connection) =>
       );
       return next;
     });
+    // After the rail has them gone: storage that refuses is reported without holding a deleted chip on screen.
+    for (const chip of departed) {
+      clearSlotDrafts(connection.id, chip.id);
+    }
   }),
 );
 

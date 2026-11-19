@@ -60,12 +60,12 @@ public sealed partial class HostCore {
 		if (_repos.ContainsKey(WorkspaceId.ForPath(root))) {
 			return Task.FromResult(CommandResult.Failure($"'{root}' has a session in this workspace, or is its home folder."));
 		}
-		if (!_sessionStore.ForgetRepo(root)) {
-			return Task.FromResult(CommandResult.Failure($"'{root}' isn't a repo this workspace remembers."));
-		}
-
-		// The names of the repos left are told apart without it, on the chips as in the list.
+		// Forgotten, saved and published in one step. The repos left are named without it, on the chips as in the list.
 		return _ui.InvokeAsync(() => {
+			if (!_sessionStore.ForgetRepo(root)) {
+				return Task.FromResult(CommandResult.Failure($"'{root}' isn't a repo this workspace remembers."));
+			}
+
 			PersistSessionState();
 			PublishKnownRepos();
 			PushSessionList();

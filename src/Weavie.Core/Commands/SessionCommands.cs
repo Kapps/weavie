@@ -594,6 +594,10 @@ public static class SessionCommands {
 	public static SessionDeleteConsent DeleteConsent(bool force, bool keepFolder) =>
 		keepFolder ? SessionDeleteConsent.KeepFolder : force ? SessionDeleteConsent.LoseWork : SessionDeleteConsent.Clean;
 
+	/// <summary>Reads the flag <paramref name="name"/> of a command's args, as every entry point to a session command does.</summary>
+	public static bool Flag(JsonElement? args, string name) =>
+		args is { ValueKind: JsonValueKind.Object } element && GetBool(element, name);
+
 	private static bool GetBool(JsonElement args, string name) {
 		if (!args.TryGetProperty(name, out var prop)) {
 			return false;

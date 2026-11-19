@@ -236,14 +236,13 @@ public sealed partial class HostCore {
 				ReadBool(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
-			SessionCommands.DeleteSession when args is { } deleteArgs
-				&& ReadBool(deleteArgs, "classify") =>
-					await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.DeleteSession when SessionCommands.Flag(args, "classify") =>
+				await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.DeleteSession => await DeleteSessionAsync(
 				null,
 				id,
-				SessionCommands.DeleteConsent(ReadBool(args, "force"), ReadBool(args, "keepFolder")),
-				ReadBool(args, "stopBackgroundWork"),
+				SessionCommands.DeleteConsent(SessionCommands.Flag(args, "force"), SessionCommands.Flag(args, "keepFolder")),
+				SessionCommands.Flag(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			_ => CommandResult.Failure($"'{message.Id}' is not a host-scoped session command."),

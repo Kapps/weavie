@@ -236,3 +236,12 @@ internal sealed class TextOrObjectShape(string description, WorkflowShape text, 
 
 	protected override JsonObject SchemaCore() => new() { ["oneOf"] = new JsonArray(text.Schema(), mapping.Schema()) };
 }
+
+/// <summary>A shape that refers to a named definition, so a shape can hold itself.</summary>
+internal sealed class RefShape(string name) : WorkflowShape("") {
+	public WorkflowShape? Target { get; set; }
+
+	public override void Check(JsonNode? node, string path, WorkflowCheck check) => Target!.Check(node, path, check);
+
+	protected override JsonObject SchemaCore() => new() { ["$ref"] = $"#/$defs/{name}" };
+}

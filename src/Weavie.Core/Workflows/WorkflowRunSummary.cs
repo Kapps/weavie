@@ -38,7 +38,7 @@ public sealed record WorkflowRunSummary {
 	/// <summary>The workflow id.</summary>
 	public required string Workflow { get; init; }
 
-	/// <summary>The current stage id.</summary>
+	/// <summary>Where the run is: the stage, inside each stage holding it with the entry of each repeat (<c>group 2/5 › review</c>).</summary>
 	public required string Stage { get; init; }
 
 	/// <summary>What the run is doing.</summary>
@@ -70,7 +70,7 @@ public sealed record WorkflowRunSummary {
 		return new WorkflowRunSummary {
 			RunId = run.Id,
 			Workflow = run.WorkflowId,
-			Stage = run.Stage,
+			Stage = run.Path(),
 			State = state,
 			Agent = run.Hold is { Held.Count: > 0 } hold && hold.Stage == run.Stage ? hold.Agent : "",
 			Reason = state switch {

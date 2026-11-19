@@ -16,7 +16,7 @@ public sealed class WorkflowReaderTests {
 		    run:
 		      skill: spec
 		      args: "{{inputs.task}}"
-		      outputs: { notionUrl: url, tasks: list }
+		    outputs: { notionUrl: url, tasks: list }
 		    then:
 		      ask: Approve the spec?
 		      by: user
@@ -62,9 +62,9 @@ public sealed class WorkflowReaderTests {
 			[("task", WorkflowValueType.Text, false), ("spec", WorkflowValueType.Url, true)],
 			definition.Inputs.Select(i => (i.Name, i.Type, i.Optional)));
 		var spec = definition.Stages[0];
-		Assert.Equal("spec", spec.Run.Skill);
+		Assert.Equal("spec", spec.Run!.Skill);
 		Assert.Equal(("{{inputs.task}} is complex", WorkflowAnswerer.Model), (spec.If!.Ask.Source, spec.If.By));
-		Assert.Equal(["notionUrl", "tasks"], spec.Run.Outputs.Select(o => o.Name));
+		Assert.Equal(["notionUrl", "tasks"], spec.Outputs.Select(o => o.Name));
 		var approval = Assert.IsType<WorkflowThen.Decide>(spec.Then);
 		Assert.Equal((WorkflowAnswerer.User, null), (approval.Question.By, approval.Limit));
 		var build = definition.Stages[1];
@@ -77,7 +77,7 @@ public sealed class WorkflowReaderTests {
 
 	[Theory]
 	[InlineData("id: x\ndescription: d\nruns-on: linux\nstages: [{ id: a, run: { prompt: p } }]", "unknown key \"runs-on\"", "runs-on", 3)]
-	[InlineData("id: x\ndescription: d\nstages: [{ id: a }]", "missing required key \"run\"", "stages[0]", 3)]
+	[InlineData("id: x\ndescription: d\nstages: [{ id: a }]", "a stage has exactly one of run or stages", "stages[0]", 3)]
 	[InlineData("id: x\ndescription: d\nstages: []", "expected a non-empty list", "stages", 3)]
 	[InlineData("id: x\ndescription: d\nstages: [{ id: A, run: { prompt: p } }]", "lowercase words", "stages[0].id", 3)]
 	[InlineData("id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p }, then: { ask: q, by: robot, choices: { y: done, n: a } } }]", "expected one of model, user", "stages[0].then.by", 3)]
@@ -86,7 +86,7 @@ public sealed class WorkflowReaderTests {
 	[InlineData("id: x\ndescription: d\ninputs: { task: number }\nstages: [{ id: a, run: { prompt: p } }]", "expected one of text", "inputs.task", 3)]
 	[InlineData("id: x\ndescription: d\nagents: { b: { provider: p, role: x } }\nstages: [{ id: a, run: { prompt: p } }]", "unknown key \"role\"", "agents.b.role", 3)]
 	[InlineData("id: x\ndescription: d\nagents: { b: { model: m } }\nstages: [{ id: a, run: { prompt: p } }]", "missing required key \"provider\"", "agents.b", 3)]
-	[InlineData("id: x\ndescription: d\nagents: { b: { provider: p } }\nstages: [{ id: a, run: { prompt: p, agent: c } }]", "\"c\" names no agent; defined: b", "stages[0].run.agent", 4)]
+	[InlineData("id: x\ndescription: d\nagents: { b: { provider: p } }\nstages: [{ id: a, agent: c, run: { prompt: p } }]", "\"c\" names no agent; defined: b", "stages[0].agent", 4)]
 	public void ShapeErrorsNameThePathAndLine(string text, string message, string path, int line) {
 		var diagnostic = Assert.Single(WorkflowReader.Read(text, "x").Diagnostics);
 		Assert.Contains(message, diagnostic.Message, StringComparison.Ordinal);
@@ -102,15 +102,15 @@ public sealed class WorkflowReaderTests {
 	[InlineData("stages: [{ id: a, run: { } }]", "exactly one of prompt or skill")]
 	[InlineData("stages: [{ id: a, run: { prompt: p, args: x } }]", "args applies only to a skill")]
 	[InlineData("stages: [{ id: a, else: done, run: { prompt: p } }]", "unknown key \"else\"")]
-	[InlineData("stages: [{ id: a, run: { prompt: p }, then: b }]", "\"b\" is neither a stage id nor done")]
+	[InlineData("stages: [{ id: a, run: { prompt: p }, then: b }]", "\"b\" is not a stage beside \"a\"")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done } } }]", "at least two choices")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, no: a }, limit: 2 } }]", "limit applies only to decisions the model answers")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.missing}}\" } }]", "names no declared input")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{a.out}}\" } }]", "names no output declared")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{ oops }}\" } }]", "must be {{run.prompt}}")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.x\" } }]", "no closing")]
-	[InlineData("agents: { b: { provider: p } }\nstages: [{ id: a, run: { prompt: p, agent: b, role: planner } }]", "a step takes agent or role, not both")]
-	[InlineData("stages: [{ id: a, run: { prompt: p, role: Planner } }]", "lowercase words joined by hyphens")]
+	[InlineData("agents: { b: { provider: p } }\nstages: [{ id: a, agent: b, role: planner, run: { prompt: p } }]", "a stage takes agent or role, not both")]
+	[InlineData("stages: [{ id: a, role: Planner, run: { prompt: p } }]", "lowercase words joined by hyphens")]
 	public void SemanticErrorsAreReported(string stages, string message) {
 		string fileId = message.Contains("file name", StringComparison.Ordinal) ? "other" : "x";
 		var result = WorkflowReader.Read($"id: x\ndescription: d\n{stages}", fileId);
@@ -131,7 +131,7 @@ public sealed class WorkflowReaderTests {
 	[Fact]
 	public void AThenDecisionAfterAStageWithOutputsIsNotWarned() {
 		var result = WorkflowReader.Read(
-			"id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p, outputs: { left: list } }, then: { ask: \"done?\", choices: { yes: done, no: a } } }]", "x");
+			"id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p }, outputs: { left: list }, then: { ask: \"done?\", choices: { yes: done, no: a } } }]", "x");
 		Assert.NotNull(result.Definition);
 		Assert.Empty(result.Diagnostics);
 	}
@@ -146,7 +146,8 @@ public sealed class WorkflowReaderTests {
 			  plain: { provider: fake-acp }
 			stages:
 			  - id: a
-			    run: { prompt: p, agent: builder }
+			    agent: builder
+			    run: { prompt: p }
 			  - id: b
 			    run: { prompt: p }
 			""", "x").Definition!;
@@ -154,7 +155,7 @@ public sealed class WorkflowReaderTests {
 		Assert.Equal(("builder", "fake-acp", "beta"), (builder.Name, builder.Provider, builder.Model));
 		Assert.Equal([new("fast", "true"), new KeyValuePair<string, string>("effort", "high")], builder.Options);
 		Assert.Equal(("plain", null, 0), (definition.Agents[1].Name, definition.Agents[1].Model, definition.Agents[1].Options.Count));
-		Assert.Equal(["builder", null], definition.Stages.Select(s => s.Run.Agent));
+		Assert.Equal(["builder", null], definition.Stages.Select(s => s.Agent));
 	}
 
 	[Fact]
@@ -164,16 +165,19 @@ public sealed class WorkflowReaderTests {
 			description: d
 			stages:
 			  - id: a
-			    run: { prompt: p, role: builder }
+			    role: builder
+			    run: { prompt: p }
 			  - id: b
-			    run: { prompt: p, role: planner }
+			    role: planner
+			    run: { prompt: p }
 			  - id: c
-			    run: { prompt: p, role: builder }
+			    role: builder
+			    run: { prompt: p }
 			  - id: d
 			    run: { prompt: p }
 			""", "x").Definition!;
 		Assert.Equal(["builder", "planner"], definition.Roles);
-		Assert.Equal(["builder", "planner", "builder", null], definition.Stages.Select(s => s.Run.Role));
+		Assert.Equal(["builder", "planner", "builder", null], definition.Stages.Select(s => s.Role));
 		Assert.True(WorkflowSchema.IsRoleName("security-reviewer"));
 		Assert.False(WorkflowSchema.IsRoleName("Planner"));
 		Assert.Contains("\"role\"", WorkflowSchema.Json, StringComparison.Ordinal);

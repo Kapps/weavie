@@ -1,17 +1,17 @@
 id: spec-driven
-description: Requirements, design, and a task list, each approved by you, then the tasks implemented on this branch.
+description: Requirements, design, and a task list, each approved by you, then each task implemented in turn on this branch.
 stages:
   - id: requirements
     run:
-      role: planner
       prompt: >
         Interview me as needed about the feature described below, then choose a short kebab-case slug for
         it and write EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md.
         Report the directory you wrote to as the dir output.
 
         {{run.prompt}}
-      outputs:
-        dir: text
+    role: planner
+    outputs:
+      dir: text
     then:
       ask: Approve the requirements in {{requirements.dir}}/requirements.md?
       by: user
@@ -21,8 +21,8 @@ stages:
 
   - id: design
     run:
-      role: planner
       prompt: Write {{requirements.dir}}/design.md from the approved requirements.
+    role: planner
     then:
       ask: Approve the design in {{requirements.dir}}/design.md?
       by: user
@@ -32,12 +32,12 @@ stages:
 
   - id: tasks
     run:
-      role: planner
       prompt: >
         Break the approved design into small, independently testable tasks, written as a checklist in
         {{requirements.dir}}/tasks.md. Report them in order as the tasks output.
-      outputs:
-        tasks: list
+    role: planner
+    outputs:
+      tasks: list
     then:
       ask: Approve the task list in {{requirements.dir}}/tasks.md?
       by: user
@@ -46,21 +46,13 @@ stages:
         revise: tasks
 
   - id: implement
+    foreach: "{{tasks.tasks}}"
+    role: builder
     run:
-      role: builder
       prompt: >
-        Implement these tasks in order, following {{requirements.dir}}/design.md, ticking each one off in
-        {{requirements.dir}}/tasks.md as it lands:
+        Implement task {{implement.index}} of {{requirements.dir}}/tasks.md, following
+        {{requirements.dir}}/design.md:
 
-        {{tasks.tasks}}
+        {{implement.item}}
 
-        Run the tests and the linter, fix what fails, and commit. Report the tasks still not done as the
-        remaining output (empty when all are done).
-      outputs:
-        remaining: list
-    then:
-      ask: "Is this list of tasks still not done empty? {{implement.remaining}}"
-      choices:
-        yes: done
-        no: implement
-      limit: 3
+        Run the tests and the linter, fix what fails, commit, and tick the task off in tasks.md.

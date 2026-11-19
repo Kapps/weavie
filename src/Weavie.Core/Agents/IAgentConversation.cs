@@ -27,6 +27,12 @@ public interface IAgentConversation : IAsyncDisposable {
 
 	/// <summary>Applies exact advertised controls without changing the user's defaults.</summary>
 	Task ApplyControlsAsync(IReadOnlyList<AgentControlValue> values);
+
+	/// <summary>Forks this conversation as it stands into one owned by <paramref name="binding"/>, starting from this one's controls.</summary>
+	Task<IAgentConversation> ForkAsync(AgentConversationBinding binding, CancellationToken ct);
+
+	/// <summary>Completes when no turn is running or queued, or when the conversation ends.</summary>
+	Task WhenIdleAsync(CancellationToken ct);
 }
 
 /// <summary>The terminal outcome of a conversation incarnation, separate from the ending of any one turn.</summary>

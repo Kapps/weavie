@@ -346,6 +346,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			throw AcpAdapterException.InvalidParams("session/fork must target the active fake session.");
 		}
 		RequireMcp(parameters);
+		if (source.StartsWith("fake-fork-", StringComparison.Ordinal) && File.Exists(Path.Combine(Environment.CurrentDirectory, "refuse-nested-fork"))) {
+			throw new AcpAdapterException(-32603, "This agent refuses to fork a fork.", null);
+		}
 		if (!_prompted && !File.Exists(TranscriptPath(source))) {
 			throw new AcpAdapterException(-32603, "No transcript exists for this session.", null);
 		}

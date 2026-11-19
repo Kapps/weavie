@@ -25,7 +25,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 
 		fixture.Send(child, Completion);
 		await fixture.ReplyAsync(null, "now asks the user: Accept reviewed change?");
-		workflow.Answer(runId, "revise", "Retain the image");
+		workflow.Answer(runId, workflow.Current!.Asked!.Id, "revise", "Retain the image");
 		await fixture.ReplyAsync(child, "Feedback:");
 		workflow.Execution!.Capture().Fail("Need more evidence");
 		workflow.Resume(runId);
@@ -36,7 +36,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		fixture.Send(child, Completion);
 		await Eventually(() => fixture.Messages.Count(message => Conversation(message) is null
 			&& Type(message) == "item-completed" && Text(message).Contains("now asks the user: Accept reviewed change?", StringComparison.Ordinal)) == 2);
-		workflow.Answer(runId, "approve", "");
+		workflow.Answer(runId, workflow.Current!.Asked!.Id, "approve", "");
 		await fixture.ReplyAsync(null, "echo: publish review the change");
 		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) is null);
 		Assert.True(workflow.Current.PromptImagesSent);
@@ -67,7 +67,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		await Eventually(() => workflow.Current!.Phase == WorkflowPhase.Asking);
 
 		File.Delete(Path.Combine(run.DocumentsDirectory, run.Prompt.Images[0].File));
-		workflow.Answer(run.Id, "revise", "Use the image");
+		workflow.Answer(run.Id, workflow.Current!.Asked!.Id, "revise", "Use the image");
 		await fixture.ReplyAsync(child, "Feedback:");
 		Assert.Equal(WorkflowPhase.Open, workflow.Current!.Phase);
 		Assert.Single(fixture.Messages, message => Type(message) == "user-image" && Conversation(message) == child);

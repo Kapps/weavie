@@ -113,8 +113,8 @@ load it only when you need it.
   propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
   contextual-suggestion card nudges once enough accumulate. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
-- **Workflows** — user-defined, agent-authored YAML processes (stages that run a prompt or skill, typed outputs,
-  `if`/`then` decisions answered by a model or the user) that a session runs, started from the new-session composer
+- **Workflows** — user-defined, agent-authored YAML processes (a tree of stages that run a prompt or skill or hold
+  stages, optionally repeated per entry of a list, typed outputs, `if`/`then` decisions answered by a model or the user) that a session runs, started from the new-session composer
   or by an agent with the prompt it reads as `{{run.prompt}}`; Weavie owns the run and the agent does each stage. A
   stage can run on a role (`planner`) the user fills with a model per provider, so workflows name no model. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
   [docs/specs/workflows.md](docs/specs/workflows.md).

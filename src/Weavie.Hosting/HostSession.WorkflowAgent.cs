@@ -164,7 +164,7 @@ public sealed partial class HostSession {
 
 	private sealed class WorkflowControlHold(HostSession session) : IAgentControlHold {
 		public IReadOnlyDictionary<string, string> Values() =>
-			session.Workflow.Execution is { Stage.Run.Context: WorkflowContext.Continue }
+			session.Workflow.Execution is { Conversation: null }
 			&& session.Workflow.Current is { IsFinished: false, Hold: { } hold } ? hold.Held : [];
 	}
 }

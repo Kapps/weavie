@@ -143,6 +143,7 @@ internal sealed partial class AcpConversation {
 			} finally {
 				lock (_gate) _promptDeliveryActive = false;
 				if (Live) DispatchPendingSubmission();
+				ReleaseIdleWaiters();
 			}
 		}
 	}

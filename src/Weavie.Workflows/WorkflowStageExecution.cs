@@ -7,19 +7,19 @@ public sealed class WorkflowStageExecution {
 	private readonly WorkflowRunner _runner;
 	private readonly TaskCompletionSource<bool> _retired = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-	internal WorkflowStageExecution(WorkflowRunner runner, string runId, WorkflowStage stage, WorkflowStage? opener) {
+	internal WorkflowStageExecution(WorkflowRunner runner, string runId, WorkflowStage stage, WorkflowStageConversation? conversation) {
 		_runner = runner;
 		RunId = runId;
 		Stage = stage;
-		Opener = opener;
+		Conversation = conversation;
 	}
 
 	/// <summary>The run that owns this visit.</summary>
 	public string RunId { get; }
 	/// <summary>The stage definition for this visit.</summary>
 	public WorkflowStage Stage { get; }
-	/// <summary>The stage whose conversation this visit uses: itself, the stage it reuses, or null for main.</summary>
-	public WorkflowStage? Opener { get; }
+	/// <summary>The stage conversation this visit's turns run in, or null for main or a stage that takes no turn.</summary>
+	public WorkflowStageConversation? Conversation { get; }
 	/// <summary>Completes on leaving the visit; true for normal progression, false for cancellation or a jump.</summary>
 	public Task<bool> Retired => _retired.Task;
 	internal int Round { get; set; }
@@ -48,4 +48,22 @@ public sealed class WorkflowStageCall {
 	public string Complete(JsonElement outputs, string summary) => _runner.CompleteStage(this, outputs, summary);
 	/// <summary>Pauses the captured stage visit and round.</summary>
 	public void Fail(string reason) => _runner.FailStage(this, reason);
+}
+
+/// <summary>What the host needs to keep a stage conversation.</summary>
+public sealed record WorkflowStageConversation {
+	/// <summary>The record that owns the conversation and the stage that opens it.</summary>
+	public required WorkflowConversationRef Key { get; init; }
+
+	/// <summary>The stage that opens the conversation.</summary>
+	public required WorkflowStage Opener { get; init; }
+
+	/// <summary>For a fork, the conversation it copies, or <see langword="null"/> for main; <see langword="null"/> for fresh.</summary>
+	public required WorkflowConversationRef? Source { get; init; }
+
+	/// <summary>The agent the conversation runs on, or <see langword="null"/> for its source's model or the session's own.</summary>
+	public required WorkflowAgent? Agent { get; init; }
+
+	/// <summary>The card's title: the conversation's place in the run, <c>group 2 › task 3</c>.</summary>
+	public required string Title { get; init; }
 }

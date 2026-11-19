@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
+import { answerArgs, savedRun } from "../harness/workflows";
 
 // A session running a workflow shows its stage and run state in the session list's status line and its pane header,
 // and a question awaiting the user's answer moves the session under "Needs you". See docs/specs/workflows.md.
@@ -18,7 +19,7 @@ stages:
   - id: implement
     run:
       prompt: completed-tool-then-hold
-      outputs: { videos: list }
+    outputs: { videos: list }
     then:
       ask: "${APPROVAL_QUESTION}"
       by: user
@@ -40,16 +41,10 @@ const line = (branch: string, text: string): RegExp => new RegExp(`^${branch} 鈥
 
 const tool = (name: string, args: unknown): string => `mcp:${name}:${JSON.stringify(args)}`;
 
-async function runId(home: string): Promise<string> {
-  const workspaces = join(home, ".weavie", "workspaces");
-  for (const dir of await readdir(workspaces)) {
-    const file = join(workspaces, dir, "workflow-run.json");
-    const id = existsSync(file) ? /"(r-[0-9a-f]+)"/.exec(await readFile(file, "utf8")) : null;
-    if (id !== null) {
-      return id[1]!;
-    }
-  }
-  throw new Error("No workflow run was persisted.");
+// The answer to the question the saved run is asking.
+async function answerFor(home: string, choice: string) {
+  const run = await savedRun(home);
+  return answerArgs(run.id, run.asked!.id, choice, "");
 }
 
 // Writes TWO_STEP into `dir`'s workflows under `workflow`, its id and file name.
@@ -118,13 +113,7 @@ test("the session line follows the run through a user's answer to done", async (
   );
   await runCommand(page, "Pin Session Panel");
 
-  await submitAcpDraft(
-    surface,
-    tool("runCommand", {
-      id: "weavie.workflow.answer",
-      args: { run: await runId(weavie.home), choice: "approve" },
-    }),
-  );
+  await submitAcpDraft(surface, tool("runCommand", await answerFor(weavie.home, "approve")));
   await expect(chip).toHaveAttribute("title", line(branch, "ship 路 waiting on you"));
 
   await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "shipped" }));
@@ -190,13 +179,7 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   await page.reload();
   await expect(run).toHaveText("two-step 路 implement");
 
-  await submitAcpDraft(
-    surface,
-    tool("runCommand", {
-      id: "weavie.workflow.answer",
-      args: { run: await runId(weavie.home), choice: "approve" },
-    }),
-  );
+  await submitAcpDraft(surface, tool("runCommand", await answerFor(weavie.home, "approve")));
   await expect(run).toHaveText("two-step 路 ship");
   await expect(run).toHaveAttribute("title", "two-step 路 ship 路 waiting on you");
 

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Weavie.Workflows;
 
-/// <summary>A typed workflow input or stage output: text, or a list of items.</summary>
+/// <summary>A typed workflow input or stage output: text, a list of items, or one value per entry of a repeated stage.</summary>
 public sealed record WorkflowValue {
 	/// <summary>The text of a text, url, or pr value; otherwise <see langword="null"/>.</summary>
 	public string? Text { get; init; }
@@ -10,11 +10,39 @@ public sealed record WorkflowValue {
 	/// <summary>The items of a list or files value; otherwise <see langword="null"/>.</summary>
 	public IReadOnlyList<string>? Items { get; init; }
 
+	/// <summary>A repeated stage's output: the value of each entry that reported it, in order; otherwise <see langword="null"/>.</summary>
+	public IReadOnlyList<WorkflowEntryValue>? Entries { get; init; }
+
 	/// <summary>An empty text value, rendered for an omitted optional input.</summary>
 	public static WorkflowValue Empty { get; } = new() { Text = "" };
 
-	/// <summary>The value as template text; a list renders one <c>- item</c> per line.</summary>
-	public string Render() => Text ?? string.Join("\n", Items!.Select(item => $"- {item}"));
+	/// <summary>The value as template text: a list renders one <c>- item</c> per line, entries one labelled block each.</summary>
+	public string Render() => Entries is { } entries
+		? string.Join("\n", entries.Select(entry => entry.Value.Text is { } text && !text.Contains('\n')
+			? $"- {Label(entry.Item)}: {text}"
+			: $"- {Label(entry.Item)}:\n{Indent(entry.Value.Render())}"))
+		: Text ?? string.Join("\n", Items!.Select(item => $"- {item}"));
+
+	/// <summary>The value as one flat list: a list's items, a text as one item, each entry's in order.</summary>
+	public IReadOnlyList<string> Flat() => Entries is { } entries ? [.. entries.SelectMany(entry => entry.Value.Flat())]
+		: Items ?? (Text is { Length: > 0 } text ? [text] : []);
+
+	/// <summary>An entry's label: the first line of its item.</summary>
+	public static string Label(string item) {
+		ArgumentNullException.ThrowIfNull(item);
+		return item.Split('\n')[0].Trim();
+	}
+
+	private static string Indent(string text) => string.Join("\n", text.Split('\n').Select(line => "  " + line));
+}
+
+/// <summary>One entry's value of a repeated stage's output.</summary>
+public sealed record WorkflowEntryValue {
+	/// <summary>The entry's item.</summary>
+	public required string Item { get; init; }
+
+	/// <summary>The value that entry reported.</summary>
+	public required WorkflowValue Value { get; init; }
 }
 
 /// <summary>Reads and type-checks workflow values.</summary>

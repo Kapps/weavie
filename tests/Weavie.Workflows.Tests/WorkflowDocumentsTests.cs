@@ -10,7 +10,8 @@ public sealed class WorkflowDocumentsTests {
 		inputs: { docs: files? }
 		stages:
 		  - id: draft
-		    run: { prompt: "Write {{run.documents}}/design.md", outputs: { docs: files } }
+		    run: { prompt: "Write {{run.documents}}/design.md" }
+		    outputs: { docs: files }
 		    then:
 		      ask: "Approve {{draft.docs}}?"
 		      choices: { yes: done, no: draft }

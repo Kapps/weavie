@@ -25,7 +25,7 @@ public sealed partial class AcpAgentSession {
 			EnsureConversationAdmission();
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
-			var spec = ChildSpec(primary, fork: true, submission.Text, AcpConversationRole.Side);
+			var spec = ChildSpec(primary, primary, fork: true, submission.Text, AcpConversationRole.Side);
 			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side(spec.Seed.Continuation.ConversationId));
 		}
 	}

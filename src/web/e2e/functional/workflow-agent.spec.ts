@@ -13,7 +13,8 @@ agents:
   builder: { provider: fake-acp, model: beta, options: { fast: true } }
 stages:
   - id: implement
-    run: { prompt: implement it, agent: builder }
+    agent: builder
+    run: { prompt: implement it }
   - id: ship
     run: { prompt: ship it }
 `;
@@ -24,14 +25,16 @@ agents:
   reviewer: { provider: other-acp }
 stages:
   - id: review
-    run: { prompt: review it, agent: reviewer }
+    agent: reviewer
+    run: { prompt: review it }
 `;
 
 const ROLES = `id: roles
 description: Implement as the builder.
 stages:
   - id: implement
-    run: { prompt: implement it, role: builder }
+    role: builder
+    run: { prompt: implement it }
 `;
 
 test("a role runs on the model saved for the session's provider and refuses to start without one", async ({

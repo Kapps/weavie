@@ -22,7 +22,7 @@ internal static partial class WorkflowEvidenceWarnings {
 		if (question.By != WorkflowAnswerer.Model) return;
 		var referenced = question.Ask.References
 			.Where(r => WorkflowReferences.TypeOf(definition, r) == WorkflowValueType.Files).ToHashSet();
-		foreach (var output in stage.Run.Outputs.Where(o => o.Type == WorkflowValueType.Files)) {
+		foreach (var output in stage.Outputs.Where(o => o.Type == WorkflowValueType.Files)) {
 			var reference = new WorkflowReference(stage.Id, output.Name);
 			if (!referenced.Contains(reference)) {
 				check.Warn(path, $"files output {reference} is not referenced by this model question; its contents will not be read");

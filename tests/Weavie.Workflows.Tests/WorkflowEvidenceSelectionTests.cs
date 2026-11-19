@@ -12,10 +12,12 @@ public sealed class WorkflowEvidenceSelectionTests : IDisposable {
 		  directory: text?
 		stages:
 		  - id: draft
-		    run: { prompt: Draft., outputs: { documents: files } }
+		    run: { prompt: Draft. }
+		    outputs: { documents: files }
 		  - id: review
 		    if: "Ready {{inputs.docs}} {{draft.documents}}?"
-		    run: { prompt: Review., outputs: { documents: files, note: text } }
+		    run: { prompt: Review. }
+		    outputs: { documents: files, note: text }
 		    then:
 		      ask: "Accept {{review.documents}} {{inputs.docs}} {{draft.documents}} {{review.documents}} {{review.note}}?"
 		      choices: { accept: done, revise: review }

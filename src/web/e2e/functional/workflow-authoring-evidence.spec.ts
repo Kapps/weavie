@@ -15,7 +15,7 @@ stages:
   - id: review
     run:
       prompt: Review the release notes.
-      outputs: { document: files, directory: text }
+    outputs: { document: files, directory: text }
     then:
       ask: Does README.md describe the release notes?
       choices: { accept: accepted, revise: review }

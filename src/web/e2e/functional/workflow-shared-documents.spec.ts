@@ -26,14 +26,15 @@ test("workflow documents cross worktrees, open and save in the editor, survive r
     `  - id: draft
     run:
       prompt: "Shared documents: {{run.documents}}"
-      outputs: { monitoring: files }
+    outputs: { monitoring: files }
 `,
   );
   await writeWorkflow(
     parentWorktree,
     "feature-task",
     `  - id: implement
-    run: { prompt: "Read and update {{run.documents}}/monitoring.md", outputs: { monitoring: files } }
+    run: { prompt: "Read and update {{run.documents}}/monitoring.md" }
+    outputs: { monitoring: files }
 `,
   );
 

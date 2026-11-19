@@ -12,5 +12,5 @@ stages:
   - id: pr
     run:
       prompt: Push the branch and open a draft pull request describing the change.
-      outputs:
-        pr: pr
+    outputs:
+      pr: pr

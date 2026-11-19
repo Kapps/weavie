@@ -31,7 +31,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var report = await fixture.ReplyAsync(null, "Summary: Checked concurrency");
 		Assert.Contains("note = reviewed change", Text(report), StringComparison.Ordinal);
 
-		session.Workflow.Answer(runId, "revise", "Include cancellation");
+		session.Workflow.Answer(runId, session.Workflow.Current!.Asked!.Id, "revise", "Include cancellation");
 		var revision = await fixture.ReplyAsync(child, "Feedback:");
 		Assert.Contains("Include cancellation", Text(revision), StringComparison.Ordinal);
 		Assert.Equal(Thread(initial), Thread(revision));
@@ -47,7 +47,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		fixture.Send(child, Completion);
 		await Eventually(() => fixture.Messages.Count(message => Conversation(message) is null
 			&& Type(message) == "item-completed" && Text(message).Contains("now asks the user: Accept reviewed change?", StringComparison.Ordinal)) == 2);
-		session.Workflow.Answer(runId, "approve", "");
+		session.Workflow.Answer(runId, session.Workflow.Current!.Asked!.Id, "approve", "");
 		await fixture.ReplyAsync(null, "echo: publish reviewed change");
 		Assert.DoesNotContain(fixture.Messages, message => Type(message) == "side-conversation-closed" && Conversation(message) == child);
 		session.SendAgentPrompt("mcp:completeStage:{\"outputs\":{},\"summary\":\"Published\"}");
@@ -70,7 +70,7 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		var aside = await fixture.MessageAsync(message => Type(message) == "side-conversation-started" && Text(message) == Completion);
 		await fixture.ReplyAsync(Conversation(aside), "completeStage failed: This conversation does not own an open workflow stage.");
 		Assert.Equal(WorkflowPhase.Open, fixture.Session.Workflow.Current!.Phase);
-		Assert.Empty(fixture.Session.Workflow.Current.Outputs);
+		Assert.Empty(fixture.Session.Workflow.Current.Frames[0].Outputs);
 		fixture.Send(child, Completion);
 		await fixture.ReplyAsync(child, "completeStage: Complete.");
 		Assert.Equal(WorkflowPhase.Asking, fixture.Session.Workflow.Current!.Phase);

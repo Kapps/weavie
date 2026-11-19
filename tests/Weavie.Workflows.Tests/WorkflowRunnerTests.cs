@@ -9,7 +9,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		description: test flow
 		stages:
 		  - id: a
-		    run: { prompt: "do a", outputs: { note: text } }
+		    run: { prompt: "do a" }
+		    outputs: { note: text }
 		    then:
 		      ask: "approve {{a.note}}?"
 		      by: user
@@ -106,7 +107,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		string turn = _port.Kickoffs[^1];
 		Assert.Contains("again after n?", turn);
 		Assert.Equal(open, turn.Contains("openFile", StringComparison.Ordinal));
-		Assert.True(runner.TryClaimKickoff(WorkflowKickoff.Prompt(turn)));
+		Assert.Equal(turn, runner.Current!.Kickoff!.Text);
+		Assert.True(runner.TryClaimKickoff(runner.Current.Kickoff));
 		Assert.Empty(_port.Notices);
 	}
 
@@ -140,9 +142,11 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		description: d
 		stages:
 		  - id: a
-		    run: { prompt: "do a", role: planner }
+		    role: planner
+		    run: { prompt: "do a" }
 		  - id: b
-		    run: { prompt: "do b", role: builder }
+		    role: builder
+		    run: { prompt: "do b" }
 		  - id: c
 		    run: { prompt: "do c" }
 		""");
@@ -192,7 +196,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 			agents: { builder: { provider: fake-acp, model: beta } }
 			stages:
 			  - id: a
-			    run: { prompt: "do a", agent: builder }
+			    agent: builder
+			    run: { prompt: "do a" }
 			  - id: b
 			    run: { prompt: "do b" }
 			""");
@@ -230,7 +235,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		Assert.Equal(["Workflow flow paused: Stage \"a\" sets option \"fast\"."], _port.Notices);
 		Assert.False(runner.Owes(kickoff));
 		runner.Resume(run.Id);
-		Assert.True(runner.Owes(kickoff));
+		Assert.Equal((kickoff.Text, kickoff.Opens), (runner.Current!.Kickoff!.Text, runner.Current.Kickoff.Opens));
+		Assert.NotEqual(kickoff, runner.Current.Kickoff);
 	}
 
 	[Fact]
@@ -283,7 +289,8 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		_port.Kickoffs.Clear();
 		using (var reloaded = Runner()) {
 			Assert.Equal(["do a"], _port.Kickoffs);
-			Assert.True(reloaded.TryClaimKickoff(WorkflowKickoff.Prompt("do a") with { Opens = "a" }));
+			Assert.False(reloaded.TryClaimKickoff(WorkflowKickoff.Prompt("do a") with { Opens = "a" }));
+			Assert.True(reloaded.TryClaimKickoff(reloaded.Current!.Kickoff!));
 		}
 
 		_port.Kickoffs.Clear();
@@ -302,6 +309,52 @@ public sealed partial class WorkflowRunnerTests : IDisposable {
 		using var reloaded = Runner();
 		Assert.Equal(WorkflowPhase.Paused, reloaded.Current!.Phase);
 		Assert.Contains("no longer validates", reloaded.Current.PausedReason);
+		reloaded.Cancel(reloaded.Current.Id);
+		Assert.Equal(WorkflowPhase.Cancelled, reloaded.Current!.Phase);
+		Assert.Equal("do a", reloaded.Start("flow", Json("{}")).Kickoff!.Text);
+	}
+
+	[Fact]
+	public void AVisitInsideAForkedStageNamesItsConversationAndOnlyThatConversationCompletesIt() {
+		_dir.WriteFile("worktree/.weavie/workflows/tree.yaml", """
+			id: tree
+			description: Nested.
+			agents: { opus: { provider: p, model: opus } }
+			stages:
+			  - id: list
+			    run: { prompt: List. }
+			    outputs: { items: list }
+			  - id: group
+			    foreach: "{{list.items}}"
+			    agent: opus
+			    context: fork
+			    stages:
+			      - id: plan
+			        run: { prompt: "Plan {{group.item}}." }
+			      - id: task
+			        context: fork
+			        run: { prompt: Task. }
+			""");
+		using var runner = Runner();
+		var run = runner.Start("tree", Json("{}"));
+		Assert.Null(runner.Execution!.Conversation);
+		Assert.True(runner.TryClaimKickoff(run.Kickoff!));
+		runner.CompleteStage(Json("""{"items":["auth","billing"]}"""), "listed");
+
+		var plan = runner.Execution!;
+		var group = plan.Conversation!;
+		Assert.Equal(("group", "group 1", null, "opus"), (group.Opener.Id, group.Title, group.Source, group.Agent!.Name));
+		Assert.Null(runner.CaptureStageCall());
+		Assert.False(runner.HasOpened(group.Key));
+		Assert.True(runner.TryClaimKickoff(runner.Current!.Kickoff!));
+		Assert.True(runner.HasOpened(group.Key));
+		Assert.Contains("is at stage \"plan\", inside \"group\" (entry 1 of 2: \"auth\")", plan.Compose(false));
+		plan.Capture().Complete(Json("{}"), "planned");
+
+		var task = runner.Execution!.Conversation!;
+		Assert.Equal(("group 1 › task", group.Key, null), (task.Title, task.Source, task.Agent));
+		Assert.Equal(group, runner.Conversation(group.Key));
+		Assert.Equal("group 1/2 › task", runner.Current!.Path());
 	}
 
 	[Fact]

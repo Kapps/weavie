@@ -8,11 +8,15 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 
 	/// <inheritdoc/>
 	public Task<IAgentConversation> OpenFreshAsync(AgentConversationBinding binding, CancellationToken ct) =>
-		OpenOwnedAsync(binding, primary => NewChild(primary, fork: false, binding), ct);
+		OpenOwnedAsync(binding, null, primary => NewChild(primary, primary, fork: false, binding), ct);
 
 	/// <inheritdoc/>
 	public Task<IAgentConversation> OpenForkAsync(AgentConversationBinding binding, CancellationToken ct) =>
-		OpenOwnedAsync(binding, primary => NewChild(primary, fork: true, binding), ct);
+		OpenOwnedAsync(binding, null, primary => NewChild(primary, primary, fork: true, binding), ct);
+
+	/// <summary>Forks the owned conversation <paramref name="source"/> as it stands, starting from its controls.</summary>
+	internal Task<IAgentConversation> ForkOwnedAsync(AcpConversation source, AgentConversationBinding binding, CancellationToken ct) =>
+		OpenOwnedAsync(binding, source, primary => NewChild(primary, source, fork: true, binding), ct);
 
 	/// <inheritdoc/>
 	public async Task<IAgentConversation?> RestoreAsync(AgentConversationBinding binding, CancellationToken ct) {
@@ -28,7 +32,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 			await binding.Tools.DisposeAsync().ConfigureAwait(false);
 			return kept is null ? null : throw new InvalidOperationException($"{_definition.Name} cannot restore this conversation in its current process.");
 		}
-		return await OpenOwnedAsync(binding,
+		return await OpenOwnedAsync(binding, null,
 			_ => new(AcpConversationHandoff.Fresh(kept), AcpConversationOpening.Continue, AcpConversationRole.Independent), ct).ConfigureAwait(false);
 	}
 
@@ -49,15 +53,17 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 		_primary.Publish(SideMessage(Side(state), "side-conversation-closed", "closed"));
 	}
 
-	// A new conversation replaces any its owner kept before.
-	private AcpConversationSpec NewChild(AcpConversation primary, bool fork, AgentConversationBinding binding) {
+	// A new conversation replaces any its owner kept before; its card sits after main's current turn.
+	private AcpConversationSpec NewChild(AcpConversation primary, AcpConversation source, bool fork, AgentConversationBinding binding) {
 		if (fork) EnsureSideConversationSupport(primary);
 		if (binding.Owner is { } key) Forget(owner => owner == key);
-		var spec = ChildSpec(primary, fork, binding.Title, AcpConversationRole.Independent);
+		var spec = ChildSpec(primary, source, fork, binding.Title, AcpConversationRole.Independent);
 		return spec with { Seed = spec.Seed with { Continuation = spec.Seed.Continuation with { Owner = binding.Owner } } };
 	}
 
-	private async Task<IAgentConversation> OpenOwnedAsync(AgentConversationBinding binding, Func<AcpConversation, AcpConversationSpec> spec, CancellationToken ct) {
+	// Opens a conversation whose controls start from source's, or main's when it has none.
+	private async Task<IAgentConversation> OpenOwnedAsync(
+		AgentConversationBinding binding, AcpConversation? source, Func<AcpConversation, AcpConversationSpec> spec, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(binding);
 		AcpConversationHandle? handle = null;
 		bool restoring = false;
@@ -69,15 +75,17 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 				primary = _primary;
 			}
 			await primary.WaitUntilReadyAsync(ct).ConfigureAwait(false);
+			if (source is not null) await source.WaitUntilReadyAsync(ct).ConfigureAwait(false);
 			var overrides = binding.ControlHold.Values();
 			lock (_turnTransitionGate) {
 				EnsureConversationAdmission();
 				ct.ThrowIfCancellationRequested();
 				if (!primary.Live || !primary.Ready) throw new InvalidOperationException("The conversation was replaced while opening owned work.");
+				if (source is { Live: false }) throw new InvalidOperationException("The conversation to fork ended while opening owned work.");
 				if (!_runtime.Features.Close) throw new InvalidOperationException($"{_definition.Name} cannot close independently owned conversations.");
 				var opening = spec(primary);
 				restoring = opening.Seed.Continuation.SessionId is not null;
-				var controls = primary.Snapshot.Axes.ToDictionary(axis => axis.Id, axis => axis.Value, StringComparer.Ordinal);
+				var controls = (source ?? primary).Snapshot.Axes.ToDictionary(axis => axis.Id, axis => axis.Value, StringComparer.Ordinal);
 				foreach (var (axis, value) in overrides) controls[axis] = value;
 				handle = StartOwned(opening, binding with { ControlHold = new CapturedControls(controls) });
 			}
@@ -96,9 +104,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 		}
 	}
 
-	private static AcpConversationSpec ChildSpec(AcpConversation primary, bool fork, string prompt, AcpConversationRole role) => new(
-		AcpConversationHandoff.Fresh(NewContinuation(Guid.NewGuid().ToString("N"), primary.TurnNumber, prompt, fork && primary.GuidanceSent)),
-		fork && primary.TurnNumber > 0 ? new ForkFromOpening(primary, MessageId: null) : AcpConversationOpening.Continue, role);
+	private static AcpConversationSpec ChildSpec(AcpConversation primary, AcpConversation source, bool fork, string prompt, AcpConversationRole role) => new(
+		AcpConversationHandoff.Fresh(NewContinuation(Guid.NewGuid().ToString("N"), primary.TurnNumber, prompt, fork && source.GuidanceSent)),
+		fork && source.HasHistory ? new ForkFromOpening(source, MessageId: null) : AcpConversationOpening.Continue, role);
 
 	private AcpConversationHandle StartOwned(AcpConversationSpec spec, AgentConversationBinding binding) {
 		lock (_turnTransitionGate) {
@@ -106,7 +114,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 			var side = Side(spec.Seed.Continuation);
 			AcpConversationPort port = spec.Role == AcpConversationRole.Side ? new SidePort(this, side) : new IndependentPort(this, side);
 			var conversation = _runtime.Create(spec, port, binding);
-			var handle = new AcpConversationHandle(_runtime, conversation, Output.View(_definition.Id, side.ConversationId));
+			var handle = new AcpConversationHandle(this, _runtime, conversation, Output.View(_definition.Id, side.ConversationId));
 			if (spec.Role == AcpConversationRole.Side) _sides.Add(side.ConversationId, handle);
 			try {
 				if (spec.Seed.Continuation.SessionId is null) conversation.Publish(SideMarker(side, "forking") with {

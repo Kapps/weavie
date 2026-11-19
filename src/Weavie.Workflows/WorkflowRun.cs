@@ -36,6 +36,9 @@ public enum WorkflowDecisionKind {
 
 /// <summary>A decision put to the user: the rendered question, its answers, and why the model didn't answer it.</summary>
 public sealed record WorkflowAsked {
+	/// <summary>The question's number; only an answer naming it is accepted.</summary>
+	public required int Id { get; init; }
+
 	/// <summary>The rendered question.</summary>
 	public required string Question { get; init; }
 
@@ -75,8 +78,23 @@ public sealed record WorkflowRun {
 	/// <summary>Whether the main conversation has been sent the prompt's images.</summary>
 	public bool PromptImagesSent { get; set; }
 
-	/// <summary>The current stage id.</summary>
+	/// <summary>The stage the run is at: the open stage with work, or the stage whose decision is being made.</summary>
 	public required string Stage { get; init; }
+
+	/// <summary>The id of the innermost record the run is inside.</summary>
+	public required string Frame { get; init; }
+
+	/// <summary>A record per level the run is inside, the root first; see <see cref="WorkflowFrame"/>.</summary>
+	public required IReadOnlyList<WorkflowFrame> Frames { get; init; }
+
+	/// <summary>The number the next new record's id takes.</summary>
+	public required int NextFrame { get; init; }
+
+	/// <summary>The number the next owed turn or question takes.</summary>
+	public required int NextTurn { get; init; }
+
+	/// <summary>The conversation a lost-conversation pause names, until the user resumes; otherwise <see langword="null"/>.</summary>
+	public required WorkflowConversationRef? Lost { get; init; }
 
 	/// <summary>Where the run is in that stage.</summary>
 	public required WorkflowPhase Phase { get; init; }
@@ -90,20 +108,8 @@ public sealed record WorkflowRun {
 	/// <summary>Rejected completions of the current stage.</summary>
 	public required int Attempts { get; init; }
 
-	/// <summary>Each completed stage's reported outputs.</summary>
-	public required Dictionary<string, Dictionary<string, WorkflowValue>> Outputs { get; init; }
-
 	/// <summary>The summary the agent gave when it last completed a stage; decisions read it.</summary>
 	public required string Summary { get; init; }
-
-	/// <summary>Completed independent stages' reports owed to the main conversation until its next turn is claimed.</summary>
-	public required string Unreported { get; init; }
-
-	/// <summary>
-	/// The model's consecutive answers to a <c>then</c> decision, by stage id; any user answer or another stage's
-	/// <c>then</c> decision starts the count over.
-	/// </summary>
-	public required Dictionary<string, int> Streaks { get; init; }
 
 	/// <summary>Feedback from the user's last answer, owed to the next stage that opens; empty when none.</summary>
 	public required string Note { get; init; }
@@ -120,12 +126,52 @@ public sealed record WorkflowRun {
 	/// <summary>Whether the run has ended.</summary>
 	[JsonIgnore]
 	public bool IsFinished => Phase is WorkflowPhase.Done or WorkflowPhase.Cancelled;
+
+	/// <summary>The record with <paramref name="id"/>, or <see langword="null"/> once it has been discarded.</summary>
+	public WorkflowFrame? FrameOf(string id) => Frames.FirstOrDefault(frame => frame.Id == id);
+
+	/// <summary>Where the run is, for display: <c>group 2/5 › review</c>.</summary>
+	public string Path() => Place(Frame, Stage, totals: true);
+
+	/// <summary>
+	/// Stage <paramref name="stage"/> in record <paramref name="frame"/> for display: each stage holding it with its entry
+	/// (and the entry count with <paramref name="totals"/>), then the stage unless the record is its own entry.
+	/// </summary>
+	public string Place(string frame, string stage, bool totals) {
+		var levels = Chain(frame).Reverse().Skip(1).Select(level => level.Entry == 0 ? level.Stage
+			: totals ? $"{level.Stage} {level.Entry}/{EntryCount(level)}"
+			: $"{level.Stage} {level.Entry}").ToList();
+		if (FrameOf(frame)?.IsEntryOf(stage) != true) levels.Add(stage);
+		return string.Join(" › ", levels);
+	}
+
+	/// <summary>How many entries the repetition that <paramref name="entry"/> belongs to has.</summary>
+	public int EntryCount(WorkflowFrame entry) {
+		ArgumentNullException.ThrowIfNull(entry);
+		return FrameOf(entry.Parent)?.Loops.GetValueOrDefault(entry.Stage)?.Items.Count ?? 0;
+	}
+
+	/// <summary>The record <paramref name="id"/> and every record holding it, innermost first.</summary>
+	public IEnumerable<WorkflowFrame> Chain(string id) {
+		for (var frame = FrameOf(id); frame is not null; frame = frame.Parent.Length == 0 ? null : FrameOf(frame.Parent)) {
+			yield return frame;
+		}
+	}
 }
 
 /// <summary>A turn the host owes the agent: a prompt, or a provider command (a skill) with its arguments.</summary>
 public sealed record WorkflowKickoff {
-	/// <summary>The conversation receiving this turn; questions and completion reports always use main.</summary>
-	public required WorkflowContext Context { get; init; }
+	/// <summary>The turn's number, so two turns with the same text are never the same turn.</summary>
+	public required int Id { get; init; }
+
+	/// <summary>The conversation receiving this turn, or <see langword="null"/> for main; questions always use main.</summary>
+	public required WorkflowConversationRef? Conversation { get; init; }
+
+	/// <summary>Whether the conversation has taken a turn of the run before, so this turn continues it.</summary>
+	public required bool Continues { get; init; }
+
+	/// <summary>A conversation the user resumed after it was lost, to open again; otherwise <see langword="null"/>.</summary>
+	public required WorkflowConversationRef? Renews { get; init; }
 
 	/// <summary>The turn's full text; a command's starts with <c>/</c> and its name.</summary>
 	public required string Text { get; init; }
@@ -140,7 +186,8 @@ public sealed record WorkflowKickoff {
 	public bool CarriesPromptImages { get; init; }
 
 	/// <summary>An ordinary prompt within the run's current stage.</summary>
-	public static WorkflowKickoff Prompt(string text) => new() { Context = WorkflowContext.Continue, Text = text, Command = "", Opens = "" };
+	public static WorkflowKickoff Prompt(string text) =>
+		new() { Id = 0, Conversation = null, Continues = false, Renews = null, Text = text, Command = "", Opens = "" };
 }
 
 /// <summary>

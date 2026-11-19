@@ -159,8 +159,35 @@ internal sealed partial class AcpConversation {
 			if (lost) _port.SubmissionsDropped([submission]);
 			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
+			ReleaseIdleWaiters();
 		}
 	}
+
+	/// <summary>Completes when no turn is running, being delivered, or queued, or when the conversation ends.</summary>
+	internal Task WhenIdleAsync(CancellationToken ct) {
+		TaskCompletionSource idle;
+		lock (_gate) {
+			if (IdleLocked) return Task.CompletedTask;
+			idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+			_idleWaiters.Add(idle);
+		}
+		return Task.WhenAny(idle.Task, _completion.Task).WaitAsync(ct);
+	}
+
+	private readonly List<TaskCompletionSource> _idleWaiters = [];
+
+	private bool IdleLocked => !_promptActive && !_promptDeliveryActive && !_steering && _pendingSubmissions.Count == 0;
+
+	private void ReleaseIdleWaiters() {
+		TaskCompletionSource[] released;
+		lock (_gate) {
+			if (!IdleLocked || _idleWaiters.Count == 0) return;
+			released = [.. _idleWaiters];
+			_idleWaiters.Clear();
+		}
+		foreach (var waiter in released) waiter.TrySetResult();
+	}
+
 
 	// A turn that takes no steer, such as Codex's /compact: the submission leads the queue for its own
 	// turn and nothing else steers into this one.

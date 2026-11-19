@@ -447,6 +447,37 @@ when a section mounts during a rest (0.0 px across every run). Keeping up to sev
 three adds about a third of a millisecond per frame. A continuous scroll through more files than the reach still
 mounts mid-gesture, as before.
 
+## Mounting mid-scroll: what it costs, and what was tried
+
+A continuous scroll through more files than the reach still builds an editor mid-gesture. In headless WebKit that
+is about 65 ms of blocked main thread per file (about 27 ms in Chromium), as five tasks that run back to back and
+so hold two or three frames: building the editor (~8 ms), Monaco's first render (~9 ms), Monaco's idle work
+(~5 ms), drawing the diff with its collapsed context (~8 ms) and Monaco's render of that, plus script the
+per-callback timer cannot see. Measured and cleared, so not worth measuring again:
+
+- **Painting.** Hiding every section's pixels (`visibility: hidden`) saves at most 8 ms of the 65.
+- **Style and layout.** A forced flush after the editor is built and after the diff is drawn costs about 1.6 ms
+  each.
+- **Monaco's idle work alone.** WebKit has no `requestIdleCallback`, so Monaco runs its idle work (an editor's
+  deferred contributions, background tokenizing) at once in 15 ms slices, mid-scroll included. It is only a few
+  milliseconds per file: supplying an idle scheduler that waits for the scroll changed nothing by itself.
+- **One hot function.** There is none; it is many small pieces of code that runs once per file.
+
+**Tried and not shipped (PR #1285): one stage per frame.** The editor and the first diff each took a frame slot
+right after a frame had drawn, and WebKit got an idle scheduler that waited 250 ms after the last scroll input.
+Either half alone measured no better; together, on 900 notches with no pause across 24 files:
+
+| per run | before | staged |
+|---|---|---|
+| frames with the main thread blocked over 30 ms | 6-13 | 0-6 |
+| frames blocked over 15 ms | 17-31 | 13-32 |
+| blocked time per frame, p99 | 22-38 ms | 17-28 ms |
+
+The same work touched the same number of frames, each shorter. That did not justify a frame scheduler, an
+app-wide replacement for `requestIdleCallback` on Mac and Linux, and every review file drawing a frame later.
+Staging did pass the navigation specs the three deferrals above broke, because a stage waits one frame and not
+for the scroll to stop.
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

@@ -58,7 +58,7 @@ spec introduces a user-level settings system that is:
   is a GUI exe). The CLI will be a thin wrapper over the same Core store, so deferring it costs
   nothing architecturally. MCP is the only editing surface in this milestone.
 - **Workspace/project-level settings** (a per-workspace `settings.toml`). Now built: a setting
-  declares `Scope = Workspace` and resolves env > workspace file > user file > default, keyed per
+  declares `Owner = Repo` and resolves env > workspace file > user file > default, keyed per
   workspace. Stored **out of the repo** under `~/.weavie/workspaces/<id>/settings.toml` (never in
   source control), so a cloned repo can't ship an auto-run setup command; committed in-repo settings
   behind a trust prompt are a deliberate later feature. See
@@ -82,7 +82,7 @@ Linux. Chosen over OS-standard config dirs (`%APPDATA%`, `~/Library/Application 
 mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is created on first write
 and is the natural home for future per-user state; this spec only defines `settings.toml`.
 
-**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`,
+**Workspace overlay.** `Owner = Repo` keys (e.g. `test.profile`, `worktree.setupCommand`,
 `lsp.<id>.command`) don't live in the repo — they persist to a per-workspace file,
 `~/.weavie/workspaces/<id>/settings.toml`
 (`<id>` = `WorkspaceId.ForPath(root)`, the same keying as terminal logs and pasted images). Keeping
@@ -259,8 +259,11 @@ flowchart TD
 ```
 
 A per-workspace `.weavie/settings.toml` slots in between the env and user-file layers for
-`Scope = Workspace` keys (resolved against the active workspace root); see
+`Owner = Repo` keys (resolved against the active workspace root); see
 [test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).
+
+Every setting declares an owner (device, machine or repo), and the tools below answer for the keys their host
+owns and send every other key to the session's device; see [settings-ownership.md](settings-ownership.md).
 
 ```csharp
 public ResolvedValue Resolve(string key) {
@@ -460,13 +463,13 @@ payload into that `text` field, and `setSetting`/`clearSetting` return a human-r
 ### `listSettings`
 
 No input. Returns the live index — what Claude reads to map natural language to an exact key and to
-answer "what is set": per setting the key, type, aliases, current value, source, and (when closed-set)
-allowed values. An agent reads a tool result whole, so a test holds the built-in index under 40,000 characters.
+answer "what is set": per setting the key, type, owner, aliases, current value, source, and (when closed-set)
+allowed values, under the names of the machine and the device they came from. An agent reads a tool result whole, so a test holds the built-in index under 40,000 characters.
 
 ```json
-{ "settings": [
-  { "key": "terminal.shell", "type": "string", "aliases": ["shell", "my shell", "terminal shell"],
-    "value": "nu", "source": "userFile" }
+{ "machine": "remdeb", "device": "cachy", "settings": [
+  { "key": "terminal.shell", "type": "string", "owner": "machine",
+    "aliases": ["shell", "my shell", "terminal shell"], "value": "nu", "source": "userFile" }
 ] }
 ```
 
@@ -480,7 +483,7 @@ omits.
 
 ```json
 { "key": "terminal.shell", "type": "string",
-  "description": "Shell for the plain terminal pane", "scope": "user",
+  "description": "Shell for the plain terminal pane", "owner": "machine",
   "aliases": ["shell", "my shell", "terminal shell"],
   "value": "nu", "source": "userFile", "default": "pwsh", "apply": "reopensTerminal" }
 ```
@@ -488,7 +491,7 @@ omits.
 ### `setSetting`
 
 Input `{ "key": "terminal.shell", "value": "nu" }`. Validates against the registry; writes the user
-file; returns a confirmation including the apply note and any env-shadow warning. Its description
+file; returns a confirmation saying where it applied, the apply note and any env-shadow warning. Its description
 instructs the model to **call `listSettings` first** to find the exact key rather than guessing.
 
 ### `clearSetting`

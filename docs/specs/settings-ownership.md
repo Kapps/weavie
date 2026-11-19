@@ -1,6 +1,6 @@
 # Settings ownership
 
-Status: proposed
+Status: steps 1 implemented; themes, client commands and keybindings proposed
 Last updated: 2026-11-19
 
 Extends [settings.md](settings.md). Storage, kinds, validation, env overrides and the registry tools are

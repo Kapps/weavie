@@ -30,6 +30,7 @@
 }
 
 .shell-tab-new {
+  --icon-size: var(--icon-size-sm);
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;

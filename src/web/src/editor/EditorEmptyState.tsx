@@ -69,7 +69,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
       <div class="editor-empty-inner">
         <header class="editor-empty-head">
           <span class="editor-empty-mark" aria-hidden="true">
-            <WeavieIcon size={28} />
+            <WeavieIcon />
           </span>
           <div class="editor-empty-titles">
             <h1 class="editor-empty-wordmark">weavie</h1>

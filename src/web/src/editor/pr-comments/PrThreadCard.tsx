@@ -96,7 +96,9 @@ export function PrThreadCard(props: {
             aria-expanded="false"
             onClick={() => props.onCollapsed(false)}
           >
-            <ChevronRight size={14} />
+            <span class="ui-icon ui-icon-sm">
+              <ChevronRight />
+            </span>
             <span class="weavie-pr-avatars">
               <For each={participants()}>{(user) => <Avatar user={user} />}</For>
             </span>
@@ -113,7 +115,10 @@ export function PrThreadCard(props: {
               <span class="weavie-pr-badge weavie-pr-badge-pending">{pending()} pending</span>
             </Show>
             <span class="weavie-pr-summary-count">
-              <MessageSquare size={12} /> {thread().comments.length}
+              <span class="ui-icon ui-icon-sm">
+                <MessageSquare />
+              </span>
+              {thread().comments.length}
             </span>
           </button>
         }
@@ -132,7 +137,7 @@ export function PrThreadCard(props: {
                   aria-label="Fix"
                   onClick={() => fixLine(props.session, item(), "")}
                 >
-                  <Wrench size={13} />
+                  <Wrench />
                 </button>
                 <button
                   type="button"
@@ -141,7 +146,7 @@ export function PrThreadCard(props: {
                   aria-label="Fix with…"
                   onClick={() => fixWith(props.session, item())}
                 >
-                  <WandSparkles size={13} />
+                  <WandSparkles />
                 </button>
               </>
             )}
@@ -154,7 +159,7 @@ export function PrThreadCard(props: {
             aria-expanded="true"
             onClick={() => props.onCollapsed(true)}
           >
-            <ChevronUp size={14} />
+            <ChevronUp />
           </button>
         </span>
         <Show when={note()}>

@@ -26,7 +26,7 @@ export function Welcome(): JSX.Element {
       <main class="welcome-inner">
         <header class="welcome-head">
           <span class="welcome-mark" aria-hidden="true">
-            <WeavieIcon size={43} />
+            <WeavieIcon />
           </span>
           <div class="welcome-titles">
             <h1 class="welcome-wordmark">weavie</h1>
@@ -46,7 +46,7 @@ export function Welcome(): JSX.Element {
               class="welcome-open ui-button ui-button-xl ui-button-primary"
               onClick={openFolder}
             >
-              <FolderOpen size="1.1em" aria-hidden="true" />
+              <FolderOpen aria-hidden="true" />
               <span>Open Folder…</span>
             </button>
             <button
@@ -54,7 +54,7 @@ export function Welcome(): JSX.Element {
               class="welcome-setup ui-button ui-button-xl"
               onClick={() => setSettingUp(true)}
             >
-              <Sparkles size="1em" aria-hidden="true" />
+              <Sparkles aria-hidden="true" />
               <span>Getting Started</span>
             </button>
           </div>
@@ -76,12 +76,12 @@ export function Welcome(): JSX.Element {
                         class="welcome-row ui-row ui-row-stack"
                         onClick={() => openRecent(path)}
                       >
-                        <FolderClosed size="1.15em" class="welcome-row-icon" aria-hidden="true" />
+                        <FolderClosed class="welcome-row-icon" aria-hidden="true" />
                         <span class="welcome-row-text ui-row-text">
                           <span class="welcome-row-name">{folderLeaf(path)}</span>
                           <span class="welcome-row-path">{path}</span>
                         </span>
-                        <ArrowRight size="1em" class="welcome-row-go" aria-hidden="true" />
+                        <ArrowRight class="welcome-row-go" aria-hidden="true" />
                       </button>
                     </li>
                   )}

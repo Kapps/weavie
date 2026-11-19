@@ -1,16 +1,9 @@
 import type { JSX } from "solid-js";
 
-// The app mark, from the shared `/weavie.png` asset (also backs the favicon and native app icons), `size` px
-// square. A full-color brand mark, so it doesn't follow `currentColor`.
-export function WeavieIcon(props: { size: number }): JSX.Element {
+// The app mark, from the shared `/weavie.png` asset (also backs the favicon and native app icons), sized like an
+// icon by `--icon-size`. A full-color brand mark, so it doesn't follow `currentColor`.
+export function WeavieIcon(): JSX.Element {
   return (
-    <img
-      src="/weavie.png"
-      alt=""
-      aria-hidden="true"
-      // Style as a string, not an object: a dynamic object-style emits a `setStyleProperty` helper that
-      // solid-js@1.9.3 doesn't export, breaking the production build.
-      style={`width:${props.size}px;height:${props.size}px;display:block`}
-    />
+    <img src="/weavie.png" alt="" aria-hidden="true" class="weavie-icon" style="display:block" />
   );
 }

@@ -91,7 +91,7 @@ export function ThemeStep(props: { run: SetupRun }): JSX.Element {
         </span>
         <button type="button" class="gs-link" onClick={browseThemes}>
           Browse more themes
-          <ChevronRight size="1em" aria-hidden="true" />
+          <ChevronRight aria-hidden="true" />
         </button>
       </p>
       <p class="gs-later">

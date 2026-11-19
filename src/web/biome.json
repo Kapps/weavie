@@ -30,6 +30,10 @@
     {
       "path": "./lint/font-tokens.grit",
       "includes": ["**/src/**/*.css", "!**/src/styles.css"]
+    },
+    {
+      "path": "./lint/icon-size.grit",
+      "includes": ["**/src/**/*.tsx"]
     }
   ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

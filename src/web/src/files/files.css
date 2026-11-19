@@ -155,9 +155,8 @@
   user-select: none;
 }
 
-.browser-twisty svg {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
+.browser-twisty {
+  --icon-size: var(--icon-size-sm);
 }
 
 .browser-name {

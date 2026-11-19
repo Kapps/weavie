@@ -2,12 +2,9 @@ import type { JSX } from "solid-js";
 
 // A monochrome Notion mark (an angular "N" in a rounded page), stroke-styled to match the lucide tab icons. Used
 // for source tabs — Notion is the only source today; when a second lands, the tab should pick the icon by source id.
-export function NotionIcon(props: { size?: number; class?: string }): JSX.Element {
-  const size = props.size ?? 13;
+export function NotionIcon(props: { class: string }): JSX.Element {
   return (
     <svg
-      width={size}
-      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

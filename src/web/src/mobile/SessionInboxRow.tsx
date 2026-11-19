@@ -52,7 +52,7 @@ export function SessionInboxRow(props: {
           props.onManage(session(), bounds.right, bounds.bottom);
         }}
       >
-        <EllipsisVertical size={18} aria-hidden="true" />
+        <EllipsisVertical aria-hidden="true" />
       </button>
     </div>
   );

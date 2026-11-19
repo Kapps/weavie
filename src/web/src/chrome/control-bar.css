@@ -31,6 +31,7 @@
 }
 
 .control-bar-pick span {
+  --icon-size: var(--icon-size-sm);
   display: flex;
   align-items: center;
   gap: 4px;

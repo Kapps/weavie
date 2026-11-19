@@ -1,24 +1,9 @@
 import { createSignal } from "solid-js";
-import {
-  type ClientSession,
-  registerSessionFeature,
-  selectedSession,
-  sessionResourceUrl,
-} from "../bridge";
-import { type FileRow, fileRow } from "../chrome/file-search";
+import { type FileEntry, type FileRow, fileRow } from "../chrome/file-search";
 import { canonicalFsPath } from "../editor/fs-path";
-import { readJsonStream } from "../messaging/json-stream";
-import { createSessionOwnedState } from "../messaging/session-owned-state";
-import { clearNotification, notify } from "../notify/notify";
-import { type FileIndexChange, FileIndexSync } from "./file-index-sync";
+import type { FileIndexChange } from "./file-index-sync";
 
-/** One listed file, with what the per-keystroke search scan needs precomputed. */
-export interface FileIndexEntry {
-  readonly row: FileRow;
-  readonly lower: string;
-}
-
-interface Slotted extends FileIndexEntry {
+interface Slotted extends FileEntry {
   slot: number;
 }
 
@@ -45,6 +30,22 @@ export class FileListing {
     return found === undefined ? [] : Array.isArray(found) ? found : [found];
   }
 
+  /** Whether every path the change drops is listed and every path it adds is not. */
+  fits(change: FileIndexChange): boolean {
+    const removed = new Set(change.removed);
+    const added = new Set(change.added);
+    return (
+      removed.size === change.removed.length &&
+      added.size === change.added.length &&
+      change.removed.every((rel) => this.lists(rel)) &&
+      change.added.every((rel) => removed.has(rel) || !this.lists(rel))
+    );
+  }
+
+  private lists(rel: string): boolean {
+    return this.spellings(rel).some((entry) => entry.row.rel === rel);
+  }
+
   add(rel: string): void {
     const entry: Slotted = {
       row: fileRow(this.prefix + (this.backslashed ? rel.replaceAll("/", "\\") : rel), rel),
@@ -61,9 +62,7 @@ export class FileListing {
 
   remove(rel: string): void {
     const spellings = this.spellings(rel);
-    const entry = spellings.find((candidate) => candidate.row.rel === rel);
-    if (entry === undefined)
-      throw new Error(`The host removed a file this page never listed: ${rel}`);
+    const entry = spellings.find((candidate) => candidate.row.rel === rel) as Slotted;
     const last = this.entries.pop() as Slotted;
     if (last !== entry) {
       last.slot = entry.slot;
@@ -106,7 +105,7 @@ export class FileIndex {
     return this.versionSignal[0]();
   }
 
-  get entries(): readonly FileIndexEntry[] {
+  get entries(): readonly FileEntry[] {
     return this.listing?.entries ?? [];
   }
 
@@ -122,7 +121,7 @@ export class FileIndex {
   }
 
   setWorkspace(root: string, home: string | null): void {
-    this.workspaceSignal[1]({ root, home });
+    if (this.root !== root || this.home !== home) this.workspaceSignal[1]({ root, home });
   }
 
   /** An empty listing for this workspace, to fill and then {@link install}. */
@@ -138,89 +137,14 @@ export class FileIndex {
     this.versionSignal[1]((version) => version + 1);
   }
 
-  apply(change: FileIndexChange): void {
-    if (this.listing === null) throw new Error("A file list change arrived before its list.");
+  /** Steps the list by one change, or leaves it untouched and answers false when the change does not fit it. */
+  apply(change: FileIndexChange): boolean {
+    if (this.listing === null || !this.listing.fits(change)) return false;
     for (const rel of change.removed) this.listing.remove(rel);
     for (const rel of change.added) this.listing.add(rel);
     if (change.added.length + change.removed.length > 0) {
       this.versionSignal[1]((version) => version + 1);
     }
+    return true;
   }
 }
-
-const NO_SESSION = new FileIndex();
-const indexes = createSessionOwnedState(() => new FileIndex());
-
-export const fileIndexFor = (session: ClientSession | null): FileIndex =>
-  indexes.get(session) ?? NO_SESSION;
-export const selectedFileIndex = (): FileIndex => fileIndexFor(selectedSession());
-
-interface IndexBatch {
-  revision: number;
-  count: number;
-  paths: string[];
-  unchanged: boolean;
-  complete: boolean;
-}
-
-registerSessionFeature((session) => {
-  const index = indexes.get(session);
-  if (index === undefined) return () => {};
-  const files = session.feature("files");
-  const errorKey = `file-index:${session.connection.id}:${session.address.incarnation}`;
-  let abort: AbortController | null = null;
-
-  const download = (): void => {
-    abort?.abort();
-    const current = new AbortController();
-    abort = current;
-    sync.begin();
-    void load(current.signal).catch((error: unknown) => {
-      if (current.signal.aborted) return;
-      sync.abandon();
-      notify("error", `Couldn't load the file list: ${String(error)}`, errorKey, {
-        label: "Retry",
-        run: download,
-      });
-    });
-  };
-
-  const load = async (signal: AbortSignal): Promise<void> => {
-    const url = sessionResourceUrl(session, "/weavie-file-index");
-    if (sync.known !== null) url.searchParams.set("knownRevision", sync.known.toString());
-    const listing = index.newListing();
-    for await (const batch of readJsonStream<IndexBatch>(await fetch(url, { signal }))) {
-      signal.throwIfAborted();
-      for (const path of batch.paths) listing.add(path);
-      if (!batch.complete) continue;
-      if (!batch.unchanged) {
-        if (listing.entries.length !== batch.count) {
-          throw new Error("The file list has an incorrect path count.");
-        }
-        index.install(listing);
-      }
-      clearNotification(errorKey);
-      sync.complete(batch.revision, !batch.unchanged);
-      return;
-    }
-    throw new Error("The file list ended before completion.");
-  };
-
-  const sync = new FileIndexSync((change) => index.apply(change), download);
-  // The host sends the workspace on every sync, so each connection checks the list it holds against the host's.
-  const offWorkspace = files.on<{ root: string; home: string }>("workspace", ({ root, home }) => {
-    index.setWorkspace(root, home === "" ? null : home);
-    download();
-  });
-  const offChanged = files.on<FileIndexChange>("indexChanged", (change) => sync.changed(change));
-  const offReplaced = files.on<{ revision: number }>("indexReplaced", ({ revision }) =>
-    sync.replaced(revision),
-  );
-  return () => {
-    abort?.abort();
-    clearNotification(errorKey);
-    offWorkspace();
-    offChanged();
-    offReplaced();
-  };
-});

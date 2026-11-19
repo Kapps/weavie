@@ -1,6 +1,7 @@
 import { createMemo } from "solid-js";
 import { selectedSession } from "../bridge";
-import { type FileIndex, selectedFileIndex } from "../files/file-index";
+import type { FileIndex } from "../files/file-index";
+import { selectedFileIndex } from "../files/session-file-index";
 import { repoStateOf } from "../repo-state";
 
 /** The listed files a repo's checkout-relative history names, in history order. */

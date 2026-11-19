@@ -12,11 +12,13 @@ export interface FileIndexChange {
  */
 export class FileIndexSync {
   private revision: number | null = null;
-  private loading = false;
+  // Changes wait from the start: nothing can be stepped until the first download says which list is in hand.
+  private loading = true;
   private queued: (FileIndexChange | number)[] = [];
 
+  /** `apply` reports whether the change fit the list in hand; one that didn't is answered by a download. */
   constructor(
-    private readonly apply: (change: FileIndexChange) => void,
+    private readonly apply: (change: FileIndexChange) => boolean,
     private readonly download: () => void,
   ) {}
 
@@ -30,10 +32,13 @@ export class FileIndexSync {
     this.loading = true;
   }
 
-  /** A download failed or was abandoned; the list in hand, if any, is as it was. */
+  /**
+   * A download failed or was abandoned. The list in hand takes the changes that waited; with no list there is
+   * nothing to step, so they are dropped and the next change or a retry downloads afresh.
+   */
   abandon(): void {
-    this.loading = false;
-    this.queued = [];
+    if (this.revision === null) this.queued = [];
+    this.settle();
   }
 
   /** A download finished at `revision`; `replaced` says whether its list was installed over the one in hand. */
@@ -41,22 +46,16 @@ export class FileIndexSync {
     if (!replaced && revision !== this.revision) {
       throw new Error("The host kept a file list this page does not hold.");
     }
-    this.loading = false;
     this.revision = revision;
-    const queued = this.queued;
-    this.queued = [];
-    for (const step of queued) {
-      if (typeof step === "number") this.replaced(step);
-      else this.changed(step);
-    }
+    this.settle();
   }
 
   changed(change: FileIndexChange): void {
     if (this.loading) {
       this.queued.push(change);
     } else if (this.revision !== null && change.revision === this.revision + 1) {
-      this.apply(change);
-      this.revision = change.revision;
+      if (this.apply(change)) this.revision = change.revision;
+      else this.download();
     } else if (this.revision === null || change.revision > this.revision) {
       this.download();
     }
@@ -68,6 +67,16 @@ export class FileIndexSync {
       this.queued.push(revision);
     } else if (this.revision === null || revision > this.revision) {
       this.download();
+    }
+  }
+
+  private settle(): void {
+    this.loading = false;
+    const queued = this.queued;
+    this.queued = [];
+    for (const step of queued) {
+      if (typeof step === "number") this.replaced(step);
+      else this.changed(step);
     }
   }
 }

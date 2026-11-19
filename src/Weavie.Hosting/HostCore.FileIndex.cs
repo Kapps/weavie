@@ -17,21 +17,23 @@ public sealed partial class HostCore {
 			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
 
 	// Every revision is published exactly once, so a page holding the one before it can always take the step.
+	// The first listing is revision 1, and no page holds the empty list before it.
 	private static void PushFileIndexChangeToWeb(HostSession session, WorkspaceInventoryChange change) {
 		var files = session.Bus.Feature("files");
 		long revision = change.Snapshot.Revision;
+		if (revision == 1) {
+			return;
+		}
+
 		if (change.CreatedFiles.Count + change.DeletedFiles.Count > MaxFileIndexChangePaths) {
 			files.Publish("indexReplaced", WireJson.Default.FileIndexReplaced, new(revision));
 		} else {
 			files.Publish("indexChanged", WireJson.Default.FileIndexChanged, new(
 				revision,
-				[.. change.CreatedFiles.Select(path => WorkspaceRelative(session, path))],
-				[.. change.DeletedFiles.Select(path => WorkspaceRelative(session, path))]));
+				[.. change.CreatedFiles.Select(session.Inventory.RelativePath)],
+				[.. change.DeletedFiles.Select(session.Inventory.RelativePath)]));
 		}
 	}
-
-	private static string WorkspaceRelative(HostSession session, string path) =>
-		path[(session.Inventory.Root.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/');
 
 	/// <summary>
 	/// Streams one session's file list as newline-delimited batches of workspace-relative paths, or a single
@@ -66,7 +68,7 @@ public sealed partial class HostCore {
 			return true;
 		}
 
-		foreach (string[] paths in snapshot.Files.Select(path => WorkspaceRelative(session, path)).Chunk(FileIndexBatchPaths)) {
+		foreach (string[] paths in snapshot.Files.Select(session.Inventory.RelativePath).Chunk(FileIndexBatchPaths)) {
 			await WriteBatchAsync(paths, unchanged: false, complete: false).ConfigureAwait(false);
 		}
 

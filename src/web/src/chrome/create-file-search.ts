@@ -18,12 +18,6 @@ export function createFileSearch(options: {
   recent: Accessor<readonly string[]>;
   currentFile: Accessor<string | null>;
 }) {
-  // Every listed file as a row. Only the tree view reads it; searching scans the index in place.
-  const rows = createMemo(() => {
-    const index = options.index();
-    index.version;
-    return index.entries.map((entry) => entry.row);
-  });
   const query = createMemo(() => options.query().trim().replace(/\\/g, "/"));
   const result = createMemo(() =>
     query().length === 0
@@ -38,5 +32,5 @@ export function createFileSearch(options: {
   const view = createMemo(() => result().matches.slice(0, FILE_SEARCH_VIEW_CAP));
   const total = () => result().total;
   const hiddenCount = () => total() - view().length;
-  return { rows, query, view, total, hiddenCount };
+  return { query, view, total, hiddenCount };
 }

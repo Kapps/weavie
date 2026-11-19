@@ -25,15 +25,15 @@ export interface FileSearchResult {
 
 // One file plus its lowercased `rel`, precomputed once so the per-keystroke pre-filter scans raw char codes
 // without re-lowercasing 100k strings on every query.
-interface Entry {
-  row: FileRow;
-  lower: string;
+export interface FileEntry {
+  readonly row: FileRow;
+  readonly lower: string;
 }
 
 /// A prebuilt index over a fixed file set; rebuild it (via `createFileFinder`) only when the index changes,
 /// then query it repeatedly with `rankFiles`.
 export interface FileFinder {
-  entries: readonly Entry[];
+  entries: readonly FileEntry[];
 }
 
 export function createFileFinder(rows: readonly FileRow[]): FileFinder {

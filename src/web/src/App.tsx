@@ -175,7 +175,7 @@ import { tabCommandBindings } from "./editor/tab-command-bindings";
 import { cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
 
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
-import { selectedFileIndex } from "./files/file-index";
+import { selectedFileIndex } from "./files/session-file-index";
 import { revealSelectedFile, selectedDirectoryListings } from "./files/session-files";
 import { GettingStartedModal } from "./getting-started/GettingStarted";
 import { createFullscreenColumn } from "./layout/fullscreen-column";

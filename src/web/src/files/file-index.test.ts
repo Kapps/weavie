@@ -1,12 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("../bridge", () => ({
-  registerSessionFeature: () => () => {},
-  selectedSession: () => null,
-  sessionResourceUrl: () => new URL("http://host/"),
-}));
-
-const { FileIndex } = await import("./file-index");
+import { describe, expect, it } from "vitest";
+import { FileIndex } from "./file-index";
 
 function indexOf(root: string, paths: string[]) {
   const index = new FileIndex();
@@ -17,8 +10,7 @@ function indexOf(root: string, paths: string[]) {
   return index;
 }
 
-const listed = (index: InstanceType<typeof FileIndex>): string[] =>
-  index.entries.map((entry) => entry.row.rel).sort();
+const listed = (index: FileIndex): string[] => index.entries.map((entry) => entry.row.rel).sort();
 
 describe("FileIndex", () => {
   it("is pending until its first list is installed", () => {
@@ -33,7 +25,7 @@ describe("FileIndex", () => {
     const index = new FileIndex();
     expect(() => index.newListing()).toThrow();
     index.setWorkspace("/repo", null);
-    expect(() => index.apply({ revision: 1, added: ["a.ts"], removed: [] })).toThrow();
+    expect(index.apply({ revision: 1, added: ["a.ts"], removed: [] })).toBe(false);
   });
 
   it("matches a rebuilt list after any sequence of changes", () => {
@@ -55,9 +47,30 @@ describe("FileIndex", () => {
     expect(index.version).toBe(before + 1);
   });
 
-  it("refuses to drop a file it never listed", () => {
-    const index = indexOf("/repo", ["a.ts"]);
-    expect(() => index.apply({ revision: 2, added: [], removed: ["b.ts"] })).toThrow();
+  it("leaves the list untouched by a change that does not fit it", () => {
+    const index = indexOf("/repo", ["a.ts", "b.ts"]);
+    const before = index.version;
+    expect(index.apply({ revision: 2, added: [], removed: ["a.ts", "ghost.ts"] })).toBe(false);
+    expect(index.apply({ revision: 2, added: ["b.ts"], removed: [] })).toBe(false);
+    expect(index.apply({ revision: 2, added: ["c.ts", "c.ts"], removed: [] })).toBe(false);
+    expect(listed(index)).toEqual(["a.ts", "b.ts"]);
+    expect(index.version).toBe(before);
+  });
+
+  it("takes a change that drops a path and lists it again", () => {
+    const index = indexOf("/repo", ["readme.md"]);
+    expect(index.apply({ revision: 2, added: ["readme.md"], removed: ["readme.md"] })).toBe(true);
+    expect(listed(index)).toEqual(["readme.md"]);
+  });
+
+  it("notifies workspace readers only when the workspace differs", () => {
+    const index = new FileIndex();
+    index.setWorkspace("/repo", "/home/me");
+    const first = index.root;
+    index.setWorkspace("/repo", "/home/me");
+    expect(index.root).toBe(first);
+    index.setWorkspace("/other", "/home/me");
+    expect(index.root).toBe("/other");
   });
 
   it("spells a file's path the way its host does", () => {

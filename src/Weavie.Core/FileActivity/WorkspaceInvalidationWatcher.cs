@@ -225,10 +225,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			var change = scope is null
 				? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
 				: await _inventory.RefreshAsync(scope, ct).ConfigureAwait(false);
-			if (!initial && change.IsEmpty) {
-				return;
-			}
-
 			if (!initial) {
 				foreach (string path in change.CreatedFiles) {
 					Record(path, FileInvalidationKind.Created);

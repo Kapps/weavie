@@ -56,7 +56,9 @@ test("a change published while the list downloads is applied to it", async ({ pa
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let downloads = 0;
   await page.route("**/weavie-file-index?**", async (route) => {
+    downloads += 1;
     const response = await route.fetch();
     listed();
     await held;
@@ -77,4 +79,5 @@ test("a change published while the list downloads is applied to it", async ({ pa
   await expect(
     page.locator(".tb-omnibar-list .tb-omnibar-row").filter({ hasText: "sync-probe-during.ts" }),
   ).toHaveCount(1);
+  expect(downloads).toBe(1);
 });

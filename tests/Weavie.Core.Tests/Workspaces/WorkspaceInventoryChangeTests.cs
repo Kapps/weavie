@@ -81,12 +81,29 @@ public sealed class WorkspaceInventoryChangeTests : IDisposable {
 		await inventory.RefreshAsync(Paths("d8/warm.cs"));
 
 		long before = GC.GetAllocatedBytesForCurrentThread();
-		var change = await inventory.RefreshAsync(scope);
+		var refresh = inventory.RefreshAsync(scope);
 		long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+		// Completing without yielding is what makes one thread's allocation count the whole refresh.
+		Assert.True(refresh.IsCompletedSuccessfully);
+		var change = await refresh;
 
 		Assert.Equal(scope, change.CreatedFiles);
 		Assert.Equal(200_002, change.Snapshot.Files.Count);
 		Assert.True(allocated < 64 * 1024, $"a one-file refresh over 200,000 files allocated {allocated:N0} bytes");
+	}
+
+	[Fact]
+	public async Task RelativePathIsWhatFollowsTheRootEvenWhenTheRootIsAFilesystemRoot() {
+		string filesystemRoot = Path.GetPathRoot(_root.Path)!;
+		var inventory = new WorkspaceInventory(filesystemRoot, _ => Task.FromResult<IReadOnlyList<string>>(["src/a.ts"]));
+		var nested = NewInventory();
+		_listing.Add("src/a.ts");
+
+		string atRoot = Assert.Single((await inventory.RefreshAsync()).Snapshot.Files);
+		string below = Assert.Single((await nested.RefreshAsync()).Snapshot.Files);
+
+		Assert.Equal("src/a.ts", inventory.RelativePath(atRoot));
+		Assert.Equal("src/a.ts", nested.RelativePath(below));
 	}
 
 	public void Dispose() => _root.Dispose();

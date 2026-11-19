@@ -34,6 +34,8 @@ public sealed class WorkspaceInventory {
 	private readonly Func<CancellationToken, Task<IReadOnlyList<string>>> _load;
 	private readonly Func<IReadOnlyCollection<string>, IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyList<string>?>> _loadScope;
 	private readonly SemaphoreSlim _refreshGate = new(1, 1);
+	// A filesystem root already ends in its separator; every other root gains one.
+	private readonly string _rootPrefix;
 	private WorkspaceInventorySnapshot? _lastSnapshot;
 
 	/// <summary>Creates an inventory of the repository or plain folder at <paramref name="root"/>.</summary>
@@ -58,6 +60,7 @@ public sealed class WorkspaceInventory {
 		ArgumentNullException.ThrowIfNull(load);
 		ArgumentNullException.ThrowIfNull(loadScope);
 		Root = Canonical(root);
+		_rootPrefix = Root.EndsWith(Path.DirectorySeparatorChar) ? Root : Root + Path.DirectorySeparatorChar;
 		_load = load;
 		_loadScope = loadScope;
 	}
@@ -66,6 +69,12 @@ public sealed class WorkspaceInventory {
 
 	/// <summary>The canonical absolute workspace root.</summary>
 	public string Root { get; }
+
+	/// <summary>The <c>/</c>-separated path below the root of a file or directory this inventory lists.</summary>
+	public string RelativePath(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		return path[_rootPrefix.Length..].Replace(Path.DirectorySeparatorChar, '/');
+	}
 
 	/// <summary>Raised once per non-empty change, in revision order, before the refresh that made it returns.</summary>
 	public event Action<WorkspaceInventoryChange>? Changed;
@@ -94,10 +103,10 @@ public sealed class WorkspaceInventory {
 		var previous = LastSnapshot ?? Empty;
 		return Commit(
 			previous,
-			[.. files.Where(path => !previous.Files.Contains(path))],
-			[.. previous.Files.Where(path => !files.Contains(path))],
-			[.. directories.Where(path => !previous.Directories.Contains(path))],
-			[.. previous.Directories.Where(path => !directories.Contains(path))]);
+			[.. files.Where(path => !Spells(previous.Files, path))],
+			[.. previous.Files.Where(path => !Spells(files, path))],
+			[.. directories.Where(path => !Spells(previous.Directories, path))],
+			[.. previous.Directories.Where(path => !Spells(directories, path))]);
 	}
 
 	/// <summary>
@@ -130,10 +139,10 @@ public sealed class WorkspaceInventory {
 				[.. listed.Where(path => path.EndsWith('/'))]);
 			return Commit(
 				previous,
-				[.. files.Where(path => !previous.Files.Contains(path))],
-				[.. scope.SelectMany(path => AtOrBeneath(previous.Files, path)).Where(path => !files.Contains(path)).Distinct(PathIdentity.CanonicalComparer)],
-				[.. directories.Where(path => !previous.Directories.Contains(path))],
-				[.. scope.SelectMany(path => AtOrBeneath(previous.Directories, path)).Where(path => !directories.Contains(path)).Distinct(PathIdentity.CanonicalComparer)]);
+				[.. files.Where(path => !Spells(previous.Files, path))],
+				[.. scope.SelectMany(path => AtOrBeneath(previous.Files, path)).Where(path => !Spells(files, path)).Distinct(PathIdentity.CanonicalComparer)],
+				[.. directories.Where(path => !Spells(previous.Directories, path))],
+				[.. scope.SelectMany(path => AtOrBeneath(previous.Directories, path)).Where(path => !Spells(directories, path)).Distinct(PathIdentity.CanonicalComparer)]);
 		} finally {
 			_refreshGate.Release();
 		}
@@ -165,6 +174,14 @@ public sealed class WorkspaceInventory {
 		Changed?.Invoke(change);
 		return change;
 	}
+
+	// Whether `paths` holds `path` in this exact spelling: where paths compare without case, a rename that only
+	// changes case is the old spelling deleted and the new one created.
+	private static bool Spells(ImmutableSortedSet<string> paths, string path) =>
+		paths.TryGetValue(path, out string held) && string.Equals(held, path, StringComparison.Ordinal);
+
+	private static bool Spells(HashSet<string> paths, string path) =>
+		paths.TryGetValue(path, out string? held) && string.Equals(held, path, StringComparison.Ordinal);
 
 	private static IEnumerable<string> AtOrBeneath(ImmutableSortedSet<string> paths, string path) =>
 		paths.Contains(path) ? Beneath(paths, path).Prepend(path) : Beneath(paths, path);
@@ -214,13 +231,9 @@ public sealed class WorkspaceInventory {
 		IReadOnlyList<string> relativeDirectories) {
 		var files = new HashSet<string>(PathIdentity.CanonicalComparer);
 		var directories = new HashSet<string>(PathIdentity.CanonicalComparer) { Root };
-		string rootPrefix = Root.EndsWith(Path.DirectorySeparatorChar)
-			? Root
-			: Root + Path.DirectorySeparatorChar;
-
 		foreach (string relative in relativeFiles) {
 			string fullPath = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(relative, Root));
-			if (!fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
+			if (!fullPath.StartsWith(_rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Git returned a path outside the workspace: {relative}");
 			}
 
@@ -237,7 +250,7 @@ public sealed class WorkspaceInventory {
 
 		foreach (string relative in relativeDirectories) {
 			string fullPath = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(relative, Root));
-			if (!PathIdentity.CanonicalComparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
+			if (!PathIdentity.CanonicalComparer.Equals(fullPath, Root) && !fullPath.StartsWith(_rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Workspace inventory returned a path outside the workspace: {relative}");
 			}
 

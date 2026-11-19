@@ -140,9 +140,9 @@
 }
 
 /* The position control's tools are the primitive's size, these buttons' height, so the row shares one centre; its
-   arrows take the 13px of the popover's other icons. */
+   arrows take the small icon size of the popover's other icons. */
 .weavie-hint-actions {
-  --icon-size: 13px;
+  --icon-size: var(--icon-size-sm);
   display: flex;
   align-items: center;
   gap: 2px;

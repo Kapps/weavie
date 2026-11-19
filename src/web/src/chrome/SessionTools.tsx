@@ -77,9 +77,9 @@ export function ParkedToggle(props: { class: string; count: number; label: strin
       title={`${parkedCollapsed() ? "Show" : "Hide"} ${props.count} parked session${props.count === 1 ? "" : "s"}${liveKeyHint(CommandIds.toggleParkedSessions)}`}
       onClick={() => setParkedCollapsed(!parkedCollapsed())}
     >
-      <Show when={parkedCollapsed()} fallback={<ChevronDown size={11} />}>
-        <ChevronRight size={11} />
-      </Show>
+      <span class="ui-icon ui-icon-sm">
+        {parkedCollapsed() ? <ChevronRight /> : <ChevronDown />}
+      </span>
       {props.label}
     </button>
   );

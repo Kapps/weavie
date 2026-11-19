@@ -39,7 +39,7 @@ export function TitleBar(props: {
         <WindowControls actions={props.chrome.controls.start} maximized={props.maximized} />
         <Show when={props.chrome.menus}>
           <span class="tb-icon" aria-hidden="true" data-caption>
-            <WeavieIcon size={18} />
+            <WeavieIcon />
           </span>
           <Menu />
         </Show>

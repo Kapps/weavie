@@ -50,7 +50,9 @@ export function EditorFooter(props: {
           role="status"
           title={outsideRepoDetail(props.root())}
         >
-          <FolderMinus size={13} aria-hidden="true" />
+          <span class="ui-icon ui-icon-sm">
+            <FolderMinus aria-hidden="true" />
+          </span>
           Outside repo
         </span>
       </Show>
@@ -60,7 +62,9 @@ export function EditorFooter(props: {
           role="status"
           title="The connection to this workspace was interrupted. Weavie is retrying."
         >
-          <TriangleAlert size={13} aria-hidden="true" />
+          <span class="ui-icon ui-icon-sm">
+            <TriangleAlert aria-hidden="true" />
+          </span>
           Network Problems
         </span>
       </Show>

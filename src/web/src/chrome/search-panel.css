@@ -21,11 +21,6 @@
   color: var(--dim);
 }
 
-.search-input-icon svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
-}
-
 .search-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -52,11 +47,6 @@
   border-radius: 3px;
   padding: 2px;
   cursor: pointer;
-}
-
-.search-toggle svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
 }
 
 .search-toggle:hover {

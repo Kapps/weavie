@@ -128,7 +128,7 @@ export function AgentStatusLine(props: {
               <span class="agent-status-diff-added">+{diffAdded()}</span>
               <span aria-hidden="true">/</span>
               <span class="agent-status-diff-removed">-{diffRemoved()}</span>
-              <ChevronDown size="1em" class="agent-status-diff-more" aria-hidden="true" />
+              <ChevronDown class="agent-status-diff-more" aria-hidden="true" />
             </button>
           </Show>
           <Show when={diffError()}>

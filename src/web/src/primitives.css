@@ -81,6 +81,13 @@
     content: "\200b";
   }
 
+  .ui-icon-sm {
+    --icon-size: var(--icon-size-sm);
+  }
+
+  /* Every lucide icon takes the token size; a container resizes its icons by setting --icon-size. */
+  .lucide,
+  .weavie-icon,
   .ui-icon > svg,
   .ui-icon-button > svg {
     width: var(--icon-size);
@@ -339,10 +346,5 @@
   .ui-stepper button:disabled {
     opacity: 0.4;
     cursor: default;
-  }
-
-  .ui-stepper svg {
-    width: var(--icon-size);
-    height: var(--icon-size);
   }
 }

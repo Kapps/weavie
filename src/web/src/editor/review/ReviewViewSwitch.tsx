@@ -42,8 +42,8 @@ export function ReviewViewSwitch(props: { view: ReviewView | undefined }): JSX.E
       }
     >
       <fieldset class="editor-review-action editor-review-switch" aria-label="Review view">
-        {segment("all", "All changed files", <Rows3 size={14} />)}
-        {segment("file", "Single file", <FileText size={14} />)}
+        {segment("all", "All changed files", <Rows3 />)}
+        {segment("file", "Single file", <FileText />)}
       </fieldset>
     </Show>
   );

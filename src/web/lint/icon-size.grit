@@ -1,0 +1,7 @@
+language js
+
+or { JsxSelfClosingElement(name=$tag, attributes=$attrs), JsxOpeningElement(name=$tag, attributes=$attrs) } where {
+  $tag <: r"^[A-Z].*",
+  $attrs <: contains JsxAttribute(name=$name) as $attr where { $name <: `size` },
+  register_diagnostic(span=$attr, message="Icons take their size from --icon-size (set it on a container), not a size prop (docs/concepts/design-system.md)", severity="error")
+}

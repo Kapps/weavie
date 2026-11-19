@@ -84,7 +84,8 @@ appears in the owning session's branch diff.
 
 Opening `~/Code` gives one session rooted there, with no branch, pull request, or worktree. Its agent sees the
 repositories beneath it and creates sessions in them. Files it edits in those repositories are reviewed in its
-own turn review and land in each repository's own checkout.
+own turn review and land in each repository's own checkout. Its file index lists each of those repositories
+through that repository's git, so what a repository ignores stays out of it.
 
 ## Limits
 

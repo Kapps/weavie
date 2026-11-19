@@ -1,15 +1,13 @@
 namespace Weavie.Core.Workspaces;
 
 /// <summary>
-/// Shared workspace path conventions, chiefly the canonical list of "noise" directory segments (dependency
-/// caches, build output) Weavie skips when walking a tree — one list the file index and LSP watcher agree on.
+/// Shared workspace path conventions, chiefly the "noise" directory names (dependency caches, build output) the
+/// walk of a plain folder skips; inside a repository git's ignore rules decide instead.
 /// </summary>
 public static class WorkspacePaths {
-	/// <summary>Directory names skipped anywhere in a workspace tree (case-insensitive).</summary>
-	public static readonly IReadOnlyList<string> IgnoredSegments =
-		["node_modules", ".git", "bin", "obj", "dist", ".vs", ".idea", "out", "target"];
-
-	private static readonly HashSet<string> IgnoredSet = new(IgnoredSegments, StringComparer.OrdinalIgnoreCase);
+	private static readonly HashSet<string> IgnoredSet = new(
+		["node_modules", ".git", "bin", "obj", "dist", ".vs", ".idea", "out", "target"],
+		StringComparer.OrdinalIgnoreCase);
 
 	/// <summary>True if <paramref name="segment"/> is one of the ignored directory names (case-insensitive).</summary>
 	public static bool IsIgnoredSegment(string segment) => IgnoredSet.Contains(segment);
@@ -20,17 +18,6 @@ public static class WorkspacePaths {
 	/// </summary>
 	public static bool IsIgnoreRuleFile(string fullPath) =>
 		Path.GetFileName(fullPath.AsSpan()).Equals(".gitignore", StringComparison.OrdinalIgnoreCase);
-
-	/// <summary>True if any path segment of <paramref name="fullPath"/> is an ignored directory name.</summary>
-	public static bool HasIgnoredSegment(string fullPath) {
-		foreach (string segment in fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {
-			if (IgnoredSet.Contains(segment)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
 
 	/// <summary>Replaces a leading <c>~</c> in <paramref name="path"/> with the user's home directory.</summary>
 	public static string ExpandHome(string path) {

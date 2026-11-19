@@ -1,4 +1,5 @@
 using Weavie.Core.Editor;
+using Weavie.Core.Git;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
 
@@ -15,29 +16,33 @@ public sealed class FileOpener : IAsyncDisposable {
 	private readonly ViewFeatureChannel _view;
 	private readonly MessageFeatureChannel _notifications;
 	private readonly FileProviderService _files;
-	private readonly WorkspaceFileIndex _index;
+	private readonly string _workspaceRoot;
+	private readonly Func<CancellationToken, Task<IReadOnlyList<string>>> _listFiles;
 	private readonly Action<string, int?, bool, bool, bool, EditorOpenIntent> _openFile;
 	private readonly SessionTaskScope _background =
 		new(message => Console.Error.WriteLine($"[weavie] file opener: {message}"));
 
 	/// <summary>Resolves durable editor opens through <paramref name="openFile"/>, presentation-only prompts
 	/// through <paramref name="view"/>, reads through <paramref name="files"/>, and resolves relative paths
-	/// against <paramref name="index"/>.</summary>
+	/// against <paramref name="workspaceRoot"/> and the workspace's files from <paramref name="listFiles"/>.</summary>
 	public FileOpener(
 		ViewFeatureChannel view,
 		MessageFeatureChannel notifications,
 		FileProviderService files,
-		WorkspaceFileIndex index,
+		string workspaceRoot,
+		Func<CancellationToken, Task<IReadOnlyList<string>>> listFiles,
 		Action<string, int?, bool, bool, bool, EditorOpenIntent> openFile) {
 		ArgumentNullException.ThrowIfNull(view);
 		ArgumentNullException.ThrowIfNull(notifications);
 		ArgumentNullException.ThrowIfNull(files);
-		ArgumentNullException.ThrowIfNull(index);
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentNullException.ThrowIfNull(listFiles);
 		ArgumentNullException.ThrowIfNull(openFile);
 		_view = view;
 		_notifications = notifications;
 		_files = files;
-		_index = index;
+		_workspaceRoot = workspaceRoot;
+		_listFiles = listFiles;
 		_openFile = openFile;
 	}
 
@@ -71,7 +76,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		EditorOpenIntent intent,
 		CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_index.Root, path));
+		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_workspaceRoot, path));
 		if (_files.CanRead(resolved)) {
 			PostOpen(resolved, line, preview, rendered, scratch, intent);
 			return true;
@@ -96,9 +101,9 @@ public sealed class FileOpener : IAsyncDisposable {
 
 	/// <summary>
 	/// The recovery for a relative reference that didn't resolve: suffix-match it against the workspace index
-	/// (off the calling thread — the walk can be slow on a big worktree). One hit re-opens it; several push
+	/// (off the calling thread — matching a big worktree is slow). One hit re-opens it; several push
 	/// <c>focus-omnibar</c> so the user picks from Go-to-File preloaded with the reference. False (→ the caller
-	/// toasts) for a rooted path, no match, a failed walk, or several matches when a background open can't take
+	/// toasts) for a rooted path, no match, a failed listing, or several matches when a background open can't take
 	/// the keyboard or no page displays the session.
 	/// </summary>
 	private async Task<bool> TryOpenBySuffixAsync(
@@ -115,10 +120,9 @@ public sealed class FileOpener : IAsyncDisposable {
 
 		IReadOnlyList<string> matches;
 		try {
-			matches = await Task
-				.Run(() => PathSuffixMatcher.Match(_index.List(), path), ct)
-				.ConfigureAwait(false);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			var files = await _listFiles(ct).ConfigureAwait(false);
+			matches = await Task.Run(() => PathSuffixMatcher.Match(files, path), ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Console.Error.WriteLine($"[weavie] reveal-file: suffix match failed: {ex.Message}");
 			return false;
 		}

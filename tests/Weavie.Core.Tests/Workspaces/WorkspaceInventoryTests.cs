@@ -8,36 +8,19 @@ namespace Weavie.Core.Tests;
 public sealed class WorkspaceInventoryTests : IDisposable {
 	private readonly TempDirectory _root = new("weavie-inventory");
 
-	[Fact]
-	public void TrackNonRepositoryFile_ReportsOnlyAPathTheInventoryLacked() {
-		// The workspace watcher re-enumerates whenever the inventory reports a change, so re-reporting a path
-		// it already holds would re-derive the whole workspace on every write.
-		var inventory = new WorkspaceInventory(_root.Path, _ => Task.FromResult<IReadOnlyList<string>?>(null));
-		int reported = 0;
-		inventory.Changed += () => Interlocked.Increment(ref reported);
-		string path = _root.Combine("notes.md");
-
-		inventory.TrackNonRepositoryFile(path);
-		inventory.TrackNonRepositoryFile(path);
-		inventory.TrackNonRepositoryFile(path);
-
-		Assert.Equal(1, reported);
-	}
-
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
 	public async Task Refresh_DerivesOnlyParentsOfGitFiles(bool trailingSeparator) {
 		var inventory = new WorkspaceInventory(
 			trailingSeparator ? _root.Path + Path.DirectorySeparatorChar : _root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>([
+			_ => Task.FromResult<IReadOnlyList<string>>([
 				Path.Combine("src", "feature", "file.ts"),
 				"README.md",
 			]));
 
 		var snapshot = await inventory.RefreshAsync();
 
-		Assert.True(snapshot.IsRepository);
 		Assert.Equal(
 			new[] {
 				_root.Path,
@@ -98,7 +81,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 
 	[Fact]
 	public async Task CoveringScopeLiftsEachPathToItsHighestUnknownAncestor() {
-		var inventory = new WorkspaceInventory(_root.Path, _ => Task.FromResult<IReadOnlyList<string>?>(["src/a.cs"]));
+		var inventory = new WorkspaceInventory(_root.Path, _ => Task.FromResult<IReadOnlyList<string>>(["src/a.cs"]));
 		await inventory.RefreshAsync();
 
 		var scope = inventory.CoveringScope([
@@ -119,7 +102,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		var git = new GitService();
 		var inventory = new WorkspaceInventory(
 			_root.Path,
-			ct => git.ListWorkspacePathsAsync(_root.Path, ct),
+			async ct => (await git.ListWorkspacePathsAsync(_root.Path, ct))!,
 			(known, discovered, ct) => {
 				Interlocked.Increment(ref listings);
 				return git.ListWorkspacePathsAsync(_root.Path, known, discovered, ct);
@@ -137,108 +120,105 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public void BuildSnapshot_DeduplicatesDirectorySpellings() {
 		var inventory = new WorkspaceInventory(_root.Path);
-		var snapshot = inventory.BuildSnapshot(false, [], ["src", "src/", "src/.", "./"]);
+		var snapshot = inventory.BuildSnapshot([], ["src", "src/", "src/.", "./"]);
 		Assert.Equal(new[] { _root.Path, _root.Combine("src") }.Order(), snapshot.Directories.Order());
-	}
-
-	[Fact]
-	public async Task Refresh_DistinguishesNonRepository() {
-		var inventory = new WorkspaceInventory(
-			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
-
-		var snapshot = await inventory.RefreshAsync();
-
-		Assert.False(snapshot.IsRepository);
-		Assert.Empty(snapshot.Files);
-		Assert.Equal([_root.Path], snapshot.Directories);
 	}
 
 	[Fact]
 	public async Task Refresh_RejectsPathOutsideWorkspace() {
 		var inventory = new WorkspaceInventory(
 			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>([Path.Combine("..", "outside.ts")]));
+			_ => Task.FromResult<IReadOnlyList<string>>([Path.Combine("..", "outside.ts")]));
 
 		await Assert.ThrowsAsync<GitException>(() => inventory.RefreshAsync());
 	}
 
-	[Fact]
-	public async Task NonRepositoryMoveAndDeleteReconcileWholeTree() {
-		var inventory = new WorkspaceInventory(
-			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
-		await inventory.RefreshAsync();
-		string oldFile = _root.Combine("old", "nested", "file.ts");
-		string newFile = _root.Combine("new", "nested", "file.ts");
-		var seed = await inventory.BeginNonRepositorySeedAsync();
-		inventory.CompleteNonRepositorySeed(seed, [oldFile], []);
+	private string[] Paths(params string[] relative) => [.. relative.Select(path => _root.Combine(path.Split('/'))).Order(StringComparer.Ordinal)];
 
-		var moved = inventory.MoveNonRepositoryTree(
-			_root.Combine("old"),
-			_root.Combine("new"));
-
-		Assert.Equal([new WorkspaceFileMove(oldFile, newFile)], moved);
-		var afterMove = await inventory.RefreshAsync();
-		Assert.Contains(newFile, afterMove.Files);
-		Assert.DoesNotContain(oldFile, afterMove.Files);
-
-		Assert.Equal([newFile], inventory.ForgetNonRepositoryTree(_root.Combine("new")));
-		Assert.Empty((await inventory.RefreshAsync()).Files);
+	private string InitRepository(string name) {
+		string repository = _root.CreateDirectory(name);
+		TempGitRepo.Init(repository);
+		return repository;
 	}
 
 	[Fact]
-	public async Task NavigationSeedPreservesConcurrentWatcherFile() {
-		var inventory = new WorkspaceInventory(
-			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
-		await inventory.RefreshAsync();
-		var seed = await inventory.BeginNonRepositorySeedAsync();
-		string createdDuringWalk = _root.Combine("during.ts");
-		string navigationSeed = _root.Combine("before.ts");
-		inventory.TrackNonRepositoryFile(createdDuringWalk);
+	public async Task PlainFolderListsEachRepositoryBeneathItByItsOwnIgnoreRules() {
+		_root.WriteFile("notes.md", "");
+		_root.WriteFile("plain/a.txt", "");
+		_root.WriteFile("plain/node_modules/pkg/index.js", "");
+		InitRepository("repo");
+		_root.WriteFile("repo/.gitignore", ".venv/\n");
+		_root.WriteFile("repo/src/a.py", "");
+		_root.WriteFile("repo/.venv/lib/site.py", "");
+		_root.CreateDirectory("repo", "empty");
 
-		inventory.CompleteNonRepositorySeed(seed, [navigationSeed], []);
+		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
 
-		var snapshot = await inventory.RefreshAsync();
-		Assert.Contains(createdDuringWalk, snapshot.Files);
-		Assert.Contains(navigationSeed, snapshot.Files);
+		Assert.Equal(Paths("notes.md", "plain/a.txt", "repo/.gitignore", "repo/src/a.py"), snapshot.Files.Order(StringComparer.Ordinal));
+		Assert.Equal(
+			Paths("plain", "repo", "repo/empty", "repo/src").Append(_root.Path).Order(StringComparer.Ordinal),
+			snapshot.Directories.Order(StringComparer.Ordinal));
 	}
 
 	[Fact]
-	public async Task NavigationSeedPreservesConcurrentWatcherDeletion() {
-		var inventory = new WorkspaceInventory(
-			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
-		await inventory.RefreshAsync();
-		string deletedDuringWalk = _root.Combine("deleted.ts");
-		var seed = await inventory.BeginNonRepositorySeedAsync();
+	public async Task PlainFolderWalksADirectoryWhoseGitEntryIsNotARepository() {
+		_root.CreateDirectory("odd", ".git");
+		_root.WriteFile("odd/file.txt", "");
 
-		inventory.ForgetNonRepositoryFile(deletedDuringWalk);
-		inventory.CompleteNonRepositorySeed(seed, [deletedDuringWalk], []);
+		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
 
-		Assert.DoesNotContain(deletedDuringWalk, (await inventory.RefreshAsync()).Files);
+		Assert.Equal(Paths("odd/file.txt"), snapshot.Files);
 	}
 
 	[Fact]
-	public async Task FileIndexSnapshotPublishedAfterWatcherMutationReplay() {
-		var inventory = new WorkspaceInventory(
-			_root.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
+	public async Task PlainFolderNeverFollowsADirectoryLink() {
+		if (OperatingSystem.IsWindows()) return;
+		_root.WriteFile("a/b/file.txt", "");
+		Directory.CreateSymbolicLink(_root.Combine("a", "up"), "..");
+		Directory.CreateSymbolicLink(_root.Combine("a", "b", "top"), _root.Path);
+		File.CreateSymbolicLink(_root.Combine("a", "alias.txt"), _root.Combine("a", "b", "file.txt"));
+
+		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+
+		Assert.Equal(Paths("a/alias.txt", "a/b/file.txt"), snapshot.Files.Order(StringComparer.Ordinal));
+	}
+
+	[Fact]
+	public async Task ScopedPlainFolderRefreshMatchesFullRefresh() {
+		_root.WriteFile("plain/a.txt", "");
+		_root.WriteFile("plain/gone.txt", "");
+		InitRepository("repo");
+		_root.WriteFile("repo/.gitignore", ".venv/\n");
+		_root.WriteFile("repo/src/a.py", "");
+		var inventory = new WorkspaceInventory(_root.Path);
 		await inventory.RefreshAsync();
-		string deletedDuringWalk = _root.Combine("deleted.ts");
-		string createdDuringWalk = _root.Combine("created.ts");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(deletedDuringWalk, "");
-		var fileIndex = new WorkspaceFileIndex(fileSystem, _root.Path);
-		var seed = await inventory.BeginNonRepositorySeedAsync();
-		var navigation = fileIndex.ListSnapshot();
 
-		inventory.ForgetNonRepositoryFile(deletedDuringWalk);
-		inventory.TrackNonRepositoryFile(createdDuringWalk);
-		var completed = inventory.CompleteNonRepositorySeed(seed, navigation.Files, navigation.Directories);
+		File.Delete(_root.Combine("plain", "gone.txt"));
+		_root.WriteFile("plain/new.txt", "");
+		_root.WriteFile("fresh/deep/file.txt", "");
+		_root.WriteFile("fresh/node_modules/pkg/index.js", "");
+		_root.WriteFile("repo/src/new.py", "");
+		_root.WriteFile("repo/.venv/lib/site.py", "");
+		InitRepository("cloned");
+		_root.WriteFile("cloned/main.go", "");
+		if (!OperatingSystem.IsWindows()) Directory.CreateSymbolicLink(_root.Combine("plain", "up"), "..");
+		var scoped = await inventory.RefreshAsync([
+			_root.Combine("plain", "gone.txt"),
+			_root.Combine("plain", "new.txt"),
+			_root.Combine("fresh"),
+			_root.Combine("fresh", "node_modules", "pkg", "index.js"),
+			_root.Combine("repo", "src", "new.py"),
+			_root.Combine("repo", ".venv"),
+			_root.Combine("cloned"),
+			_root.Combine("plain", "up"),
+		]);
 
-		Assert.Equal([createdDuringWalk], completed.Files);
+		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		Assert.Equal(full.Files, scoped.Files);
+		Assert.Equal(full.Directories, scoped.Directories);
+		Assert.Equal(
+			Paths("cloned/main.go", "fresh/deep/file.txt", "plain/a.txt", "plain/new.txt", "repo/.gitignore", "repo/src/a.py", "repo/src/new.py"),
+			scoped.Files.Order(StringComparer.Ordinal));
 	}
 
 	public void Dispose() => _root.Dispose();

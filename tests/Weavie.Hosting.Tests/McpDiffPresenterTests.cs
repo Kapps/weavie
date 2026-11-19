@@ -31,7 +31,8 @@ public sealed class McpDiffPresenterTests {
 			bridge.SessionViewFeature("view"),
 			bridge.SessionFeature("notifications"),
 			files,
-			new WorkspaceFileIndex(fs, "/ws"),
+			"/ws",
+			_ => Task.FromResult<IReadOnlyList<string>>([]),
 			(_, _, _, _, _, _) => { });
 		return (new McpDiffPresenter(channel, files, opener, _ => { }, (_, _, _) => { }), bridge);
 	}

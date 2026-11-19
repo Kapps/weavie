@@ -31,7 +31,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private IReadOnlySet<string> _files;
-	private bool _isRepository;
 	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
 	private Task? _stopTask;
@@ -161,25 +160,20 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
 			}
 
-			_inventory.Changed += SignalFullRefresh;
-			try {
-				var cooldown = Task.CompletedTask;
-				await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
-				_ready.TrySetResult();
-				while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
-					// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
-					if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
-						throw new IOException("Workspace file watching failed.", failure);
-					}
-
-					await cooldown.ConfigureAwait(false);
-					while (_refreshSignals.Reader.TryRead(out _)) { }
-					long started = Stopwatch.GetTimestamp();
-					await RefreshAsync(initial: false, TakeDirtyScope(), runCt).ConfigureAwait(false);
-					cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
+			var cooldown = Task.CompletedTask;
+			await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
+			_ready.TrySetResult();
+			while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
+				// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
+				if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
+					throw new IOException("Workspace file watching failed.", failure);
 				}
-			} finally {
-				_inventory.Changed -= SignalFullRefresh;
+
+				await cooldown.ConfigureAwait(false);
+				while (_refreshSignals.Reader.TryRead(out _)) { }
+				long started = Stopwatch.GetTimestamp();
+				await RefreshAsync(initial: false, TakeDirtyScope(), runCt).ConfigureAwait(false);
+				cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 			}
 		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
 			_ready.TrySetCanceled(_stopping.Token);
@@ -238,7 +232,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				return;
 			}
 
-			Volatile.Write(ref _isRepository, snapshot.IsRepository);
 			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 			if (!initial) {
 				foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
@@ -260,11 +253,18 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		} while (watchesChanged);
 	}
 
+	// Nothing inside a `.git` directory is a workspace path, but one arriving or leaving decides who lists its folder.
 	private void SignalRefresh(string path) {
-		lock (_dirtyLock) {
-			_dirtyPaths.Add(path);
+		string[] segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+		int git = Array.IndexOf(segments, ".git");
+		if (git == segments.Length - 1) {
+			SignalFullRefresh();
+		} else if (git < 0) {
+			lock (_dirtyLock) {
+				_dirtyPaths.Add(path);
+			}
+			_refreshSignals.Writer.TryWrite(true);
 		}
-		_refreshSignals.Writer.TryWrite(true);
 	}
 
 	private void SignalFullRefresh() {
@@ -276,7 +276,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 	private IReadOnlyCollection<string>? TakeDirtyScope() {
 		lock (_dirtyLock) {
-			var scope = _dirtyAll || !Volatile.Read(ref _isRepository) ? null : _dirtyPaths;
+			var scope = _dirtyAll ? null : _dirtyPaths;
 			_dirtyPaths = new HashSet<string>(PathIdentity.Comparer);
 			_dirtyAll = false;
 			return scope;

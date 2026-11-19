@@ -71,16 +71,13 @@ public sealed partial class HostCore {
 		return new(review, branch, mergeBase, listing);
 	}
 
-	// Joins the files pending when the base was checked, unless HEAD moved since: then the base is checked again first.
+	// Joins the files pending when the base was checked; a HEAD move since stops it, and the base is checked again.
 	private async Task JoinPendingAsync(HostSession session, ReviewContext review, ListingState seen, CancellationToken ct) {
-		if (session.ReviewListing.HeadMovedSince(seen)) {
-			session.ReviewHead.RefreshNow();
-			return;
-		}
 		var paths = session.ReviewListing.PendingAsOf(seen);
 		try {
-			await JoinAndRefreshReviewAsync(session, paths, ct).ConfigureAwait(false);
-			session.ReviewListing.Joined(paths, seen);
+			if (await JoinAndRefreshReviewAsync(session, paths, () => !session.ReviewListing.HeadMovedSince(seen), ct).ConfigureAwait(false))
+				session.ReviewListing.Joined(paths, seen);
+			else session.ReviewHead.RefreshNow();
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			// A full listing picks up what couldn't join; it settles even when it fails too, so this never loops.
 			session.ReviewListing.RequireFull();

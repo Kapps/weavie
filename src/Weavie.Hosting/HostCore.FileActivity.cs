@@ -1,6 +1,7 @@
 using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.Lsp;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -43,9 +44,9 @@ public sealed partial class HostCore {
 		session.FileActivity.Subscribe(
 			"review presentation",
 			fact => fact switch {
-				BufferSaved saved => JoinAndRefreshReviewAsync(session, [saved.Path], CancellationToken.None),
-				FileChanged changed => JoinAndRefreshReviewAsync(session, [changed.Path], CancellationToken.None),
-				FileDeleted deleted => JoinAndRefreshReviewAsync(session, [deleted.Path], CancellationToken.None),
+				BufferSaved saved => JoinAndRefreshReviewAsync(session, [saved.Path], () => true, CancellationToken.None),
+				FileChanged changed => JoinAndRefreshReviewAsync(session, [changed.Path], () => true, CancellationToken.None),
+				FileDeleted deleted => JoinAndRefreshReviewAsync(session, [deleted.Path], () => true, CancellationToken.None),
 				FilesInvalidated invalidated => InvalidateReview(session, invalidated),
 				_ => Task.CompletedTask,
 			},
@@ -57,9 +58,12 @@ public sealed partial class HostCore {
 			OnFailure);
 	}
 
-	private async Task JoinAndRefreshReviewAsync(HostSession session, IReadOnlyCollection<string> paths, CancellationToken ct) {
-		await JoinReviewAsync(session, paths, ct).ConfigureAwait(false);
+	// Answers false, having applied nothing more, once valid fails.
+	private async Task<bool> JoinAndRefreshReviewAsync(
+		HostSession session, IReadOnlyCollection<string> paths, Func<bool> valid, CancellationToken ct) {
+		bool joined = await JoinReviewAsync(session, paths, valid, ct).ConfigureAwait(false);
 		await RefreshReviewAsync(session, paths).ConfigureAwait(false);
+		return joined;
 	}
 
 	// The watcher echoes every save and agent edit the review already shows; the rest join it once its base is checked.
@@ -67,7 +71,7 @@ public sealed partial class HostCore {
 		if (session.Changes.Review is null) return Task.CompletedTask;
 		string[] paths = [.. invalidated.Changes.Select(change => change.Path)];
 		// Changed ignore rules can change which files the review lists, so it is listed from git in full.
-		if (paths.Any(path => Path.GetFileName(path) == ".gitignore")) session.ReviewListing.RequireFull();
+		if (paths.Any(WorkspacePaths.IsIgnoreRuleFile)) session.ReviewListing.RequireFull();
 		else if (session.Changes.UnaccountedFor(paths) is { Count: > 0 } unseen) session.ReviewListing.Changed(unseen);
 		else return Task.CompletedTask;
 		session.ReviewHead.RequestRefresh();

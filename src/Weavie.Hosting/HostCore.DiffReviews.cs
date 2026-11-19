@@ -176,7 +176,7 @@ public sealed partial class HostCore {
 			var joined = await _ui.InvokeAsync(() => Task.FromResult(ReplaceReviewOnUi(session, review, [.. seeds], request)), ct)
 				.ConfigureAwait(false);
 			if (joined is null) return Listed.NotReplaced;
-			if (joined.Count > 0) _ = session.Background.Run(stopping => JoinAndRefreshReviewAsync(session, joined, stopping));
+			if (joined.Count > 0) _ = session.Background.Run(stopping => JoinAndRefreshReviewAsync(session, joined, () => true, stopping));
 			return Listed.Replaced;
 		} finally {
 			// A failed listing settles what it set out to cover, so a persistent failure isn't retried in a loop.
@@ -217,21 +217,26 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Brings changed files into the open git review at its base: a held file refreshes from disk with no git call, and
-	/// new ones read their befores in one git call. A review replaced meanwhile is joined instead.
+	/// new ones read their befores in one git call. A review replaced meanwhile is joined instead. Nothing is applied
+	/// once <paramref name="valid"/> fails, and the answer says so.
 	/// </summary>
-	private static async Task JoinReviewAsync(HostSession session, IReadOnlyCollection<string> paths, CancellationToken ct) {
+	private static async Task<bool> JoinReviewAsync(
+		HostSession session, IReadOnlyCollection<string> paths, Func<bool> valid, CancellationToken ct) {
 		var git = new GitService();
 		var remaining = paths;
 		while (remaining.Count > 0 && session.Changes.Review is { } review) {
+			if (!valid()) return false;
 			string[] unheld = [.. remaining.Where(path => PathBoundary.Contains(review.Worktree, path)
 				&& !session.Changes.RefreshReviewPath(review, path))];
-			if (unheld.Length == 0) return;
+			if (unheld.Length == 0) return true;
 			var befores = await git.ReadFilesAtRefsAsync(review.Worktree, [.. unheld.Select(path =>
 				(review.MergeBase, Path.GetRelativePath(review.Worktree, path).Replace(Path.DirectorySeparatorChar, '/')))], ct)
 				.ConfigureAwait(false);
+			if (!valid()) return false;
 			remaining = [.. session.Changes.JoinReview(review, [.. unheld.Select((path, i) => new ReviewJoin(path, befores[i].Content, befores[i].Exists))])
 				.Select(join => join.Path)];
 		}
+		return true;
 	}
 
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;

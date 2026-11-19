@@ -475,7 +475,7 @@ public sealed class SettingsStore : IDisposable {
 	private bool TryCoerceEnv(SettingDefinition definition, string raw, out object? value, out string? error) {
 		error = null;
 		switch (definition.Kind) {
-			case SettingKind.String:
+			case SettingKind.String or SettingKind.Json:
 				value = raw;
 				return true;
 			case SettingKind.Path:
@@ -517,7 +517,7 @@ public sealed class SettingsStore : IDisposable {
 	private bool TryCoerceFile(SettingDefinition definition, object? raw, out object? value, out string? error) {
 		error = null;
 		switch (definition.Kind) {
-			case SettingKind.String:
+			case SettingKind.String or SettingKind.Json:
 				if (raw is string s) {
 					value = s;
 					return true;
@@ -615,6 +615,10 @@ public sealed class SettingsStore : IDisposable {
 				}
 
 				break;
+			case SettingKind.Json:
+				// A client that parses the value before sending it delivers the JSON itself, never its text.
+				coerced = value.ValueKind == JsonValueKind.String ? value.GetString() : value.GetRawText();
+				return true;
 		}
 
 		error = $"setting '{definition.Key}' expects a {KindName(definition.Kind)} value.";
@@ -791,6 +795,7 @@ public sealed class SettingsStore : IDisposable {
 		SettingKind.Int => "int",
 		SettingKind.Number => "number",
 		SettingKind.Path => "path",
+		SettingKind.Json => "json",
 		_ => kind.ToString().ToLowerInvariant(),
 	};
 

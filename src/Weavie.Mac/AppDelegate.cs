@@ -120,7 +120,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		window.ActivateApplicationMenu();
 	}
 
-	/// <summary>Saves the closing window's geometry, drops it from the set, and disposes its core.</summary>
+	/// <summary>
+	/// Saves the closing window's geometry, drops it from the set, and disposes its core; closing the last workspace
+	/// window with File ▸ Close Window returns to the welcome window (its close button quits).
+	/// </summary>
 	internal void OnWindowClosed(WorkspaceWindow window) {
 		window.SaveWindowState();
 		_windows.Remove(window);
@@ -130,6 +133,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 		window.DisposeCore();
 		_lastActive?.ActivateApplicationMenu();
+		if (_windows.Count == 0 && window.ClosedToWelcome) {
+			ShowWelcome();
+		}
 	}
 
 	/// <summary>

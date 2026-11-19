@@ -49,7 +49,7 @@ export default function VideoControls(props: { video: HTMLVideoElement }): JSX.E
         aria-label={paused() ? "Play" : "Pause"}
         onClick={() => togglePlayback(video)}
       >
-        {paused() ? <Play size={16} /> : <Pause size={16} />}
+        {paused() ? <Play /> : <Pause />}
       </button>
       <span class="editor-media-time">{clock(time())}</span>
       <input
@@ -71,7 +71,7 @@ export default function VideoControls(props: { video: HTMLVideoElement }): JSX.E
           video.muted = !video.muted;
         }}
       >
-        {muted() ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        {muted() ? <VolumeX /> : <Volume2 />}
       </button>
     </div>
   );

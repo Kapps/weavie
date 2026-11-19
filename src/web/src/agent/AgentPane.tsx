@@ -93,6 +93,7 @@ export function AgentPane(props: {
         <Show when={props.compact}>
           <AgentWorkingStatus
             compact
+            interruptHint={false}
             pendingKind={props.model.pendingRequestKind()}
             turnActive={props.model.turnActive()}
             turnStartedAt={props.model.turnStartedAt()}

@@ -383,4 +383,7 @@ public sealed partial class HostSession {
 
 internal sealed record AttachmentState(string Id, string Status, string Error);
 
-internal sealed record SubmissionState(string Id, IReadOnlyList<string> AttachmentIds, string Status, string Error);
+internal sealed record SubmissionState(string Id, IReadOnlyList<string> AttachmentIds, string Status, string Error) {
+	/// <summary>An accepted submission the agent discarded before delivering it.</summary>
+	public static SubmissionState Dropped(string id) => new(id, [], "dropped", string.Empty);
+}

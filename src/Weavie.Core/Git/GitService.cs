@@ -605,13 +605,14 @@ public sealed partial class GitService : IGitService {
 			// root. One level is peeled off per pass, scoped to just the roots found so far (never a repo-wide
 			// rescan) and batched into a single `git` call per pass regardless of how many roots are pending.
 			var frontier = await ListUntrackedDirectoriesAsync(directory, scope, ct).ConfigureAwait(false);
-			foreach (string root in frontier) paths.Add(root);
-			while (frontier.Count > 0) {
-				string[] pathspecs = [.. frontier.Select(root => ":(glob)" + EscapeGlobPathspec(root) + "*/")];
-				frontier = await ListUntrackedDirectoriesAsync(directory, pathspecs, ct).ConfigureAwait(false);
+			while (frontier is { Count: > 0 }) {
 				frontier.RemoveWhere(nested => !paths.Add(nested));
+				string[] pathspecs = [.. frontier.Select(root => ":(glob)" + EscapeGlobPathspec(root) + "*/")];
+				frontier = pathspecs.Length == 0 ? [] : await ListUntrackedDirectoriesAsync(directory, pathspecs, ct).ConfigureAwait(false);
 			}
-			return [.. paths];
+
+			// The directory stopped being a repository between two of these calls.
+			return frontier is null ? null : [.. paths];
 		}
 
 		if (IsNotRepository(result)) {
@@ -622,11 +623,13 @@ public sealed partial class GitService : IGitService {
 	}
 
 	// One level of untracked, non-ignored directories: unscoped (the whole worktree) when pathspecs is empty,
-	// or scoped to exactly the given pathspecs when not.
-	private async Task<HashSet<string>> ListUntrackedDirectoriesAsync(string directory, string[] pathspecs, CancellationToken ct) {
+	// or scoped to exactly the given pathspecs when not. Null when the directory is not a repository.
+	private async Task<HashSet<string>?> ListUntrackedDirectoriesAsync(string directory, string[] pathspecs, CancellationToken ct) {
 		var result = await RunAsync(directory, ["ls-files", "--others", "--directory", "--exclude-standard", "-z", "--", .. pathspecs], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
-			throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+			return IsNotRepository(result)
+				? null
+				: throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 		}
 
 		return [.. result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(path => path.EndsWith('/'))];
@@ -798,8 +801,10 @@ public sealed partial class GitService : IGitService {
 		}
 	}
 
+	// Git 2.56 words a `.git` file whose target is gone differently from every other non-repository.
 	private static bool IsNotRepository(ProcessCaptureResult result) =>
-		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase);
+		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
+		|| result.StdErr.Contains("gitfile does not point to a valid repository", StringComparison.OrdinalIgnoreCase);
 
 	private static async Task<ProcessCaptureResult> RunCheckedAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>

@@ -20,7 +20,6 @@ import { editorContexts } from "../editor-context";
 import type { FixItem } from "../FixPrompt";
 import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
-import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { reviewItems } from "../review-items/review-items";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
@@ -61,6 +60,7 @@ export function createPrComments(
   session: ClientSession,
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
+  version: Accessor<number>,
 ): PrCommentController {
   if (model.uri.scheme !== SESSION_FILE_SCHEME) return inert;
   const path = sessionUriHostPath(model.uri);
@@ -93,12 +93,6 @@ export function createPrComments(
             return null;
           }),
     );
-    const [version, setVersion] = createSignal(0);
-    let recompute: ReturnType<typeof setTimeout> | undefined;
-    const onContent = model.onDidChangeContent(() => {
-      clearTimeout(recompute);
-      recompute = setTimeout(() => setVersion((value) => value + 1), DIFF_RECOMPUTE_DEBOUNCE_MS);
-    });
     // The map remembers the head it was built from, so a post can't pair new-head lines with old-head text.
     const anchors = createMemo((): { map: AnchorMap; headSha: string } | null => {
       version();
@@ -204,19 +198,6 @@ export function createPrComments(
       return error;
     };
 
-    // The applied review's floating toolbar covers the bottom of the editor it reviews.
-    const reviewToolbarInset = (): number => {
-      const editorBox = editor.getDomNode()?.getBoundingClientRect();
-      const toolbar = editor
-        .getContainerDomNode()
-        .closest("[data-kind]")
-        ?.querySelector(".weavie-inline-toolbar")
-        ?.getBoundingClientRect();
-      return editorBox === undefined || toolbar == null || toolbar.top >= editorBox.bottom
-        ? 0
-        : editorBox.bottom - toolbar.top;
-    };
-
     const disposeCards = createZoneCards(
       editor,
       cards,
@@ -257,7 +238,7 @@ export function createPrComments(
           </Show>
         );
       },
-      reviewToolbarInset,
+      12,
     );
 
     const fixItem = (placement: ThreadPlacement): FixItem | null =>
@@ -324,8 +305,6 @@ export function createPrComments(
           .map((card) => (card.data.kind === "thread" ? fixItem(card.data.placement) : null))
           .find((item) => item !== null) ?? null,
       dispose: () => {
-        clearTimeout(recompute);
-        onContent.dispose();
         onMouseDown.dispose();
         disposeCards();
         draftMark.clear();

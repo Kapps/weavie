@@ -7,6 +7,8 @@ import { formatElapsed, type PendingRequestKind } from "./turn-progress";
 /** Live turn state shared by the desktop composer and compact pane header. */
 export function AgentWorkingStatus(props: {
   compact: boolean;
+  /** Whether Interrupt's key works from where this shows. */
+  interruptHint: boolean;
   pendingKind: PendingRequestKind | null;
   turnActive: boolean;
   turnStartedAt: number | null;
@@ -33,7 +35,7 @@ export function AgentWorkingStatus(props: {
         <Show when={props.turnStartedAt !== null}>
           <span class="agent-working-time">{elapsed()}</span>
         </Show>
-        <Show when={!props.compact && interruptKey() !== ""}>
+        <Show when={props.interruptHint && interruptKey() !== ""}>
           <span class="agent-working-hint">{interruptKey()} to interrupt</span>
         </Show>
       </div>

@@ -125,32 +125,11 @@ public sealed partial class HostCore {
 			try {
 				IReadOnlyList<string> files;
 				try {
-					var inventory = await session.FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false);
-					// A refresh during deletion can lose Git metadata before the root disappears.
-					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
-						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {
+					files = (await session.FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false)).Files;
+					// The watcher's snapshot outlives a deleted root until the deletion's own events arrive.
+					if (session.EndIfWorkspaceRootIsGone($"Couldn't load workspace files: {session.WorkspaceRoot} no longer exists.")) {
 						target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
 						return;
-					}
-
-					if (inventory.IsRepository) {
-						files = inventory.Files;
-					} else {
-						var seed = await session.Inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
-						bool completed = false;
-						try {
-							var navigation = session.FileIndex.ListSnapshot();
-							var completedInventory = session.Inventory.CompleteNonRepositorySeed(
-								seed,
-								navigation.Files,
-								navigation.Directories);
-							files = completedInventory.Files;
-							completed = true;
-						} finally {
-							if (!completed) {
-								session.Inventory.CancelNonRepositorySeed(seed);
-							}
-						}
 					}
 				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 					target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
@@ -172,7 +151,7 @@ public sealed partial class HostCore {
 
 	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
 	private static FileIndexWire FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new(
-		session.FileIndex.Root,
+		Path.GetFullPath(session.WorkspaceRoot),
 		Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
 		files,
 		pending);

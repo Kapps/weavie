@@ -23,4 +23,14 @@ public sealed class EditorSettingsTests {
 
 		Assert.Equal(4, options.RootElement.GetProperty("reviewFilesAhead").GetInt64());
 	}
+
+	[Fact]
+	public void InlineReplies_IsInTheOptionsPayload() {
+		using var directory = new TempDirectory("weavie-editor-settings");
+		using var store = CoreSettings.CreateStore(directory.Combine("settings.toml"), enableWatcher: false);
+		store.Set(EditorSettings.InlineReplies, JsonDocument.Parse("false").RootElement.Clone());
+		using var options = JsonDocument.Parse(EditorSettings.BuildJson(store));
+
+		Assert.False(options.RootElement.GetProperty("inlineReplies").GetBoolean());
+	}
 }

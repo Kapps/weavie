@@ -26,7 +26,8 @@ public sealed class FileOpenerTests {
 				bridge.SessionViewFeature("view"),
 				bridge.SessionFeature("notifications"),
 				files,
-				new WorkspaceFileIndex(fs, Workspace),
+				Workspace,
+				_ => Task.FromResult<IReadOnlyList<string>>([.. fs.Paths]),
 				(path, line, preview, _, scratch, intent) =>
 					bridge.SessionFeature("editor").Publish(
 						"openFile",

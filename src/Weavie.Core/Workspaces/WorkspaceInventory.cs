@@ -4,62 +4,52 @@ using Weavie.Core.Git;
 namespace Weavie.Core.Workspaces;
 
 /// <summary>An authoritative workspace snapshot and the flat directories needed to observe its files.</summary>
-/// <param name="IsRepository">Whether Git supplied the snapshot.</param>
-/// <param name="Files">Canonical absolute paths for tracked and untracked, non-ignored files.</param>
+/// <param name="Files">Canonical absolute paths for the workspace's files, none of them ignored.</param>
 /// <param name="Directories">Canonical absolute file ancestors and non-ignored directories, including empty ones.</param>
 public sealed record WorkspaceInventorySnapshot(
-	bool IsRepository,
 	IReadOnlyList<string> Files,
 	IReadOnlyList<string> Directories);
 
-internal readonly record struct WorkspaceFileMove(string OldPath, string NewPath);
-
 /// <summary>
-/// Loads one workspace's files and directories from Git, including empty non-ignored directories.
-/// Refreshes are serialized so every consumer sees a complete snapshot.
+/// Loads one workspace's files and directories from its <see cref="WorkspaceListing"/>, including empty
+/// non-ignored directories. Refreshes are serialized so every consumer sees a complete snapshot.
 /// </summary>
-public sealed partial class WorkspaceInventory {
-	private readonly Func<CancellationToken, Task<IReadOnlyList<string>?>> _load;
+public sealed class WorkspaceInventory {
+	private readonly Func<CancellationToken, Task<IReadOnlyList<string>>> _load;
 	private readonly Func<IReadOnlyCollection<string>, IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyList<string>?>> _loadScope;
 	private readonly SemaphoreSlim _refreshGate = new(1, 1);
-	private readonly Lock _knownFilesLock = new();
-	private readonly HashSet<string> _knownNonRepositoryFiles = new(PathIdentity.Comparer);
-	private readonly HashSet<string> _knownNonRepositoryDirectories = new(PathIdentity.Comparer);
-	private bool? _isRepository;
 	private WorkspaceInventorySnapshot? _lastSnapshot;
 
-	/// <summary>Creates a Git-backed inventory rooted at <paramref name="root"/>.</summary>
-	public WorkspaceInventory(string root) : this(
-		root,
-		ct => new GitService().ListWorkspacePathsAsync(root, ct),
-		(known, discovered, ct) => new GitService().ListWorkspacePathsAsync(root, known, discovered, ct)) { }
+	/// <summary>Creates an inventory of the repository or plain folder at <paramref name="root"/>.</summary>
+	public WorkspaceInventory(string root) : this(root, new WorkspaceListing(Canonical(root))) { }
+
+	private WorkspaceInventory(string root, WorkspaceListing listing) : this(root, listing.ListAsync, listing.ListAsync) { }
 
 	// The scoped load filters the full one, so a test supplies one listing that both refresh kinds agree on.
 	internal WorkspaceInventory(
 		string root,
-		Func<CancellationToken, Task<IReadOnlyList<string>?>> load) : this(root, load, async (known, discovered, ct) => {
+		Func<CancellationToken, Task<IReadOnlyList<string>>> load) : this(root, load, async (known, discovered, ct) => {
 			var paths = await load(ct).ConfigureAwait(false);
-			return paths?.Where(path => known.Concat(discovered).Any(scoped => PathBoundary.Contains(
+			return paths.Where(path => known.Concat(discovered).Any(scoped => PathBoundary.Contains(
 				scoped, WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(path, root)), PathIdentity.Comparison))).ToList();
 		}) { }
 
 	internal WorkspaceInventory(
 		string root,
-		Func<CancellationToken, Task<IReadOnlyList<string>?>> load,
+		Func<CancellationToken, Task<IReadOnlyList<string>>> load,
 		Func<IReadOnlyCollection<string>, IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyList<string>?>> loadScope) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(load);
 		ArgumentNullException.ThrowIfNull(loadScope);
-		Root = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(root));
+		Root = Canonical(root);
 		_load = load;
 		_loadScope = loadScope;
 	}
 
+	private static string Canonical(string root) => WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(root));
+
 	/// <summary>The canonical absolute workspace root.</summary>
 	public string Root { get; }
-
-	/// <summary>Raised when a non-Git consumer supplies a newer already-known file set.</summary>
-	public event Action? Changed;
 
 	/// <summary>
 	/// The snapshot a refresh most recently computed, or <c>null</c> before the first refresh. It is current only
@@ -67,10 +57,7 @@ public sealed partial class WorkspaceInventory {
 	/// </summary>
 	public WorkspaceInventorySnapshot? LastSnapshot => Volatile.Read(ref _lastSnapshot);
 
-	/// <summary>
-	/// Reloads the authoritative Git inventory. A non-repository snapshot contains paths already supplied by
-	/// navigation; Git execution failures throw rather than silently switching to a filesystem walk.
-	/// </summary>
+	/// <summary>Reloads the whole inventory. A listing failure throws rather than yielding a partial snapshot.</summary>
 	public async Task<WorkspaceInventorySnapshot> RefreshAsync(CancellationToken ct = default) {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
@@ -81,25 +68,10 @@ public sealed partial class WorkspaceInventory {
 	}
 
 	private async Task<WorkspaceInventorySnapshot> ReloadAsync(CancellationToken ct) {
-		var paths = _isRepository is false
-			? null
-			: await _load(ct).ConfigureAwait(false);
-		WorkspaceInventorySnapshot snapshot;
-		if (paths is not null) {
-			_isRepository = true;
-			snapshot = BuildSnapshot(isRepository: true,
-				[.. paths.Where(path => !path.EndsWith('/'))],
-				[.. paths.Where(path => path.EndsWith('/'))]);
-		} else {
-			_isRepository = false;
-			lock (_knownFilesLock) {
-				snapshot = BuildSnapshot(
-					isRepository: false,
-					[.. _knownNonRepositoryFiles],
-					[.. _knownNonRepositoryDirectories]);
-			}
-		}
-
+		var paths = await _load(ct).ConfigureAwait(false);
+		var snapshot = BuildSnapshot(
+			[.. paths.Where(path => !path.EndsWith('/'))],
+			[.. paths.Where(path => path.EndsWith('/'))]);
 		Volatile.Write(ref _lastSnapshot, snapshot);
 		return snapshot;
 	}
@@ -107,13 +79,13 @@ public sealed partial class WorkspaceInventory {
 	/// <summary>
 	/// Re-lists only the entries at or beneath <paramref name="paths"/> (absolute, inside <see cref="Root"/>) and
 	/// keeps the rest of the previous snapshot; the result matches a full refresh for those paths. Returns the
-	/// previous snapshot instance when nothing changed, and refreshes fully before a repository snapshot exists.
+	/// previous snapshot instance when nothing changed, and refreshes fully before a snapshot exists.
 	/// Pass <see cref="CoveringScope"/>'s result to list a burst of related paths as one query.
 	/// </summary>
 	public async Task<WorkspaceInventorySnapshot> RefreshAsync(IReadOnlyCollection<string> paths, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(paths);
 		var scope = paths.Select(path => WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(path))).ToHashSet(PathIdentity.CanonicalComparer);
-		if (LastSnapshot is not { IsRepository: true } || scope.Contains(Root)) {
+		if (LastSnapshot is null || scope.Contains(Root)) {
 			return await RefreshAsync(ct).ConfigureAwait(false);
 		}
 
@@ -137,12 +109,12 @@ public sealed partial class WorkspaceInventory {
 
 			files.RemoveWhere(path => IsWithin(scope, path));
 			directories.RemoveWhere(path => IsWithin(scope, path));
-			var additions = BuildSnapshot(isRepository: true,
+			var additions = BuildSnapshot(
 				[.. listed.Where(path => !path.EndsWith('/'))],
 				[.. listed.Where(path => path.EndsWith('/'))]);
 			files.UnionWith(additions.Files);
 			directories.UnionWith(additions.Directories);
-			var snapshot = new WorkspaceInventorySnapshot(true, Sorted(files), Sorted(directories));
+			var snapshot = new WorkspaceInventorySnapshot(Sorted(files), Sorted(directories));
 			Volatile.Write(ref _lastSnapshot, snapshot);
 			return snapshot;
 		} finally {
@@ -164,7 +136,12 @@ public sealed partial class WorkspaceInventory {
 			.ToHashSet(PathIdentity.CanonicalComparer);
 	}
 
+	// A known directory, the root above all, is already its own covering scope: nothing above the root is listed.
 	private static string HighestUnknownAncestor(HashSet<string> directories, string path) {
+		if (directories.Contains(path)) {
+			return path;
+		}
+
 		for (string? parent = Path.GetDirectoryName(path);
 			parent is not null && !directories.Contains(parent);
 			parent = Path.GetDirectoryName(parent)) {
@@ -191,7 +168,6 @@ public sealed partial class WorkspaceInventory {
 	}
 
 	internal WorkspaceInventorySnapshot BuildSnapshot(
-		bool isRepository,
 		IReadOnlyList<string> relativeFiles,
 		IReadOnlyList<string> relativeDirectories) {
 		var files = new HashSet<string>(PathIdentity.CanonicalComparer);
@@ -226,11 +202,6 @@ public sealed partial class WorkspaceInventory {
 			directories.Add(fullPath);
 		}
 
-		var sortedFiles = files.ToList();
-		sortedFiles.Sort(PathIdentity.CanonicalComparer);
-		var sortedDirectories = directories.ToList();
-		sortedDirectories.Sort(PathIdentity.CanonicalComparer);
-		return new WorkspaceInventorySnapshot(isRepository, sortedFiles, sortedDirectories);
+		return new WorkspaceInventorySnapshot(Sorted(files), Sorted(directories));
 	}
-
 }

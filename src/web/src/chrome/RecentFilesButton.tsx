@@ -60,7 +60,9 @@ export function RecentFilesButton(props: {
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => setOpen((v) => !v)}
       >
-        <History size={13} />
+        <span class="ui-icon ui-icon-sm">
+          <History />
+        </span>
         <span>Recent</span>
       </button>
       <Show when={open()}>

@@ -68,7 +68,7 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
       fallback={
         <>
           <button type="button" class="gs-link" onClick={() => setBrowsing(false)}>
-            <ChevronLeft size="1em" aria-hidden="true" />
+            <ChevronLeft aria-hidden="true" />
             Back to your agents
           </button>
           <div class="gs-registry">
@@ -146,7 +146,7 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
       <div class="gs-links">
         <button type="button" class="gs-link" onClick={() => setBrowsing(true)}>
           Browse more agents
-          <ChevronRight size="1em" aria-hidden="true" />
+          <ChevronRight aria-hidden="true" />
         </button>
         <Show when={agentProviders(LOCAL_BACKEND_ID).some((provider) => provider.warning !== null)}>
           <button

@@ -1153,6 +1153,7 @@ a:has(> .agent-path-dir) {
 
 /* Hints that the totals open a menu of the session's other diffs. */
 .agent-status-diff-more {
+  --icon-size: var(--icon-size-sm);
   /* An SVG's baseline is its bottom edge, so baseline alignment would seat it on the text's baseline. */
   align-self: center;
   opacity: 0.6;

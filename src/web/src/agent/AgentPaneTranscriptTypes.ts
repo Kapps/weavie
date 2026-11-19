@@ -56,6 +56,10 @@ export interface AgentTranscriptEntry {
   turnStart?: true;
   turnKey?: string | undefined;
   promptTurnId?: string;
+  /** The submission whose text this row is. */
+  submissionId?: string;
+  /** The user's row a pending request came after, which says whose it is once it moves to the end. */
+  promptedBy?: string;
   conversation?: AgentConversationProjection;
   asideActive?: boolean | undefined;
   asideCollapsed?: boolean | undefined;

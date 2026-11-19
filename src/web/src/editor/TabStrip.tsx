@@ -222,7 +222,7 @@ export function TabStrip(props: {
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => nudge(-1)}
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft />
           </button>
         </Show>
         <div
@@ -265,25 +265,25 @@ export function TabStrip(props: {
                   onContextMenu={(event) => openMenu(event, view)}
                 >
                   <Show when={view.kind === "web"}>
-                    <Globe size={13} class="editor-tab-icon" />
+                    <Globe class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "source"}>
                     {sourceTabIcon(props.session(), view.path)}
                   </Show>
                   <Show when={view.kind === "subagent"}>
-                    <Bot size={13} class="editor-tab-icon" />
+                    <Bot class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "aside"}>
-                    <MessageSquare size={13} class="editor-tab-icon" />
+                    <MessageSquare class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "dashboard" || view.kind === "block"}>
-                    <ChartLine size={13} class="editor-tab-icon" />
+                    <ChartLine class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "task"}>
-                    <Activity size={13} class="editor-tab-icon" />
+                    <Activity class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "plan"}>
-                    <FileText size={13} class="editor-tab-icon" />
+                    <FileText class="editor-tab-icon" />
                   </Show>
                   <span class="editor-tab-label pane-tab-label">
                     {tabLabel(view, props.session())}
@@ -324,7 +324,7 @@ export function TabStrip(props: {
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => nudge(1)}
           >
-            <ChevronRight size={15} />
+            <ChevronRight />
           </button>
         </Show>
         {/* Source/Preview toggle: shown only for previewable files. Routes through the command so button /
@@ -338,7 +338,7 @@ export function TabStrip(props: {
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => dispatchCommand(CommandIds.toggleEditorPreview)}
           >
-            {previewing() ? <Code size={14} /> : <Eye size={14} />}
+            {previewing() ? <Code /> : <Eye />}
           </button>
         </Show>
         {props.trailing}

@@ -48,6 +48,8 @@ internal sealed partial class AcpConversation {
 	// Completion publication still owns the slot after the prompt response, including reentrant submissions.
 	private bool _promptDeliveryActive;
 	private bool _steering;
+	// The steer awaiting the agent's answer, which is in neither the queue nor the transcript until then.
+	private AgentTurnSubmission? _steer;
 	private bool _steeringRefused;
 	private bool _loadingTranscript;
 	private bool _sessionOpening;

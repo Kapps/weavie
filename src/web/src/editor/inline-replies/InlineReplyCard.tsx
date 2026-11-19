@@ -1,0 +1,161 @@
+import { X } from "lucide-solid";
+import { createMemo, type JSX, Match, on, onCleanup, Show, Switch } from "solid-js";
+import { AgentCardReplyBox } from "../../agent/AgentCardReplyBox";
+import { AgentCardShell } from "../../agent/AgentCardShell";
+import { NestedTranscript } from "../../agent/AgentNestedCard";
+import { hasPendingRequest } from "../../agent/AgentPendingRequests";
+import { sameItems } from "../../agent/AgentTranscriptSnapshot";
+import { AgentWorkingStatus } from "../../agent/AgentWorkingStatus";
+import { ownsCommand, ownTarget } from "../../agent/agent-command-owner";
+import { agentQueuedSubmissions } from "../../agent/agent-queue-store";
+import { CollapsibleCardContent } from "../../agent/CollapsibleCardContent";
+import { hasSubmission, submissionReply } from "../../agent/inline-reply";
+import { createNestedExpansion } from "../../agent/nested-expansion";
+import { agentPaneModel } from "../../agent/pane-store";
+import type { ClientSession } from "../../bridge";
+import { liveKeyHint } from "../../commands/keys-live";
+import { CommandIds } from "../../commands/types";
+import {
+  dismissInlineReply,
+  INLINE_REPLY_OWNED,
+  type InlineReply,
+  inlineFollowUp,
+  setInlineReplyCollapsed,
+} from "./inline-replies-store";
+
+/** One prompt sent from a selection, in the pane's card with the pane's rows for what the agent did about it. */
+export function InlineReplyCard(props: {
+  reply: InlineReply;
+  session: ClientSession;
+}): JSX.Element {
+  const pane = () => agentPaneModel(props.session);
+  const expansion = createNestedExpansion(props.session);
+  // Unchanged entries keep their identity across snapshots, so a settled reply never re-renders.
+  const answer = createMemo(
+    () => {
+      const model = pane();
+      return model === null
+        ? null
+        : submissionReply(model.transcript(), props.reply.id, props.reply.followUps);
+    },
+    null,
+    {
+      equals: (before, after) =>
+        before === after ||
+        (before !== null &&
+          after !== null &&
+          before.working === after.working &&
+          sameItems(before.entries, after.entries)),
+    },
+  );
+  const entries = () => answer()?.entries ?? [];
+  // The card's prompts the transcript does not hold yet, and whether the host has one of them queued.
+  const undelivered = createMemo(() => {
+    const model = pane();
+    return model === null
+      ? []
+      : [props.reply.id, ...props.reply.followUps].filter(
+          (id) => !hasSubmission(model.transcript(), id),
+        );
+  });
+  const queued = () =>
+    agentQueuedSubmissions(props.session).some((waiting) => undelivered().includes(waiting.id));
+  const collapsed = () => props.reply.collapsed;
+  // A transcript reload replaces every reply composer, so the box takes a new one with each generation.
+  const followUp = createMemo(
+    on(
+      () => pane()?.generation(),
+      () => inlineFollowUp(props.session, props.reply),
+    ),
+  );
+  // The card last pressed or focused is the one its commands act on, until the user presses elsewhere.
+  let release: (() => void) | null = null;
+  onCleanup(() => release?.());
+  const own = (event: Event): void => {
+    if (!ownsCommand(INLINE_REPLY_OWNED, release))
+      release = ownTarget(INLINE_REPLY_OWNED, event.currentTarget as Element, props.reply.id);
+  };
+  return (
+    <AgentCardShell
+      label={props.reply.question}
+      collapsed={collapsed()}
+      headOnly={collapsed() && !entries().some(hasPendingRequest)}
+      meta={
+        <Switch>
+          <Match when={props.reply.error !== null}>
+            <small class="inline-reply-error">Not sent</small>
+          </Match>
+          <Match when={answer()?.working}>
+            <AgentWorkingStatus
+              compact={false}
+              interruptHint={false}
+              pendingKind={pane()?.pendingRequestKind() ?? null}
+              turnActive={true}
+              turnStartedAt={pane()?.turnStartedAt() ?? null}
+            />
+          </Match>
+          <Match when={queued()}>
+            <small>Queued</small>
+          </Match>
+          {/* A transcript still loading says nothing yet about a prompt it has not shown. */}
+          <Match when={undelivered().length > 0 && pane()?.historyComplete()}>
+            <small>Sending</small>
+          </Match>
+          <Match when={answer() !== null && entries().length === 0}>
+            <small>No reply</small>
+          </Match>
+        </Switch>
+      }
+      wrapLabel={true}
+      onToggle={() => setInlineReplyCollapsed(props.session, props.reply.id, !collapsed())}
+      toggleHint={liveKeyHint(CommandIds.toggleInlineReply)}
+      actions={
+        <button
+          type="button"
+          class="ui-icon-button"
+          aria-label="Dismiss Inline Reply"
+          title={`Dismiss Inline Reply${liveKeyHint(CommandIds.dismissInlineReply)}`}
+          onClick={() => dismissInlineReply(props.session, props.reply.id)}
+        >
+          <X aria-hidden="true" />
+        </button>
+      }
+      onOwn={own}
+      // A comment box throughout, so typing in its reply or an agent's question never acts on the editor.
+      data={{ "data-inline-reply": props.reply.id, "data-comment-box": "" }}
+    >
+      <div class="inline-reply-body agent-body">
+        <Show when={props.reply.error}>
+          {(error) => (
+            <p class="inline-reply-error" role="alert">
+              {error()}
+            </p>
+          )}
+        </Show>
+        <NestedTranscript
+          pendingOnly={collapsed()}
+          entries={entries()}
+          expandedDetails={expansion.expandedDetails()}
+          keyboardRequestKey={null}
+          onUpdatesToggle={expansion.onUpdatesToggle}
+          onDetailsToggle={expansion.onDetailsToggle}
+          session={props.session}
+        />
+      </div>
+      <Show when={answer() !== null}>
+        <CollapsibleCardContent collapsed={collapsed()}>
+          <div data-inline-follow-up>
+            <AgentCardReplyBox
+              session={props.session}
+              composer={followUp()}
+              label="Reply"
+              hint="Paste text or images"
+              replyTitle={`Reply to Inline Reply${liveKeyHint(CommandIds.replyToInlineReply)}`}
+              disabled={false}
+            />
+          </div>
+        </CollapsibleCardContent>
+      </Show>
+    </AgentCardShell>
+  );
+}

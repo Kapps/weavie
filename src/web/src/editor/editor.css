@@ -30,6 +30,10 @@
   margin-bottom: 20px;
 }
 
+.editor-empty-mark {
+  --icon-size: 28px;
+}
+
 .editor-empty-titles {
   display: flex;
   flex-direction: column;
@@ -198,6 +202,7 @@
 /* Source/Preview toggle: a fixed control at the right of the tab strip (past the scroll buttons, before the
    pane-number badge). Shown only for previewable files (see TabStrip). */
 .editor-preview-toggle {
+  --icon-size: var(--icon-size-sm);
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -249,6 +254,7 @@ button.editor-review-action:not(:disabled):hover {
 
 /* Icon-only halves inside the switch's 1px frame, so the whole switch is one control tall. */
 .editor-review-segment {
+  --icon-size: var(--icon-size-sm);
   --control-h: calc(var(--control-height) - 2px);
   align-items: center;
   padding-inline: 6px;
@@ -366,7 +372,11 @@ button.editor-review-action:not(:disabled):hover {
 
 /* Web-tab icon in the tab strip (a globe before the host label). */
 .editor-tab-icon {
+  --icon-size: var(--icon-size-sm);
   flex: 0 0 auto;
+  /* The Notion mark isn't a lucide icon. */
+  width: var(--icon-size);
+  height: var(--icon-size);
   margin-right: 5px;
   color: var(--dim);
 }

@@ -87,7 +87,9 @@ export function HintPopover(props: {
                 aria-label={label}
                 onClick={() => void run(id, undefined)}
               >
-                <Icon size={13} />
+                <span class="ui-icon">
+                  <Icon />
+                </span>
                 {text}
               </button>
             )}

@@ -65,7 +65,7 @@ export function ControlBar(props: {
               <small class="ui-section-label">{axis().label}</small>
               <span>
                 {axis().valueLabel}
-                <ChevronDown size="0.95em" aria-hidden="true" />
+                <ChevronDown aria-hidden="true" />
               </span>
             </button>
           )}

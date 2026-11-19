@@ -66,7 +66,7 @@ export function ShellTabStrip(props: {
         title={`New terminal${liveKeyHint(CommandIds.newTerminal)}`}
         onClick={() => props.onNew()}
       >
-        <Plus size={14} />
+        <Plus />
       </button>
       {props.trailing}
     </div>

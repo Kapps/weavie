@@ -188,19 +188,23 @@ const sentSelections = createSessionOwnedMap<
   { owner: ComposerOwner; selection: AgentSelection }
 >();
 
-/** Sends `selection` under `comment` as its own prompt; a refusal attaches both to `owner` beside the reason. */
+/**
+ * Sends `selection` under `comment` as its own prompt and returns its submission id, or null when the session
+ * is gone; a refusal attaches both to `owner` beside the reason.
+ */
 export function sendSelection(
   owner: ComposerOwner,
   selection: AgentSelection,
   comment: string,
-): void {
-  if (!isLive(owner)) return;
+): string | null {
+  if (!isLive(owner)) return null;
   const id = nextId("submission");
   sentSelections.set(owner.session, id, {
     owner,
     selection: commentedSelection(selection, comment),
   });
   publishAgent(owner, "submit", submission(id, comment, null, [selectionAttachment(selection)]));
+  return id;
 }
 
 export interface AgentInvocation {
@@ -310,10 +314,11 @@ interface AttachmentState {
   error: string;
 }
 
-interface SubmissionState {
+/** What became of a submission: accepted, refused with a reason, or accepted and later discarded undelivered. */
+export interface SubmissionState {
   id: string;
   attachmentIds: string[];
-  status: "accepted" | "rejected";
+  status: "accepted" | "rejected" | "dropped";
   error: string;
 }
 
@@ -341,6 +346,7 @@ registerSessionFeature((session) => {
     });
   });
   const offSubmission = feature.on<SubmissionState>("submissionState", (message) => {
+    if (message.status === "dropped") return;
     const sent = sentSelections.get(session, message.id);
     if (sent !== undefined) {
       sentSelections.delete(session, message.id);

@@ -12,7 +12,9 @@ export function ThemeExtensionDetails(props: { extension: ExtensionChoice }) {
       </span>
       <span class="theme-rating">
         <Show when={props.extension.averageRating != null} fallback="Rating unavailable">
-          <Star class="theme-rating-star" size={12} aria-hidden="true" />
+          <span class="ui-icon ui-icon-sm">
+            <Star class="theme-rating-star" aria-hidden="true" />
+          </span>
           {props.extension.averageRating?.toFixed(1)} / 5
         </Show>
       </span>

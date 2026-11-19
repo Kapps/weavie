@@ -265,6 +265,7 @@ fieldset.gs-choices {
 }
 
 .getting-started .gs-link {
+  --icon-size: var(--icon-size-sm);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -502,6 +503,7 @@ fieldset.gs-choices {
 }
 
 .gs-profile-problem {
+  --icon-size: var(--icon-size-sm);
   display: flex;
   align-items: center;
   gap: 6px;

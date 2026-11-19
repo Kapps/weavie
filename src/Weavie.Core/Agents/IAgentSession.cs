@@ -73,6 +73,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
 	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
+	/// <summary>Raised with the accepted submissions the session discarded before delivering them.</summary>
+	event Action<IReadOnlyList<AgentTurnSubmission>> SubmissionsDropped;
+
 }
 
 /// <summary>A side conversation that can still be continued, with the question that started it.</summary>

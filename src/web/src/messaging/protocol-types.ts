@@ -312,6 +312,7 @@ export interface AgentControlState {
 }
 
 export interface AgentQueuedSubmission {
+  id: string;
   text: string;
   attachments: number;
   sender?: AgentMessageSender | null;
@@ -405,6 +406,7 @@ export interface EditorOptionsSpec {
   reviewComments: boolean;
   reviewHints: boolean;
   reviewStepSettled: boolean;
+  inlineReplies: boolean;
   /** Files past the ones on screen the unified review mounts while it rests. */
   reviewFilesAhead: number;
   spellCheck: boolean;

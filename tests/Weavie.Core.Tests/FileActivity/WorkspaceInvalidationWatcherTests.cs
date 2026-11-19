@@ -22,7 +22,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		_dir.Path,
 		_ => {
 			Interlocked.Increment(ref _loads);
-			return Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]);
+			return Task.FromResult<IReadOnlyList<string>>([.. _inventoryFiles]);
 		}));
 
 	private async Task<WatcherLease> StartAsync(WorkspaceInventory inventory) {
@@ -127,9 +127,9 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var scopes = new ConcurrentQueue<IReadOnlyCollection<string>>();
 		var inventory = new WorkspaceInventory(
 			_dir.Path,
-			ct => {
+			async ct => {
 				Interlocked.Increment(ref fullLoads);
-				return git.ListWorkspacePathsAsync(_dir.Path, ct);
+				return (await git.ListWorkspacePathsAsync(_dir.Path, ct))!;
 			},
 			(known, discovered, ct) => {
 				scopes.Enqueue([.. known, .. discovered]);
@@ -158,7 +158,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 					await release.Task;
 				}
 
-				return (IReadOnlyList<string>?)[.. _inventoryFiles];
+				return (IReadOnlyList<string>)[.. _inventoryFiles];
 			});
 		var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
@@ -199,7 +199,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		Track("root.ts");
 		string late = _dir.Combine("fresh", "late.ts");
 		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		var inventory = new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]));
+		var inventory = new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>>([.. _inventoryFiles]));
 		using var watcher = new WorkspaceInvalidationWatcher(inventory,
 			batch => {
 				if (batch.Any(change => change.Path == late && change.Kind == FileInvalidationKind.Created)) reported.TrySetResult();
@@ -249,7 +249,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		string root = _dir.CreateDirectory("worktree");
 		var inventory = new WorkspaceInventory(root, _ => {
 			Directory.Delete(root);
-			return Task.FromResult<IReadOnlyList<string>?>(["readme.txt"]);
+			return Task.FromResult<IReadOnlyList<string>>(["readme.txt"]);
 		});
 		using var watcher = new WorkspaceInvalidationWatcher(inventory, _ => { }, _ => { }, debounceMs: 1);
 
@@ -262,7 +262,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		bool created = false;
 		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var inventory = new WorkspaceInventory(_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(created ? ["during.ts", "missing/file.ts"] : ["missing/file.ts"]));
+			_ => Task.FromResult<IReadOnlyList<string>>(created ? ["during.ts", "missing/file.ts"] : ["missing/file.ts"]));
 		using var watcher = new WorkspaceInvalidationWatcher(inventory,
 			batch => {
 				if (batch.Any(change => change.Path == _dir.Combine("during.ts"))) reported.TrySetResult();
@@ -291,10 +291,8 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task NonRepositoryTracksNewFileFromFlatWatchEvent() {
-		var inventory = new WorkspaceInventory(
-			_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
+	public async Task PlainFolderReportsNewFileFromFlatWatchEvent() {
+		var inventory = new WorkspaceInventory(_dir.Path);
 		var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
 			batch => {
@@ -349,7 +347,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var watchers = new ConcurrentBag<FileSystemWatcher>();
 		var inventory = new WorkspaceInventory(
 			_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>([Path.Combine("src", "feature", "file.ts")]));
+			_ => Task.FromResult<IReadOnlyList<string>>([Path.Combine("src", "feature", "file.ts")]));
 		using var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
 			_ => { },
@@ -383,7 +381,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var watched = new ConcurrentBag<string>();
 		var inventory = new WorkspaceInventory(
 			_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]));
+			_ => Task.FromResult<IReadOnlyList<string>>([.. _inventoryFiles]));
 		using var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
 			_ => { },
@@ -406,11 +404,9 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task NonRepositoryWatchesFilesCreatedInNewDirectory() {
+	public async Task PlainFolderWatchesFilesCreatedInNewDirectory() {
 		var watched = new ConcurrentBag<string>();
-		var inventory = new WorkspaceInventory(
-			_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
+		var inventory = new WorkspaceInventory(_dir.Path);
 		using var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
 			batch => {
@@ -440,10 +436,8 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task NonRepositoryDoesNotTrackIgnoredDirectoryCreatedAfterStart() {
-		var inventory = new WorkspaceInventory(
-			_dir.Path,
-			_ => Task.FromResult<IReadOnlyList<string>?>(null));
+	public async Task PlainFolderDoesNotListIgnoredDirectoryCreatedAfterStart() {
+		var inventory = new WorkspaceInventory(_dir.Path);
 		var watched = new ConcurrentBag<string>();
 		using var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
@@ -542,7 +536,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	[Fact]
 	public async Task StopFlushesPendingBatch() {
 		var watcher = new WorkspaceInvalidationWatcher(
-			new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>?>([])),
+			new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>>([])),
 			batch => {
 				foreach (var change in batch) {
 					_changes.Add(change);
@@ -566,7 +560,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var watcher = new WorkspaceInvalidationWatcher(
-			new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>?>([])),
+			new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>>([])),
 			_ => {
 				entered.TrySetResult();
 				release.Task.GetAwaiter().GetResult();

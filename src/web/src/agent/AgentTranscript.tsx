@@ -111,6 +111,7 @@ export function AgentTranscript(props: {
                       entry={entry()}
                       keyboardRequestKey={props.keyboardRequestKey}
                       latestPromptTurn={latestPromptTurn()}
+                      rewindable={true}
                       onDetailsToggle={props.onDetailsToggle}
                       onUpdatesToggle={(id, open) => props.onUpdatesToggle(entry().id, id, open)}
                       sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}

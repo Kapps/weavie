@@ -128,7 +128,7 @@ export function CommentItem(props: {
                 aria-label="Edit comment"
                 onClick={() => setEditing(true)}
               >
-                <Pencil size={12} />
+                <Pencil />
               </button>
             </Show>
             <Show when={props.comment.pending && props.comment.mine && !editing()}>
@@ -139,7 +139,7 @@ export function CommentItem(props: {
                 aria-label="Discard pending comment"
                 onClick={() => void discard()}
               >
-                <Trash2 size={12} />
+                <Trash2 />
               </button>
             </Show>
             <Show when={props.comment.url !== ""}>
@@ -150,7 +150,7 @@ export function CommentItem(props: {
                 aria-label="Open on the forge"
                 onClick={() => openUrlExternal(props.comment.url)}
               >
-                <ExternalLink size={12} />
+                <ExternalLink />
               </button>
             </Show>
           </span>

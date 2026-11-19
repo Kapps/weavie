@@ -54,6 +54,9 @@ public sealed partial class AcpAgentSession :
 	public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged;
 
 	/// <inheritdoc/>
+	public event Action<IReadOnlyList<AgentTurnSubmission>>? SubmissionsDropped;
+
+	/// <inheritdoc/>
 	public event Action<AgentControlState>? ControlStateChanged;
 
 	/// <inheritdoc/>

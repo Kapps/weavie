@@ -19,7 +19,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 				"README.md",
 			]));
 
-		var snapshot = await inventory.RefreshAsync();
+		var snapshot = (await inventory.RefreshAsync()).Snapshot;
 
 		Assert.Equal(
 			new[] {
@@ -42,7 +42,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		string deep = _root.CreateDirectory("tracked", "deep", "empty", "nested");
 		string special = _root.CreateDirectory("[literal] space", "empty");
 		string ignored = _root.CreateDirectory("ignored", "empty");
-		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var snapshot = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Contains(empty, snapshot.Directories);
 		Assert.Contains(deep, snapshot.Directories);
@@ -69,9 +69,9 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.WriteFile("fresh/[x] file.cs", "");
 		string empty = _root.CreateDirectory("fresh", "empty", "nested");
 		_root.WriteFile("node_modules/pkg/index.js", "");
-		var scoped = await inventory.RefreshAsync(
-			[_root.Combine("tracked"), _root.Combine("build"), _root.Combine("fresh"), _root.Combine("node_modules")]);
-		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var scoped = (await inventory.RefreshAsync(
+			[_root.Combine("tracked"), _root.Combine("build"), _root.Combine("fresh"), _root.Combine("node_modules")])).Snapshot;
+		var full = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Equal(full.Files, scoped.Files);
 		Assert.Equal(full.Directories, scoped.Directories);
@@ -115,10 +115,10 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 				Interlocked.Increment(ref listings);
 				return git.ListWorkspacePathsAsync(_root.Path, known, discovered, ct);
 			});
-		var before = await inventory.RefreshAsync();
+		var before = (await inventory.RefreshAsync()).Snapshot;
 
 		_root.WriteFile("node_modules/pkg/index.js", "");
-		var after = await inventory.RefreshAsync([_root.Combine("node_modules"), _root.Combine("node_modules", "pkg", "index.js")]);
+		var after = (await inventory.RefreshAsync([_root.Combine("node_modules"), _root.Combine("node_modules", "pkg", "index.js")])).Snapshot;
 
 		Assert.Same(before, after);
 		Assert.Equal(1, listings);
@@ -126,10 +126,10 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
-	public void BuildSnapshot_DeduplicatesDirectorySpellings() {
+	public void Canonicalize_DeduplicatesDirectorySpellings() {
 		var inventory = new WorkspaceInventory(_root.Path);
-		var snapshot = inventory.BuildSnapshot([], ["src", "src/", "src/.", "./"]);
-		Assert.Equal(new[] { _root.Path, _root.Combine("src") }.Order(), snapshot.Directories.Order());
+		var (_, directories) = inventory.Canonicalize([], ["src", "src/", "src/.", "./"]);
+		Assert.Equal(new[] { _root.Path, _root.Combine("src") }.Order(), directories.Order());
 	}
 
 	[Fact]
@@ -160,7 +160,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.WriteFile("repo/.venv/lib/site.py", "");
 		_root.CreateDirectory("repo", "empty");
 
-		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var snapshot = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Equal(Paths("notes.md", "plain/a.txt", "repo/.gitignore", "repo/src/a.py"), snapshot.Files.Order(StringComparer.Ordinal));
 		Assert.Equal(
@@ -173,7 +173,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.CreateDirectory("odd", ".git");
 		_root.WriteFile("odd/file.txt", "");
 
-		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var snapshot = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Equal(Paths("odd/file.txt"), snapshot.Files);
 		Assert.Contains(_root.Combine("odd", ".git"), snapshot.Directories);
@@ -184,7 +184,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.WriteFile("stale/.git", "gitdir: /nowhere/at/all\n");
 		_root.WriteFile("stale/file.txt", "");
 
-		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var snapshot = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Equal(Paths("stale/.git", "stale/file.txt"), snapshot.Files);
 		Assert.DoesNotContain(_root.Combine("stale", ".git"), snapshot.Directories);
@@ -200,9 +200,9 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.WriteFile("child/src/a.c", "");
 		var inventory = new WorkspaceInventory(_root.Path);
 
-		var full = await inventory.RefreshAsync();
+		var full = (await inventory.RefreshAsync()).Snapshot;
 		_root.WriteFile("child/build/new.o", "");
-		var scoped = await inventory.RefreshAsync([_root.Combine("child", "build", "new.o"), _root.Combine("child", "src", "a.c")]);
+		var scoped = (await inventory.RefreshAsync([_root.Combine("child", "build", "new.o"), _root.Combine("child", "src", "a.c")])).Snapshot;
 
 		Assert.Equal(Paths("child/.gitignore", "child/src/a.c"), full.Files);
 		Assert.Equal(full.Files, scoped.Files);
@@ -224,10 +224,10 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		_root.WriteFile("repo/.gitignore", "build/\n");
 		_root.WriteFile("repo/src/a.c", "");
 		var inventory = new WorkspaceInventory(_root.Path);
-		var before = await inventory.RefreshAsync();
+		var before = (await inventory.RefreshAsync()).Snapshot;
 
 		_root.WriteFile("repo/build/out.o", "");
-		var after = await inventory.RefreshAsync(inventory.CoveringScope([_root.Combine("repo", "build", "out.o")]));
+		var after = (await inventory.RefreshAsync(inventory.CoveringScope([_root.Combine("repo", "build", "out.o")]))).Snapshot;
 
 		Assert.Same(before, after);
 	}
@@ -240,7 +240,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		Directory.CreateSymbolicLink(_root.Combine("a", "b", "top"), _root.Path);
 		File.CreateSymbolicLink(_root.Combine("a", "alias.txt"), _root.Combine("a", "b", "file.txt"));
 
-		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var snapshot = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 
 		Assert.Equal(Paths("a/alias.txt", "a/b/file.txt"), snapshot.Files.Order(StringComparer.Ordinal));
 	}
@@ -254,10 +254,10 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		await inventory.RefreshAsync();
 
 		Directory.CreateSymbolicLink(_root.Combine("current"), _root.Combine("repo"));
-		var scoped = await inventory.RefreshAsync([_root.Combine("current"), _root.Combine("current", "src", "a.py")]);
+		var scoped = (await inventory.RefreshAsync([_root.Combine("current"), _root.Combine("current", "src", "a.py")])).Snapshot;
 
 		Assert.Equal(Paths("repo/src/a.py"), scoped.Files);
-		Assert.Equal((await new WorkspaceInventory(_root.Path).RefreshAsync()).Directories, scoped.Directories);
+		Assert.Equal((await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot.Directories, scoped.Directories);
 	}
 
 	[Fact]
@@ -271,11 +271,11 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 
 		_root.WriteFile("odd/sub/build/out.o", "");
 		_root.WriteFile("odd/sub/src/b.c", "");
-		var scoped = await inventory.RefreshAsync(
-			[_root.Combine("odd", "sub", "build", "out.o"), _root.Combine("odd", "sub", "src", "b.c")]);
-		var whole = await inventory.RefreshAsync([_root.Combine("odd", "sub")]);
+		var scoped = (await inventory.RefreshAsync(
+			[_root.Combine("odd", "sub", "build", "out.o"), _root.Combine("odd", "sub", "src", "b.c")])).Snapshot;
+		var whole = (await inventory.RefreshAsync([_root.Combine("odd", "sub")])).Snapshot;
 
-		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var full = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 		Assert.Equal(Paths("odd/sub/.gitignore", "odd/sub/src/a.c", "odd/sub/src/b.c"), full.Files);
 		Assert.Equal(full.Files, scoped.Files);
 		Assert.Equal(full.Files, whole.Files);
@@ -302,7 +302,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		InitRepository("cloned");
 		_root.WriteFile("cloned/main.go", "");
 		if (!OperatingSystem.IsWindows()) Directory.CreateSymbolicLink(_root.Combine("plain", "up"), "..");
-		var scoped = await inventory.RefreshAsync([
+		var scoped = (await inventory.RefreshAsync([
 			_root.Combine("plain", "gone.txt"),
 			_root.Combine("plain", "new.txt"),
 			_root.Combine("plain", "out"),
@@ -312,9 +312,9 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 			_root.Combine("repo", ".venv"),
 			_root.Combine("cloned"),
 			_root.Combine("plain", "up"),
-		]);
+		])).Snapshot;
 
-		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+		var full = (await new WorkspaceInventory(_root.Path).RefreshAsync()).Snapshot;
 		Assert.Equal(full.Files, scoped.Files);
 		Assert.Equal(full.Directories, scoped.Directories);
 		Assert.Equal(

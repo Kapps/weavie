@@ -26,6 +26,7 @@
 }
 
 .tb-icon {
+  --icon-size: var(--font-chrome-line);
   display: flex;
   align-items: center;
   color: var(--accent);
@@ -78,12 +79,6 @@
 
 .titlebar.blurred .tb-build {
   opacity: 0.6;
-}
-
-.tb-ctl svg,
-.tb-omnibar-icon svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
 }
 
 /* Menus */

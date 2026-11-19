@@ -50,6 +50,10 @@
   margin-bottom: 2rem;
 }
 
+.welcome-mark {
+  --icon-size: 43px;
+}
+
 .welcome-titles {
   display: flex;
   flex-direction: column;

@@ -48,7 +48,7 @@ export function SuggestionProfile(props: {
       <Show when={choices()?.error ?? choices()?.warning}>
         {(problem) => (
           <p class="gs-profile-problem" role="alert">
-            <AlertTriangle size="1em" aria-hidden="true" />
+            <AlertTriangle aria-hidden="true" />
             <span>{choices()?.error ? `Couldn't get the options: ${problem()}` : problem()}</span>
             <Show when={choices()?.error}>
               <button type="button" class="gs-link" onClick={() => props.attempt(ask)}>

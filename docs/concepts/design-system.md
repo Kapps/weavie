@@ -83,7 +83,8 @@ row hover and selection colours stay in feature CSS. Add the primitive class bes
   (500) for the name and `.ui-row-note` (12px, dim, regular)
   for the line under it and for a value at the name's end.
 - **`.ui-icon`** — inline box one line tall (`--row-line`, which a `.ui-button` sets to its own line),
-  top-aligned, its `svg` at `--icon-size`.
+  top-aligned; `-sm` takes `--icon-size-sm`. Every lucide icon and the Weavie mark are `--icon-size` square, so a
+  container that needs another size sets the variable (`--icon-size: var(--icon-size-sm)`), never the icon.
 - **`.ui-button`** — 26px text button. Variants: `-lg` (32px), `-xl` (40px, lead role; landing surfaces),
   `-primary`, `-danger`. **`.ui-button-group`** joins related buttons into
   one frame. **`.ui-icon-button`** — 22px square, no border. See [Buttons](#buttons).
@@ -203,13 +204,14 @@ unlayered `button { font: inherit }` would beat every `.ui-button`.
 
 ## Enforcement
 
-- **Lint.** Two GritQL plugins, registered under `plugins` in `src/web/biome.json`, run in `biome check` over
-  `src/**/*.css`. Property names match in any case.
+- **Lint.** Three GritQL plugins, registered under `plugins` in `src/web/biome.json`, run in `biome check`:
+  two over `src/**/*.css` (property names match in any case), one over `src/**/*.tsx`.
   - `lint/typography.grit`: a `font`, `font-size`, `font-weight` or `line-height` must be `inherit` or
     exactly `var(--font-…)` of a listed token. The list is closed, so the plugin is the token registry: an
     invented `--font-my-thing` fails.
   - `lint/font-tokens.grit`: a `--font-*` custom property may be declared only in `src/styles.css`, so no
     feature rule can redefine a role token.
+  - `lint/icon-size.grit`: no component takes a `size` prop, so an icon's size always comes from `--icon-size`.
 - **Exemptions.** `typography.grit` skips `fonts.css` (`@font-face` descriptors) and `*.prose.css`;
   `font-tokens.grit` skips only `styles.css`.
 - **Reviewer.** The lint does not see `font-family`, CSS held in TypeScript (`SOURCE_STYLES`), inline

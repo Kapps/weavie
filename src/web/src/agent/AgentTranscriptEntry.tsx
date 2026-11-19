@@ -221,7 +221,9 @@ function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
         void runCommandWithFeedback(CommandIds.rewindAgentConversation, { turnId: props.turnId })
       }
     >
-      <RotateCcw size={12} aria-hidden="true" />
+      <span class="ui-icon ui-icon-sm">
+        <RotateCcw aria-hidden="true" />
+      </span>
       Rewind
     </button>
   );

@@ -224,13 +224,13 @@ export default function MediaPane(props: {
               fullscreen() ? "Exit fullscreen" : "Fullscreen",
               `${fullscreen() ? "Exit fullscreen" : "Fullscreen"}${keyHint(CommandIds.toggleMediaFullscreen)}`,
               toggleFullscreen,
-              fullscreen() ? <Minimize size={16} /> : <Maximize size={16} />,
+              fullscreen() ? <Minimize /> : <Maximize />,
             )}
             {tool(
               "Rotate 90°",
               `Rotate 90°${keyHint(CommandIds.rotateMedia)}`,
               rotate,
-              <RotateCw size={16} />,
+              <RotateCw />,
             )}
           </div>
           <Show when={zoom.hint()}>

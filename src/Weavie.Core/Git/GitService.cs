@@ -798,8 +798,10 @@ public sealed partial class GitService : IGitService {
 		}
 	}
 
+	// Git 2.56 words a `.git` file whose target is gone differently from every other non-repository.
 	private static bool IsNotRepository(ProcessCaptureResult result) =>
-		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase);
+		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
+		|| result.StdErr.Contains("gitfile does not point to a valid repository", StringComparison.OrdinalIgnoreCase);
 
 	private static async Task<ProcessCaptureResult> RunCheckedAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>

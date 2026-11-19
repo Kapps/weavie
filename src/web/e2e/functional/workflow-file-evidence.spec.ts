@@ -5,6 +5,7 @@ import type { Locator } from "@playwright/test";
 import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import {
+  answerWorkflow,
   createWorkflowSession,
   workflowReceipt,
   workflowTool,
@@ -146,7 +147,7 @@ test("mixed readable and binary evidence asks the user without any model call", 
   await writeFile(join(worktree, "review.md"), "Readable review.");
   await writeFile(join(worktree, "clip.md"), Buffer.from([0, 255, 1]));
   await writeWorkflow(worktree, "file-evidence", REVIEW);
-  const id = await start(surface, {});
+  await start(surface, {});
   await complete(surface, { documents: ["review.md", "clip.md"], ignored: [], directory: "." });
   await expect(run).toHaveAttribute("title", /review · needs your answer/);
   await expect(run).toHaveAttribute("title", /"clip.md": not readable text/);
@@ -154,10 +155,7 @@ test("mixed readable and binary evidence asks the user without any model call", 
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
     QUESTION,
   );
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run: id, choice: "accept", feedback: "I inspected the binary evidence myself." },
-  });
+  await answerWorkflow(surface, weavie.home, "accept", "I inspected the binary evidence myself.");
   await expect(run).toHaveText("file-evidence · accepted");
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
     "I inspected the binary evidence myself.",
@@ -194,7 +192,7 @@ stages:
     run: { prompt: The documents were accepted. }
 `,
   );
-  const id = await start(surface, { source: ["input.md"] });
+  await start(surface, { source: ["input.md"] });
   await complete(surface, { documents: ["earlier.md"] });
   await expect(run).toHaveAttribute("title", /edit · waiting on you/);
   await unlink(join(worktree, "earlier.md"));
@@ -202,10 +200,7 @@ stages:
   await expect(run).toHaveAttribute("title", /review · needs your answer/);
   await expect(run).toHaveAttribute("title", /"earlier.md": file no longer exists/);
   expect(existsSync(join(worktree, "inference-receipt.txt"))).toBe(false);
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run: id, choice: "yes", feedback: "Proceed with my review." },
-  });
+  await answerWorkflow(surface, weavie.home, "yes", "Proceed with my review.");
   await expect(run).toHaveAttribute("title", /review · waiting on you/);
 });
 

@@ -2,7 +2,7 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
-import { workflowTool, writeWorkflowSource } from "../harness/workflows";
+import { answerWorkflow, workflowTool, writeWorkflowSource } from "../harness/workflows";
 
 test("a fresh workflow child keeps revisions and return visits while main receives its reports", async ({
   page,
@@ -31,11 +31,10 @@ stages:
       choices: { again: review, finish: done }
 `,
   );
-  const started = await workflowTool(surface, "runCommand", {
+  await workflowTool(surface, "runCommand", {
     id: "weavie.workflow.run",
     args: { workflow: "review-child", inputs: {} },
   });
-  const run = /r-[0-9a-f]+/.exec(started)![0];
   const child = surface.locator(".agent-aside");
   const mainRows = surface.locator(".agent-transcript > .agent-virtual-row").filter({
     has: page.locator(".agent-entry-message.agent-tone-assistant"),
@@ -75,10 +74,7 @@ stages:
     "Accept cancellation checked?",
   );
   await expect(mainRows.filter({ hasText: "Summary: No blocking findings" })).toHaveCount(1);
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run, choice: "revise", feedback: "Include shutdown" },
-  });
+  await answerWorkflow(surface, weavie.home, "revise", "Include shutdown");
   await scrollToChild();
   await expect(child).toHaveAttribute("data-agent-aside", identity!);
   await expect(child).toContainText("Include shutdown");
@@ -88,10 +84,7 @@ stages:
     /needs your answer/,
   );
   await followMain();
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run, choice: "approve", feedback: "" },
-  });
+  await answerWorkflow(surface, weavie.home, "approve", "");
   await expect(
     mainRows.filter({ hasText: "echo: Publish after cancellation checked" }),
   ).toHaveCount(1);
@@ -110,10 +103,7 @@ stages:
       outputs: {},
       summary: "Published after review",
     });
-    await workflowTool(surface, "runCommand", {
-      id: "weavie.workflow.answer",
-      args: { run, choice, feedback: "" },
-    });
+    await answerWorkflow(surface, weavie.home, choice, "");
   };
 
   // Returning to the stage continues the same conversation in the same card.
@@ -128,10 +118,7 @@ stages:
     "title",
     /needs your answer/,
   );
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run, choice: "approve", feedback: "" },
-  });
+  await answerWorkflow(surface, weavie.home, "approve", "");
   await followMain();
   await expect(mainRows.last()).toContainText("echo: Publish after cancellation checked");
   await publish("finish");

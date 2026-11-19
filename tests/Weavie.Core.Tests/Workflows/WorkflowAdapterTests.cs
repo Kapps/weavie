@@ -105,6 +105,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		hold.Held["model"] = "beta";
 		Assert.Equal("builder", WorkflowRunSummary.From(run with { Hold = hold }, SessionStatus.Idle)!.Agent);
 		Assert.Equal("", WorkflowRunSummary.From(run with { Stage = "b", Hold = hold }, SessionStatus.Working)!.Agent);
+		Assert.Equal("b", WorkflowRunSummary.From(run with { Stage = "b" }, SessionStatus.Working)!.Stage);
 	}
 
 	[Theory]

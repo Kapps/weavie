@@ -10,8 +10,8 @@ public static class AuthorWorkflowPrompt {
 		Name = "author-workflow",
 		Description = "Create, fork, change, or improve a Weavie workflow with the user.",
 		Text = """
-			Help the user create, fork, change, or improve a Weavie workflow: a YAML file of ordered stages that
-			Weavie runs in a session. Weavie owns the run (which stage is current, decisions, typed outputs); the
+			Help the user create, fork, change, or improve a Weavie workflow: a YAML file of stages that Weavie
+			runs in a session. A stage either does work (`run`) or holds stages (`stages`), so a workflow is a tree. Weavie owns the run (which stage is current, decisions, typed outputs); the
 			agent does each stage's work.
 
 			1. Call `listWorkflows` to see what exists and `getWorkflowSchema` for the exact fields. Never write a
@@ -27,18 +27,27 @@ public static class AuthorWorkflowPrompt {
 			   repository; never edit a built-in in place. A fork keeps its id; a variant under a new id is a new
 			   workflow, not a fork.
 			4. Prefer the user's existing skills as stage steps (`skill` + `args`) over restating them as prompts.
-			   Choose `run.context` deliberately: `continue` (default) works in the main conversation, `fork`
-			   gives a separate stage the main conversation's history, and `fresh` receives only its stage
-			   instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
+			   Choose each stage's `context` deliberately; it is relative to the conversation the stage sits in
+			   (main at the top). `continue` (default) works in that conversation, `fork` gives a separate stage its
+			   history, and `fresh` receives only its stage instructions and explicit inputs. Use fork for reviews needing context and fresh for independent
 			   judgment; both keep main available and return outputs and a summary to it. A fresh stage keeps one
 			   conversation for the run, so a return visit continues it: say in its prompt what a return checks. For
-			   a return with its own prompt or limit, add a stage with `context: { reuse: <stage> }` and no agent or
-			   role. A fork copies main again on every visit. They use the session's
+			   a return with its own prompt or limit, add a sibling with `context: { reuse: <stage> }` and no agent or
+			   role. A fork copies its conversation again on every visit. They use the session's
 			   provider; a fresh stage is not a way to switch providers. When stages need different strengths, give
-			   each a `run.role` (prefer `planner`, `builder`, `reviewer`): the user picks each role's model per
-			   provider, so the workflow stays portable. Pin an `agents` entry only when the user names a model.
-			5. Route with `then`: a stage id or `done` to go there, or a decision (`ask` + `choices`, each answer
-			   naming the stage it leads to). Stages without `then` move to the following stage. Use `if` to run
+			   each a `role` (prefer `planner`, `builder`, `reviewer`): the user picks each role's model per
+			   provider, so the workflow stays portable. Pin an `agents` entry only when the user names a model. A
+			   conversation never switches model: only a stage that opens one (`fork` or `fresh`), or one in main,
+			   names an agent or role, and a fork that names none runs on its source's model.
+			   Group stages that belong together under one stage with `stages`, typically `fork` or `fresh`, so they
+			   share one conversation and report to the one they sit in as a single stage. Its `outputs` copy its
+			   stages' values (`pr: "{{pr.pr}}"`); a report worth reading is written by its last stage. Use `foreach`
+			   with one reference to a `list` or `files` value to repeat a stage, alone or with its stages, once per
+			   entry, each with its own conversations; `{{<stage>.item}}` and `{{<stage>.index}}` name the entry
+			   inside it. From outside, a repeated stage's outputs hold one value per entry. Entries share the
+			   worktree, so a file each entry writes needs `{{<stage>.index}}` in its name.
+			5. Route with `then`: a sibling's id, or `done` to finish the list the stage is in, or a decision (`ask` +
+			   `choices`, each answer naming the sibling it leads to). Stages without `then` move to the next sibling. Use `if` to run
 			   a stage only when a yes/no question says so; a skipped stage falls through to the following one.
 			6. Approvals are decisions the user answers: `by: user`, with choices such as `approve` → the next
 			   stage and `revise` → this stage (an answer leading back to the stage reopens it with the user's
@@ -61,7 +70,8 @@ public static class AuthorWorkflowPrompt {
 			   answer it before the user is asked.
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or
 			   an output exists; stage order and fixed `then` targets handle those.
-			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`;
+			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`; a stage
+			   reads its siblings' and its enclosing stages' siblings' outputs, never those inside another stage;
 			   reference what the run was started with as `{{run.prompt}}` and declared inputs as `{{inputs.<name>}}`.
 			   The new-session composer offers only workflows that declare no `inputs`, so a workflow the user starts
 			   from a prompt reads `{{run.prompt}}` and declares none; `inputs` are for runs an agent starts. A stage visited more than once overwrites its outputs,

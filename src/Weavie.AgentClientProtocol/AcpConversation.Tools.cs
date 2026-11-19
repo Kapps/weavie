@@ -48,7 +48,7 @@ internal sealed partial class AcpConversation {
 					dispatchPending = true;
 				}
 				if (!HasBackgroundWorkLocked() && !_promptActive
-					&& (_waitingForBackground || tool.StartedObserved)) {
+					&& (_waitingForBackground || tool is { StartedObserved: true, Backgrounded: false })) {
 					_waitingForBackground = false;
 					settled = true;
 				}
@@ -153,7 +153,7 @@ internal sealed partial class AcpConversation {
 	private void ObserveTerminalizedTools(IEnumerable<TerminalizedTool> tools) {
 		foreach (var terminalized in tools) {
 			foreach (var mutation in terminalized.CompletionMutations) {
-				Observe(new AgentToolCompleted(mutation));
+				Observe(new AgentToolCompleted(mutation) { Backgrounded = terminalized.Tool.Backgrounded });
 			}
 		}
 	}
@@ -169,7 +169,7 @@ internal sealed partial class AcpConversation {
 		string key = MutationKey(mutation);
 		if (!tool.ObservedMutationKeys.Add(key)) return;
 		tool.ObservedMutations.Add(mutation);
-		Observe(new AgentToolStarting(mutation));
+		Observe(new AgentToolStarting(mutation) { Backgrounded = tool.Backgrounded });
 	}
 
 	private static AgentMutation[] PendingMutationCompletions(AcpToolState tool) {
@@ -186,7 +186,7 @@ internal sealed partial class AcpConversation {
 	};
 
 	private void CompleteToolMutations(AcpToolState tool) {
-		foreach (var mutation in PendingMutationCompletions(tool)) Observe(new AgentToolCompleted(mutation));
+		foreach (var mutation in PendingMutationCompletions(tool)) Observe(new AgentToolCompleted(mutation) { Backgrounded = tool.Backgrounded });
 	}
 
 	private sealed class AcpToolState {

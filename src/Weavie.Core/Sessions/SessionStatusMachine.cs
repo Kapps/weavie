@@ -58,6 +58,7 @@ public sealed class SessionStatusMachine {
 			: value switch {
 				AgentRuntimeFailed => SessionStatus.Error,
 				AgentPromptSubmitted => SessionStatus.Working,
+				AgentToolEvent { Backgrounded: true } => null,
 				AgentToolEvent tool => tool.RequiresUserInput ? SessionStatus.NeedsInput : SessionStatus.Working,
 				AgentNotification notification => ClassifyNotification(notification, current),
 				// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will

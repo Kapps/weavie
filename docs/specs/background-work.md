@@ -18,7 +18,8 @@ Inference and consult clients declare none of these. The AIR extension is a docu
 official adapters implement; declaring it also turns on the AIR base bundle, of which Weavie reads:
 
 - `asyncTasks.backgrounded` on a tool call: the call handed its work to a task, so it never holds the turn
-  (`AgentPaneMessage.Background` carries this to the pane);
+  and its tool events move no session status, even when it completes after its turn (`AgentPaneMessage.Background`
+  carries this to the pane);
 - `subagent` on a tool call: its subagent's card represents it, so the row is not shown;
 - `customAnswer` on an elicitation property: the free-text companion of a choice question, which therefore offers
   Other. A typed single choice is sent as the answer; typed text beside multiple picks goes into the companion.

@@ -229,7 +229,6 @@ test("the terminal footer's branch opens the branch's diff on the overview with 
   // A narrower review still lists the branch's commits, dimming the ones it doesn't span.
   await writeFile(join(weavie.workspace, "branch.txt"), "on the branch\nand uncommitted\n");
   await runCommand(page, "Diff Against HEAD");
-  await page.getByRole("button", { name: "Switch", exact: true }).click();
   await expect(section(page, "changes")).toContainText("vs HEAD");
   await expect(commit).toHaveClass(/session-overview-outside/);
   await expect(section(page, "commits").locator(".session-overview-meta")).toHaveText(

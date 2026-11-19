@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { clickIntoEditor, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
+import { openPullRequest } from "../harness/review";
 
 // Finishing a review: comments queue as pending drafts in place, then submit once with a verdict and summary
 // through the stubbed store, which enforces GitHub's pending-review rules.
@@ -98,4 +99,35 @@ test("discarding the pending review asks first and deletes every draft", async (
 
   await expect(card(page, "A draft to throw away.")).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator(".finish-review-button")).toHaveText("Review");
+});
+
+// A pane narrower than the 420px panel shrinks it; the pane clips whatever would hang past its edge (issue #1264).
+test("the finish panel fits inside a review pane narrower than itself", async ({ page }) => {
+  await openPullRequest(page);
+  const pane = page.locator(".unified-review");
+  const handle = (await page.locator(".split-handle.vertical").first().boundingBox())!;
+  const y = handle.y + handle.height / 2;
+  await page.mouse.move(handle.x + handle.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(1280 - 360, y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await pane.boundingBox())!.width).toBeLessThan(400);
+
+  const button = page.locator(".finish-review-button");
+  const panel = page.locator(".finish-review-panel");
+  const expectPanelInsidePane = async (): Promise<void> => {
+    await button.click();
+    const [inner, outer] = [(await panel.boundingBox())!, (await pane.boundingBox())!];
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
+    await button.click();
+    await expect(panel).toHaveCount(0);
+  };
+  await expectPanelInsidePane();
+
+  // Scrolled into the diffs, the review header hosts the control.
+  await page.locator(".unified-review-tree-row", { hasText: "hello.ts" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".unified-review-header .finish-review-button")).toBeVisible();
+  await expectPanelInsidePane();
 });

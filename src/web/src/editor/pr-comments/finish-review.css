@@ -1,6 +1,5 @@
 /* The review-submit control (FinishReview.tsx): a header button with the pending count, opening a panel. */
 .finish-review {
-  position: relative;
   display: flex;
 }
 
@@ -27,6 +26,8 @@
   text-align: center;
 }
 
+/* Hangs from its host's row, the nearest positioned ancestor, and is never wider than it: the row lies inside its
+   pane, so the pane cannot clip the panel. */
 .finish-review-panel {
   --pr-line: color-mix(in srgb, var(--fg) 16%, transparent);
   position: absolute;
@@ -37,7 +38,7 @@
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
-  width: min(420px, 90vw);
+  width: min(420px, 100%);
   padding: 12px 14px;
   border: 1px solid var(--pr-line);
   border-radius: 8px;

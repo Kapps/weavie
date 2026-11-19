@@ -650,18 +650,18 @@ Deterministic tests run on the fake ACP agent. Real-agent checks are steps 1 and
 
 ### Build checklist
 
-- [ ] 1. Real-agent probe on Claude and Codex for the six checks in Testing. Report the results to the user.
-- [ ] 2. Definition: stage shape, tree index, schema, reader, semantics, evidence warnings; built-ins and every
+- [x] 1. Real-agent probe on Claude and Codex for the six checks in Testing. Report the results to the user.
+- [x] 2. Definition: stage shape, tree index, schema, reader, semantics, evidence warnings; built-ins and every
       test and e2e workflow moved to the new field places; existing tests pass unchanged in meaning.
-- [ ] 3. Run state: `WorkflowFrame`, `WorkflowValue.Entries`, kickoff and question numbers, `Lost`; existing
+- [x] 3. Run state: `WorkflowFrame`, `WorkflowValue.Entries`, kickoff and question numbers, `Lost`; existing
       engine tests pass on the root record. Then the tree walk, `foreach`, routing, Resume, Jump, Cancel, the stage
       block, with the new engine tests.
-- [ ] 4. Agent layer: `ForkAsync`, `HasHistory`, controls from the source, `WhenIdleAsync`, the fake agent, tests.
-- [ ] 5. Hosting: owners by record, delivery by conversation, `Open` from a source, the lost policy, closing by
+- [x] 4. Agent layer: `ForkAsync`, `HasHistory`, controls from the source, `WhenIdleAsync`, the fake agent, tests.
+- [x] 5. Hosting: owners by record, delivery by conversation, `Open` from a source, the lost policy, closing by
       live records, the hold test, with the hosting tests.
-- [ ] 6. Core: summary path, Answer and Jump commands, `WorkflowAgentControls`, authoring prompt and guidance.
-- [ ] 7. Web: the e2e spec; `vite build` and `dotnet build` before running it.
-- [ ] 8. Docs and `AGENTS.md`; `spec-driven` with `foreach`; converted and validated copies of
+- [x] 6. Core: summary path, Answer and Jump commands, `WorkflowAgentControls`, authoring prompt and guidance.
+- [x] 7. Web: the e2e spec; `vite build` and `dotnet build` before running it.
+- [x] 8. Docs and `AGENTS.md`; `spec-driven` with `foreach`; converted and validated copies of
       `feature-build`, `issue-fix`, and `quick-fix` in the run's shared documents folder under `personal-workflows/`.
-- [ ] 9. The small nested workflow on a real agent in the running app.
-- [ ] 10. `dotnet format`, `biome check --write`, and a duplication pass over the whole diff.
+- [ ] 9. The small nested workflow on a real agent in the running app. (The prove stage records it.)
+- [x] 10. `dotnet format`, `biome check --write`, and a duplication pass over the whole diff.

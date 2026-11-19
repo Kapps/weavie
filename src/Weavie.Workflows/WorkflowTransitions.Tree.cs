@@ -133,11 +133,11 @@ internal sealed partial class WorkflowTransitions {
 	/// <summary>Where <paramref name="run"/> is, for agent-facing text.</summary>
 	public static string Position(WorkflowRun run) {
 		var live = Live(run);
-		return live.Stage == run.Stage && live.Entry > 0 ? Position(run, run.Stage, live, run.FrameOf(live.Parent)) : Position(run, run.Stage, null, live);
+		return live.IsEntryOf(run.Stage) ? Position(run, run.Stage, live, run.FrameOf(live.Parent)) : Position(run, run.Stage, null, live);
 	}
 
 	private static WorkflowConversationRef? TurnConversation(WorkflowFrame frame, WorkflowStage stage) =>
-		frame.Stage == stage.Id && frame.Entry > 0 ? frame.Conversation : Own(frame, null, stage);
+		frame.IsEntryOf(stage.Id) ? frame.Conversation : Own(frame, null, stage);
 
 	// The conversation a stage sitting in record sits opens or uses; entry is its own record when it repeats.
 	private static WorkflowConversationRef? Own(WorkflowFrame sits, WorkflowFrame? entry, WorkflowStage stage) =>
@@ -149,7 +149,7 @@ internal sealed partial class WorkflowTransitions {
 	public static WorkflowConversationRef? Source(WorkflowRun run, WorkflowConversationRef conversation) {
 		var owner = run.FrameOf(conversation.Frame);
 		return owner is null ? null
-			: owner.Stage == conversation.Opener && owner.Entry > 0 ? run.FrameOf(owner.Parent)?.Conversation
+			: owner.IsEntryOf(conversation.Opener) ? run.FrameOf(owner.Parent)?.Conversation
 			: owner.Conversation;
 	}
 
@@ -190,7 +190,7 @@ internal sealed partial class WorkflowTransitions {
 	/// <summary>The record whose list holds the run's stage.</summary>
 	internal static WorkflowFrame Scope(WorkflowRun run) {
 		var live = Live(run);
-		return live.Stage == run.Stage && live.Entry > 0 ? run.FrameOf(live.Parent)! : live;
+		return live.IsEntryOf(run.Stage) ? run.FrameOf(live.Parent)! : live;
 	}
 
 	private static IEnumerable<WorkflowFrame> Below(WorkflowRun run, string id) {

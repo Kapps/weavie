@@ -38,6 +38,9 @@ public sealed record WorkflowFrame {
 
 	/// <summary>The opening stages whose conversation in this record has taken a turn.</summary>
 	public required IReadOnlyList<string> Opened { get; init; }
+
+	/// <summary>Whether this record is one entry of repeated stage <paramref name="stage"/>.</summary>
+	public bool IsEntryOf(string stage) => Entry > 0 && Stage == stage;
 }
 
 /// <summary>A repeated stage's captured list and the outputs of its finished entries.</summary>

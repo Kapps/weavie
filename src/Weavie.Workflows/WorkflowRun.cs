@@ -131,11 +131,17 @@ public sealed record WorkflowRun {
 	public WorkflowFrame? FrameOf(string id) => Frames.FirstOrDefault(frame => frame.Id == id);
 
 	/// <summary>Where the run is, for display: <c>group 2/5 › review</c>.</summary>
-	public string Path() {
-		var levels = Chain(Frame).Reverse().Skip(1).Select(frame => frame.Entry == 0 ? frame.Stage
-			: $"{frame.Stage} {frame.Entry}/{FrameOf(frame.Parent)?.Loops.GetValueOrDefault(frame.Stage)?.Items.Count}").ToList();
-		var live = FrameOf(Frame);
-		if (live is not { Entry: > 0 } || live.Stage != Stage) levels.Add(Stage);
+	public string Path() => Place(Frame, Stage, totals: true);
+
+	/// <summary>
+	/// Stage <paramref name="stage"/> in record <paramref name="frame"/> for display: each stage holding it with its entry
+	/// (and the entry count with <paramref name="totals"/>), then the stage unless the record is its own entry.
+	/// </summary>
+	public string Place(string frame, string stage, bool totals) {
+		var levels = Chain(frame).Reverse().Skip(1).Select(level => level.Entry == 0 ? level.Stage
+			: totals ? $"{level.Stage} {level.Entry}/{FrameOf(level.Parent)?.Loops.GetValueOrDefault(level.Stage)?.Items.Count}"
+			: $"{level.Stage} {level.Entry}").ToList();
+		if (FrameOf(frame)?.IsEntryOf(stage) != true) levels.Add(stage);
 		return string.Join(" › ", levels);
 	}
 

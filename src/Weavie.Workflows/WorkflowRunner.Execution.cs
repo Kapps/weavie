@@ -57,7 +57,7 @@ public sealed partial class WorkflowRunner {
 		var run = _run!;
 		var stage = _definition!.Stage(run.Stage);
 		var live = WorkflowTransitions.Live(run);
-		bool turns = stage.Run is not null && (!stage.Repeats || live.Stage == stage.Id && live.Entry > 0);
+		bool turns = stage.Run is not null && (!stage.Repeats || live.IsEntryOf(stage.Id));
 		return new(this, run.Id, stage,
 			turns && WorkflowTransitions.TurnConversation(run, _definition) is { } key ? Describe(run, key) : null);
 	}
@@ -76,9 +76,6 @@ public sealed partial class WorkflowRunner {
 	private WorkflowStageConversation Describe(WorkflowRun run, WorkflowConversationRef key) {
 		var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
 		var opener = definition.Stage(key.Opener);
-		var owner = run.FrameOf(key.Frame);
-		var levels = owner is null ? [] : run.Chain(owner.Id).Reverse().Skip(1).Select(f => f.Entry > 0 ? $"{f.Stage} {f.Entry}" : f.Stage).ToList();
-		if (owner is not { Entry: > 0 } || owner.Stage != opener.Id) levels.Add(opener.Id);
 		return new WorkflowStageConversation {
 			Key = key,
 			Opener = opener,
@@ -86,7 +83,7 @@ public sealed partial class WorkflowRunner {
 			Agent = definition.AgentOf(opener, run.Roles) ?? (opener.Role is { } role
 				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
 				: null),
-			Title = string.Join(" › ", levels),
+			Title = run.Place(key.Frame, opener.Id, totals: false),
 		};
 	}
 

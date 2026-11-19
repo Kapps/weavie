@@ -56,7 +56,7 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 
 		bool inMain = TurnConversation(run) is null;
 		var live = Live(run);
-		var entry = live.Stage == stage.Id && live.Entry > 0 ? live : null;
+		var entry = live.IsEntryOf(stage.Id) ? live : null;
 		var sits = Scope(run);
 		run = Report(run with { Summary = summary, Attempts = 0, Kickoff = null }, stage, entry, sits, values, summary);
 		var step = entry is not null ? EndEntry(run, entry, values) : Advance(Store(run, sits, stage, values), sits, stage);
@@ -87,61 +87,10 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 	/// </summary>
 	public WorkflowStep ConversationLost(WorkflowRun run, WorkflowConversationRef lost, string reason) {
 		var owner = run.FrameOf(lost.Frame);
-		var entry = owner is { Entry: > 0 } && owner.Stage == lost.Opener ? owner : null;
+		var entry = owner?.IsEntryOf(lost.Opener) == true ? owner : null;
 		string position = Position(run, lost.Opener, entry, entry is null ? owner : run.FrameOf(entry.Parent));
 		return Pause(run with { Lost = lost },
 			$"Stage {position} lost its conversation: {reason}. Its stages' earlier work there is gone. Resume to continue in a new one.");
-	}
-
-	/// <summary>The user answers question <paramref name="question"/> with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
-	public WorkflowStep Answer(WorkflowRun run, int question, string choice, string feedback) {
-		Require(run, WorkflowPhase.Asking, "answer");
-		if (run.Asked!.Id != question) {
-			throw new WorkflowException($"Question {question} isn't the one run {run.Id} is asking; it is asking question {run.Asked.Id}: {run.Asked.Question}");
-		}
-		if (!run.Asked.Choices.Contains(choice)) {
-			throw new WorkflowException($"\"{choice}\" isn't an answer to this question; answer one of {string.Join(", ", run.Asked.Choices)}.");
-		}
-
-		return Route(run with { Frames = [.. run.Frames.Select(frame => frame with { Streaks = [] })] }, choice, $"The user answered \"{choice}\"", feedback);
-	}
-
-	/// <summary>The model's answer to the decision in flight (or why there is none).</summary>
-	public WorkflowStep Resolve(WorkflowRun run, WorkflowDecisionResult result, double minimumConfidence) {
-		Require(run, WorkflowPhase.Deciding, "resolve a decision for");
-		var choices = run.Asked?.Choices ?? [];
-		if (result is WorkflowDecisionResult.Refused refusal) {
-			return AskUser(run, $"the decision model refused ({refusal.Reason})");
-		}
-		if (result is WorkflowDecisionResult.Failed failure) {
-			return AskUser(run, $"the decision failed ({failure.Reason})");
-		}
-		if (result is not WorkflowDecisionResult.Answered answer || !choices.Contains(answer.Choice)
-			|| !double.IsFinite(answer.Confidence) || answer.Confidence is < 0 or > 1) {
-			return AskUser(run, "the decision model returned an invalid choice or confidence");
-		}
-		if (answer.Confidence < minimumConfidence) {
-			return AskUser(run, FormattableString.Invariant($"the decision confidence {answer.Confidence} is below the required {minimumConfidence}"));
-		}
-		string choice = answer.Choice;
-
-		if (run.Decision == WorkflowDecisionKind.Then) {
-			var decide = (WorkflowThen.Decide)definition.Stage(run.Stage).Then;
-			var scope = Scope(run);
-			int count = scope.Streaks.GetValueOrDefault(run.Stage) + 1;
-			if (decide.Limit is { } limit && count > limit) {
-				return AskUser(run, $"the decision model has answered this {limit} times in a row, the limit");
-			}
-
-			// A decision's count restarts any other in its list and every count inside it, never one outside it.
-			var inside = Below(run, scope.Id).Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal);
-			run = run with {
-				Frames = [.. run.Frames.Select(frame => frame.Id == scope.Id ? frame with { Streaks = new() { [run.Stage] = count } }
-				: inside.Contains(frame.Id) ? frame with { Streaks = [] } : frame)]
-			};
-		}
-
-		return Route(run, choice, $"{environment.Words.Host} decided \"{choice}\"", "");
 	}
 
 	/// <summary>The user resumes a paused run: a paused decision is asked again, otherwise the stage restarts.</summary>
@@ -155,7 +104,7 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 		var step = run.Decision switch {
 			WorkflowDecisionKind.If => Enter(run, scope, stage.Id, startsExecution: false),
 			WorkflowDecisionKind.Then => Advance(run, scope, stage),
-			_ when stage.Run is null || stage.Repeats && !(live.Stage == stage.Id && live.Entry > 0) => Begin(run, scope, stage),
+			_ when stage.Run is null || stage.Repeats && !live.IsEntryOf(stage.Id) => Begin(run, scope, stage),
 			_ => Open(run, live, stage),
 		};
 		if (lost is null || step.Run.Kickoff is not { } kickoff) return step;
@@ -204,32 +153,6 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 		return turn.Conversation is { } used && turn.Opens.Length > 0
 			? Update(run, used.Frame, frame => frame.Opened.Contains(used.Opener) ? frame : frame with { Opened = [.. frame.Opened, used.Opener] })
 			: run;
-	}
-
-	// Where an answer leads. Back to a stage with work reopens it with a short turn; anywhere else enters that stage.
-	private WorkflowStep Route(WorkflowRun run, string choice, string answered, string feedback) {
-		var stage = definition.Stage(run.Stage);
-		var scope = Scope(run);
-		if (feedback.Length > 0) {
-			run = run with { Note = Join(run.Note, $"{answered}: {feedback}") };
-		}
-
-		if (run.Decision == WorkflowDecisionKind.If) {
-			run = run with { Decision = null, Asked = null };
-			return choice == Yes ? Begin(run, scope, stage) : Enter(run, scope, Following(stage));
-		}
-
-		string target = ((WorkflowThen.Decide)stage.Then).Choices.First(c => c.Name == choice).Target;
-		if (target != stage.Id || stage.Run is null || stage.Repeats) {
-			return Enter(run, scope, target);
-		}
-
-		var kickoff = WorkflowKickoff.Prompt(
-			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
-			+ (run.Note.Length == 0 ? "" : $" Feedback: {run.Note}")
-			+ $" Revise the work accordingly, then call {environment.Words.CompleteStage} again.");
-		var revised = Send(run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "" }, StageTurn(run, scope, stage, kickoff));
-		return revised with { Effects = [new WorkflowEffect.ReviseStage(), .. revised.Effects] };
 	}
 
 	private WorkflowStep Enter(WorkflowRun run, WorkflowFrame frame, string target) => Enter(run, frame, target, startsExecution: true);
@@ -286,44 +209,6 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			CarriesPromptImages = (conversation is not null || !run.PromptImagesSent)
 				&& run.Prompt.Images.Count > 0 && (stage.Run!.Prompt ?? stage.Run.Args)?.References.Any(reference => reference.IsPrompt) == true,
 		};
-	}
-
-	private WorkflowStep Ask(
-		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<WorkflowDecisionOption> choices,
-		IReadOnlyDictionary<string, string> outputs) {
-		if (!TryRender(run, question.Ask, out string rendered, out string missing)) {
-			return Pause(run with { Decision = kind }, missing);
-		}
-
-		run = run with {
-			Decision = kind,
-			Asked = new WorkflowAsked { Id = run.NextTurn, Question = rendered, Choices = [.. choices.Select(c => c.Name)], Reason = "" },
-			NextTurn = run.NextTurn + 1,
-		};
-		if (question.By == WorkflowAnswerer.User) {
-			return AskUser(run, "");
-		}
-		if (!TrySelectFiles(run, question.Ask, out var paths, out string error)) {
-			return AskUser(run, $"the decision failed ({error})");
-		}
-
-		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Deciding },
-			[new WorkflowEffect.Decide(new WorkflowDecisionPlan(
-				rendered, [.. choices], new Dictionary<string, string>(outputs),
-				run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
-				paths, Files(run), question.Confidence ?? environment.DecisionConfidence()))]);
-	}
-
-	// Puts the run's current question to the user through main; a non-empty reason says why the model didn't answer it.
-	// A stage whose report went to another conversation brings its position, outputs, and summary with it.
-	private WorkflowStep AskUser(WorkflowRun run, string reason) {
-		var asked = run.Asked! with { Reason = reason };
-		string context = run.Decision == WorkflowDecisionKind.Then && Scope(run).Conversation is not null
-			? ReportText(run, definition.Stage(run.Stage), null, Scope(run), Scope(run).Outputs.GetValueOrDefault(run.Stage, []), run.Summary, own: false)
-			: "";
-		var kickoff = WorkflowKickoff.Prompt(Join(context, WorkflowStageBlock.PutToUser(asked, environment)));
-		return Send(run with { Phase = WorkflowPhase.Asking, Asked = asked }, kickoff);
 	}
 
 	// A new fork also carries what is owed to the conversation it copies, which has not taken it yet.

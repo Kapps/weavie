@@ -41,7 +41,9 @@ test("a remote session's agent changes a device setting on the page's home", asy
 
     await page.locator(".session-rail-add").click();
     const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("combobox", { name: "Location" }).selectOption({ label: "devbox" });
+    await inbox
+      .getByRole("combobox", { name: "Session location" })
+      .selectOption({ label: "devbox" });
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
     await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("on-devbox");
     await inbox.getByRole("button", { name: "Start", exact: true }).click();

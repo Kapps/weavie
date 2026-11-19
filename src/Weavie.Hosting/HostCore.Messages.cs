@@ -24,7 +24,7 @@ public sealed partial class HostCore {
 			(request, page, _) => {
 				_messages.Homes.Named(page.Transport, request.Home);
 				return Task.FromResult(new ResponseWithCompletion<HostHello>(
-					BuildHello(),
+					BuildHello(home: request.Home is null),
 					_ => {
 						// Setup is a device's own, so a page served elsewhere is never offered it; its machine offers still apply.
 						if (request.Home is not null || _settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
@@ -328,7 +328,8 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 	}
 
-	private HostHello BuildHello() {
+	// Only a page this host serves reads its device settings, so only that page is sent them.
+	private HostHello BuildHello(bool home) {
 		using var layout = JsonDocument.Parse(LayoutSerialization.SerializeCompact(_layout.Current));
 		var hello = new HostHello(
 			_device,
@@ -343,7 +344,7 @@ public sealed partial class HostCore {
 			RepoStates(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
-			ParseJsonElement(_global.DeviceSettingsJson()),
+			ParseJsonElement(home ? _global.DeviceSettingsJson() : "{}"),
 			BuildCommandUsage(),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),

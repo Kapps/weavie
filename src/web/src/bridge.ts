@@ -219,9 +219,7 @@ export function registerHomeFeature(installer: HostFeatureInstaller): () => void
 
 /** One of the home host's features, for request/response calls. */
 export function homeFeature(name: string) {
-  const connection = hostConnection(LOCAL_BACKEND_ID);
-  if (connection === undefined) throw new Error("The Weavie host is not connected.");
-  return connection.host.feature(name);
+  return homeConnection().host.feature(name);
 }
 
 function installSessionFeature(session: ClientSession, installer: SessionFeatureInstaller): void {
@@ -474,9 +472,7 @@ function createConnection(
     // The host's only route to this page's device: device settings requests go to the home and nowhere else.
     connection.host
       .feature("device")
-      .handle("settings", (request) =>
-        homeConnection().host.feature("device").request("settings", request),
-      );
+      .handle("settings", (request) => homeFeature("device").request("settings", request));
   }
   connection.onCatalog(reconcileSessions);
   connection.onHello((hello) => {

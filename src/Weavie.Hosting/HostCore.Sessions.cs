@@ -187,16 +187,23 @@ public sealed partial class HostCore {
 	internal HostSession? WorkspaceSessionForTest =>
 		_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Session;
 
-	/// <summary>The workspace's own checkout: the catalog invariant Weavie always offers and delete always refuses.</summary>
+	/// <summary>The session on the workspace's home folder.</summary>
 	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
+
+	/// <summary>A session on its repo's own folder: no worktree a repo here tracks, so deleting the session leaves the folder.</summary>
+	private static bool KeepsFolder(SessionSlot slot) => PathIdentity.Equals(slot.WorktreePath, slot.Repo.Root);
 
 	private bool IsWorkspaceCheckout(string worktreePath) => PathIdentity.Equals(worktreePath, HomeFolder);
 
+	/// <summary>The worktree git has <paramref name="branch"/> checked out in, if any.</summary>
+	private static async Task<string?> WorktreeOnBranchAsync(Repo repo, string branch, CancellationToken ct) =>
+		(await new GitService().ListWorktreesAsync(repo.Root, ct).ConfigureAwait(false))
+			.FirstOrDefault(worktree => string.Equals(worktree.Branch, branch, StringComparison.Ordinal))?.Path;
+
 	/// <summary>The session on the worktree git has <paramref name="branch"/> checked out in, loaded or dormant.</summary>
 	private async Task<SessionSlot?> SlotOnBranchAsync(Repo repo, string branch, CancellationToken ct) =>
-		(await new GitService().ListWorktreesAsync(repo.Root, ct).ConfigureAwait(false))
-			.FirstOrDefault(worktree => string.Equals(worktree.Branch, branch, StringComparison.Ordinal)) is { } worktree
-			? _sessions?.Find(SessionSlot.IdFor(worktree.Path))
+		await WorktreeOnBranchAsync(repo, branch, ct).ConfigureAwait(false) is { } worktree
+			? _sessions?.Find(SessionSlot.IdFor(worktree))
 			: null;
 
 	/// <summary>A typed repo path made absolute: relative to the session it was typed in, else to the home folder.</summary>
@@ -228,16 +235,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Creates the ordinary session attached to the user-owned workspace checkout when it is absent.</summary>
-	private void EnsureWorkspaceSession() {
+	/// <summary>Creates the session on the home folder, which has none; a failure leaves none behind.</summary>
+	private SessionSlot OpenHomeSession(string providerId) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
-		if (sessions.Slots.Any(IsWorkspaceCheckout)) {
-			return;
-		}
-
-		string providerId = AvailableWorkspaceSessionProvider();
-		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 		var slot = new SessionSlot {
 			Label = _workspaceSessionLabel,
 			Device = NewDevice(null),
@@ -245,14 +246,44 @@ public sealed partial class HostCore {
 			WorktreePath = HomeFolder,
 			AgentProviderId = providerId,
 			EditorSession = EditorSession.Empty,
-			ShellTerminals = shellTerminals,
+			ShellTerminals = [ShellTerminalId.New()],
 		};
-		var session = slot.Session = CreateSession(slot);
-		sessions.Add(slot);
-		session.Scratch.GarbageCollect([]);
-		ActivateSessionRuntimeAndMessages(session);
-		PushSessionList();
-		PersistSessionState();
+		bool closed = _sessionStore.HomeClosed;
+		try {
+			var session = slot.Session = CreateSession(slot);
+			sessions.Add(slot);
+			session.Scratch.GarbageCollect([]);
+			ActivateSessionRuntimeAndMessages(session);
+			PushSessionList();
+			_sessionStore.HomeClosed = false;
+			PersistSessionState();
+			return slot;
+		} catch (Exception error) {
+			_sessionStore.HomeClosed = closed;
+			throw RollbackSessionLoad(slot, slot.Session, removeSlot: true, error);
+		}
+	}
+
+	/// <summary>Brings back the home folder's session after it was deleted, or loads the one that is there.</summary>
+	private Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct) =>
+		GatedAsync(_sessionCatalog, () => OpenHomeSessionCoreAsync(ResolveNewSessionProvider(null), ct), ct);
+
+	// Under the catalog gate. The provider is only for a session created now: one that is there keeps its own.
+	private async Task<CommandResult> OpenHomeSessionCoreAsync(string providerId, CancellationToken ct) {
+		if (_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout) is { } existing) {
+			return await LoadExistingAsync(existing, existing.Label, ct).ConfigureAwait(false);
+		}
+
+		try {
+			_agentProviders.RequireAvailable(providerId);
+		} catch (InvalidOperationException ex) {
+			return CommandResult.Failure(ex.Message);
+		}
+
+		// The branch checked out there may have changed while it had no session.
+		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(new GitService(), Home.Worktrees is not null).ConfigureAwait(false);
+		return await _ui.InvokeAsync(() => Task.FromResult(CommandResult.Success(
+			$"Opened the session on {HomeFolder}.", CreatedSessionActivationJson(OpenHomeSession(providerId)))), ct).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -394,7 +425,7 @@ public sealed partial class HostCore {
 
 	private SessionCatalogEntry[] BuildSessionCatalog() {
 		var slots = _sessions?.Slots ?? [];
-		var repos = slots.Select(slot => slot.Repo).Distinct().ToArray();
+		string[] repos = RepoRoots();
 		return [.. slots
 			.OrderByDescending(slot => slot.Loaded)
 			.Select(slot => {
@@ -413,35 +444,35 @@ public sealed partial class HostCore {
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
 					slot.Unseen,
-					IsWorkspaceCheckout(slot),
-					!IsWorkspaceCheckout(slot) && slot.Repo.Worktrees?.Owns(slot.WorktreePath) == false,
+					!KeepsFolder(slot) && slot.Repo.Worktrees?.Owns(slot.WorktreePath) == false,
 					slot.Session?.Bus.ReloadReason,
 					slot.Repo.Root,
-					RepoLabel(slot.Repo, repos),
+					RepoLabel(slot.Repo.Root, repos),
 					slot.WorktreePath);
 			})];
 	}
 
 	/// <summary>A session as a message names it: its branch, led by its repo when the workspace's sessions span several.</summary>
 	private string NameOf(SessionSlot slot) {
-		var repos = (_sessions?.Slots ?? []).Select(other => other.Repo).Distinct().ToArray();
-		return repos.Length > 1 ? $"{RepoLabel(slot.Repo, repos)} / {slot.Label}" : slot.Label;
+		return (_sessions?.Slots ?? []).Any(other => other.Repo != slot.Repo)
+			? $"{RepoLabel(slot.Repo.Root, RepoRoots())} / {slot.Label}"
+			: slot.Label;
 	}
 
 	private string NameOf(HostSession session) => SlotFor(session) is { } slot ? NameOf(slot) : session.DisplayLabel;
 
-	// A repo's chip label: the shortest trailing part of its path no other repo of the workspace shares.
-	private static string RepoLabel(Repo repo, IReadOnlyList<Repo> all) {
-		static string Tail(Repo of, int segments) => string.Join('/', of.Root
+	// A repo's name among others: the shortest trailing part of its root that no other root shares.
+	private static string RepoLabel(string root, IReadOnlyList<string> all) {
+		static string Tail(string of, int segments) => string.Join('/', of
 			.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)
 			.TakeLast(segments));
 		int segments = 1;
-		while (all.Any(other => other != repo && Tail(other, segments) == Tail(repo, segments)
-			&& Tail(repo, segments) != Tail(repo, segments + 1))) {
+		while (all.Any(other => other != root && Tail(other, segments) == Tail(root, segments)
+			&& Tail(root, segments) != Tail(root, segments + 1))) {
 			segments++;
 		}
 
-		return Tail(repo, segments);
+		return Tail(root, segments);
 	}
 
 	internal sealed record SessionCatalogEntry(
@@ -456,7 +487,6 @@ public sealed partial class HostCore {
 		string Status,
 		long? LastActiveAt,
 		bool Unseen,
-		bool WorkspaceCheckout,
 		bool External,
 		string? ReloadRequired,
 		string Repo,
@@ -734,8 +764,17 @@ public sealed partial class HostCore {
 			? Task.FromResult(CommandResult.Failure("Load needs a session id."))
 			: RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => LoadSessionCoreAsync(target, ct), ct);
 
+	// A session git couldn't place has no repository to run in.
+	private CommandResult? LostRefusal(SessionSlot slot) => slot.Lost is { } lost
+		? CommandResult.Failure($"'{NameOf(slot)}' can't find its repository, so it can't be loaded: {lost.Reason}")
+		: null;
+
 	private Task<CommandResult> LoadSessionCoreAsync(SessionSlot target, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
+		if (LostRefusal(target) is { } lost) {
+			return Task.FromResult(lost);
+		}
+
 		if (target.Loaded) {
 			return Task.FromResult(CommandResult.Success(
 				"That session is already loaded.",
@@ -822,54 +861,25 @@ public sealed partial class HostCore {
 	private Task<CommandResult> DeleteSessionAsync(
 		HostSession? source,
 		string? sessionId,
-		bool force,
+		SessionDeleteConsent consent,
 		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
 		RunSlotLifecycleAsync(
 			sessionId,
 			NoSuchSession(sessionId),
-			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
-				? Task.FromResult(refusal)
-				: DeleteSessionCoreAsync(source, target, force, context, ct),
+			target => {
+				// The slot confirmed as keeping its folder may since have been replaced by one on a worktree.
+				if (consent == SessionDeleteConsent.KeepFolder && !KeepsFolder(target)) {
+					return Task.FromResult(CommandResult.Failure(
+						$"'{NameOf(target)}' has changed since its delete was confirmed: deleting it now would remove its worktree. Try again."));
+				}
+
+				return BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
+					? Task.FromResult(refusal)
+					: DeleteSessionAfterValidationAsync(source, target, consent == SessionDeleteConsent.LoseWork, context, ct);
+			},
 			ct);
-
-	/// <summary>
-	/// Refuses deleting the workspace's own checkout — that slot is a catalog invariant, since Weavie does not own
-	/// the directory the user opened and always offers a session on it. Unload releases its resources instead.
-	/// </summary>
-	private CommandResult? DeleteRefusal(SessionSlot target) =>
-		IsWorkspaceCheckout(target)
-			? CommandResult.Failure(
-				$"'{NameOf(target)}' is the workspace's own checkout, so it can't be deleted. Unload it instead.")
-			: null;
-
-	private Task<CommandResult> DeleteSessionCoreAsync(
-		HostSession? source,
-		SessionSlot target,
-		bool force,
-		CommandInvocationContext context,
-		CancellationToken ct) {
-		if (DeleteRefusal(target) is { } refusal) {
-			return Task.FromResult(refusal);
-		}
-
-		if (target.Repo.Worktrees is null) {
-			return Task.FromResult(CommandResult.Failure($"'{target.Repo.Label}' isn't a git repository, so it has no worktree to delete."));
-		}
-
-		string worktreePath = target.WorktreePath;
-		string label = NameOf(target);
-
-		return DeleteSessionAfterValidationAsync(
-			source,
-			target,
-			worktreePath,
-			label,
-			force,
-			context,
-			ct);
-	}
 
 	// Nothing keeps this checkout's commits when it has no branch: a detached HEAD, or a checkout git can no
 	// longer answer for. Removing it leaves them unreachable, so the delete costs force either way.
@@ -884,11 +894,11 @@ public sealed partial class HostCore {
 	private async Task<CommandResult> DeleteSessionAfterValidationAsync(
 		HostSession? source,
 		SessionSlot target,
-		string worktreePath,
-		string label,
 		bool force,
 		CommandInvocationContext context,
 		CancellationToken ct) {
+		string worktreePath = target.WorktreePath;
+		string label = NameOf(target);
 		bool branchless = false;
 		try {
 			if (target.Session is { } session
@@ -900,8 +910,8 @@ public sealed partial class HostCore {
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. Read-only git probes, so
 			// they need no UI-thread marshaling.
-			// git itself refuses a locked worktree, in its own words.
-			if (IsLiveWorktree(worktreePath)) {
+			// git itself refuses a locked worktree, in its own words. A folder that is kept loses nothing.
+			if (!KeepsFolder(target) && IsLiveWorktree(worktreePath)) {
 				branchless = await IsBranchlessAsync(worktreePath, ct).ConfigureAwait(false);
 				if (branchless && !force) {
 					return CommandResult.Failure(
@@ -918,16 +928,15 @@ public sealed partial class HostCore {
 		}
 
 		if (target.Session is { } targetSession && ReferenceEquals(targetSession, source)) {
-			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktreePath, label, force, branchless, ct));
+			context.AfterReply(ct => DeleteAfterReplyAsync(target, label, force, branchless, ct));
 			return CommandResult.Success();
 		}
 
-		return await DeleteAfterPreflightAsync(target, worktreePath, label, force, branchless, ct).ConfigureAwait(false);
+		return await DeleteAfterPreflightAsync(target, label, force, branchless, ct).ConfigureAwait(false);
 	}
 
 	private async Task DeleteAfterReplyAsync(
 		SessionSlot target,
-		string worktreePath,
 		string label,
 		bool force,
 		bool branchless,
@@ -935,7 +944,7 @@ public sealed partial class HostCore {
 		try {
 			var result = await GatedAsync(
 				target.Lifecycle,
-				() => DeleteAfterPreflightAsync(target, worktreePath, label, force, branchless, ct),
+				() => DeleteAfterPreflightAsync(target, label, force, branchless, ct),
 				ct).ConfigureAwait(false);
 			if (!result.Ok) {
 				Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
@@ -972,7 +981,6 @@ public sealed partial class HostCore {
 
 	private async Task<CommandResult> DeleteAfterPreflightAsync(
 		SessionSlot target,
-		string worktreePath,
 		string label,
 		bool force,
 		bool branchless,
@@ -990,12 +998,27 @@ public sealed partial class HostCore {
 				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
 			}
 
+			if (KeepsFolder(target)) {
+				string kept = $"Session '{label}' was deleted. Its folder {target.WorktreePath} was kept.";
+				if (IsWorkspaceCheckout(target)) {
+					// It stays deleted across restarts, until it is opened again.
+					_sessionStore.HomeClosed = true;
+					await RetireSlotAsync(target).ConfigureAwait(false);
+					Notify("info", kept, $"session-deleted:{target.Id}", "Open Again", SessionCommands.OpenHomeSession, null);
+				} else {
+					await RetireSlotAsync(target).ConfigureAwait(false);
+					Notify("info", kept);
+				}
+
+				return CommandResult.Success();
+			}
+
 			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
 			// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
 			// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
 			await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 			await target.Repo.RequireWorktrees().RemoveAsync(
-				worktreePath,
+				target.WorktreePath,
 				deleteBranch: false,
 				force,
 				CancellationToken.None).ConfigureAwait(false);
@@ -1018,16 +1041,14 @@ public sealed partial class HostCore {
 		RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => ClassifyDeleteCoreAsync(target, ct), ct);
 
 	private async Task<CommandResult> ClassifyDeleteCoreAsync(SessionSlot target, CancellationToken ct) {
-		if (DeleteRefusal(target) is { } refusal) {
-			return refusal;
-		}
-
 		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
 		string state = "clean";
 		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
 		bool branchless = false;
-		if (IsLiveWorktree(target.WorktreePath)) {
+		if (KeepsFolder(target)) {
+			state = "kept";
+		} else if (IsLiveWorktree(target.WorktreePath)) {
 			try {
 				branchless = await IsBranchlessAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
@@ -1051,9 +1072,8 @@ public sealed partial class HostCore {
 			WireJson.Default.SessionDeletePreview));
 	}
 
-	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
 	/// <summary>
-	/// Drops a slot whose worktree is gone: its agent records, its place in the catalog, and the persisted state.
+	/// Drops a slot that is leaving the workspace: its agent records, its place in the catalog, and the persisted state.
 	/// The slot-set mutation + rail push run on the UI thread (the caller's awaits left it), so the removal can't
 	/// interleave with a concurrent switch reading the slot set.
 	/// </summary>
@@ -1193,10 +1213,15 @@ public sealed partial class HostCore {
 		}
 
 		// A branch is checked out in one worktree at most (git refuses a second), so a session already on it is
-		// switched to: the repo's own checkout included.
+		// switched to, and the home folder's is opened again when the branch is there and its session was deleted.
 		try {
-			if (await SlotOnBranchAsync(start.Repo, branch, ct).ConfigureAwait(false) is { } holder) {
+			string? checkedOutAt = await WorktreeOnBranchAsync(start.Repo, branch, ct).ConfigureAwait(false);
+			if (checkedOutAt is not null && _sessions?.Find(SessionSlot.IdFor(checkedOutAt)) is { } holder) {
 				return ExistingSessionInputError(start.Input) ?? await LoadExistingAsync(holder, branch, ct).ConfigureAwait(false);
+			}
+			if (checkedOutAt is not null && IsWorkspaceCheckout(checkedOutAt)) {
+				return ExistingSessionInputError(start.Input)
+					?? await OpenHomeSessionCoreAsync(start.AgentProviderId, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't read where '{branch}' is checked out: {ex.Message}");
@@ -1268,7 +1293,6 @@ public sealed partial class HostCore {
 				// The repo has a session now, so it is one of the workspace's; its setup command (e.g. `pnpm install`)
 				// runs in the background, toasting "setting up… → ready/failed".
 				Join(start.Repo);
-				_unrestoredSessions.RemoveAll(item => PathIdentity.Equals(item.WorktreePath, record.Path));
 				sessions.Add(slot);
 				if (setUp) {
 					StartWorktreeSetup(start.Repo, record.Path);
@@ -1389,6 +1413,10 @@ public sealed partial class HostCore {
 			ct);
 
 	private Task<CommandResult> LoadExistingCoreAsync(SessionSlot slot, string branch) {
+		if (LostRefusal(slot) is { } lost) {
+			return Task.FromResult(lost);
+		}
+
 		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {

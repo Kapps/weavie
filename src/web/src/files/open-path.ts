@@ -6,6 +6,7 @@ import {
   selectedSession,
   sessionForSlot,
 } from "../bridge";
+import { notify } from "../notify/notify";
 import { chooseOpenSlot } from "./open-target";
 import { revealFileIn } from "./reveal";
 
@@ -37,6 +38,7 @@ function flush(): void {
   for (const open of pending.splice(0)) {
     const session = target(open);
     if (session === undefined) {
+      notify("warn", `Couldn't open ${open.path}: its window has no session to show it in.`);
       continue;
     }
     // Selected first: the editor only activates a tab for the session in front, so an unselected target

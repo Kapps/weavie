@@ -80,6 +80,7 @@ export function DeleteSessionDialog(props: {
         </p>
         <p>
           <Switch fallback="Its worktree is removed. The branch and its commits are kept.">
+            <Match when={props.state === "kept"}>Its folder and everything in it are kept.</Match>
             <Match when={props.state === "untracked"}>
               Its worktree is removed with its <strong>untracked files</strong>, which can't be
               recovered. The branch is kept.

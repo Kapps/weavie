@@ -22,10 +22,12 @@ import {
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
 import { chosenRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
-import { backendRepos, type RailSession } from "../chrome/session-store";
+import type { RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
+import type { KnownRepo } from "../messaging/protocol-types";
 import { notify } from "../notify/notify";
+import { knownRepos } from "../repo-state";
 import { MobileActionLabel } from "./MobileActionLabel";
 import { NewSessionComposer, type NewSessionSeed } from "./NewSessionComposer";
 import { NewSessionControl } from "./NewSessionControl";
@@ -73,10 +75,7 @@ export function SessionInbox(props: {
   const [owner, setOwner] = createSignal<ClientSession | null>(null);
   const sourceRepo = (): string | undefined =>
     owner()?.connection.id === backendId() ? owner()?.repo : undefined;
-  // The same list is the same value, so its options aren't rebuilt each time the session list is pushed.
-  const repos = createMemo(() => backendRepos(backendId()), [], {
-    equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
-  });
+  const repos = (): KnownRepo[] => knownRepos(backendId());
   // What the list shows is what is sent: a repo that left the list is never named behind another's label.
   const chosen = createMemo(() =>
     chosenRepo(
@@ -113,7 +112,7 @@ export function SessionInbox(props: {
     clearTimeout(repoTyped);
     repoTyped = setTimeout(() => setRepoPath(path), 400);
   };
-  // Leaving the field or pressing Enter names the path at once, ahead of the submit Enter also causes.
+  // Leaving the field or pressing Enter names the path at once, ahead of the start Enter also asks for.
   const commitRepo = (path: string): void => {
     clearTimeout(repoTyped);
     setRepoPath(path);
@@ -381,6 +380,7 @@ export function SessionInbox(props: {
             busy={submitting() !== null}
             starting={submitting() === "new"}
             destination={destinationFields("Session location", "Repository", "Agent provider")}
+            onRepoPath={commitRepo}
             onBase={setBase}
             onStart={startNew}
           />

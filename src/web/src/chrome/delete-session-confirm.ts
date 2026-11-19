@@ -1,6 +1,7 @@
 // How dirty the session's worktree is (host git status), driving the confirm friction: clean = one click,
-// untracked = two-step confirm, modified = checkbox acknowledgement.
-export type DeleteSessionState = "clean" | "untracked" | "modified";
+// untracked = two-step confirm, modified = checkbox acknowledgement. kept = a folder Weavie did not make, which
+// the delete leaves alone: one click.
+export type DeleteSessionState = "clean" | "untracked" | "modified" | "kept";
 
 /**
  * Whether the confirm is gated on the acknowledgement checkbox. Uncommitted changes and a checkout with no

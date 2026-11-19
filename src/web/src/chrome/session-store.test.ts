@@ -13,6 +13,8 @@ vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 const harness = vi.hoisted(() => ({
   hostInstallers: [] as Array<(connection: HostConnection) => undefined | (() => void)>,
+  // Backends whose connection is down: their catalog is emptied without a session having left.
+  disconnected: new Set<string>(),
   sessionInstallers: [] as Array<(session: ClientSession) => undefined | (() => void)>,
   connections: new Map<
     string,
@@ -113,6 +115,9 @@ function connection(backendId: string): {
       session: (address: { slot: string }) =>
         harness.sessions.get(`${backendId}\u0000${address.slot}`)?.client,
       onHello: () => () => {},
+      get currentHello() {
+        return harness.disconnected.has(backendId) ? null : {};
+      },
       host: {
         feature: () => ({
           on: () => () => {},
@@ -193,7 +198,6 @@ function deliverCatalog(
         agentInputProtocol: 0,
         lastActiveAt: null,
         unseen: unseen.includes(slot),
-        workspaceCheckout: slot === "main",
         reloadRequired: null,
         external: false,
         // A slot named `infra/…` lives in the infra repo; every other slot in the home repo.
@@ -240,15 +244,6 @@ describe("repo labels", () => {
     expect(labels()).toEqual(["", ""]);
     deliverCatalog("local", ["main", "infra/deploy"]);
     expect(labels()).toEqual(["repo", "infra"]);
-  });
-
-  it("lists a backend's repos once each by the host's name, the home folder's first", () => {
-    deliverCatalog("local", ["infra/deploy", "main", "feature", "infra/rollout"]);
-    expect(store.backendRepos("local")).toEqual([
-      { repo: "/code/repo", label: "repo" },
-      { repo: "/code/infra", label: "infra" },
-    ]);
-    expect(store.backendRepos("gone")).toEqual([]);
   });
 });
 
@@ -354,7 +349,6 @@ const chip = (id: string, active: boolean): RailSession => ({
   workflowProblem: "",
   lastActiveAt: null,
   unseen: false,
-  workspaceCheckout: false,
   reloadRequired: null,
   external: false,
   repo: "/code/repo",
@@ -384,15 +378,22 @@ describe("session drafts", () => {
     return cleared;
   };
 
-  it("survive the empty catalog a page starts with, and go only with their slot", () => {
+  it("survive the empty catalog of a disconnect, and go with their slot, the last one included", () => {
     const cleared = drafts();
-    deliverCatalog("drafts", []);
+    onTestFinished(() => harness.disconnected.clear());
     deliverCatalog("drafts", ["gone", "kept"]);
+    harness.disconnected.add("drafts");
     deliverCatalog("drafts", []);
     expect(cleared).toEqual([]);
+    harness.disconnected.clear();
     deliverCatalog("drafts", ["gone", "kept"]);
     deliverCatalog("drafts", ["kept"]);
     expect(cleared).toEqual(["weavie-session-draft:composer:drafts:gone"]);
+    deliverCatalog("drafts", []);
+    expect(cleared).toEqual([
+      "weavie-session-draft:composer:drafts:gone",
+      "weavie-session-draft:composer:drafts:kept",
+    ]);
   });
 });
 

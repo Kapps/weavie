@@ -10,7 +10,6 @@ import {
   hostInjected,
   invokeClientCommandOnHost,
   invokeCommandInSession,
-  invokeSessionCommandOnBackend,
   LOCAL_BACKEND_ID,
   log,
   onSelectedSession,
@@ -23,6 +22,7 @@ import {
 import { trackSessionCommand } from "../chrome/session-store";
 import { requireSessionAddress } from "../messaging/message-envelope";
 import { notify, sessionRestoreKey } from "../notify/notify";
+import { invokeHostSessionCommand } from "./session-recovery";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -379,7 +379,7 @@ async function routeCoreCommand(
     const result = await (command.owner === "client"
       ? invokeClientCommandOnHost(command.id, routedArgs)
       : command.scope === "host"
-        ? invokeSessionCommandOnBackend(target, command.id, routedArgs)
+        ? invokeHostSessionCommand(target, command.id, routedArgs)
         : session !== null && session.connection.id === target
           ? invokeCommandInSession(session, command.id, routedArgs)
           : Promise.resolve({

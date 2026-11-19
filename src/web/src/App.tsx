@@ -40,7 +40,6 @@ import {
   clientSession,
   connectedBackends,
   hostConnection,
-  invokeSessionCommandOnBackend,
   isBrowserHostedShell,
   isSelected,
   LOCAL_BACKEND_ID,
@@ -55,6 +54,7 @@ import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
 import { ChoicePicker } from "./chrome/ChoicePicker";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { CredentialPrompt } from "./chrome/CredentialPrompt";
+import { confirm, confirmationRequest, settleConfirmation } from "./chrome/confirmation";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
@@ -134,6 +134,7 @@ import {
   runCommandWithFeedback,
 } from "./commands/registry";
 import { selectedText, trackDocumentSelection } from "./commands/selection";
+import { invokeHostSessionCommand } from "./commands/session-recovery";
 import { CommandIds, type CommandResult } from "./commands/types";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
@@ -644,19 +645,6 @@ export default function App(): JSX.Element {
   setNotifySink(addToast, dismissKeyed);
   // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
   surfacePostUpdateNotice();
-  // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
-  // close routes through this guard (confirmDiscard below).
-  const [confirmReq, setConfirmReq] = createSignal<{
-    title: string;
-    body: string;
-    confirmLabel: string;
-    resolve: (ok: boolean) => void;
-  } | null>(null);
-  const confirm = (options: {
-    title: string;
-    body: string;
-    confirmLabel: string;
-  }): Promise<boolean> => new Promise<boolean>((resolve) => setConfirmReq({ ...options, resolve }));
   const confirmDiscard = (names: string[]): Promise<boolean> =>
     confirm({
       title: names.length > 1 ? "Discard unsaved files?" : "Discard unsaved file?",
@@ -666,13 +654,6 @@ export default function App(): JSX.Element {
           : `"${names[0]}" has unsaved changes and isn't saved to a file yet. Discard it?`,
       confirmLabel: "Discard",
     });
-  const settleConfirm = (ok: boolean): void => {
-    const req = confirmReq();
-    if (req !== null) {
-      setConfirmReq(null);
-      req.resolve(ok);
-    }
-  };
   // A pending in-app "Save as" prompt for a scratch buffer (browser-served host, no native dialog): the
   // suggested name + the resolver the dialog settles with the chosen name (null on cancel).
   const [scratchNameReq, setScratchNameReq] = createSignal<{
@@ -960,6 +941,7 @@ export default function App(): JSX.Element {
       source: args.base === "source" && !args.existing ? source?.address : undefined,
     })
       .then((result) => {
+        if (result.cancelled) return false;
         if (!result.ok) {
           throw new Error(result.error ?? "The session could not be created.");
         }
@@ -1062,13 +1044,10 @@ export default function App(): JSX.Element {
       .then(async () => {
         let target = clientSession(session.backendId, session.id);
         if (target === undefined) {
-          const loaded = await invokeSessionCommandOnBackend(
-            session.backendId,
-            CommandIds.loadSession,
-            {
-              id: session.id,
-            },
-          );
+          const loaded = await invokeHostSessionCommand(session.backendId, CommandIds.loadSession, {
+            id: session.id,
+          });
+          if (loaded.cancelled) return null;
           if (!loaded.ok) {
             throw new Error(loaded.error ?? `Couldn't load ${session.label}.`);
           }
@@ -1078,6 +1057,7 @@ export default function App(): JSX.Element {
         return target;
       })
       .then((activated) => {
+        if (activated === null) return false;
         dismissKeyed(toastKey);
         presentSession(activated, false);
         return true;
@@ -2076,7 +2056,7 @@ export default function App(): JSX.Element {
         <MobileWorkspace
           surface={mobileSurface()}
           compact={compact()}
-          modalOpen={sessionsModalActive()}
+          modalOpen={sessionsModalActive() && confirmationRequest() === null}
           inboxActive={inboxActive()}
           sessions={sessions()}
           inboxOpening={inboxOpening()}
@@ -2279,15 +2259,16 @@ export default function App(): JSX.Element {
       <Show when={contextMenu()}>
         {(m) => <ContextMenu menu={m()} onClose={() => setContextMenu(null)} />}
       </Show>
-      <Show when={confirmReq()}>
+      <Show when={confirmationRequest()} keyed>
         {(req) => (
           <ConfirmDialog
-            title={req().title}
-            body={req().body}
-            confirmLabel={req().confirmLabel}
+            title={req.title}
+            body={req.body}
+            confirmLabel={req.confirmLabel}
             cancelLabel="Cancel"
-            onConfirm={() => settleConfirm(true)}
-            onCancel={() => settleConfirm(false)}
+            destructive={req.destructive === true}
+            onConfirm={() => settleConfirmation(true)}
+            onCancel={() => settleConfirmation(false)}
           />
         )}
       </Show>

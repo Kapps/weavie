@@ -83,6 +83,7 @@ public sealed partial class SessionChangeTracker {
 			}
 			var groupsByEntry = patchGroups.ToLookup(group => group.HistoryId);
 			if (patchGroups.Any(group => !history.Any(entry => entry.Id == group.HistoryId))) throw new JsonException("Orphan history patches.");
+			if (storedTexts.Keys.Any(hash => !_storedTexts.Referenced(hash))) throw new JsonException("The review contains unreferenced saved text.");
 			var actions = history.ToDictionary(entry => entry.Id, entry => new ReviewAction(entry.ActionId, entry.Kind,
 				entry.TouchesDisk, entry.Line, [.. groupsByEntry[entry.Id].SelectMany(group => group.Patches)]));
 			var saved = new ReviewSnapshot(metadata.Root, [.. files],
@@ -133,12 +134,8 @@ public sealed partial class SessionChangeTracker {
 			_dirtyPrompts.Clear();
 			// A git review is re-listed rather than reconciled: disk may have moved to another base meanwhile.
 			if (_review is null) ReconcileReviewDisk();
-			// Only the restored files own text. Collect unreachable blobs after the entire review validates.
-			var unused = storedTexts.Keys.Where(hash => !_storedTexts.Referenced(hash))
-				.ToDictionary(hash => TextPrefix + hash, _ => (string?)null, StringComparer.Ordinal);
-			if (unused.Count != 0) _persistence.Save(unused);
 		} catch (Exception error) when (error is JsonException or ArgumentException or KeyNotFoundException) {
-			throw new IOException($"Couldn't restore the saved review. {error.Message}", error);
+			throw new InvalidReviewCheckpointException(error);
 		} finally { _restoring = false; }
 	}
 

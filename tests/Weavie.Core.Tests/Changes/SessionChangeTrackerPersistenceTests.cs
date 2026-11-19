@@ -201,17 +201,16 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
-	public void Restart_CollectsUnreferencedTextAndPreservesTheReview() {
+	public void Restart_IdentifiesUnreferencedTextAndPreservesTheReview() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "original");
 		Edit(Tracker(files, persistence), files, "proposal");
-		var saved = persistence.Read();
 		persistence.Save(new Dictionary<string, string?> { ["text:unused"] = "unused baseline" });
+		var saved = persistence.Read();
 
-		var change = Assert.Single(Tracker(files, persistence).TurnChanges());
-		Assert.Equal("original", change.BaselineText);
-		Assert.Equal("proposal", change.CurrentText);
+		Assert.Contains("unreferenced saved text", Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence)).Message);
+		Assert.Equal("proposal", files.ReadAllText(File));
 		Assert.Equal(saved, persistence.Read());
 	}
 
@@ -224,7 +223,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		persistence.Save(new Dictionary<string, string?> { [missing.Key] = null, ["text:unused"] = "unused baseline" });
 		var saved = persistence.Read();
 
-		var error = Assert.Throws<IOException>(() => Tracker(files, persistence));
+		var error = Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
 		Assert.Contains($"'{File}' is missing its saved text", error.Message);
 		Assert.Equal(saved, persistence.Read());
 		Assert.Equal("proposal", files.ReadAllText(File));
@@ -237,7 +236,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		var persistence = new MemoryReviewPersistence();
 		persistence.Save(new Dictionary<string, string?> { ["metadata"] = "{invalid" });
 
-		Assert.Throws<IOException>(() => Tracker(files, persistence));
+		Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
 		Assert.Equal("{invalid", persistence.Read()["metadata"]);
 		Assert.Equal("user text\n", files.ReadAllText(File));
 	}
@@ -298,7 +297,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		string corrupted = document.ToJsonString();
 		persistence.Save(new Dictionary<string, string?> { [key] = corrupted });
 
-		Assert.Throws<IOException>(() => Tracker(files, persistence));
+		Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
 		Assert.Equal(corrupted, persistence.Read()[key]);
 		Assert.Equal("old\n", files.ReadAllText(File));
 	}

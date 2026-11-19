@@ -91,11 +91,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 		string workspaceRoot = paths.WorkspaceRoot;
 
 		var fileSystem = new LocalFileSystem();
-		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
+		var savedReview = new SavedReview(workspaceRoot);
+		string reviewDirectory = savedReview.DirectoryPath;
 		SecureFile.CreateDirectory(reviewDirectory);
 		// state.db held the superseded uncompacted format, hundreds of MB for large generated files; it cannot load.
 		File.Delete(Path.Combine(reviewDirectory, "state.db"));
-		var reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "review.db"));
 
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));
@@ -114,10 +114,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(Inventory, Tagged("[files]"), watcherDebounceMs: 250);
 		try {
-			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
+			Changes = savedReview.Restore(persistence => new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(paths.ScratchDir, path),
 				new IgnoredPathCache(FindIgnored, TimeProvider.System).IgnoredAmong,
-				reviewPersistence);
+				persistence));
 			// Disk may have moved under a restored git review while nothing watched it, so it is listed before it is trusted.
 			if (Changes.Review is not null) ReviewListing.RequireFull();
 			ReviewHints = new ReviewHintStore(

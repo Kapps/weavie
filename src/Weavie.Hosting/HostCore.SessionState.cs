@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Changes;
+using Weavie.Core.Commands;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
@@ -184,7 +187,9 @@ public sealed partial class HostCore {
 		} catch (Exception error) {
 			lock (publicationGate) {
 				var failure = RollbackSessionLoad(slot, session, removeSlot: false, error);
-				_sessionStartupNotices.Add(ToastMessage.Keyed("error", ReportSessionRestoreFailure(slot, failure), $"session-restore:{slot.Id}"));
+				var retry = failure is InvalidReviewCheckpointException ? new ToastAction("Load session", SessionCommands.LoadSession,
+					JsonSerializer.Serialize(new SessionSlotArgs(slot.Id), WireJson.Default.SessionSlotArgs)) : null;
+				_sessionStartupNotices.Add(new("error", ReportSessionRestoreFailure(slot, failure), $"session-restore:{slot.Id}", retry));
 			}
 		}
 	}
@@ -206,3 +211,5 @@ public sealed partial class HostCore {
 	private static Exception Innermost(Exception error) =>
 		error is AggregateException aggregate ? aggregate.Flatten().InnerExceptions[0] : error;
 }
+
+internal sealed record CorruptReviewRefusal(string CorruptReviewSlot, string SessionName);

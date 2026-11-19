@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Theming;
 
 namespace Weavie.Core.Configuration;
@@ -16,16 +17,22 @@ public interface IDevice {
 
 	/// <summary>Answers a theme tool at the device's home, or throws <see cref="DeviceUnavailableException"/>.</summary>
 	Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct);
+
+	/// <summary>The key bindings of the device's home, or throws <see cref="DeviceUnavailableException"/>.</summary>
+	Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct);
 }
 
 /// <summary>A session's device can't be reached to carry a request to its home.</summary>
 public sealed class DeviceUnavailableException(string message) : Exception(message);
 
 /// <summary>This host answering as the home of its own device.</summary>
-public sealed class HomeDevice(SettingsTools settings, ThemeTools themes) : IDevice {
+public sealed class HomeDevice(SettingsTools settings, ThemeTools themes, KeybindingStore keybindings) : IDevice {
 	/// <inheritdoc/>
 	public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => Task.FromResult(settings.Device(request));
 
 	/// <inheritdoc/>
 	public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => Task.FromResult(themes.Run(request));
+
+	/// <inheritdoc/>
+	public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => Task.FromResult(keybindings.Resolved);
 }

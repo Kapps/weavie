@@ -189,7 +189,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
 		var themeTools = new ThemeTools(_settings, services.ThemeOverrides, _messages, _device.Name);
-		_homeDevice = new HomeDevice(_settingsTools, themeTools);
+		_homeDevice = new HomeDevice(_settingsTools, themeTools, services.Keybindings);
 		ThemeCommands.RegisterHandlers(_clientCommands, _settings, services.ThemeOverrides, themeTools, VsixPicker);
 		FontCommands.RegisterHandlers(_clientCommands, _settings);
 		GitBlameCommands.RegisterHandlers(_clientCommands, _settings);

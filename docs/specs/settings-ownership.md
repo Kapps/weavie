@@ -1,6 +1,6 @@
 # Settings ownership
 
-Status: step 1 implemented; themes, client commands and keybindings proposed
+Status: steps 1 and 2 implemented; keybindings from home proposed
 Last updated: 2026-11-19
 
 Extends [settings.md](settings.md). Storage, kinds, validation, env overrides and the registry tools are
@@ -117,30 +117,35 @@ sequenceDiagram
 - A request goes to the page that made the claim when it is still connected, otherwise to any page from that
   home, and is never replayed through a second page.
 
-`McpServer` takes the device store as a required per-session dependency (`IDeviceSettings`), implemented in
-`Weavie.Hosting` over the session's device.
+`McpServer` takes the device as a required per-session dependency (`IDevice`), implemented in `Weavie.Hosting`
+over the session's device and answered at home by `HomeDevice`.
 
 ## Other device-owned state
 
 The same rule covers state outside the registry. Each is its own change:
 
 - **Themes.** Installed themes and `theme-overrides.json` live at home, and the theme tools route like
-  settings. The page reports which polarity it is showing, so `system` mode targets the theme on screen.
-- **Client commands an agent runs** route with the device, not the session's view, so zoom or a theme switch
-  works from a session that isn't on screen.
+  settings. Each page reports to its home which polarity it is showing (`device`/`showing`), so `system` mode
+  targets the theme on screen; with no page from the home connected it fails unless a `theme` is named.
+- **Client commands an agent runs** go to a page of the session's device (`device`/`command`), never the
+  page viewing the session, so zoom or a theme switch works from a session that isn't on screen. A page always
+  runs them, even when the device is the session's own host, since web commands need one.
+- **Shortcuts the tools report.** `listCommands` and `describeCommand` take client-owned commands' keys from
+  the device's home, as the page does, and say why they're missing when the device can't be reached.
+- **A service's key page** opens on the session's device.
 - **Keybindings.** Every binding comes from the home's `keybindings.json`, for client and backend commands
   alike, and `listCommands` reports those keys.
 
-- **Configure Suggestions.** The panel edits the home's inference settings whichever session opened it; it
-  should edit the machine of the session it was opened from.
+- **Configure Suggestions** edits the suggestion settings of the machine of the session it was opened from.
+  That machine offers automatic inference to a page from another device without waiting for its own setup.
 
 Layout stays per host: it is keyed by workspace and holds native window placement.
 
 ## Order of work
 
 1. Owners, the home-only read side, the spellcheck locale, and device routing for the four settings tools.
-2. Theme tools and agent-run client commands on the device route.
-3. Keybindings from home.
+2. Theme tools, agent-run client commands, reported shortcuts and Configure Suggestions on their owner's side.
+3. Keybindings from home: every binding, for client and backend commands alike.
 
 ## Tests
 

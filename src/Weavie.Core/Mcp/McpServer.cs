@@ -535,14 +535,27 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private IReadOnlyList<ResolvedKeybinding> Keybindings => _keybindings?.Resolved ?? [];
+	// The keys the user's page uses: client-owned commands' from the session's device, every other's from this host.
+	private async Task<(IReadOnlyList<ResolvedKeybinding> Bindings, string? DeviceUnavailable)> KeybindingsAsync(CancellationToken ct) {
+		var registry = Require(_commands, "Commands").Registry;
+		bool ClientOwned(ResolvedKeybinding binding) => registry.TryGet(binding.Command, out var definition) && definition.Owner == CommandOwner.Client;
+		var here = (_keybindings?.Resolved ?? []).Where(binding => !ClientOwned(binding));
+		try {
+			var device = await Require(_device, "Commands").KeybindingsAsync(ct).ConfigureAwait(false);
+			return ([.. here, .. device.Where(ClientOwned)], null);
+		} catch (DeviceUnavailableException ex) {
+			return ([.. here], ex.Message);
+		}
+	}
 
-	private Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) =>
-		SendToolTextAsync(
+	private async Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
+		var (bindings, unavailable) = await KeybindingsAsync(ct).ConfigureAwait(false);
+		await SendToolTextAsync(
 			responder,
 			idRaw,
-			CommandCatalog.BuildCommandIndexJson(Require(_commands, "Commands").Registry.Definitions, Keybindings),
-			ct);
+			CommandCatalog.BuildCommandIndexJson(Require(_commands, "Commands").Registry.Definitions, bindings, unavailable),
+			ct).ConfigureAwait(false);
+	}
 
 	private async Task HandleDescribeCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
@@ -553,7 +566,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			string json = CommandCatalog.BuildCommandJson(commands.Registry.Require(id), Keybindings);
+			var definition = commands.Registry.Require(id);
+			var (bindings, unavailable) = await KeybindingsAsync(ct).ConfigureAwait(false);
+			string json = CommandCatalog.BuildCommandJson(definition, bindings, unavailable);
 			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownCommandException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);

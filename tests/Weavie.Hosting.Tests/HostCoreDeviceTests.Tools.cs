@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-// Theme tools and the client commands an agent runs follow the session's device, like its device settings.
+// Theme tools, key bindings and the client commands an agent runs follow the session's device, like its settings.
 public sealed partial class HostCoreDeviceTests {
 	private static readonly ThemeRequest Darken = new(
 		"applyThemeTransform", JsonSerializer.SerializeToElement(new { op = "darken", amount = 0.6, target = "colors" }));
@@ -48,6 +48,21 @@ public sealed partial class HostCoreDeviceTests {
 		var unknown = await host.WorkspaceSession.Device.ThemesAsync(Darken, CancellationToken.None);
 		Assert.True(unknown.IsError);
 		Assert.Matches("^No page from .+ is open", unknown.Text);
+	}
+
+	[Fact]
+	public async Task KeyBindings_OnASessionTheLaptopClaimed_ComeFromTheLaptop() {
+		await using var host = await TestHost.StartAsync();
+		host.Bridge.RequestResponder = envelope => envelope is { Feature: "device", Name: "keybindings" }
+			? new FakeWebResponse(JsonSerializer.SerializeToElement(new[] { new { key = "ctrl+9", command = CoreCommands.IncreaseFontSize } }), null)
+			: null;
+		ConnectFromLaptop(host, Visitor);
+		Type(host, Visitor, host.WorkspaceSession);
+
+		var bindings = await host.WorkspaceSession.Device.KeybindingsAsync(CancellationToken.None);
+
+		Assert.Equal(("ctrl+9", CoreCommands.IncreaseFontSize), (Assert.Single(bindings).Key, bindings[0].Command));
+		Assert.Equal(Visitor, Assert.Single(Asked(host, "keybindings")).Page);
 	}
 
 	[Fact]

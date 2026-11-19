@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Xunit;
@@ -21,6 +22,11 @@ public sealed partial class McpSettingsToolsTests {
 			ThemeRequests.Add(request);
 			return Task.FromResult(new ToolReply($"{request.Tool} on laptop.", IsError: false));
 		}
+
+		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<ResolvedKeybinding>>([
+			new() { Key = "ctrl+9", Command = CoreCommands.IncreaseFontSize },
+			new() { Key = "ctrl+8", Command = CoreCommands.ReopenTerminal },
+		]);
 	}
 
 	private async Task<JsonElement> CallAsync(SettingsStore store, IDevice device, string tool, string arguments) {
@@ -128,6 +134,37 @@ public sealed partial class McpSettingsToolsTests {
 		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => throw new DeviceUnavailableException("laptop isn't connected.");
 
 		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => throw new DeviceUnavailableException("laptop isn't connected.");
+
+		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => throw new DeviceUnavailableException("laptop isn't connected.");
+	}
+
+	private static string[] KeysOf(JsonElement index, string id) => [.. index.GetProperty("commands").EnumerateArray()
+		.Single(row => row.GetProperty("id").GetString() == id)
+		.TryGetProperty("keys", out var keys) ? keys.EnumerateArray().Select(key => key.GetString()!) : []];
+
+	[Fact]
+	public async Task ListCommands_TakesClientCommandsKeysFromTheDevice_AndTheRestFromThisHost() {
+		using var store = NewStore();
+		var device = new FakeDevice(_ => throw new InvalidOperationException("Not a settings call."));
+
+		using var index = JsonDocument.Parse(Text(await CallAsync(store, device, "listCommands", "{}")));
+
+		Assert.Equal(["ctrl+9"], KeysOf(index.RootElement, CoreCommands.IncreaseFontSize));
+		Assert.DoesNotContain("ctrl+8", KeysOf(index.RootElement, CoreCommands.ReopenTerminal));
+		Assert.False(index.RootElement.TryGetProperty("deviceKeysUnavailable", out _));
+	}
+
+	[Fact]
+	public async Task ListCommands_SaysWhyClientCommandsHaveNoKeys_WhenTheDeviceIsUnavailable() {
+		using var store = NewStore();
+
+		using var index = JsonDocument.Parse(Text(await CallAsync(store, new UnreachableDevice(), "listCommands", "{}")));
+		using var described = JsonDocument.Parse(Text(await CallAsync(store, new UnreachableDevice(), "describeCommand", $$"""{"id":"{{CoreCommands.IncreaseFontSize}}"}""")));
+
+		Assert.Equal("laptop isn't connected.", index.RootElement.GetProperty("deviceKeysUnavailable").GetString());
+		Assert.Empty(KeysOf(index.RootElement, CoreCommands.IncreaseFontSize));
+		Assert.NotEmpty(KeysOf(index.RootElement, CoreCommands.FocusOmnibarCommands));
+		Assert.Equal("laptop isn't connected.", described.RootElement.GetProperty("keysUnavailable").GetString());
 	}
 
 	[Fact]

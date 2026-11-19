@@ -17,6 +17,9 @@ public sealed partial class HostCore {
 		device.Handle(
 			"themes", MessageActivity.ActionFailed("Reaching device themes"), WireJson.Default.ThemeRequest, WireJson.Default.ToolReply,
 			(request, ct) => _homeDevice.ThemesAsync(request, ct));
+		device.Handle(
+			"keybindings", MessageActivity.ActionFailed("Reading device key bindings"), WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding,
+			(_, ct) => _homeDevice.KeybindingsAsync(ct));
 		device.HandleOwned("showing", MessageActivity.Droppable("Noting the theme on screen"), WireJson.Default.ThemeShowing, (message, page, _) => {
 			_messages.Show(page, message.Polarity);
 			return Task.CompletedTask;
@@ -60,6 +63,10 @@ public sealed partial class HostCore {
 		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => device.Current.Home is null
 			? core._homeDevice.ThemesAsync(request, ct)
 			: PageAsync("themes", WireJson.Default.ThemeRequest, WireJson.Default.ToolReply, request, deadline: true, ct);
+
+		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => device.Current.Home is null
+			? core._homeDevice.KeybindingsAsync(ct)
+			: PageAsync("keybindings", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding, EmptyPayload.Value, deadline: true, ct);
 
 		// A client-owned command an agent runs: a page of the device runs it, as that page's own palette would.
 		public async Task<CommandResult> CommandAsync(string id, string? argsJson, CancellationToken ct) {

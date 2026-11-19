@@ -21,32 +21,42 @@ public static class CommandCatalog {
 		return JsonWrite.ToText(writer => {
 			writer.WriteStartArray();
 			foreach (var definition in definitions) {
-				WriteCommand(writer, definition, bindings);
+				WriteCommand(writer, definition, bindings, keysUnavailable: null);
 			}
 
 			writer.WriteEndArray();
 		});
 	}
 
-	/// <summary>Builds one command's full entry, as it appears in <see cref="BuildCommandsArrayJson"/>.</summary>
-	public static string BuildCommandJson(CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings) {
+	/// <summary>
+	/// Builds one command's full entry, as it appears in <see cref="BuildCommandsArrayJson"/>; a client-owned command
+	/// carries <paramref name="keysUnavailable"/>, why the device's keys are missing, when it isn't null.
+	/// </summary>
+	public static string BuildCommandJson(
+		CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings, string? keysUnavailable) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(bindings);
 
-		return JsonWrite.ToText(writer => WriteCommand(writer, definition, bindings));
+		return JsonWrite.ToText(writer => WriteCommand(writer, definition, bindings, keysUnavailable));
 	}
 
 	/// <summary>
 	/// Builds the <c>listCommands</c> index: per command its id, title, category, bound keys, and argument
-	/// names — enough to pick a command, with the rest left to <see cref="BuildCommandJson"/>.
+	/// names — enough to pick a command, with the rest left to <see cref="BuildCommandJson"/>. Carries
+	/// <paramref name="deviceKeysUnavailable"/>, why client-owned commands' keys are missing, when it isn't null.
 	/// </summary>
 	public static string BuildCommandIndexJson(
 		IReadOnlyList<CommandDefinition> definitions,
-		IReadOnlyList<ResolvedKeybinding> bindings) {
+		IReadOnlyList<ResolvedKeybinding> bindings,
+		string? deviceKeysUnavailable) {
 		ArgumentNullException.ThrowIfNull(definitions);
 		ArgumentNullException.ThrowIfNull(bindings);
 
 		return JsonWrite.Object(writer => {
+			if (deviceKeysUnavailable is not null) {
+				writer.WriteString("deviceKeysUnavailable", deviceKeysUnavailable);
+			}
+
 			writer.WriteStartArray("commands");
 			foreach (var definition in definitions) {
 				writer.WriteStartObject();
@@ -74,7 +84,7 @@ public static class CommandCatalog {
 	}
 
 	private static void WriteCommand(
-		Utf8JsonWriter writer, CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings) {
+		Utf8JsonWriter writer, CommandDefinition definition, IReadOnlyList<ResolvedKeybinding> bindings, string? keysUnavailable) {
 		writer.WriteStartObject();
 		writer.WriteString("id", definition.Id);
 		writer.WriteString("title", definition.Title);
@@ -99,6 +109,10 @@ public static class CommandCatalog {
 		}
 
 		WriteStrings(writer, "keys", KeysOf(definition, bindings));
+		if (keysUnavailable is not null && definition.Owner == CommandOwner.Client) {
+			writer.WriteString("keysUnavailable", keysUnavailable);
+		}
+
 		writer.WriteEndObject();
 	}
 

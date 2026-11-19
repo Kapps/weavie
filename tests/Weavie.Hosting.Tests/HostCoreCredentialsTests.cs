@@ -25,11 +25,7 @@ public sealed class HostCoreCredentialsTests {
 		Assert.Equal(("notion", "Notion", "personal access token", "https://app.notion.com/developers/tokens"), (
 			prompt.GetProperty("id").GetString(), prompt.GetProperty("displayName").GetString(),
 			prompt.GetProperty("keyNoun").GetString(), prompt.GetProperty("keyPageUrl").GetString()));
-		var (page, opened) = Assert.Single(host.Bridge.Sent, sent => MessageEnvelope.TryParse(sent.Json, out var envelope)
-			&& envelope is { Feature: "device", Name: "openUrl" });
-		Assert.Equal(TestHost.TestPageId, page.Id);
-		Assert.Contains("https://app.notion.com/developers/tokens", opened, StringComparison.Ordinal);
-		Assert.Null(host.Platform.LastOpenedUrl);
+		Assert.Equal("https://app.notion.com/developers/tokens", OpenedOnDevice(host));
 
 		Assert.True((await SaveKey(host, " ntn_secret ")).GetProperty("ok").GetBoolean());
 
@@ -153,6 +149,15 @@ public sealed class HostCoreCredentialsTests {
 
 	internal static Task<JsonElement> SaveKey(TestHost host, string id, string key) =>
 		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "credentials", "save", new { id, key });
+
+	// The URL the host asked the session's device page, the test page, to open; the host itself opens none.
+	internal static string? OpenedOnDevice(TestHost host) {
+		Assert.Null(host.Platform.LastOpenedUrl);
+		var (page, json) = Assert.Single(host.Bridge.Sent, sent => MessageEnvelope.TryParse(sent.Json, out var envelope)
+			&& envelope is { Feature: "device", Name: "openUrl" });
+		Assert.Equal(TestHost.TestPageId, page.Id);
+		return Assert.IsType<MessageEnvelope>(MessageEnvelope.TryParse(json, out var opened) ? opened : null).Payload.GetProperty("url").GetString();
+	}
 
 	internal static JsonElement? Prompt(TestHost host) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt");

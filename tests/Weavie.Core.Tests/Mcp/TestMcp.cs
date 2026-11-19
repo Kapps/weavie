@@ -90,7 +90,8 @@ internal static class TestMcp {
 	/// <summary>A device home over <paramref name="settings"/> and isolated theme overrides, showing dark.</summary>
 	internal static HomeDevice HomeDevice(SettingsStore settings, string name) => new(
 		new SettingsTools(settings, name),
-		new ThemeTools(settings, new ThemeOverridesStore(new InMemoryFileSystem(), "/theme-overrides.json"), new TestScreen { Showing = "dark" }, name));
+		new ThemeTools(settings, new ThemeOverridesStore(new InMemoryFileSystem(), "/theme-overrides.json"), new TestScreen { Showing = "dark" }, name),
+		new KeybindingStore(CoreCommands.CreateRegistry(), Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false));
 
 	/// <summary>The JSON-RPC response carried by an MCP event-stream reply (the event with an <c>id</c>).</summary>
 	internal static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response) {

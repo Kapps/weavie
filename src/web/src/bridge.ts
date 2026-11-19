@@ -486,7 +486,7 @@ function createConnection(
   );
   if (!isLocal) {
     // The host's only route to this page's device: device tool requests go to the home and nowhere else.
-    for (const name of ["settings", "themes"]) {
+    for (const name of ["settings", "themes", "keybindings"]) {
       connection.host
         .feature("device")
         .handle(name, (request, signal) => homeFeature("device").request(name, request, signal));

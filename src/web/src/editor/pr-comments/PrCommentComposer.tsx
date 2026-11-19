@@ -126,23 +126,25 @@ export function PrCommentComposer(props: {
   });
   return (
     <div class="weavie-pr-composer">
-      <textarea
-        ref={input}
-        data-pr-comment-input
-        class="weavie-pr-composer-input"
-        rows={2}
-        placeholder={props.placeholder}
-        value={text()}
-        readOnly={busy()}
-        onInput={() => {
-          setText(input.value);
-          if (input.value === props.initial) drafts.delete(props.draftKey);
-          else drafts.set(props.draftKey, input.value);
-          grow();
-        }}
-        onFocus={focus.onFocus}
-        onBlur={focus.onBlur}
-      />
+      <label class="ui-draft weavie-pr-composer-box">
+        <textarea
+          ref={input}
+          data-pr-comment-input
+          class="weavie-pr-composer-input"
+          rows={2}
+          placeholder={props.placeholder}
+          value={text()}
+          readOnly={busy()}
+          onInput={() => {
+            setText(input.value);
+            if (input.value === props.initial) drafts.delete(props.draftKey);
+            else drafts.set(props.draftKey, input.value);
+            grow();
+          }}
+          onFocus={focus.onFocus}
+          onBlur={focus.onBlur}
+        />
+      </label>
       <Show when={error()}>
         {(message) => <div class="weavie-pr-composer-error">{message()}</div>}
       </Show>

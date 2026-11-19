@@ -187,22 +187,24 @@ function ReviewPanel(props: {
         Finish your review
         <span>{props.set.viewerIsAuthor ? `your PR #${number}` : `PR #${number}`}</span>
       </div>
-      <textarea
-        // A frame later, after the review the command opened (or the palette) has settled focus.
-        ref={(el) => requestAnimationFrame(() => el.focus({ preventScroll: true }))}
-        data-pr-comment-input
-        class="weavie-pr-composer-input"
-        rows={3}
-        placeholder="Leave a summary (optional)"
-        value={summary()}
-        readOnly={busy()}
-        onInput={(event) => {
-          setSummary(event.currentTarget.value);
-          summaries.set(key, event.currentTarget.value);
-        }}
-        onFocus={focus.onFocus}
-        onBlur={focus.onBlur}
-      />
+      <label class="ui-draft weavie-pr-composer-box">
+        <textarea
+          // A frame later, after the review the command opened (or the palette) has settled focus.
+          ref={(el) => requestAnimationFrame(() => el.focus({ preventScroll: true }))}
+          data-pr-comment-input
+          class="weavie-pr-composer-input"
+          rows={3}
+          placeholder="Leave a summary (optional)"
+          value={summary()}
+          readOnly={busy()}
+          onInput={(event) => {
+            setSummary(event.currentTarget.value);
+            summaries.set(key, event.currentTarget.value);
+          }}
+          onFocus={focus.onFocus}
+          onBlur={focus.onBlur}
+        />
+      </label>
       <Show
         when={!props.set.viewerIsAuthor}
         fallback={

@@ -53,27 +53,28 @@ export function AgentCardReply(props: {
           onRemove={(id) => composer().removeAttachment(id)}
         />
       </Show>
-      <textarea
-        ref={textarea}
-        class="ui-field ui-field-content"
-        data-agent-paste-target
-        aria-label={props.label}
-        title={props.hint}
-        rows={2}
-        value={composer().state().draft}
-        onInput={(event) => composer().setDraft(event.currentTarget.value)}
-        onPaste={(event) => composer().captureImagePaste(event)}
-        // On the element itself: a card between editor lines keeps key events from reaching the document.
-        on:keydown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-      />
+      <label class="ui-draft ui-field ui-field-content ui-draft-resize">
+        <textarea
+          ref={textarea}
+          data-agent-paste-target
+          aria-label={props.label}
+          title={props.hint}
+          rows={2}
+          value={composer().state().draft}
+          onInput={(event) => composer().setDraft(event.currentTarget.value)}
+          onPaste={(event) => composer().captureImagePaste(event)}
+          // On the element itself: a card between editor lines keeps key events from reaching the document.
+          on:keydown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              props.onClose();
+            } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+      </label>
       <Show when={composer().state().error !== null}>
         <div class="agent-compose-error">{composer().state().error}</div>
       </Show>

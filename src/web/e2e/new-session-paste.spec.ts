@@ -188,3 +188,33 @@ test("desktop encoded clipboard images are resized before branch preview", async
     await host.close();
   }
 });
+
+test("a draft longer than the prompt box scrolls clear of the card's tag and the field below", async ({
+  page,
+}) => {
+  const host = await MockHost.start({ distDir });
+  try {
+    host.setSessions([mockSession("main", "main", "acp")]);
+    host.onHost("request", "git", "branches", (request) => host.respond(request, ["main"]));
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishHost("commands", "catalog", { commands: [NEW_SESSION_COMMAND], keybindings: [] });
+    await page.locator(".session-rail-add").click();
+
+    const prompt = page.getByRole("textbox", { name: "Prompt for a new session" });
+    const source = page.getByRole("combobox", { name: "Branch starting point" });
+    await prompt.fill(
+      "Rethink how settings are scoped between the client and a remote. ".repeat(20),
+    );
+    expect(await prompt.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+    // The textarea's box is where a scrolled draft is clipped.
+    const clip = (await prompt.boundingBox())!;
+    const tag = (await page.locator("#session-start-title").boundingBox())!;
+    expect(clip.y).toBeGreaterThan(tag.y + tag.height);
+    expect((await source.boundingBox())!.y - (clip.y + clip.height)).toBeGreaterThanOrEqual(2);
+  } finally {
+    await host.close();
+  }
+});

@@ -292,25 +292,54 @@
     opacity: 0.45;
   }
 
-  .ui-field::placeholder {
+  .ui-field::placeholder,
+  .ui-draft > textarea::placeholder {
     color: var(--dim);
   }
 
-  .ui-field:focus {
+  .ui-field:focus-within {
     outline: none;
     border-color: var(--accent);
+  }
+
+  /* The <label> around a <textarea>: it holds the block padding, so a scrolled draft is clipped inside it. */
+  .ui-draft {
+    display: block;
+    height: auto;
+    padding: 4px 0;
+    color: var(--fg);
+    cursor: text;
+  }
+
+  .ui-draft > textarea {
+    display: block;
+    width: 100%;
+    padding: 0 8px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    resize: none;
   }
 
   .ui-field-mono {
     font: var(--font-chrome-mono);
   }
 
-  /* A multi-line field of content text, as tall as its rows. */
+  /* A multi-line field of content text. */
   .ui-field-content {
-    height: auto;
-    padding: 7px 8px;
+    padding-block: 7px;
     font: var(--font-content);
+  }
+
+  /* Dragged taller by its own corner, and its textarea follows. */
+  .ui-draft-resize {
+    overflow: hidden;
     resize: vertical;
+  }
+
+  .ui-draft-resize > textarea {
+    height: 100%;
   }
 
   /* A count between previous/next arrows ("‹ 1 / 4 ›"): the count carries the baseline, the arrows centre on it. */

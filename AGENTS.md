@@ -212,9 +212,9 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   px, with `em` only where it should scale with the content font. See
   [docs/concepts/design-system.md](docs/concepts/design-system.md).
 - **Build chrome from the primitives.** Lists and menus use `.ui-row` (a row that names a thing and reports on
-  it: `.ui-row-name` over `.ui-row-note`), buttons `.ui-button`, inputs `.ui-field`, section headings
-  `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons `.ui-icon`; editor-font-sized
-  surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title` and `actions`) with
+  it: `.ui-row-name` over `.ui-row-note`), buttons `.ui-button`, inputs `.ui-field`, textareas `.ui-draft`,
+  section headings `.ui-section-label` (the only uppercase style), key hints `.ui-kbd`, icons `.ui-icon`;
+  editor-font-sized surfaces take the `-content` variant. Dialogs are `ModalShell` (its `title` and `actions`) with
   `PromptButton`s; a titled panel is a `.ui-card` with a `.ui-card-tag`, and any other modal surface sits on
   `.ui-scrim` with `--shadow-modal`. Related buttons join in a `.ui-button-group`, with at most one `-primary`
   and one `-danger` action per group. Add the primitive beside the feature class; never restyle a button, row

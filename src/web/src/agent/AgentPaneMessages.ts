@@ -201,14 +201,11 @@ function durableEntry(
         text: null,
       };
     case "user-message":
-      return promptEntry(
-        message,
-        entry(message, sequence, "message", "user", promptLabel(message, "You"), null),
-      );
+      return promptEntry(message, submitted(message, promptLabel(message, "You"), sequence));
     case "user-command":
-      return promptEntry(message, entry(message, sequence, "message", "user", "Command", null));
+      return promptEntry(message, submitted(message, "Command", sequence));
     case "user-steer":
-      return entry(message, sequence, "message", "user", promptLabel(message, "Steer"), null);
+      return submitted(message, promptLabel(message, "Steer"), sequence);
     case "warning":
       return entry(message, sequence, "notice", "warning", "Warning", status);
     case "notice":
@@ -244,6 +241,16 @@ function planEntry(
     text: null,
     tone: "assistant",
   };
+}
+
+// The row holding a submission's text names it, so the reply to that submission can be found.
+function submitted(
+  message: AgentPaneUpdate,
+  label: string,
+  sequence: number,
+): AgentTranscriptEntry {
+  const prompt = entry(message, sequence, "message", "user", label, null);
+  return message.itemId ? { ...prompt, submissionId: message.itemId } : prompt;
 }
 
 // A primary prompt carries its turn so the pane can rewind to just before it.

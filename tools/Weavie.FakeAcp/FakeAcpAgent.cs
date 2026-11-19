@@ -430,6 +430,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(
 			StatePath("prompts.log"),
 			$"{_sessionId}:{text}{Environment.NewLine}");
+		// A test stages the next turn's instruction in a file, so a scripted turn can answer any prompt.
+		string staged = Path.Combine(Environment.CurrentDirectory, "next-instruction");
+		if (File.Exists(staged)) {
+			text = File.ReadAllText(staged);
+			File.Delete(staged);
+		}
 		foreach (string? context in AssistantContext(prompt)) {
 			File.AppendAllText(StatePath("assistant-context.log"), $"{_sessionId}:{context}{Environment.NewLine}");
 		}

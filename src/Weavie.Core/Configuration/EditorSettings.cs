@@ -114,6 +114,9 @@ public static class EditorSettings {
 	/// <summary>Whether stepping through comments and hints includes resolved and outdated threads.</summary>
 	public const string ReviewStepSettled = "editor.reviewStepSettled";
 
+	/// <summary>Whether a prompt sent from an editor selection shows the agent's reply under that selection.</summary>
+	public const string InlineReplies = "editor.inlineReplies";
+
 	/// <summary>How many files past the ones on screen the unified review mounts while it rests.</summary>
 	public const string ReviewFilesAhead = "editor.reviewFilesAhead";
 
@@ -125,7 +128,7 @@ public static class EditorSettings {
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks, FullscreenCenter,
-		ReviewComments, ReviewHints, ReviewStepSettled, ReviewFilesAhead,
+		ReviewComments, ReviewHints, ReviewStepSettled, ReviewFilesAhead, InlineReplies,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -337,6 +340,11 @@ public static class EditorSettings {
 		registry.Register(Toggle(ReviewStepSettled,
 			"Include resolved and outdated pull request threads when stepping with Next Comment or Hint.",
 			["resolved comments", "outdated comments", "step resolved threads"], false));
+
+		registry.Register(Toggle(InlineReplies,
+			"Show the agent's reply under an editor selection after sending a comment on it, as well as in the agent pane.",
+			["inline replies", "inline reply", "inline response", "reply in editor", "answer next to code"], true));
+
 		registry.Register(Ranged(ReviewFilesAhead,
 			"How many files past the ones on screen the unified review prepares while it rests, so scrolling into "
 				+ "them builds nothing mid-scroll. 0 prepares a file only as it nears the screen.",
@@ -391,6 +399,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("reviewHints", store.RequireBool(ReviewHints));
 		writer.WriteBoolean("reviewStepSettled", store.RequireBool(ReviewStepSettled));
 		writer.WriteNumber("reviewFilesAhead", store.RequireInt(ReviewFilesAhead));
+		writer.WriteBoolean("inlineReplies", store.RequireBool(InlineReplies));
 		writer.WriteEndObject();
 	}
 

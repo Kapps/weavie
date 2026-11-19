@@ -59,6 +59,7 @@ internal sealed partial class AcpConversation {
 				if (submission is null) return;
 				steer = true;
 				_steering = true;
+				_steer = submission;
 			} else {
 				submission = _pendingSubmissions.Dequeue();
 				_promptActive = true;
@@ -114,9 +115,13 @@ internal sealed partial class AcpConversation {
 				switch (RequiredString(result, "outcome", "_session/steering response")) {
 					case "injected":
 						EmitSubmitted(submission, "user-steer", prompt.Images);
+						lock (_gate) _steer = null;
 						break;
 					case "promptRequired":
-						lock (_gate) _pendingSubmissions.Requeue(submission);
+						lock (_gate) {
+							_pendingSubmissions.Requeue(submission);
+							_steer = null;
+						}
 						retryAsPrompt = true;
 						break;
 					case "failed":
@@ -143,10 +148,15 @@ internal sealed partial class AcpConversation {
 			}
 		} finally {
 			bool dispatch;
+			bool lost;
 			lock (_gate) {
+				// Settling it or ending the conversation released the steer; one still held went nowhere.
+				lost = ReferenceEquals(_steer, submission);
+				if (lost) _steer = null;
 				if (Live) _steering = false;
 				dispatch = Live && (!retryAsPrompt || !_promptActive);
 			}
+			if (lost) _port.SubmissionsDropped([submission]);
 			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
@@ -157,6 +167,7 @@ internal sealed partial class AcpConversation {
 	private void RefuseSteering(AgentTurnSubmission submission) {
 		lock (_gate) {
 			_pendingSubmissions.Requeue(submission);
+			_steer = null;
 			_steeringRefused = true;
 		}
 	}

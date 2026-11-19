@@ -8,7 +8,6 @@ import { monaco } from "./monaco-setup";
 import "./zone-cards.css";
 
 const CARD_MAX_WIDTH = 760;
-const CARD_INSET = 12;
 
 export interface ZoneCard<T> {
   key: string;
@@ -29,7 +28,8 @@ export function createZoneCards<T>(
   editor: monaco.editor.ICodeEditor,
   cards: Accessor<ZoneCard<T>[]>,
   renderCard: (data: Accessor<T>) => JSX.Element,
-  bottomInset: () => number,
+  /** How far in from the code's left edge the cards start, kept clear on the right too. */
+  inset: number,
 ): () => void {
   const slots = new Map<string, Slot<T>>();
   const [list, setList] = createSignal<Slot<T>[]>([]);
@@ -69,8 +69,21 @@ export function createZoneCards<T>(
     setList([...slots.values()]);
   });
 
-  // Keeps the card holding focus fully in view — clear of whatever the caller says floats over the editor's
-  // bottom edge — by scrolling the editor, the only thing that moves cards and code together.
+  // The applied review's floating toolbar covers the bottom of the editor it reviews.
+  const bottomInset = (): number => {
+    const editorBox = editor.getDomNode()?.getBoundingClientRect();
+    const toolbar = editor
+      .getContainerDomNode()
+      .closest("[data-kind]")
+      ?.querySelector(".weavie-inline-toolbar")
+      ?.getBoundingClientRect();
+    return editorBox === undefined || toolbar == null || toolbar.top >= editorBox.bottom
+      ? 0
+      : editorBox.bottom - toolbar.top;
+  };
+
+  // Keeps the card holding focus fully in view, clear of that toolbar, by scrolling the editor, the only
+  // thing that moves cards and code together.
   const reveal = (slot: Slot<T>, node: HTMLElement): void => {
     if (!node.contains(document.activeElement)) return;
     const top = slot.top();
@@ -134,13 +147,22 @@ export function createZoneCards<T>(
     }
     return false;
   };
+  // Cards move with the code, so what follows scrolling inside one (a popover on its text) hears the editor's.
+  const onScroll = editor.onDidScrollChange((event) => {
+    if (slots.size > 0 && (event.scrollTopChanged || event.scrollLeftChanged))
+      layer.dispatchEvent(new Event("scroll"));
+  });
   const container = editor.getContainerDomNode();
   container.insertBefore(layer, container.firstChild);
   const unmount = render(
     () => (
       <div
         class="weavie-zone-cards-clip"
-        style={{ width: `${layout().width}px`, height: `${layout().height}px` }}
+        style={{
+          width: `${layout().width}px`,
+          height: `${layout().height}px`,
+          "--editor-height": `${layout().height}px`,
+        }}
       >
         <For each={list()}>
           {(slot) => (
@@ -150,8 +172,8 @@ export function createZoneCards<T>(
               style={{
                 top: `${slot.top()}px`,
                 visibility: Number.isFinite(slot.top()) ? "visible" : "hidden",
-                left: `${layout().contentLeft + CARD_INSET}px`,
-                width: `${Math.max(0, Math.min(CARD_MAX_WIDTH, layout().contentWidth - layout().verticalScrollbarWidth - 2 * CARD_INSET))}px`,
+                left: `${layout().contentLeft + inset}px`,
+                width: `${Math.max(0, Math.min(CARD_MAX_WIDTH, layout().contentWidth - layout().verticalScrollbarWidth - 2 * inset))}px`,
               }}
             >
               {renderCard(slot.data)}
@@ -165,6 +187,7 @@ export function createZoneCards<T>(
 
   return () => {
     onLayout.dispose();
+    onScroll.dispose();
     unmount();
     layer.remove();
     editor.changeViewZones((accessor) => {

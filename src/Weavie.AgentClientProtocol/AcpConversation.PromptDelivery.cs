@@ -12,6 +12,7 @@ internal sealed partial class AcpConversation {
 		bool guidanceSentBefore = false;
 		JsonElement result = default;
 		Exception? failure = null;
+		bool emitted = false;
 		try {
 			Task<JsonElement>? request = null;
 			lock (_turnTransitionGate) {
@@ -37,6 +38,7 @@ internal sealed partial class AcpConversation {
 						submission,
 						submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
 						prompt.Images);
+					emitted = true;
 					Observe(new AgentPromptSubmitted(threadId, submission.Text));
 					Background.ClearFinished();
 					request = _endpoint.Value.RequestAsync(
@@ -52,6 +54,8 @@ internal sealed partial class AcpConversation {
 		// Completion publication and release of the delivery slot are one transition.
 		lock (_turnTransitionGate) {
 			try {
+				// It left the queue and never reached the transcript.
+				if (!emitted) _port.SubmissionsDropped([submission]);
 				if (!Live) return;
 				if (failure is not null) ExceptionDispatchInfo.Throw(failure);
 				string stopReason = RequiredString(result, "stopReason", "session/prompt response");

@@ -51,6 +51,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
 			structuredSession.QueuedSubmissionsChanged += PublishQueuedSubmissions;
+			structuredSession.SubmissionsDropped += PublishDroppedSubmissions;
 			structuredSession.Restore();
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
@@ -121,6 +122,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 		if (Structured is { } structured) {
 			structured.QueuedSubmissionsChanged -= PublishQueuedSubmissions;
+			structured.SubmissionsDropped -= PublishDroppedSubmissions;
 		}
 		if (Controls is { } controls) {
 			controls.ControlStateChanged -= PublishControlState;
@@ -179,6 +181,12 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void PublishQueuedSubmissions(IReadOnlyList<AgentTurnSubmission> queued) =>
 		_messages.Publish("queue", WireJson.Default.AgentQueueMessage, AgentQueueProtocol.Message(queued));
+
+	private void PublishDroppedSubmissions(IReadOnlyList<AgentTurnSubmission> dropped) {
+		foreach (var submission in dropped) {
+			_messages.Publish("submissionState", WireJson.Default.SubmissionState, SubmissionState.Dropped(submission.Id));
+		}
+	}
 
 	private void PublishUsage(AgentUsageSnapshot usage) =>
 		_messages.Publish("usage", WireJson.Default.AgentUsageMessage, AgentUsageProtocol.Message(usage));

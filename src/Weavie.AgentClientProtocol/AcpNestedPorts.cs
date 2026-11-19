@@ -43,6 +43,8 @@ public sealed partial class AcpAgentSession {
 
 		protected override void OnQueueChanged(IReadOnlyList<AgentTurnSubmission> queue) { }
 
+		protected override void OnSubmissionsDropped(IReadOnlyList<AgentTurnSubmission> dropped) { }
+
 		protected override bool OnFail(Exception error) => error is not AcpRequestException && Runtime.Fail(error);
 	}
 

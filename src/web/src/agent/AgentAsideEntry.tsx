@@ -1,13 +1,18 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
+import { keyHint } from "../commands/key-hint";
+import { liveKeyHint } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
+import { AgentCardReplyBox } from "./AgentCardReplyBox";
 import { AgentCardShell } from "./AgentCardShell";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "./AgentPendingRequests";
 import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 import { CollapsibleCardContent } from "./CollapsibleCardContent";
+import { replyComposer } from "./composer-store";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -22,6 +27,7 @@ export function AsideEntry(props: {
     throw new Error("An aside entry requires a conversation id.");
   }
   const card = { kind: "aside", conversationId } as const;
+  const composer = replyComposer(props.session, conversationId);
   const collapsed = () => props.entry.asideCollapsed === true;
   const toggle = () => setCardCollapsed(props.session, card, !collapsed());
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
@@ -36,8 +42,10 @@ export function AsideEntry(props: {
           <small>{props.entry.status}</small>
         </Show>
       }
+      wrapLabel={false}
       onToggle={toggle}
-      card={card}
+      toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
+      actions={<AgentCardOpenButton card={card} />}
       onOwn={own}
       data={{ "data-agent-aside": conversationId }}
     >
@@ -52,9 +60,12 @@ export function AsideEntry(props: {
       />
       <CollapsibleCardContent collapsed={collapsed()}>
         <Show when={props.entry.asideReplyable !== false}>
-          <AgentAsideReplyBox
+          <AgentCardReplyBox
             session={props.session}
-            conversationId={conversationId}
+            composer={composer}
+            label="Reply to BTW"
+            replyTitle="Reply"
+            hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
             disabled={props.entry.asideActive === true}
           />
         </Show>

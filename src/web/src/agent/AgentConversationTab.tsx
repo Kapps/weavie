@@ -1,11 +1,14 @@
-import { createSignal, type JSX, Show } from "solid-js";
+import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
+import { keyHint } from "../commands/key-hint";
+import { CommandIds } from "../commands/types";
+import { AgentCardReplyBox } from "./AgentCardReplyBox";
 import { AgentCardTabFrame } from "./AgentCardTabFrame";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { replyComposer } from "./composer-store";
 import { liveNow } from "./live-clock";
-import { agentPaneModel } from "./pane-store";
+import { createNestedExpansion } from "./nested-expansion";
 import { SubagentStatus } from "./SubagentStatus";
 
 /** A subagent's or BTW's whole transcript as an editor tab, rendered like the agent pane; a BTW keeps its reply box. */
@@ -15,7 +18,7 @@ export default function AgentConversationTab(props: {
   path: string;
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
-  const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
+  const expansion = createNestedExpansion(props.session);
   return (
     <AgentCardTabFrame
       session={props.session}
@@ -33,23 +36,19 @@ export default function AgentConversationTab(props: {
           <NestedTranscript
             pendingOnly={false}
             entries={card().asideEntries ?? []}
-            expandedDetails={expanded()}
+            expandedDetails={expansion.expandedDetails()}
             keyboardRequestKey={null}
-            onUpdatesToggle={(id, open) =>
-              agentPaneModel(props.session)!.setActivityExpanded(id, open)
-            }
-            onDetailsToggle={(id, open) => {
-              const next = new Set(expanded());
-              if (open) next.add(id);
-              else next.delete(id);
-              setExpanded(next);
-            }}
+            onUpdatesToggle={expansion.onUpdatesToggle}
+            onDetailsToggle={expansion.onDetailsToggle}
             session={props.session}
           />
           <Show when={props.kind === "aside" && card().asideReplyable !== false}>
-            <AgentAsideReplyBox
+            <AgentCardReplyBox
               session={props.session}
-              conversationId={card().conversationId!}
+              composer={replyComposer(props.session, card().conversationId!)}
+              label="Reply to BTW"
+              replyTitle="Reply"
+              hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
               disabled={card().asideActive === true}
             />
           </Show>

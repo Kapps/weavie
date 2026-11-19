@@ -19,12 +19,11 @@
 }
 
 .session-composer-prompt {
-  padding: 16px 0 12px;
+  padding: 12px 0 8px;
   font: var(--font-content);
 }
 
 .session-composer-prompt > textarea {
-  min-height: 50px;
   padding-inline: 16px;
 }
 

@@ -4,13 +4,11 @@ import type { DirEntry } from "./FileBrowser";
 
 vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 const installers: ((session: ClientSession) => () => void)[] = [];
-let selected: ClientSession | null = null;
 vi.mock("../bridge", () => ({
   registerSessionFeature: (install: (typeof installers)[number]) => installers.push(install),
-  selectedSession: () => selected,
 }));
 
-const { acquireDirectory, selectedDirectoryListings } = await import("./session-files");
+const { acquireDirectory, directoryListingsFor } = await import("./session-files");
 
 function owner() {
   const handlers = new Map<string, (message: unknown) => void>();
@@ -50,12 +48,14 @@ function owner() {
 
 it("retains row identity and follows ancestor invalidation during a listing", async () => {
   const first = owner();
-  selected = first.session;
   const folder: DirEntry = { path: "/repo/docs/nested", name: "nested", isDir: true };
   const listing = acquireDirectory(first.session, "/repo/docs");
   first.pending[0]!.resolve({ path: "/repo/docs", entries: [folder] });
   await first.pending[0]!.promise;
-  expect(selectedDirectoryListings()["/repo/docs"]).toEqual({ status: "ready", entries: [folder] });
+  expect(directoryListingsFor(first.session)["/repo/docs"]).toEqual({
+    status: "ready",
+    entries: [folder],
+  });
 
   first.invalidate();
   first.invalidate();
@@ -63,26 +63,30 @@ it("retains row identity and follows ancestor invalidation during a listing", as
   first.pending[1]!.resolve({ path: "/repo/docs", entries: [] });
   await first.pending[1]!.promise;
   expect(first.feature.request).toHaveBeenCalledTimes(3);
-  expect(selectedDirectoryListings()["/repo/docs"]).toEqual({ status: "ready", entries: [folder] });
+  expect(directoryListingsFor(first.session)["/repo/docs"]).toEqual({
+    status: "ready",
+    entries: [folder],
+  });
   first.pending[2]!.resolve({ path: "/repo/docs", entries: [{ ...folder }] });
   await first.pending[2]!.promise;
-  const state = selectedDirectoryListings()["/repo/docs"];
+  const state = directoryListingsFor(first.session)["/repo/docs"];
   expect(state?.status === "ready" && state.entries[0] === folder).toBe(true);
   first.resync();
   expect(first.feature.request).toHaveBeenCalledTimes(4);
   first.pending[3]!.resolve({ path: "/repo/docs", entries: [] });
   await first.pending[3]!.promise;
-  expect(selectedDirectoryListings()["/repo/docs"]).toEqual({ status: "ready", entries: [] });
+  expect(directoryListingsFor(first.session)["/repo/docs"]).toEqual({
+    status: "ready",
+    entries: [],
+  });
   listing.release();
   first.close();
 });
 
-it("releases the captured owner when selection changes to a session with the same path", async () => {
+it("releases the captured owner when another session lists the same path", async () => {
   const first = owner();
   const second = owner();
-  selected = first.session;
   const firstListing = acquireDirectory(first.session, "/repo");
-  selected = second.session;
   const secondListing = acquireDirectory(second.session, "/repo");
   second.pending[0]!.resolve({ path: "/repo", entries: [] });
   await second.pending[0]!.promise;
@@ -92,13 +96,12 @@ it("releases the captured owner when selection changes to a session with the sam
     subscriptionId: first.feature.request.mock.calls[0]![1].subscriptionId,
   });
   expect(second.feature.publish).not.toHaveBeenCalled();
-  expect(selectedDirectoryListings()["/repo"]).toEqual({ status: "ready", entries: [] });
-  selected = first.session;
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(second.session)["/repo"]).toEqual({ status: "ready", entries: [] });
+  expect(directoryListingsFor(first.session)).toEqual({});
 
   first.pending[0]!.resolve({ path: "/repo", entries: [] });
   await first.pending[0]!.promise;
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(first.session)).toEqual({});
   secondListing.release();
   first.close();
   second.close();
@@ -106,7 +109,6 @@ it("releases the captured owner when selection changes to a session with the sam
 
 it("shares pending and cached listings until the last consumer releases", async () => {
   const first = owner();
-  selected = first.session;
   const browser = acquireDirectory(first.session, "/repo");
   const pendingConsumer = acquireDirectory(first.session, "/repo");
   expect(first.feature.request).toHaveBeenCalledTimes(1);
@@ -119,7 +121,7 @@ it("shares pending and cached listings until the last consumer releases", async 
   browser.release();
   pendingConsumer.release();
   expect(first.feature.publish).not.toHaveBeenCalled();
-  expect(selectedDirectoryListings()["/repo"]).toEqual({ status: "ready", entries: [] });
+  expect(directoryListingsFor(first.session)["/repo"]).toEqual({ status: "ready", entries: [] });
   cachedConsumer.refresh();
   expect(first.feature.request).toHaveBeenCalledTimes(2);
   first.pending[1]!.resolve({ path: "/repo", entries: [] });
@@ -134,7 +136,7 @@ it("shares pending and cached listings until the last consumer releases", async 
     subscriptionId: first.feature.request.mock.calls[0]![1].subscriptionId,
   });
   expect(first.feature.request).toHaveBeenCalledTimes(2);
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(first.session)).toEqual({});
   first.close();
 });
 
@@ -143,14 +145,13 @@ it.each([
   "error",
 ])("ignores late %s after the last consumer releases", async (outcome) => {
   const first = owner();
-  selected = first.session;
   const listing = acquireDirectory(first.session, "/repo");
   listing.release();
   if (outcome === "success") first.pending[0]!.resolve({ path: "/repo", entries: [] });
   else first.pending[0]!.reject(new Error("retired listing"));
   await first.pending[0]!.promise.catch(() => {});
 
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(first.session)).toEqual({});
   expect(first.feature.request).toHaveBeenCalledTimes(1);
   first.close();
 });
@@ -160,7 +161,6 @@ it.each([
   "error",
 ])("does not retry queued invalidation after release and late %s", async (outcome) => {
   const first = owner();
-  selected = first.session;
   const listing = acquireDirectory(first.session, "/repo");
   first.invalidate();
   first.invalidate();
@@ -170,7 +170,7 @@ it.each([
   await first.pending[0]!.promise.catch(() => {});
 
   expect(first.feature.request).toHaveBeenCalledTimes(1);
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(first.session)).toEqual({});
   first.close();
 });
 
@@ -179,7 +179,6 @@ it.each([
   "error",
 ])("keeps a reacquired listing pending when the retired request completes with %s", async (outcome) => {
   const first = owner();
-  selected = first.session;
   const retired = acquireDirectory(first.session, "/repo");
   first.invalidate();
   retired.release();
@@ -196,7 +195,7 @@ it.each([
   } else first.pending[0]!.reject(new Error("retired listing"));
   await first.pending[0]!.promise.catch(() => {});
 
-  expect(selectedDirectoryListings()["/repo"]).toEqual({ status: "loading" });
+  expect(directoryListingsFor(first.session)["/repo"]).toEqual({ status: "loading" });
   first.invalidate();
   retired.refresh();
   retired.release();
@@ -210,7 +209,7 @@ it.each([
   );
   first.pending[2]!.resolve({ path: "/repo", entries: [] });
   await first.pending[2]!.promise;
-  expect(selectedDirectoryListings()["/repo"]).toEqual({ status: "ready", entries: [] });
+  expect(directoryListingsFor(first.session)["/repo"]).toEqual({ status: "ready", entries: [] });
   current.release();
   expect(first.feature.publish).toHaveBeenCalledTimes(2);
   first.close();
@@ -219,10 +218,8 @@ it.each([
 it("keeps pending replies with their owner and cannot repopulate a closed session", async () => {
   const first = owner();
   const second = owner();
-  selected = first.session;
   const listing = acquireDirectory(first.session, "/repo");
   first.invalidate();
-  selected = second.session;
   first.close();
   first.pending[0]!.resolve({
     path: "/repo",
@@ -231,7 +228,8 @@ it("keeps pending replies with their owner and cannot repopulate a closed sessio
   await Promise.resolve();
   await Promise.resolve();
   expect(first.feature.request).toHaveBeenCalledTimes(1);
-  expect(selectedDirectoryListings()).toEqual({});
+  expect(directoryListingsFor(first.session)).toEqual({});
+  expect(directoryListingsFor(second.session)).toEqual({});
   expect(second.feature.request).not.toHaveBeenCalled();
   listing.release();
   second.close();
@@ -239,7 +237,6 @@ it("keeps pending replies with their owner and cannot repopulate a closed sessio
 
 it("refreshes an alias using the host's canonical directory path", async () => {
   const first = owner();
-  selected = first.session;
   const listing = acquireDirectory(first.session, "/repo/./docs/");
   first.pending[0]!.resolve({ path: "/repo/docs", entries: [] });
   await first.pending[0]!.promise;

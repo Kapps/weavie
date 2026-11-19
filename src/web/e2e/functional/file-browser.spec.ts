@@ -1,7 +1,14 @@
 import { mkdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { awaitEditorReady, runCommand } from "../harness/actions";
+import {
+  activeSessionSlot,
+  awaitEditorReady,
+  createSession,
+  runCommand,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { gateFor, inboundGate } from "../harness/inbound-gate";
 import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 test("Filter Files opens on first use, searches collapsed paths and preserves the tree", async ({
@@ -207,5 +214,48 @@ test.describe("file request completion", () => {
     await expect(
       page.locator(".tb-omnibar-row", { hasText: "new-nested-match.txt" }),
     ).toBeVisible();
+  });
+});
+
+// Filter Files belongs to the session it ran in. When that session leaves the screen while the docked browser is
+// still being shown (its reply held here), the command says so and leaves the session now shown unfocused.
+test.describe("a filter whose session leaves the screen", () => {
+  test.use({ preNavigate: inboundGate });
+
+  test("Filter Files declines without focusing the next session's browser", async ({ page }) => {
+    const files = page.locator('.tool-panel[data-tool="files"]');
+    const footerBranch = page.locator(
+      '.terminal-surface[data-kind="terminal:shell"] .footer-branch-name',
+    );
+    const firstSlot = await activeSessionSlot(page);
+    await createSession(page, { branch: "e2e/filter-owner", provider: "claude" });
+    const secondSlot = await waitForSessionSwitch(page, firstSlot);
+    await page.locator(`.session-chip[data-session-slot="${firstSlot}"]`).click();
+    await expect(footerBranch).not.toHaveText("e2e/filter-owner");
+
+    await page.keyboard.press("ControlOrMeta+b");
+    await files.getByRole("button", { name: /^Stay Open/ }).click();
+    await expect(files).not.toHaveClass(/tool-floating/);
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(files).toBeHidden();
+    await page
+      .locator(
+        '.terminal-surface[data-kind="terminal:shell"] .term-host:not(.hidden) .xterm-screen',
+      )
+      .click();
+
+    gateFor(page).hold();
+    await runCommand(page, "Filter Files");
+    await page.locator(`.session-chip[data-session-slot="${secondSlot}"]`).click();
+    await expect(footerBranch).toHaveText("e2e/filter-owner");
+    gateFor(page).release();
+
+    await expect(
+      page.locator(".toast", { hasText: "That session is no longer on screen." }),
+    ).toBeVisible();
+    await expect(files).toBeVisible();
+    expect(
+      await page.evaluate(() => document.activeElement?.closest('[data-tool="files"]') != null),
+    ).toBe(false);
   });
 });

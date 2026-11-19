@@ -1,18 +1,9 @@
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import {
-  type ClientSession,
-  type PullRequestInfo,
-  requestPullRequests,
-  resolvePullRequest,
-} from "../bridge";
+import { createSignal, For, type JSX, Show } from "solid-js";
+import type { ClientSession, PullRequestInfo } from "../bridge";
 import { createListNavigation } from "../list-navigation";
 import { ModalShell, PromptButton } from "./ModalShell";
+import { createPrLookup } from "./pr-lookup";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
-
-const SEARCH_DEBOUNCE_MS = 250;
-
-// The live preview of a typed #N / pasted URL: resolving, the resolved PR, or not-found.
-type Preview = "loading" | "notfound" | PullRequestInfo;
 
 // Open Pull Request: type to search the PRs of one session's repo (forge-side, so it scales past the default
 // list), or paste a URL / type #123 to open one directly by number. Every lookup and the open go to the session
@@ -22,57 +13,21 @@ export function OpenPrPrompt(props: {
   onOpen: (target: OpenPrTarget) => void;
   onCancel: () => void;
 }): JSX.Element {
-  const [results, setResults] = createSignal<PullRequestInfo[]>([]);
-  const [loading, setLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
-
-  const [preview, setPreview] = createSignal<Preview | null>(null);
-
+  const lookup = createPrLookup(props.session, query);
   const directRef = (): OpenPrTarget | null => parsePrRef(query());
-
-  // Live-preview a direct #N / URL by resolving it on the host (debounced, latest-wins), so the row shows the
-  // real title/author as you type, or "not found".
-  let resolveSeq = 0;
-  createEffect(() => {
-    const ref = directRef();
-    if (ref === null) {
-      setPreview(null);
-      return;
-    }
-    setPreview("loading");
-    const mine = ++resolveSeq;
-    const timer = setTimeout(() => {
-      void resolvePullRequest(props.session, ref).then((pr) => {
-        if (mine === resolveSeq) {
-          setPreview(pr ?? "notfound");
-        }
-      });
-    }, SEARCH_DEBOUNCE_MS);
-    onCleanup(() => clearTimeout(timer));
-  });
-
-  // Debounced forge-side search (empty query = the recent-open default), latest-query-wins. Skipped while the
-  // input is a direct #N / URL reference — that opens by number without a list.
-  let seq = 0;
-  createEffect(() => {
-    const q = query();
-    if (parsePrRef(q) !== null) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const mine = ++seq;
-    const timer = setTimeout(() => {
-      void requestPullRequests(props.session, q.trim()).then((list) => {
-        if (mine === seq) {
-          setResults(list);
-          setLoading(false);
-        }
-      });
-    }, SEARCH_DEBOUNCE_MS);
-    onCleanup(() => clearTimeout(timer));
-  });
+  const results = (): PullRequestInfo[] => {
+    const current = lookup();
+    return current.status === "listed" ? current.results : [];
+  };
+  const failure = (): string | null => {
+    const current = lookup();
+    return current.status === "failed" ? current.message : null;
+  };
+  const resolved = (): PullRequestInfo | null | undefined => {
+    const current = lookup();
+    return current.status === "resolved" ? current.pr : undefined;
+  };
 
   const openTarget = (target: OpenPrTarget | undefined): void => {
     if (target !== undefined) {
@@ -134,7 +89,7 @@ export function OpenPrPrompt(props: {
           }}
         />
         {/* A direct #N / URL reference: one row to open it by number (resolved on the host). */}
-        <Show when={directRef() !== null}>
+        <Show when={directRef() !== null && failure() === null}>
           <ul class="session-prompt-suggestions">
             <li
               class="session-prompt-suggestion ui-row active"
@@ -144,12 +99,12 @@ export function OpenPrPrompt(props: {
               }}
             >
               <span class="pr-suggestion-number">#{directRef()?.number}</span>
-              {/* Show the resolved PR's title/author once the preview lands; otherwise resolving / not-found. */}
+              {/* The resolved PR's title/author once it lands; otherwise resolving / not-found. */}
               <Show
-                when={typeof preview() === "object" ? (preview() as PullRequestInfo) : undefined}
+                when={resolved()}
                 fallback={
                   <span class="pr-suggestion-title">
-                    {preview() === "notfound" ? "Not found in this repository" : "Resolving…"}
+                    {resolved() === null ? "Not found in this repository" : "Resolving…"}
                   </span>
                 }
               >
@@ -195,9 +150,19 @@ export function OpenPrPrompt(props: {
           </ul>
         </Show>
       </div>
+      {/* Under the field, where no suggestion list is open: a failed lookup lists nothing. */}
       <div class="session-prompt-hint">
-        <Show when={directRef() === null && loading()}>Searching pull requests…</Show>
-        <Show when={directRef() === null && !loading() && results().length === 0}>
+        <Show when={failure()}>
+          {(message) => (
+            <span class="session-prompt-error" role="alert">
+              {message()}
+            </span>
+          )}
+        </Show>
+        <Show when={directRef() === null && lookup().status === "loading"}>
+          Searching pull requests…
+        </Show>
+        <Show when={directRef() === null && lookup().status === "listed" && results().length === 0}>
           No matching pull requests (or no GitHub credential).
         </Show>
       </div>

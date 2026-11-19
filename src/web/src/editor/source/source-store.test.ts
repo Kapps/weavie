@@ -3,7 +3,6 @@ import type { ClientSession } from "../../bridge";
 
 const harness = vi.hoisted(() => ({
   installer: undefined as ((session: ClientSession) => undefined | (() => void)) | undefined,
-  selected: null as ClientSession | null,
   handlers: new Map<string, (payload: unknown) => void>(),
   request: vi.fn(),
   posted: [] as Array<{ name: string; payload: unknown }>,
@@ -16,7 +15,6 @@ vi.mock("../../bridge", () => ({
     harness.installer = installer;
     return () => {};
   },
-  selectedSession: () => harness.selected,
 }));
 
 const store = await import("./source-store");

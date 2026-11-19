@@ -289,7 +289,7 @@ export function TabStrip(props: {
                     {tabLabel(view, props.session())}
                   </span>
                   {/* Unsaved changes, until autosave reaches disk; overlay tabs have no local working copy. */}
-                  <Show when={isFileTab(view) && isDirtyPath(view.path)}>
+                  <Show when={isFileTab(view) && isDirtyPath(props.session(), view.path)}>
                     <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">
                       *
                     </span>

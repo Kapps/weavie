@@ -1,9 +1,8 @@
-import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 import { normalizePath } from "../editor/fs-path";
 import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { createSessionOwnedState } from "../messaging/session-owned-state";
 import type { DirEntry, DirListings } from "./FileBrowser";
-import { revealFileIn } from "./reveal";
 
 const listings = createSessionOwnedState<DirListings>(() => ({}));
 interface DirectorySubscription {
@@ -28,14 +27,8 @@ function updateListings(
   listings.update(session, mutate);
 }
 
-export const selectedDirectoryListings = (): DirListings => {
-  return listings.get(selectedSession()) ?? {};
-};
-
-/** As {@link revealFileIn}, for whichever session is selected. */
-export function revealSelectedFile(path: string, line: number | undefined, preview = false): void {
-  revealFileIn(selectedSession(), path, line, preview);
-}
+export const directoryListingsFor = (session: ClientSession | null): DirListings =>
+  listings.get(session) ?? {};
 
 /** Retains a listing and its watch until this session's last consumer releases it. */
 export function acquireDirectory(session: ClientSession, path: string): DirectoryLease {

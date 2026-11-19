@@ -66,6 +66,7 @@ vi.mock("../bridge", () => {
       })),
     disconnectBackend: () => {},
     hostConnection: (id: string) => connection(id).connection,
+    isSelected: (session: ClientSession) => selectedSession() === session,
     log: () => {},
     onBackendDisconnected: () => () => {},
     onBackendPhase: () => () => {},
@@ -88,7 +89,14 @@ vi.mock("../bridge", () => {
       harness.sessionInstallers.push(installer);
       return () => {};
     },
-    selectedSession,
+    registerViewFeature: (installer: (session: ClientSession) => () => void) => {
+      let cleanup = (): void => {};
+      harness.selectionListeners.push((session) => {
+        cleanup();
+        cleanup = session === null ? () => {} : installer(session);
+      });
+      return () => {};
+    },
     LOCAL_BACKEND_ID: "local",
   };
 });

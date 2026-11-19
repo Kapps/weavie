@@ -1,10 +1,8 @@
 import { type JSX, Show } from "solid-js";
-import { selectedSession } from "../bridge";
-import { runCommandWithFeedback } from "../commands/registry";
-import { CommandIds } from "../commands/types";
-import { gitStatus } from "./git-status-store";
+import { backendIdOf, type ClientSession } from "../bridge";
+import { gitStatusOf } from "./git-status-store";
 import { currentPullRequestStatus } from "./pull-request-store";
-import { reviewBranchTitle, reviewPullRequestTitle } from "./review-branch-title";
+import { reviewBranchOf, reviewBranchTitle, reviewPullRequestTitle } from "./review-branch-title";
 import { sessionInfo } from "./session-store";
 import { sessionStatusLabel, sessionTooltip, statusDot } from "./session-summary";
 import { UpdateIndicator } from "./UpdateIndicator";
@@ -13,10 +11,11 @@ import { UpdateIndicator } from "./UpdateIndicator";
  * The shell pane's status footer, serving both terminal panes: the workspace git branch, which reviews the branch (or
  * its PR) on click, plus the session's effective status shared with the rail and agent header.
  */
-export function PaneFooter(): JSX.Element {
-  const session = () => sessionInfo(selectedSession());
+export function PaneFooter(props: { session: ClientSession | null }): JSX.Element {
+  const session = () => sessionInfo(props.session);
+  const gitStatus = () => gitStatusOf(props.session);
   const title = (branch: string): string => {
-    const pr = currentPullRequestStatus(selectedSession())?.pullRequest ?? null;
+    const pr = currentPullRequestStatus(props.session)?.pullRequest ?? null;
     return pr === null ? reviewBranchTitle(branch) : reviewPullRequestTitle(pr);
   };
   return (
@@ -27,7 +26,7 @@ export function PaneFooter(): JSX.Element {
             type="button"
             class="footer-seg footer-branch"
             title={title(branch())}
-            onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
+            onClick={() => reviewBranchOf(props.session)}
           >
             <span class="footer-glyph">⎇</span>
             <span class="footer-branch-name">{branch()}</span>
@@ -40,7 +39,7 @@ export function PaneFooter(): JSX.Element {
         )}
       </Show>
       <span class="footer-spacer" />
-      <UpdateIndicator />
+      <UpdateIndicator backendId={backendIdOf(props.session)} />
       <Show when={session()}>
         {(current) => (
           <span class="footer-seg" title={sessionTooltip(current())}>

@@ -2,17 +2,13 @@ import { ChevronDown } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
-import { gitStatus } from "../chrome/git-status-store";
+import { gitStatusOf } from "../chrome/git-status-store";
 import { scrollWheelHorizontally } from "../chrome/horizontal-overflow";
 import { currentPullRequestStatus, type PullRequest } from "../chrome/pull-request-store";
-import { reviewPullRequestTitle } from "../chrome/review-branch-title";
+import { reviewBranchOf, reviewPullRequestTitle } from "../chrome/review-branch-title";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import {
-  captureCommandRunner,
-  onCommandsChanged,
-  runCommandWithFeedback,
-} from "../commands/registry";
+import { captureCommandRunnerFor, onCommandsChanged } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { prCommentsFor } from "../editor/pr-comments/pr-comments-store";
 import { AgentControlPicker } from "./AgentControlPicker";
@@ -50,19 +46,21 @@ export function AgentStatusLine(props: {
     const state = pr.state === "open" ? "" : ` · ${pr.state === "merged" ? "Merged" : "Closed"}`;
     return `#${pr.number}${state}${threads === 0 ? "" : ` · ${threads} ${threads === 1 ? "thread" : "threads"}`}`;
   };
-  const diffAdded = (): number | null => gitStatus()?.added ?? null;
-  const diffRemoved = (): number | null => gitStatus()?.removed ?? null;
+  const diffAdded = (): number | null => gitStatusOf(props.session)?.added ?? null;
+  const diffRemoved = (): number | null => gitStatusOf(props.session)?.removed ?? null;
   const hasDiff = (): boolean => {
     const added = diffAdded();
     const removed = diffRemoved();
     return added !== null && removed !== null && (added > 0 || removed > 0);
   };
-  const diffError = (): string | null => gitStatus()?.error ?? null;
+  const diffError = (): string | null => gitStatusOf(props.session)?.error ?? null;
   const diffTitle = (): string =>
     `${diffAdded()} lines added, ${diffRemoved()} removed since HEAD — review a diff`;
   // Clicking the totals offers the session's diffs; each opens on the session overview.
   const [diffMenu, setDiffMenu] = createSignal<ContextMenuState | null>(null);
   const openDiffMenu = (anchor: HTMLElement): void => {
+    const session = props.session;
+    if (session === null) return;
     const rect = anchor.getBoundingClientRect();
     setDiffMenu({
       x: rect.left,
@@ -74,7 +72,7 @@ export function AgentStatusLine(props: {
         { commandId: CommandIds.diffAgainstParent, label: "Last commit" },
         { commandId: CommandIds.diffAgainstBranchBase, label: "Branch" },
       ],
-      runCommand: captureCommandRunner(),
+      runCommand: captureCommandRunnerFor(session, new Map()),
     });
   };
   const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
@@ -161,7 +159,7 @@ export function AgentStatusLine(props: {
                 class="agent-status-segment agent-status-pr"
                 classList={{ "agent-status-warn": comments()?.error != null }}
                 title={reviewTitle(pr())}
-                onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
+                onClick={() => reviewBranchOf(props.session)}
               >
                 {pullRequestLabel(pr())}
               </button>

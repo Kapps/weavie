@@ -15,7 +15,6 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("../bridge", () => ({
-  selectedSession: () => null,
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
     harness.installer = installer;
     return () => {};

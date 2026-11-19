@@ -32,9 +32,12 @@ export function ToolPanel(props: {
     });
   });
   const visible = createMemo(() => props.panels.visible(props.kind));
+  // Each request focuses once, when the panel shows; showing again later takes no focus.
+  let focused: object | null = null;
   createEffect(
     on([props.panels.focusRequest, visible], ([request, showing]) => {
-      if (request?.kind === props.kind && showing) {
+      if (request?.kind === props.kind && showing && request !== focused) {
+        focused = request;
         (
           root.querySelector<HTMLElement>(".search-input") ??
           root.querySelector<HTMLElement>(".browser-row.active") ??

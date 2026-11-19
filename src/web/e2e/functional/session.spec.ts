@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   activeSessionSlot,
   createSession,
+  openCommandPalette,
   openFile,
   runCommand,
   showParked,
@@ -225,6 +226,25 @@ test("keyboard session cycling steps one chip per press in both directions", asy
     index = (index + delta + slots.length) % slots.length;
     await expectActive(slots[index] as string);
   }
+});
+
+// The command bar belongs to the session it opened for, so a switch closes it; the user's own switch says nothing.
+test("switching session by keyboard closes the command bar without a notice", async ({ page }) => {
+  const footerBranch = page.locator(
+    '.terminal-surface[data-kind="terminal:shell"] .footer-branch-name',
+  );
+  await createSession(page, { branch: "e2e/bar-switch", provider: "claude" });
+  const first = page.locator(".session-chip").first();
+  await first.click();
+  await expect(first).toHaveClass(/\bactive\b/);
+  await expect(footerBranch).not.toHaveText("e2e/bar-switch");
+  await openCommandPalette(page);
+
+  await page.keyboard.press("ControlOrMeta+Shift+2");
+  await expect(footerBranch).toHaveText("e2e/bar-switch");
+  await expect(page.locator(".tb-omnibar-box")).not.toHaveClass(/\bopen\b/);
+  // Counted once, as the bar closes: a notice would be shown with it, and polling would pass once it timed out.
+  expect(await page.locator(".toast", { hasText: "Command bar closed" }).count()).toBe(0);
 });
 
 // Ctrl+Tab is the editor's "next file" while the editor holds focus, and session cycling everywhere else.

@@ -1,5 +1,5 @@
-import { createMemo, createSignal } from "solid-js";
-import { activeBackendId, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
+import { createSignal } from "solid-js";
+import { LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 import { notify } from "../notify/notify";
 
 export type UpdateHold = {
@@ -7,7 +7,7 @@ export type UpdateHold = {
   reason: "working" | "needs-input" | "shell-job" | "waiting-on-task" | "recent-input";
 };
 
-interface UpdateState {
+export interface UpdateState {
   holds: UpdateHold[] | null;
   restarting: boolean;
   pending: boolean;
@@ -126,11 +126,5 @@ export function surfacePostUpdateNotice(): void {
   }
 }
 
-const selectedState = (): UpdateState => states().get(activeBackendId()) ?? EMPTY;
-
-export const updateHolds = createMemo(() => selectedState().holds);
-export const updatePending = createMemo(() => selectedState().pending);
-export const updateRestarting = createMemo(() => selectedState().restarting);
-
-/** The selected backend's build mismatch, or null while it matches this client. */
-export const activeBackendBuildMismatch = createMemo(() => backendBuildMismatch(activeBackendId()));
+/** A backend's update episode: what holds it, whether one is ready, and whether it is restarting now. */
+export const updateStateOf = (backendId: string): UpdateState => states().get(backendId) ?? EMPTY;

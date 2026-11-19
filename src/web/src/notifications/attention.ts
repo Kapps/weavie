@@ -3,7 +3,7 @@
 // sound, an unfocused window escalates to an OS notification + title badge. Module-load side effect
 // (like session-store), imported once from App.
 
-import { type AttentionKindName, registerSessionFeature, selectedSession } from "../bridge";
+import { type AttentionKindName, isSelected, registerSessionFeature } from "../bridge";
 import { windowFocused } from "../chrome/window-state";
 import { notificationPrefs } from "./prefs";
 import { presentOsNotification, setTitleBadge } from "./presenter";
@@ -18,7 +18,7 @@ registerSessionFeature((session) =>
         return;
       }
       const focused = windowFocused();
-      if (focused && selectedSession() === session) {
+      if (focused && isSelected(session)) {
         return;
       }
       if (prefs.sounds) {

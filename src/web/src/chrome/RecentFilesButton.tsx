@@ -1,6 +1,7 @@
 import { History } from "lucide-solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import type { ClientSession } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -8,7 +9,7 @@ import { canonicalFsPath } from "../editor/fs-path";
 import { createListNavigation } from "../list-navigation";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
-import { recentFiles, recentFilesState } from "./recent-files-store";
+import { recentFilesOf } from "./recent-files-store";
 
 // How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search
 // box filters across all of them, so a long history stays reachable without a long list.
@@ -21,6 +22,7 @@ const MAX_ROWS = 12;
  * opens the chosen file; `root` is the active worktree root, used to render/rank paths repo-relative.
  */
 export function RecentFilesButton(props: {
+  session: ClientSession | null;
   onOpen: (path: string) => void;
   root: () => string;
 }): JSX.Element {
@@ -66,7 +68,12 @@ export function RecentFilesButton(props: {
         <span>Recent</span>
       </button>
       <Show when={open()}>
-        <RecentFilesMenu root={props.root} onChoose={choose} onClose={() => setOpen(false)} />
+        <RecentFilesMenu
+          session={props.session}
+          root={props.root}
+          onChoose={choose}
+          onClose={() => setOpen(false)}
+        />
       </Show>
     </div>
   );
@@ -75,6 +82,7 @@ export function RecentFilesButton(props: {
 // The dropdown: a search box over the recent-files list (filtered by the omnibar's rankFiles) plus the results.
 // Portaled to <body>, anchored above the status bar, dismissed on outside-click / Escape / blur.
 function RecentFilesMenu(props: {
+  session: ClientSession | null;
   root: () => string;
   onChoose: (path: string) => void;
   onClose: () => void;
@@ -82,21 +90,22 @@ function RecentFilesMenu(props: {
   let panelEl: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
   const [query, setQuery] = createSignal("");
+  const recent = () => recentFilesOf(props.session);
 
   // Empty query → the recent list in frecency order; a query → the omnibar's fuzzy ranking over the same set.
   const results = createMemo<FileRow[]>(() => {
-    const rows = recentFiles().map((abs) => splitPath(abs, props.root()));
+    const rows = recent().files.map((abs) => splitPath(abs, props.root()));
     const q = query().trim();
     if (q.length === 0) {
       return rows.slice(0, MAX_ROWS);
     }
     // No proximity bias here (currentDir null): a Recent menu stays most-recent-first among equal matches.
-    return rankFiles(createFileFinder(rows), q, recentFiles(), null)
+    return rankFiles(createFileFinder(rows), q, recent().files, null)
       .matches.slice(0, MAX_ROWS)
       .map((s) => s.row);
   });
   const emptyLabel = (): string => {
-    const state = recentFilesState();
+    const state = recent();
     if (state.loading) {
       return "Loading files…";
     }
@@ -169,7 +178,7 @@ function RecentFilesMenu(props: {
           }}
           onKeyDown={nav.onKeyDown}
         />
-        <div class="recent-list" aria-busy={recentFilesState().loading}>
+        <div class="recent-list" aria-busy={recent().loading}>
           <Show
             when={results().length > 0}
             fallback={<div class="recent-empty">{emptyLabel()}</div>}

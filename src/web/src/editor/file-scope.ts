@@ -1,21 +1,22 @@
-import { selectedFileIndex } from "../files/session-file-index";
+import type { ClientSession } from "../bridge";
+import { fileIndexFor } from "../files/session-file-index";
 import { isOutsideWorkspace } from "./fs-path";
-import { activePath, openTabs } from "./session-store";
+import { activePathFor, openTabsFor } from "./session-store";
 import { isFileTab } from "./tab-entry";
 
 /**
- * Whether the file the user is currently looking at sits outside the checkout, which is what the editor footer
+ * Whether `session`'s active file sits outside the checkout, which is what the editor footer
  * reports. Scratch buffers live outside by design and overlay tabs (web/source/plan) name no workspace path, so
  * neither counts.
  */
-export function activeFileOutsideWorkspace(): boolean {
-  const path = activePath();
+export function activeFileOutsideWorkspace(session: ClientSession | null): boolean {
+  const path = activePathFor(session);
   if (path === null) {
     return false;
   }
-  const tab = openTabs().find((entry) => entry.path === path);
+  const tab = openTabsFor(session).find((entry) => entry.path === path);
   if (tab === undefined || tab.scratch === true || !isFileTab(tab)) {
     return false;
   }
-  return isOutsideWorkspace(path, selectedFileIndex().root);
+  return isOutsideWorkspace(path, fileIndexFor(session).root);
 }

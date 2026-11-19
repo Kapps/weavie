@@ -1,0 +1,11 @@
+language js
+
+// The name as an identifier, an export name, or a string or template literal (`bridge["activeBackendId"]`).
+or {
+  `activeBackendId`,
+  JsLiteralExportName() as $export where { $export <: r"^activeBackendId$" },
+  JsStringLiteralExpression() as $string where { $string <: r"^[\"']activeBackendId[\"']$" },
+  JsTemplateExpression() as $template where { $template <: r"^`activeBackendId`$" }
+} as $read where {
+  register_diagnostic(span=$read, message="activeBackendId is the selected session's backend; it is read only where a render or a command starts (the files biome.json excludes from this rule). Route to the backend of the session you were given: backendIdOf(session) (docs/specs/multi-repo-workspaces.md)", severity="error")
+}

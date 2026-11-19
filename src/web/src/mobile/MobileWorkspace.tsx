@@ -8,6 +8,7 @@ import {
 } from "./MobileSurfaceBar";
 import { type NewSessionSeed, SessionInbox } from "./SessionInbox";
 import { SessionInboxSurface } from "./SessionInboxSurface";
+import type { SessionsOpening } from "./sessions-opening";
 
 /** Compact chrome around the app's one shared, permanently mounted LayoutView. */
 export function MobileWorkspace(props: {
@@ -16,7 +17,7 @@ export function MobileWorkspace(props: {
   modalOpen: boolean;
   inboxActive: boolean;
   sessions: RailSession[];
-  initialBackendId: string;
+  inboxOpening: SessionsOpening;
   onOpen: (session: RailSession) => Promise<boolean>;
   onCreate: (
     seed: () => Promise<NewSessionSeed | null>,
@@ -48,7 +49,7 @@ export function MobileWorkspace(props: {
           active={props.inboxActive}
           compact={props.compact}
           sessions={props.sessions}
-          initialBackendId={props.initialBackendId}
+          opening={props.inboxOpening}
           onOpen={props.onOpen}
           onCreate={props.onCreate}
           onManageAcp={props.onManageAcp}

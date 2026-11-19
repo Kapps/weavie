@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
+import type { ClientSession } from "../bridge";
 import { keyHint } from "../commands/key-hint";
-import { onCommandsChanged } from "../commands/registry";
+import { onCommandsChanged, runCommandInSessionWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { PullRequest } from "./pull-request-store";
 
@@ -21,4 +22,10 @@ export function reviewBranchTitle(branch: string): string {
 export function reviewPullRequestTitle(pr: PullRequest): string {
   const state = pr.state === "open" ? "" : ` ${pr.state}`;
   return `Review${state} PR #${pr.number} in Weavie${reviewHint()} — open it on GitHub${keyHint(CommandIds.openCurrentPr)}`;
+}
+
+/** Reviews `session`'s branch, as its status-bar controls do on click. */
+export function reviewBranchOf(session: ClientSession | null): void {
+  if (session !== null)
+    void runCommandInSessionWithFeedback(session, CommandIds.diffAgainstBranchBase);
 }

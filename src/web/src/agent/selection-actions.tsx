@@ -1,7 +1,7 @@
 import { MessageSquare, Plus } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
-import { type ClientSession, onSelectedSession } from "../bridge";
+import { type ClientSession, registerViewFeature } from "../bridge";
 import { modalActive, onModalOpened } from "../chrome/modal-state";
 import { insideOmnibar } from "../chrome/omnibar-controller";
 import { evaluateWhen, setContext } from "../commands/context";
@@ -199,9 +199,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
     document.addEventListener("keydown", onKey);
   };
   const offModal = onModalOpened(clear);
-  const offSession = onSelectedSession((selected) => {
-    if (selected !== session) clear();
-  });
+  const offSession = registerViewFeature((shown) => (shown === session ? clear : undefined));
   session.signal.addEventListener("abort", clear);
   return {
     show,

@@ -19,7 +19,7 @@
 }
 
 .session-composer-prompt {
-  padding-block: 1px;
+  padding: 3px 0 2px;
   font: var(--font-content);
 }
 

@@ -31,12 +31,16 @@ public sealed partial class HostCoreWorkflowConversationTests {
 
 	private const string MainDone = "mcp:completeStage:{\"outputs\":{},\"summary\":\"Fixed\"}";
 
+	// Completes fix only once its turn reached main, so the reports that turn carries are delivered, not still owed.
 	private static async Task<string> FixedAsync(ConversationFixture fixture, int fixes) {
+		await Eventually(() => MainReplies(fixture, text => text.EndsWith("fix the change", StringComparison.Ordinal)) == fixes);
 		fixture.Session.SendAgentPrompt(MainDone);
-		await Eventually(() => fixture.Messages.Count(message => Conversation(message) is null
-			&& Type(message) == "item-completed" && Text(message).Contains("now asks the user: Next?", StringComparison.Ordinal)) == fixes);
+		await Eventually(() => MainReplies(fixture, text => text.Contains("now asks the user: Next?", StringComparison.Ordinal)) == fixes);
 		return fixture.Session.Workflow.Current!.Id;
 	}
+
+	private static int MainReplies(ConversationFixture fixture, Func<string, bool> matches) =>
+		fixture.Messages.Count(message => Conversation(message) is null && Type(message) == "item-completed" && matches(Text(message)));
 
 	private static string Transcript(ConversationFixture fixture, string thread) =>
 		File.ReadAllText(Path.Combine(fixture.State("conversation-acp"), $"session-transcript-{thread}.log"));

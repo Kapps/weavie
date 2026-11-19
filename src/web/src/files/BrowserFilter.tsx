@@ -3,7 +3,7 @@ import { createEffect, createSignal, createUniqueId, For, type JSX, on, Show } f
 import type { ClientSession } from "../bridge";
 import { createFileSearch } from "../chrome/create-file-search";
 import { highlightSlice } from "../chrome/highlight";
-import { recentFiles } from "../chrome/recent-files-store";
+import { recentFilesOf } from "../chrome/recent-files-store";
 import { liveKeyHint } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -29,7 +29,7 @@ export function BrowserFilter(props: {
   const search = createFileSearch({
     index: () => props.index,
     query,
-    recent: recentFiles,
+    recent: () => recentFilesOf(props.session).files,
     currentFile: () => props.currentFile,
   });
   const needle = search.query;

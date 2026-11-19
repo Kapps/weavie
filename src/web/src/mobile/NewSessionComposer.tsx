@@ -7,6 +7,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import type { ClientSession, LaunchOrigin, RolePick } from "../bridge";
@@ -57,6 +58,8 @@ export function NewSessionComposer(props: {
   /** Whether this composer's own submission is in flight. */
   starting: boolean;
   destination: JSX.Element;
+  /** Names the typed repo path at once, ahead of its debounce. */
+  onRepoPath: (path: string) => void;
   onBase: (base: "source" | "main") => void;
   onStart: (seed: () => Promise<NewSessionSeed | null>) => Promise<boolean>;
 }): JSX.Element {
@@ -156,6 +159,42 @@ export function NewSessionComposer(props: {
     props.providerAvailable &&
     attachments().every((attachment) => attachment.status === "ready");
 
+  // The repo a start was asked for by Enter in its path, while that repo's workflows were still loading: the
+  // start runs once it can, unless the form is touched, the repo changes, or Sessions closes first.
+  const [startAskedIn, setStartAskedIn] = createSignal<string | null>(null);
+  createEffect(() => {
+    const asked = startAskedIn();
+    if (asked === null) {
+      return;
+    }
+    if (!props.active || asked !== props.repo) {
+      setStartAskedIn(null);
+    } else if (canStart()) {
+      setStartAskedIn(null);
+      void untrack(submitNew);
+    }
+  });
+  const starting = (): boolean => props.starting || startAskedIn() !== null;
+  // Enter in the repo path names the repo and starts the session in it.
+  const startFromRepoPath = (event: KeyboardEvent): void => {
+    const field = event.target;
+    if (
+      event.key !== "Enter" ||
+      event.isComposing ||
+      !(field instanceof HTMLInputElement) ||
+      !field.matches(".session-repo-path")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    props.onRepoPath(field.value);
+    if (canStart()) {
+      void submitNew();
+    } else if (!props.busy) {
+      setStartAskedIn(props.repo);
+    }
+  };
+
   createEffect(() => {
     if (!props.active) {
       setContext("newSessionPromptFocused", false);
@@ -197,10 +236,14 @@ export function NewSessionComposer(props: {
         event.preventDefault();
         void submitNew();
       }}
+      onKeyDown={startFromRepoPath}
+      onInput={() => setStartAskedIn(null)}
+      onChange={() => setStartAskedIn(null)}
       // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
       // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on a
       // suggested field means the user is setting that one themselves.
       onFocusOut={(event) => {
+        setStartAskedIn(null);
         const next = event.relatedTarget;
         if (!(next instanceof Element) || !event.currentTarget.contains(next)) {
           return;
@@ -283,12 +326,12 @@ export function NewSessionComposer(props: {
         <button
           type="submit"
           class="session-composer-submit ui-button ui-button-lg ui-button-primary"
-          aria-label={props.starting ? "Starting session" : "Start"}
+          aria-label={starting() ? "Starting session" : "Start"}
           title={`Start${keyHint(CommandIds.submitNewSession)}`}
           disabled={!canStart()}
         >
           <MobileActionLabel icon={<ArrowUp />}>
-            {props.starting ? "Starting…" : "Start"}
+            {starting() ? "Starting…" : "Start"}
           </MobileActionLabel>
         </button>
       </div>

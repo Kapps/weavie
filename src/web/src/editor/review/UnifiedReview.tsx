@@ -12,7 +12,7 @@ import {
   untrack,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
-import { selectedSession } from "../../bridge";
+import { isSelected } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { interfaceLine } from "../../fonts";
 import type { ReviewCopyScope } from "../editor-host";
@@ -258,7 +258,7 @@ export function UnifiedReview(props: {
     props.changed();
   };
   const surface = createReviewSurface({
-    active: () => selectedSession() === props.session && activeTabFor(props.session) === props.tab,
+    active: () => isSelected(props.session) && activeTabFor(props.session) === props.tab,
     signal: props.tab.signal,
     clear: props.clear,
     getScrollTop: () => scroll()!.getScrollTop(),
@@ -331,7 +331,7 @@ export function UnifiedReview(props: {
     return ({ path, line }) => {
       if (
         !presentation?.signal.aborted &&
-        selectedSession() === props.session &&
+        isSelected(props.session) &&
         activeTabFor(props.session) === props.tab
       )
         surface.reveal(path, line);

@@ -166,6 +166,29 @@ test("a card stays under its line through edits at that line", async ({ page }) 
   await underFirstLine();
 });
 
+test("with reduced motion a card folds and opens without easing", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await createAcpSession(page, "inline-reply-still");
+  await openFile(page, "notes.txt");
+  await askAboutFirstLine(page, "why this line");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+  const head = card.locator(".agent-aside-toggle");
+  const easing = () =>
+    card.evaluate((root) =>
+      [...root.querySelectorAll(".agent-card-content")].map(
+        (box) => getComputedStyle(box).transitionDuration,
+      ),
+    );
+
+  await head.click();
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  expect(new Set(await easing())).toEqual(new Set(["0s"]));
+  await head.click();
+  await expect(head).toHaveAttribute("aria-expanded", "true");
+  expect(new Set(await easing())).toEqual(new Set(["0s"]));
+});
+
 test("a card folds to its question, takes a follow-up, and answers to its commands", async ({
   page,
 }) => {
@@ -210,6 +233,16 @@ test("a card folds to its question, takes a follow-up, and answers to its comman
   await clickIntoEditor(page);
   await runCommand(page, "Toggle Inline Reply");
   await expect(head).toHaveAttribute("aria-expanded", "false");
+  // Once the fold has finished, opening the card must still hand its box the focus.
+  await expect
+    .poll(() =>
+      card.evaluate(
+        (root) =>
+          [...root.querySelectorAll(".agent-card-content")].flatMap((box) => box.getAnimations())
+            .length,
+      ),
+    )
+    .toBe(0);
   await runCommand(page, "Reply to Inline Reply");
   await expect(head).toHaveAttribute("aria-expanded", "true");
   await expect(reply).toBeFocused();

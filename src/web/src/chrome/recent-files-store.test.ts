@@ -1,14 +1,25 @@
+import { createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import type { ClientSession } from "../bridge";
+import type { FileIndex as SessionIndex } from "../files/file-index";
 
-vi.mock("../bridge", () => ({
-  registerHostFeature: () => {},
-  selectedSession: () => null,
+vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
+// The index under test is built by hand; the per-session wiring would need a page.
+const held = vi.hoisted(() => ({
+  index: (): SessionIndex | null => null,
+  install: (_session: ClientSession): void => {},
 }));
-// The store under test is built by hand; the per-session wiring would need a page.
-vi.mock("../files/session-file-index", () => ({ selectedFileIndex: () => null }));
+vi.mock("../bridge", () => ({
+  registerSessionFeature: (installer: (session: ClientSession) => () => void) => {
+    held.install = installer;
+    return () => {};
+  },
+}));
+vi.mock("../files/session-file-index", () => ({ fileIndexFor: () => held.index() }));
+vi.mock("../repo-state", () => ({ repoStateOf: () => ({ recentFiles: ["a.ts", "gone.ts"] }) }));
 
 const { FileIndex } = await import("../files/file-index");
-const { projectRecentFiles } = await import("./recent-files-store");
+const { projectRecentFiles, recentFilesOf } = await import("./recent-files-store");
 
 function indexOf(root: string, paths: string[]) {
   const index = new FileIndex();
@@ -18,6 +29,22 @@ function indexOf(root: string, paths: string[]) {
   index.install(listing);
   return index;
 }
+
+describe("recentFilesOf", () => {
+  it("is loading until the session's index lands, then projects onto it once per change", () => {
+    const session = {} as ClientSession;
+    const [index, setIndex] = createSignal<SessionIndex>(new FileIndex());
+    held.index = index;
+    held.install(session);
+    expect(recentFilesOf(null)).toEqual({ files: [], loading: false, hasHistory: false });
+    expect(recentFilesOf(session)).toEqual({ files: [], loading: true, hasHistory: true });
+
+    setIndex(indexOf("/repo", ["a.ts"]));
+    const projected = recentFilesOf(session);
+    expect(projected).toEqual({ files: ["/repo/a.ts"], loading: false, hasHistory: true });
+    expect(recentFilesOf(session)).toBe(projected);
+  });
+});
 
 describe("projectRecentFiles", () => {
   it("keeps frecency order and removes files absent from the selected index", () => {

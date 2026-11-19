@@ -4,6 +4,7 @@
 
 import { guardBackgroundWork } from "../agent/background-guard";
 import {
+  activeBackendId,
   beginClientSelectionCandidate,
   type ClientSession,
   hostInjected,
@@ -89,7 +90,7 @@ async function activationSession(
 }
 
 function currentCatalog(): CommandCatalog {
-  const backendId = getActiveCatalogBackendId();
+  const backendId = activeBackendId();
   return {
     commands: commandsForClient(backendId),
     keybindings: keybindingsForClient(backendId),
@@ -243,10 +244,7 @@ function capturedRunner(backendId: string, scope: CommandScope): CommandRunner {
 
 /** Chrome captures its command connections before taking focus, and retains them until dismissal. */
 export function captureCommandRunner(): CommandRunner {
-  return capturedRunner(
-    getActiveCatalogBackendId(),
-    captureScope(selectedSession(), new Map(), undefined),
-  );
+  return capturedRunner(activeBackendId(), captureScope(selectedSession(), new Map(), undefined));
 }
 
 /** An owned surface supplies captured operations without resolving the session's current command target. */
@@ -269,12 +267,7 @@ export function getKeybindings(): ResolvedKeybinding[] {
 
 /** The active resolved bindings paired with the catalog that must dispatch each command. */
 export function getActiveKeybindingEntries(): CatalogKeybinding[] {
-  return keybindingEntriesForClient(getActiveCatalogBackendId());
-}
-
-/** The backend whose command catalog currently drives session-scoped commands and shortcuts. */
-export function getActiveCatalogBackendId(): string {
-  return selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
+  return keybindingEntriesForClient(activeBackendId());
 }
 
 /** One backend's commands, independent of the selected session. */
@@ -289,7 +282,7 @@ export function getKeybindingsInCatalog(backendId: string): ResolvedKeybinding[]
 
 /** Looks up a command by id. */
 export function findCommand(id: string): CommandInfo | undefined {
-  return commandForClient(getActiveCatalogBackendId(), id);
+  return commandForClient(activeBackendId(), id);
 }
 
 /** Looks up a command in one backend's catalog, independent of the selected session. */
@@ -476,7 +469,7 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
 }
 
 export function runForKeybinding(id: string, args: unknown): boolean {
-  return runKeybindingFromCatalog(getActiveCatalogBackendId(), id, args);
+  return runKeybindingFromCatalog(activeBackendId(), id, args);
 }
 
 /** Runs a keybinding against its owning catalog, independent of the selected session. */
@@ -536,7 +529,7 @@ function executeWebCommand(
 
 export function dispatchCommand(id: string, args?: unknown): Promise<CommandResult> {
   return dispatchFromCatalog(
-    getActiveCatalogBackendId(),
+    activeBackendId(),
     id,
     args,
     captureScope(selectedSession(), new Map(), args),

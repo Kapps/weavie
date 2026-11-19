@@ -12,7 +12,7 @@ import type { EditorController } from "./editor-controller";
 import { TabOwner } from "./tab-owner";
 
 const env = vi.hoisted(() => ({ selected: null as ClientSession | null }));
-vi.mock("../bridge", () => ({ selectedSession: () => env.selected }));
+vi.mock("../bridge", () => ({ isSelected: (session: unknown) => session === env.selected }));
 vi.mock("../commands/registry", () => ({ registerCapturedCommand: vi.fn() }));
 
 function connection(session: ClientSession) {

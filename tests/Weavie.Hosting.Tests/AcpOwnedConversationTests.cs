@@ -310,6 +310,43 @@ public sealed class AcpOwnedConversationTests {
 		Assert.Null(await fixture.Session.RestoreAsync(Binding(fixture) with { Owner = new("r-1", "verify") }, CancellationToken.None));
 	}
 
+	[Fact]
+	public async Task AForkOfAnOwnedConversationCopiesItAndAForkOfAnUntouchedForkIsNotEmpty() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("main history");
+		await fixture.WaitForMessageAsync(message => message.ConversationId is null && message.Type == "turn-completed");
+		await using var group = await fixture.Session.OpenForkAsync(Binding(fixture), CancellationToken.None);
+		await using var untouched = await group.ForkAsync(Binding(fixture), CancellationToken.None);
+		group.Submit(AgentTurnSubmission.Prompt("group history"));
+		await group.WhenIdleAsync(CancellationToken.None);
+		Assert.Contains(group.View.Rows, message => message.Text == "echo: group history");
+		await using var task = await group.ForkAsync(Binding(fixture), CancellationToken.None);
+
+		string[] forks = File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log"));
+		Assert.Equal(3, forks.Length);
+		string Transcript(string line) => File.ReadAllText(Path.Combine(fixture.FakeAcpStateDirectory, $"session-transcript-{line.Split("->")[1]}.log"));
+		Assert.Contains("main history", Transcript(forks[1]), StringComparison.Ordinal);
+		Assert.DoesNotContain("group history", Transcript(forks[1]), StringComparison.Ordinal);
+		Assert.Contains("group history", Transcript(forks[2]), StringComparison.Ordinal);
+		Assert.Equal(forks[0].Split("->")[1], forks[2].Split("->")[0]);
+	}
+
+	[Fact]
+	public async Task WaitingForIdleEndsWhenTheRunningTurnEnds() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		await using var child = await fixture.Session.OpenFreshAsync(Binding(fixture), CancellationToken.None);
+		Assert.True(child.WhenIdleAsync(CancellationToken.None).IsCompleted);
+		child.Submit(AgentTurnSubmission.Prompt("hold"));
+		await fixture.WaitForHeldToolAsync(message => message.ConversationId == child.Id);
+		var idle = child.WhenIdleAsync(CancellationToken.None);
+		Assert.False(idle.IsCompleted);
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-hold"), string.Empty);
+		await idle.WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.Contains(child.View.Rows, message => message.Type == "turn-completed");
+	}
+
 	private static AgentConversationBinding Binding(AcpAgentSessionFixture fixture) => new() {
 		Tools = fixture.Registry.CreateGrant(() => null),
 		Title = "Owned conversation",

@@ -1,8 +1,7 @@
-import { createEffect, createRoot } from "solid-js";
-import { type ClientSession, selectedSession } from "../../bridge";
-import { setContext } from "../../commands/context";
+import type { ClientSession } from "../../bridge";
 import { registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { onScreenContext } from "../../messaging/on-screen";
 import { notify } from "../../notify/notify";
 import { prCommentsFor } from "../pr-comments/pr-comments-store";
 import { reviewHintsFor } from "../review-hints/review-hints-store";
@@ -46,16 +45,10 @@ function step(
   if (claimed === null) revealFile(session, target.path, line);
 }
 
-// Whether the selected session has any thread or hint, before the filter: the stepper's commands need one.
-function trackAvailability(): () => void {
-  return createRoot((dispose) => {
-    createEffect(() => {
-      const session = selectedSession();
-      const threads = prCommentsFor(session)?.set?.threads.length ?? 0;
-      setContext("reviewItemsAvailable", threads + (reviewHintsFor(session)?.length ?? 0) > 0);
-    });
-    return dispose;
-  });
+// Whether `session` has any thread or hint, before the filter: the stepper's commands need one.
+function hasReviewItems(session: ClientSession): boolean {
+  const threads = prCommentsFor(session)?.set?.threads.length ?? 0;
+  return threads + (reviewHintsFor(session)?.length ?? 0) > 0;
 }
 
 // A control on one item (a hover popover, a card) steps from that item: `{ from: "hint:3" }`.
@@ -67,7 +60,7 @@ function stepOrigin(args: unknown): ItemKey | null {
 /** Next and Previous Comment or Hint. */
 export function registerReviewItemCommands(revealFile: RevealFile): () => void {
   const cleanups = [
-    trackAvailability(),
+    onScreenContext("reviewItemsAvailable", hasReviewItems),
     ...([1, -1] as const).map((direction) =>
       registerCommand(
         direction === 1 ? CommandIds.reviewNextItem : CommandIds.reviewPreviousItem,

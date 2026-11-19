@@ -1,5 +1,4 @@
-import { createMemo } from "solid-js";
-import { type ClientSession, selectedSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 /** A session's Git branch, dirty flag, and complete working-tree totals against HEAD. */
@@ -19,5 +18,3 @@ export interface GitStatus {
 /** A live session's Git status; null before its first push and for no session. */
 export const gitStatusOf: (session: ClientSession | null) => GitStatus | null =
   createSessionFeatureValue<GitStatus, GitStatus>("git", "status", (status) => status);
-
-export const gitStatus = createMemo(() => gitStatusOf(selectedSession()));

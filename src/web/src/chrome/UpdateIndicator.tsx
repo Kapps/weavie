@@ -5,7 +5,7 @@ import { keyHint } from "../commands/key-hint";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
-import { type UpdateHold, updateHolds, updatePending, updateRestarting } from "./update-store";
+import { type UpdateHold, updateStateOf } from "./update-store";
 
 const holdReasonText: Record<UpdateHold["reason"], string> = {
   working: "Claude is working",
@@ -21,13 +21,14 @@ const holdText = (hold: UpdateHold): string => `${hold.session}: ${holdReasonTex
  * "⟳ Update ready" segment that opens a card (a portalled popover anchored above it, so the footer's
  * `overflow: hidden` can't clip it) with current holds and the explicit Restart Now action.
  */
-export function UpdateIndicator(): JSX.Element {
+export function UpdateIndicator(props: { backendId: string }): JSX.Element {
+  const state = () => updateStateOf(props.backendId);
   const [open, setOpen] = createSignal(false);
   // The chip's bottom-right in viewport coords, captured on open; the card anchors its own bottom-right there.
   const [anchor, setAnchor] = createSignal<{ right: number; bottom: number } | null>(null);
   // Close when the episode genuinely ends (not on a reconnect's transient clear — see `updatePending`).
   createEffect(() => {
-    if (!updatePending()) {
+    if (!state().pending) {
       setOpen(false);
     }
   });
@@ -45,7 +46,7 @@ export function UpdateIndicator(): JSX.Element {
   });
 
   return (
-    <Show when={!updateRestarting() && updatePending()}>
+    <Show when={!state().restarting && state().pending}>
       <button
         type="button"
         class="footer-seg update-chip"
@@ -85,7 +86,7 @@ export function UpdateIndicator(): JSX.Element {
                 minutes. Pending composer text is restored after the reload.
               </span>
               <ul class="update-card-holds">
-                <For each={updateHolds() ?? []}>{(hold) => <li>{holdText(hold)}</li>}</For>
+                <For each={state().holds ?? []}>{(hold) => <li>{holdText(hold)}</li>}</For>
               </ul>
               <button
                 type="button"

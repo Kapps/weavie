@@ -1,8 +1,9 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerHostFeature, type Suggestion } from "./bridge";
-import type { RepoState } from "./messaging/protocol-types";
+import type { KnownRepo, RepoState } from "./messaging/protocol-types";
 
 const [states, setStates] = createSignal(new Map<string, RepoState>());
+const [known, setKnown] = createSignal(new Map<string, KnownRepo[]>());
 const profileListeners = new Set<() => void>();
 const key = (backendId: string, repo: string): string => `${backendId}\n${repo}`;
 const empty = (repo: string): RepoState => ({
@@ -12,7 +13,8 @@ const empty = (repo: string): RepoState => ({
   recentFiles: [],
 });
 
-// Each host sends every repo's state in its hello, then each value under the repo's root as it changes.
+// Each host sends every repo's state in its hello, then each value under the repo's root as it changes, and the
+// repos it offers a new session in whenever that list changes.
 registerHostFeature((connection) => {
   const apply = (repo: string, change: Partial<RepoState>): void => {
     const id = key(connection.id, repo);
@@ -24,12 +26,17 @@ registerHostFeature((connection) => {
       }
     }
   };
+  const offer = (repos: KnownRepo[]): void => {
+    setKnown((previous) => new Map(previous).set(connection.id, repos));
+  };
   const stops = [
     connection.onHello((hello) => {
       for (const state of hello.repos) {
         apply(state.repo, state);
       }
+      offer(hello.knownRepos);
     }),
+    connection.host.feature("repos").on<KnownRepo[]>("known", offer),
     connection.host
       .feature("tests")
       .on<{ repo: string; profile: string }>("profile", ({ repo, profile }) =>
@@ -59,6 +66,11 @@ export function repoStateOf(session: ClientSession | null): RepoState {
     (session === null ? undefined : states().get(key(session.connection.id, session.repo))) ??
     empty(session?.repo ?? "")
   );
+}
+
+/** The repos a host offers a new session in: its home folder's, then by name the ones it has had sessions in. */
+export function knownRepos(backendId: string): KnownRepo[] {
+  return known().get(backendId) ?? [];
 }
 
 /** Subscribes to any repo's test profile changing. Returns an unsubscribe. Use outside a Solid reactive root. */

@@ -34,14 +34,12 @@ The catalog describes both loaded and dormant slots. Only loaded entries carry a
 
 ## Workspace and managed sessions
 
-Every open ensures one ordinary session on the workspace's user-owned checkout. Its label is usually the
-current branch (`main` in a typical new repository). The slot is a catalog invariant: it is re-created whenever
-nothing covers that path, so the rail is never empty and the checkout the user opened is always reachable.
+A workspace opens with one ordinary session on its home folder, the checkout the user opened. Its label is
+usually the current branch (`main` in a typical new repository).
 
-This session has no routing privilege. It can be unloaded like any other session, and unload is its whole
-lifecycle: delete refuses it, with or without force. Weavie does not own that directory, so a delete would
-remove nothing on disk while stranding the one checkout it can never re-attach — git refuses a second worktree
-on a branch already checked out there.
+This session has no routing privilege. Weavie does not own that directory, so deleting the session drops it and
+leaves the folder untouched. It stays deleted across restarts until Open Home Folder Session
+(`weavie.session.openHome`) opens it again.
 
 Managed sessions are backed by git worktrees:
 
@@ -101,20 +99,18 @@ Unloading:
 4. stops and reaps agent, terminal, LSP, watcher, MCP, and media resources;
 5. keeps the worktree and branch.
 
-Deleting first resolves the target, refusing an unknown id and the workspace's own checkout. It then classifies
+Deleting first resolves the target, refusing an unknown id. A session on a folder Weavie did not make (the home
+folder, or a worktree whose repository is gone) is unloaded and dropped, and its folder kept. Otherwise it classifies
 tracked and untracked changes; a non-forced dirty delete fails before teardown. After confirmation it unloads
 the backend, removes the worktree the session sits on while keeping its branch — whoever created that worktree
 — removes the slot, and publishes the catalog. Git's own refusals are refusals here: a locked worktree can't be
 removed, and a non-forced delete of a branchless checkout fails rather than orphaning its commits.
 
-The catalog publishes which entry is the workspace checkout, so the rail and the compact session list offer it
-no delete rather than advertising a click the host would refuse.
-
 A working directory deleted outside Weavie ends its session the same way. Any session-scoped observer that
 fails asks one question first — does the working directory still exist — and a missing one is reported once as
 the session's end, never as each observer's own failure in git's words. The host then unloads the backend,
-removes the slot, reconciles the worktree registry, and says so. The workspace's own checkout is the exception:
-the catalog re-creates it, so its vanished folder is reported as the workspace failure it is and the slot stands.
+removes the slot, reconciles the worktree registry, and says so. The home folder is the exception: its
+vanished folder is reported as the workspace failure it is and the slot stands.
 
 ## Client model
 

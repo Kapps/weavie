@@ -43,7 +43,7 @@ internal sealed partial class WorkflowTransitions {
 			return values;
 		}
 
-		foreach (var spec in stage.Run.Outputs) {
+		foreach (var spec in stage.Outputs) {
 			if (!isObject || !outputs.TryGetProperty(spec.Name, out var element)) {
 				errors.Add($"missing output \"{spec.Name}\" ({spec.Type.ToString().ToLowerInvariant()})");
 			} else if (WorkflowValues.TryRead(element, spec.Type, files, out var value, out string error)) {
@@ -55,7 +55,7 @@ internal sealed partial class WorkflowTransitions {
 
 		if (isObject) {
 			errors.AddRange(outputs.EnumerateObject()
-				.Where(p => stage.Run.Outputs.All(spec => spec.Name != p.Name))
+				.Where(p => stage.Outputs.All(spec => spec.Name != p.Name))
 				.Select(p => $"stage \"{stage.Id}\" declares no output \"{p.Name}\""));
 		}
 
@@ -69,7 +69,7 @@ internal sealed partial class WorkflowTransitions {
 			return true;
 		}
 
-		var absent = template.References.FirstOrDefault(r => !r.IsRunValue && run.Outputs.GetValueOrDefault(r.Scope)?.ContainsKey(r.Name) != true);
+		var absent = template.References.FirstOrDefault(r => !r.IsRunValue && Lookup(run, r) is null);
 		if (absent is not null) {
 			missing = $"Stage \"{run.Stage}\" uses {absent}, but stage \"{absent.Scope}\" hasn't reported it.";
 			return false;
@@ -79,11 +79,35 @@ internal sealed partial class WorkflowTransitions {
 		return true;
 	}
 
-	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) =>
+	// The single value a foreach names.
+	private bool TryResolve(WorkflowRun run, WorkflowTemplate template, out WorkflowValue value, out string missing) {
+		template.IsSingleReference(out var reference);
+		if ((reference.IsRunValue ? ResolveValue(run, reference) : Lookup(run, reference)) is { } found) {
+			(value, missing) = (found, "");
+			return true;
+		}
+		(value, missing) = (WorkflowValue.Empty, $"Stage \"{run.Stage}\" repeats over {reference}, but stage \"{reference.Scope}\" hasn't reported it.");
+		return false;
+	}
+
+	private WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) =>
 		reference.IsDocuments ? new WorkflowValue { Text = run.DocumentsDirectory }
 		: reference.IsPrompt ? new WorkflowValue { Text = run.Prompt.Text }
 		: reference.IsInput ? run.Inputs.GetValueOrDefault(reference.Name, WorkflowValue.Empty)
-		: run.Outputs[reference.Scope][reference.Name];
+		: Lookup(run, reference)!;
+
+	// A stage output or entry the run's position can read: in its records, or in the stages inside the stage deciding.
+	private WorkflowValue? Lookup(WorkflowRun run, WorkflowReference reference) {
+		var live = Live(run);
+		if (WorkflowReferences.IsEntry(definition, reference)) {
+			return run.Chain(live.Id).FirstOrDefault(f => f.Stage == reference.Scope && f.Entry > 0) is { } entry
+				? new WorkflowValue { Text = reference.Name == "item" ? entry.Item : entry.Entry.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+				: null;
+		}
+		return run.Chain(live.Id).Prepend(Body(run, live.Id, run.Stage)).OfType<WorkflowFrame>()
+			.Select(f => f.Outputs.GetValueOrDefault(reference.Scope)?.GetValueOrDefault(reference.Name))
+			.FirstOrDefault(value => value is not null);
+	}
 
 	private bool TrySelectFiles(WorkflowRun run, WorkflowTemplate template, out IReadOnlyList<string> paths, out string error) {
 		var selected = new List<string>();
@@ -91,7 +115,7 @@ internal sealed partial class WorkflowTransitions {
 		paths = selected;
 		var files = Files(run);
 		foreach (var reference in template.References.Where(r => WorkflowReferences.TypeOf(definition, r) == WorkflowValueType.Files)) {
-			foreach (string path in ResolveValue(run, reference).Items ?? []) {
+			foreach (string path in ResolveValue(run, reference).Flat()) {
 				if (!files.TryResolve(path, out string relative, out string full)) {
 					error = $"\"{path}\" isn't a file path inside the worktree or run documents directory";
 					return false;
@@ -104,13 +128,4 @@ internal sealed partial class WorkflowTransitions {
 	}
 
 	private WorkflowFileScope Files(WorkflowRun run) => new(environment.Worktree, run.DocumentsDirectory);
-
-	private WorkflowStage StageOf(string id) =>
-		definition.Stages.FirstOrDefault(s => s.Id == id)
-		?? throw new WorkflowException($"Workflow {definition.Id} has no stage \"{id}\".");
-
-	private string Following(WorkflowStage stage) {
-		int index = definition.Stages.ToList().IndexOf(stage);
-		return index + 1 < definition.Stages.Count ? definition.Stages[index + 1].Id : WorkflowSchema.Done;
-	}
 }

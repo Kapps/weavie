@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createRoot, createSignal, onCleanup } from "solid-js";
-import { selectedSession } from "../../bridge";
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { whileOnScreen } from "../../messaging/on-screen";
 import { prOverviewFor } from "../review/overview/overview-data";
 import { prCommentsFor } from "./pr-comments-store";
 
@@ -13,31 +13,31 @@ const REFRESH_MS = 60_000;
  * agent is doing. Importing the overview's store here also subscribes it from startup, before the review tab loads.
  */
 export function installPrCommentRefresh(): () => void {
-  return createRoot((dispose) => {
-    const [visible, setVisible] = createSignal(document.visibilityState === "visible");
-    const onVisibility = (): void => {
-      setVisible(document.visibilityState === "visible");
+  const [visible, setVisible] = createSignal(document.visibilityState === "visible");
+  const onVisibility = (): void => {
+    setVisible(document.visibilityState === "visible");
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  const offView = whileOnScreen((session) => {
+    const watched = createMemo(
+      () =>
+        visible() &&
+        (prCommentsFor(session)?.set != null || prOverviewFor(session)?.detail != null),
+    );
+    const refresh = (): void => {
+      if (watched()) session.feature("pullRequests").publish("refresh", {});
     };
-    const watched = createMemo(() => {
-      const session = selectedSession();
-      const pr =
-        session !== null &&
-        (prCommentsFor(session)?.set != null || prOverviewFor(session)?.detail != null);
-      return visible() && pr ? session : null;
-    });
-    const refresh = (): void => watched()?.feature("pullRequests").publish("refresh", {});
     createEffect(() => {
-      if (watched() === null) return;
+      if (!watched()) return;
       refresh();
       const timer = setInterval(refresh, REFRESH_MS);
       onCleanup(() => clearInterval(timer));
     });
-    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", refresh);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", refresh);
-      dispose();
-    };
+    onCleanup(() => window.removeEventListener("focus", refresh));
   });
+  return () => {
+    document.removeEventListener("visibilitychange", onVisibility);
+    offView();
+  };
 }

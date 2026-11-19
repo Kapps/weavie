@@ -117,6 +117,11 @@ internal sealed partial class AcpConversation {
 		get { lock (_gate) return _guidanceSent; }
 	}
 
+	/// <summary>Whether the provider session holds turns to copy: its own, a fork's, or a restored session's.</summary>
+	internal bool HasHistory {
+		get { lock (_gate) return _turnNumber > 0 || _spec.Opening is ForkFromOpening || _spec.Seed.Continuation.SessionId is not null; }
+	}
+
 	internal string? ThreadId => SessionId();
 
 	internal IReadOnlyList<AgentTurnSubmission> QueuedSubmissions {
@@ -268,6 +273,7 @@ internal sealed partial class AcpConversation {
 		bool terminal;
 		lock (_gate) terminal = _runtimeFailed;
 		_port.Settled(Continuation, terminal);
+		ReleaseIdleWaiters();
 	}
 
 	private void EmitFailure(Exception error) {

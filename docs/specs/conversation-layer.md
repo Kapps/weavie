@@ -83,7 +83,9 @@ and opening. Both save a resumable continuation; a workflow child's is tagged wi
 that owner, and forgotten when the owner closes it. Their common nested port handles placement and request routing.
 IDs remain at protocol, persistence, and UI boundaries; the workflow owner retains an object.
 
-`OpenFreshAsync` and `OpenForkAsync` open against the session's runtime. Opening waits for the captured
+`OpenFreshAsync` and `OpenForkAsync` open against the session's runtime; `IAgentConversation.ForkAsync` forks an owned
+conversation as it stands, taking its controls, and a fork copies a conversation that has had a turn, was itself
+forked, or was restored. Opening waits for the captured
 main incarnation to be ready, snapshots its controls, verifies provider support, and returns only after
 child setup succeeds. A fork requires a live parent on that runtime. Required control values fail explicitly
 if unavailable. A workflow may override model/options on the child after the snapshot, before prompting.
@@ -134,7 +136,7 @@ the owning stage. A saved transcript remains readable after execution ends.
 | Consult | MCP call owns restricted transient process and fresh session | Text after last tool plus denied actions; dispose after result/cancel |
 | Inference | Typed query owns restricted transient process in its worktree | Bounded text, typed validation, usage and errors remain query-owned |
 | Workflow `continue` | Stage borrows main input; does not own main | Main transcript; stage tools drive progression |
-| Workflow `fork` / `fresh` | The run owns one child per opening stage and lends it to one visit at a time | Replies/revisions in card; outputs and questions return to main; the run ending closes it |
+| Workflow `fork` / `fresh` | The run record that owns it (the run, or one entry of a repeated stage) keeps one child per opening stage and lends it to one visit at a time | Replies/revisions in card; outputs return to the conversation it sits in, questions to main; its record ending closes it |
 | Session message / bundled prompt | Input producer addresses existing session | Uses ordinary submission and lifecycle |
 
 Consult and inference share ACP open/configure/prompt mechanics and chunk decoding, not an interactive

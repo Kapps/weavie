@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import {
+  answerWorkflow,
   createWorkflowSession,
   workflowReceipt,
   workflowTool,
@@ -14,7 +15,7 @@ const DESCRIPTION = "The supplied review satisfies every acceptance criterion.";
 const STAGES = `  - id: review
     run:
       prompt: Review the evidence.
-      outputs: { result: text }
+    outputs: { result: text }
     then:
       ask: ${QUESTION}
       by: model
@@ -62,7 +63,7 @@ test("confidence boundaries, live settings, described choices, and human feedbac
     STAGES.replace("    run:", '    if: { ask: "Is the evidence ready?", by: model }\n    run:'),
   );
   await reply(worktree, { yes: 0.8, no: 0.2 });
-  const id = await start(surface);
+  await start(surface);
   await expect(run).toHaveText("confidence · review");
   await expect(run).toHaveAttribute("title", /review · waiting on you/);
   const condition = await workflowReceipt(worktree);
@@ -75,7 +76,7 @@ test("confidence boundaries, live settings, described choices, and human feedbac
     surface.locator(".agent-entry-message.agent-tone-assistant", {
       hasText: "Weavie now asks the user:",
     }),
-  ).toContainText(`${QUESTION} (answers: accept, revise)`);
+  ).toContainText(`${QUESTION} (answers: accept, revise; question `);
   const input = await workflowReceipt(worktree);
   expect(Object.keys(input).sort()).toEqual(["choices", "evidence", "question"]);
   expect(input).toEqual({
@@ -91,10 +92,7 @@ test("confidence boundaries, live settings, described choices, and human feedbac
     },
   });
 
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run: id, choice: "revise", feedback: "Keep the concrete evidence in the review." },
-  });
+  await answerWorkflow(surface, weavie.home, "revise", "Keep the concrete evidence in the review.");
   await expect(run).toHaveAttribute("title", /review · waiting on you/);
   await expect(
     surface.locator(".agent-entry-message.agent-tone-assistant", {
@@ -129,7 +127,7 @@ test("if and then confidence overrides take precedence over the live setting", a
     ).replace("      by: model", "      by: model\n      confidence: 0.9"),
   );
   await reply(worktree, { yes: 0.7, no: 0.3 });
-  const id = await start(surface);
+  await start(surface);
   await expect(run).toHaveAttribute("title", /review · waiting on you/);
   await workflowTool(surface, "setSetting", { key: "workflow.decisionConfidence", value: 0.5 });
   await reply(worktree, { accept: 0.85, revise: 0.15 });
@@ -138,10 +136,7 @@ test("if and then confidence overrides take precedence over the live setting", a
   const input = await workflowReceipt(worktree);
   expect(Object.keys(input).sort()).toEqual(["choices", "evidence", "question"]);
   expect(input.choices[0]).toEqual({ label: "accept", description: DESCRIPTION });
-  await workflowTool(surface, "runCommand", {
-    id: "weavie.workflow.answer",
-    args: { run: id, choice: "accept", feedback: "I checked the remaining criteria." },
-  });
+  await answerWorkflow(surface, weavie.home, "accept", "I checked the remaining criteria.");
   await expect(run).toHaveText("confidence · accepted");
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
     "I checked the remaining criteria.",
@@ -202,6 +197,6 @@ for (const scenario of [
       surface.locator(".agent-entry-message.agent-tone-assistant", {
         hasText: "Weavie now asks the user:",
       }),
-    ).toContainText(`${QUESTION} (answers: accept, revise)`);
+    ).toContainText(`${QUESTION} (answers: accept, revise; question `);
   });
 }

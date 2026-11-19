@@ -45,20 +45,52 @@ the Sessions composer, Diff Against) is opened for a `ClientSession` and sends e
 names its repo in the request; nothing resolves a session or a repo from the selection at request time, because
 the selection can change while the surface is open.
 
+The selection chooses what is rendered and never the target of an action. `selectedSession` is read only where
+a render or a command starts: `App.tsx` (the top-level render, which hands the session down as props and holds
+the session Sessions was opened from), the command registry's scope capture, and an OS-forwarded open. Everything
+else receives its session: a parameter or prop, the command's `context.session`, or the session captured when the
+surface opened. A surface opened for a session closes, and says so, when that session ends (`createOwnedSurface`);
+an action that needs its session on screen refuses visibly once it is not (`requireOnScreen`). "Am I the one on
+screen" is `isSelected(session)`. Work that runs only for the session on screen, such as Find in Files' one
+projected result set or a `when` key (`onScreenContext`), is a `whileOnScreen` scope.
+
+Three lint rules fail `biome check` on any other mention, each with its own allowlist in `biome.json`:
+`selected-session.grit` (`selectedSession`), `selection-listener.grit` (`onSelectedSession`: also the rail, which
+ends its pending highlight on a commit, and the editor, whose one Monaco host presents the session on screen) and
+`active-backend.grit` (`activeBackendId`; given a session, its backend is `backendIdOf(session)`). Each rule matches
+the name as an identifier, an import or export name, or a string or template literal, so an alias, a re-export and
+`bridge["selectedSession"]` all fail; `src/selection-lint.test.ts` runs Biome over those fixtures. Unlinted, because
+they name no session or address: `isSelected`, `requireOnScreen`, `registerViewFeature` and `whileOnScreen`
+(scoped to the session they install for), and `activeBackendPhase`/`activeBackendOffline` (the status shown for
+the backend on screen). The registry's session-less dispatchers (`dispatchCommand`, `runCommandWithFeedback`,
+`captureCommandRunner`) capture the selection as a command starts; a surface that holds a session dispatches in
+it instead.
+
+The rules are syntactic, so they cannot see a value once it has left an allowed file: a session `App.tsx` passes
+down, or one a view-feature installer receives, can still be kept past its scope and used as a target later; an
+allowed file can export a new accessor; and a property name computed at run time (`bridge[name]`) names nothing to
+match. Those stay review's to catch.
+
 The repo of a worktree is git's answer (`git worktree list` from that worktree), never a stored copy. Restoring
-a workspace asks it for each saved session outside the home repo. A saved session git can't answer for, whose
-worktree is still on disk, stays in the store for a later start and is named in a startup notice.
+a workspace asks it for each saved session outside the home repo, all of them side by side. A saved session git
+can't place, whose worktree is still on disk, stays listed with a startup notice that says why, and can't be
+loaded. It returns to its repo, loaded if it was saved loaded, at a later start once git can place it; deleting
+it drops the session and keeps the folder.
 
 ## Sessions
 
-- The home folder keeps one always-present session. When it is a repository, its existing worktrees are listed
-  as dormant sessions.
+- A workspace opens with a session on its home folder. Weavie did not make that folder, so deleting the session
+  drops it and keeps the folder; it stays deleted across restarts until Open Home Folder Session
+  (`weavie.session.openHome`) or opening the branch checked out there brings it back. When the home folder is a
+  repository, its existing worktrees are listed as dormant sessions.
 - Any other repo shows only the sessions created in this workspace.
 - `weavie.session.new` takes `repo`, the folder of any repository on the host or of one of its worktrees
   (relative to the invoking session's worktree, `~` allowed), defaulting to the invoking session's repo. A folder
   inside a repository names none, and a start from no session has to name its repo. An agent asked to "create a session for the
-  infra changes" passes the infra path. The new-session composer lists the workspace's repos, preselecting the
-  selected session's, and takes a typed path for any other; it always sends the repo it shows.
+  infra changes" passes the infra path. The new-session composer lists the home folder's repo and every repo the
+  workspace has had a session in while its folder exists, preselecting the selected session's, and takes a typed
+  path for any other; it always sends the repo it shows. `weavie.session.forgetRepo` drops a remembered repo
+  that has no session here.
 - A repo joins the workspace once a session's worktree exists in it and leaves with its last session, so a
   refused start configures nothing.
 - Fork, Open PR, and `base: "source"` stay in the source session's repo.
@@ -105,6 +137,12 @@ through that repository's git, so what a repository ignores stays out of it.
 - a plain home folder hosts a session in a repository beneath it;
 - the first session in a repo runs its auto-configured setup command;
 - a refused start leaves the repo out of the workspace, and a repo leaves with its last session;
-- a saved session whose repo is unreachable at startup is restored by a later start;
+- a saved session whose repo is unreachable at startup stays listed, is deleted with its folder kept, and
+  returns to its repo at a later start;
+- the home folder's session is deleted with its folder kept, stays deleted across a restart, and is reopened by
+  command;
+- a repo is still offered for a new session after its last session and a restart, until its folder is gone or
+  it is forgotten;
+- a restart restores several sessions of one other repo into that one repo;
 - repo labels appear on every chip with two repos and on none with one;
 - an agent creates a session in another repo with `weavie.session.new` and reads it through `listSessions`.

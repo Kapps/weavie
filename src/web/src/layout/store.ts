@@ -1,5 +1,5 @@
-import { createMemo, createSignal } from "solid-js";
-import { hostConnection, registerHostFeature, selectedSession } from "../bridge";
+import { type Accessor, createMemo, createSignal } from "solid-js";
+import { hostConnection, registerHostFeature } from "../bridge";
 import type { LayoutDocument, LayoutNode, ToolKind } from "./types";
 
 // The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the agent and
@@ -44,10 +44,10 @@ registerHostFeature((connection) => {
   };
 });
 
-/** The active backend's most recent layout document, or null until its first push arrives. */
-export const layoutDocument = createMemo<LayoutDocument | null>(
-  () => documents().get(selectedSession()?.connection.id ?? "") ?? null,
-);
+/** One backend's most recent layout document (null until its first push), notifying only when it changes. */
+export const createLayoutDocument = (
+  backendId: () => string | null,
+): Accessor<LayoutDocument | null> => createMemo(() => documents().get(backendId() ?? "") ?? null);
 
 /** Commits a resize to the backend that owned the gesture. */
 export async function resizeLayout(

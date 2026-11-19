@@ -1,4 +1,4 @@
-import { type ClientSession, selectedSession } from "../bridge";
+import { type ClientSession, isSelected } from "../bridge";
 import { basename } from "./fs-path";
 import {
   type ActivateResult,
@@ -71,8 +71,7 @@ export function createTabActions(deps: {
   const activate = (tab: TabOwner | undefined): boolean => {
     if (tab === undefined) return false;
     tab.assertLive();
-    if (selectedSession() !== tab.session)
-      throw new Error("The tab's session is no longer displayed.");
+    if (!isSelected(tab.session)) throw new Error("The tab's session is no longer displayed.");
     deps.depart(tab.session);
     const result = activateTabFor(tab.session, tab.entry.path);
     deps.present(tab.session, result);
@@ -112,8 +111,7 @@ export function createTabActions(deps: {
             tabOwnerFor(session, reopen.path) !== undefined
           )
             return false;
-          if (selectedSession() !== session)
-            throw new Error("The tab's session is no longer displayed.");
+          if (!isSelected(session)) throw new Error("The tab's session is no longer displayed.");
           stack.splice(stack.indexOf(reopen), 1);
           deps.depart(session);
           const result = openTabFor(session, reopen.path, { kind: tabKind(reopen) });

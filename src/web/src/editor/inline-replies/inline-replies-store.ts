@@ -8,10 +8,10 @@ import {
 } from "../../agent/composer-store";
 import { hasSubmission } from "../../agent/inline-reply";
 import { agentPaneModel } from "../../agent/pane-store";
-import { type ClientSession, selectedSession } from "../../bridge";
-import { setContext } from "../../commands/context";
+import type { ClientSession } from "../../bridge";
 import { type CommandHandler, registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { onScreenContext } from "../../messaging/on-screen";
 import { createSessionOwnedResource } from "../../messaging/session-owned-state";
 import { notify } from "../../notify/notify";
 import { editorContexts } from "../editor-context";
@@ -266,6 +266,4 @@ registerCommand(
   }),
 );
 
-createRoot(() =>
-  createEffect(() => setContext("agentInlineReplies", inlineReplies(selectedSession()).length > 0)),
-);
+onScreenContext("agentInlineReplies", (session) => inlineReplies(session).length > 0);

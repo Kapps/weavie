@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { selectedSession } from "../../bridge";
+import { isSelected } from "../../bridge";
 import { modalActive, requestModal } from "../../chrome/modal-state";
 import { createPanZoom } from "../pan-zoom";
 import type { EmbedZoomState } from "./embed-zoom";
@@ -87,12 +87,7 @@ export function EmbedLightbox(props: {
         : restoreZoomIndex === null
           ? null
           : currentZoomButton(restoreZoomIndex);
-      if (
-        !modalActive() &&
-        selectedSession() === session &&
-        focusStayedInModal &&
-        target?.isConnected
-      ) {
+      if (!modalActive() && isSelected(session) && focusStayedInModal && target?.isConnected) {
         target.focus();
       }
     });

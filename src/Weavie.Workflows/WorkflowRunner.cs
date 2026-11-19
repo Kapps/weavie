@@ -87,9 +87,9 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 			_definition = read.Definition;
 			_execution = CreateExecution();
-			if (_execution.Stage.Run.Context != WorkflowContext.Continue && run.Phase != WorkflowPhase.Paused
+			if (_execution.Conversation is not null && run.Phase != WorkflowPhase.Paused
 				&& run.Decision != WorkflowDecisionKind.If
-				&& run.Kickoff is not { Context: not WorkflowContext.Continue }) {
+				&& run.Kickoff is not { Conversation: not null }) {
 				_execution.ConversationEnded("The stage conversation ended when the session unloaded or restarted. Resume to continue.");
 				return;
 			}
@@ -182,7 +182,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 
 	private string CompleteStageLocked(JsonElement outputs, string summary) {
 		lock (_gate) {
-			bool independent = _execution!.Stage.Run.Context != WorkflowContext.Continue;
+			bool independent = _execution!.Conversation is not null;
 			var completion = Transitions().Complete(Live(), outputs, summary);
 			Commit(completion.Step.Run, completion.Step.Effects, replaceDecision: true, completed: true);
 			if (completion.Errors.Count > 0) {
@@ -209,7 +209,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// </summary>
 	public void FailTurn(WorkflowKickoff turn, string reason) {
 		ArgumentNullException.ThrowIfNull(turn);
-		Mutate(null, run => Transitions().Fail(turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages ? run with { PromptImagesSent = false } : run, reason));
+		Mutate(null, run => Transitions().Fail(turn.Conversation is null && turn.CarriesPromptImages ? run with { PromptImagesSent = false } : run, reason));
 	}
 
 	/// <summary>
@@ -222,8 +222,22 @@ public sealed partial class WorkflowRunner : IDisposable {
 		}
 	}
 
-	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
-	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback), completed: true);
+	/// <summary>
+	/// The user answers run <paramref name="runId"/>'s question number <paramref name="question"/> with
+	/// <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).
+	/// </summary>
+	public void Answer(string runId, int question, string choice, string feedback) =>
+		Mutate(runId, run => Transitions().Answer(run, question, choice, feedback), completed: true);
+
+	/// <summary>
+	/// The conversation of <paramref name="turn"/>, which its stages had used, can't be restored: the run pauses naming
+	/// <paramref name="lost"/>, and Resume continues in a new one. Nothing changes once the run no longer owes the turn.
+	/// </summary>
+	public void ConversationLost(WorkflowKickoff turn, WorkflowConversationRef lost, string reason) {
+		lock (_gate) {
+			if (Owes(turn)) Apply(Transitions().ConversationLost(_run!, lost, reason));
+		}
+	}
 
 	/// <summary>The user resumes paused run <paramref name="runId"/>.</summary>
 	public void Resume(string runId) => Mutate(runId, run => Transitions().Resume(run));
@@ -231,8 +245,8 @@ public sealed partial class WorkflowRunner : IDisposable {
 	/// <summary>The user moves run <paramref name="runId"/> to <paramref name="stage"/>.</summary>
 	public void Jump(string runId, string stage) => Mutate(runId, run => Transitions().Jump(run, stage));
 
-	/// <summary>The user cancels run <paramref name="runId"/>.</summary>
-	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
+	/// <summary>The user cancels run <paramref name="runId"/>, even one whose saved definition no longer reads.</summary>
+	public void Cancel(string runId) => Mutate(runId, WorkflowTransitions.Cancel);
 
 	/// <summary>
 	/// The agent that runs stage <paramref name="stage"/> of the run's definition: its pinned agent or its role's, or
@@ -242,12 +256,16 @@ public sealed partial class WorkflowRunner : IDisposable {
 		lock (_gate) {
 			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
 			var run = _run ?? throw new WorkflowException("This session has no workflow run.");
-			var open = definition.Stages.First(s => s.Id == stage);
-			return definition.AgentOf(open, run.Roles) ?? (open.Run.Role is { } role
-				? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
-				: null);
+			return AgentOf(definition, run, definition.Stage(stage));
 		}
 	}
+
+	// A role never runs on the session's own model, so a role the run didn't fill is an error.
+	private static WorkflowAgent? AgentOf(WorkflowDefinition definition, WorkflowRun run, WorkflowStage stage) =>
+		definition.AgentOf(stage, run.Roles) ?? ((definition.Opener(stage) ?? stage).Role is { } role
+			? throw new WorkflowException($"Run {run.Id} has no agent saved for role \"{role}\"; cancel it and start it again.")
+			: null);
+
 
 	/// <summary>Whether the run still owes exactly <paramref name="turn"/>.</summary>
 	public bool Owes(WorkflowKickoff turn) {
@@ -281,7 +299,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 				return false;
 			}
 
-			Commit(_run! with { Kickoff = null, PromptImagesSent = _run.PromptImagesSent || turn.Context == WorkflowContext.Continue && turn.CarriesPromptImages, Unreported = turn.Context == WorkflowContext.Continue ? "" : _run.Unreported }, []);
+			Commit(WorkflowTransitions.Claim(_run!, turn), []);
 			return true;
 		}
 	}

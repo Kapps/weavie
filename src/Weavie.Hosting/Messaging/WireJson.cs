@@ -94,6 +94,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(OpenPathRequest))]
 [JsonSerializable(typeof(RefLinkBase))]
 [JsonSerializable(typeof(HostCore.SessionCatalogEntry[]))]
+[JsonSerializable(typeof(HostCore.KnownRepo[]))]
 [JsonSerializable(typeof(SessionStatusChanged))]
 [JsonSerializable(typeof(SessionActivityChanged))]
 [JsonSerializable(typeof(SessionRunChanged))]

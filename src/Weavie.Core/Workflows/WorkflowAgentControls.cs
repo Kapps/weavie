@@ -23,8 +23,8 @@ public static class WorkflowAgentControls {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(provider);
 		bool structured = provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
-		foreach (var stage in definition.Stages) {
-			if (stage.Run.Context != WorkflowContext.Continue && !structured) {
+		foreach (var stage in definition.All) {
+			if (stage.Context != WorkflowContext.Continue && !structured) {
 				return $"Stage \"{stage.Id}\" requires its own conversation; {provider.Name} runs in a terminal.";
 			}
 			if (Asks(stage) is not { } asks) continue;
@@ -49,7 +49,7 @@ public static class WorkflowAgentControls {
 	public static string NoModelChoice(WorkflowDefinition definition, string role, AgentProviderInfo provider) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(provider);
-		var stage = definition.Stages.First(s => s.Run.Role == role);
+		var stage = definition.All.First(s => s.Role == role);
 		return $"Stage \"{stage.Id}\" runs on role \"{role}\", but {provider.Name} offers no model to choose.";
 	}
 
@@ -76,7 +76,7 @@ public static class WorkflowAgentControls {
 
 	// What a stage asks to run on, for refusals: its pinned agent or its role.
 	private static string? Asks(WorkflowStage stage) =>
-		stage.Run.Agent is { } agent ? $"agent \"{agent}\"" : stage.Run.Role is { } role ? $"role \"{role}\"" : null;
+		stage.Agent is { } agent ? $"agent \"{agent}\"" : stage.Role is { } role ? $"role \"{role}\"" : null;
 
 	/// <summary>The model <paramref name="agent"/> sets for stage <paramref name="stage"/>, or <see langword="null"/> when it names none.</summary>
 	public static AgentControlValue? Model(string stage, WorkflowAgent agent, IReadOnlyList<AgentControlAxis> axes) {

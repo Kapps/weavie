@@ -14,7 +14,9 @@ public sealed partial class HostCoreWorkflowConversationTests {
 		description: Review in an owned conversation.
 		stages:
 		  - id: review
-		    run: { context: CONTEXT, prompt: review the change, outputs: { note: text } }
+		    context: CONTEXT
+		    run: { prompt: review the change }
+		    outputs: { note: text }
 		    then:
 		      ask: "Accept {{review.note}}?"
 		      by: user

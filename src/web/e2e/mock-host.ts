@@ -28,7 +28,6 @@ export interface MockSession {
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   lastActiveAt: number | null;
-  workspaceCheckout: boolean;
   reloadRequired: string | null;
   external: boolean;
   repo: string;
@@ -99,7 +98,6 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     status: "idle",
     lastActiveAt: null,
     unseen: false,
-    workspaceCheckout: false,
     reloadRequired: null,
     external: false,
     repo: "/workspace",
@@ -874,6 +872,7 @@ export class MockHost {
         deviceSettings: this.deviceSettings,
       },
       repos: [],
+      knownRepos: [{ repo: "/workspace", label: "workspace" }],
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
       commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },

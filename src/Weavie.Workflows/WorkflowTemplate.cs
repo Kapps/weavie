@@ -64,7 +64,7 @@ public sealed partial class WorkflowTemplate {
 			var match = ReferencePattern().Match(text[(open + 2)..close]);
 			if (!match.Success) {
 				return Fail(
-					$"\"{text[open..(close + 2)]}\" must be {{{{run.prompt}}}}, {{{{run.documents}}}}, {{{{inputs.<name>}}}} or {{{{<stage>.<output>}}}}",
+					$"\"{text[open..(close + 2)]}\" must be {{{{run.prompt}}}}, {{{{run.documents}}}}, {{{{inputs.<name>}}}}, {{{{<stage>.<output>}}}}, or {{{{<stage>.item}}}}",
 					out template, out error);
 			}
 
@@ -76,6 +76,13 @@ public sealed partial class WorkflowTemplate {
 		template = new WorkflowTemplate(text, parts);
 		error = "";
 		return true;
+	}
+
+	/// <summary>Whether the template is exactly one reference, with no other text.</summary>
+	public bool IsSingleReference(out WorkflowReference reference) {
+		var parts = _parts.Where(part => part is not string { Length: 0 }).ToList();
+		reference = parts is [WorkflowReference only] ? only : null!;
+		return parts.Count == 1 && parts[0] is WorkflowReference;
 	}
 
 	/// <summary>Renders with each reference replaced by its resolved value.</summary>

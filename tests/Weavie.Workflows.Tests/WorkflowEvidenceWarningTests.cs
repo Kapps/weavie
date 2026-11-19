@@ -12,7 +12,7 @@ public sealed class WorkflowEvidenceWarningTests {
 		  - id: draft
 		    run:
 		      prompt: Write the evidence.
-		      outputs: { document: files, video: files, note: text }
+		    outputs: { document: files, video: files, note: text }
 		    then:
 		      ask: 'Review README.md?'
 		      choices: { approve: done, revise: draft }

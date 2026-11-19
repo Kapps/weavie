@@ -1,0 +1,11 @@
+language js
+
+// The name as an identifier, an export name, or a string or template literal (`bridge["selectedSession"]`).
+or {
+  `selectedSession`,
+  JsLiteralExportName() as $export where { $export <: r"^selectedSession$" },
+  JsStringLiteralExpression() as $string where { $string <: r"^[\"']selectedSession[\"']$" },
+  JsTemplateExpression() as $template where { $template <: r"^`selectedSession`$" }
+} as $read where {
+  register_diagnostic(span=$read, message="selectedSession is read only where a render or a command starts (the files biome.json excludes from this rule). Take the session as a parameter or prop, use the command's context.session, or capture it when the surface opens; to ask whether a session is the one on screen, call isSelected(session) (docs/specs/multi-repo-workspaces.md)", severity="error")
+}

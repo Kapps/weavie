@@ -1,10 +1,10 @@
 import { FolderMinus, TriangleAlert } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
-import { activeBackendPhase } from "../bridge";
+import { activeBackendPhase, type ClientSession } from "../bridge";
 import { isDirtyPath } from "../editor/dirty-store";
 import { editorStatus } from "../editor/editor-status-store";
 import { activeFileOutsideWorkspace } from "../editor/file-scope";
-import { activePath } from "../editor/session-store";
+import { activePathFor } from "../editor/session-store";
 import { RecentFilesButton } from "./RecentFilesButton";
 
 // Every line maps to a gate that is genuinely off for a file outside the checkout: WorktreeRelativePath,
@@ -26,16 +26,17 @@ const outsideRepoDetail = (root: string): string =>
  * always present so Recent Files stays reachable even with no file open.
  */
 export function EditorFooter(props: {
+  session: ClientSession | null;
   onOpenRecent: (path: string) => void;
   root: () => string;
 }): JSX.Element {
   const isDirty = (): boolean => {
-    const path = activePath();
-    return path !== null && isDirtyPath(path);
+    const path = activePathFor(props.session);
+    return path !== null && isDirtyPath(props.session, path);
   };
   return (
     <div class="pane-footer">
-      <Show when={editorStatus()}>
+      <Show when={editorStatus(props.session)}>
         {(status) => (
           <span class="footer-seg">
             Ln {status().line}, Col {status().column}
@@ -44,7 +45,7 @@ export function EditorFooter(props: {
         )}
       </Show>
       <span class="footer-spacer" />
-      <Show when={activeFileOutsideWorkspace()}>
+      <Show when={activeFileOutsideWorkspace(props.session)}>
         <span
           class="footer-seg footer-outside-repo"
           role="status"
@@ -71,10 +72,10 @@ export function EditorFooter(props: {
       <Show when={isDirty()}>
         <span class="footer-seg footer-accent">Unsaved</span>
       </Show>
-      <Show when={editorStatus()}>
+      <Show when={editorStatus(props.session)}>
         {(status) => <span class="footer-seg">{status().eol}</span>}
       </Show>
-      <RecentFilesButton onOpen={props.onOpenRecent} root={props.root} />
+      <RecentFilesButton session={props.session} onOpen={props.onOpenRecent} root={props.root} />
     </div>
   );
 }

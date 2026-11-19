@@ -187,6 +187,15 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
+	public async Task OpenHome_InvokesHost() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.OpenHomeSession, "{}", CancellationToken.None);
+
+		Assert.True(host.OpenHomeCalled);
+	}
+
+	[Fact]
 	public async Task Delete_ParsesId_AndForce() {
 		var (dispatcher, host) = NewWired();
 
@@ -195,6 +204,15 @@ public sealed class SessionCommandsTests {
 		Assert.True(host.DeleteCalled);
 		Assert.Equal("abcd", host.LastDeletedId);
 		Assert.True(host.LastDeleteForce);
+	}
+
+	[Fact]
+	public async Task Delete_ConfirmedAsKeepingItsFolder_AsksForThatOnly() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"force\":true,\"keepFolder\":true}", CancellationToken.None);
+
+		Assert.Equal(SessionDeleteConsent.KeepFolder, host.LastDeleteConsent);
 	}
 
 	[Fact]
@@ -241,6 +259,8 @@ public sealed class SessionCommandsTests {
 
 		public bool LoadCalled { get; private set; }
 
+		public bool OpenHomeCalled { get; private set; }
+
 		public string? LastUnloadedId { get; private set; }
 
 		public bool UnloadCalled { get; private set; }
@@ -250,6 +270,8 @@ public sealed class SessionCommandsTests {
 		public string? LastDeletedId { get; private set; }
 
 		public bool LastDeleteForce { get; private set; }
+
+		public SessionDeleteConsent LastDeleteConsent { get; private set; }
 
 		public bool DeleteCalled { get; private set; }
 
@@ -279,6 +301,14 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("loaded"));
 		}
 
+		public Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct = default) {
+			OpenHomeCalled = true;
+			return Task.FromResult(CommandResult.Success("opened"));
+		}
+
+		public Task<CommandResult> ForgetRepoAsync(string? repo, CancellationToken ct = default) =>
+			Task.FromResult(CommandResult.Success("forgot"));
+
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
 			bool stopBackgroundWork,
@@ -295,13 +325,14 @@ public sealed class SessionCommandsTests {
 
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			SessionDeleteConsent consent,
 			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct = default) {
 			DeleteCalled = true;
 			LastDeletedId = sessionId;
-			LastDeleteForce = force;
+			LastDeleteForce = consent == SessionDeleteConsent.LoseWork;
+			LastDeleteConsent = consent;
 			return Task.FromResult(CommandResult.Success("deleted"));
 		}
 

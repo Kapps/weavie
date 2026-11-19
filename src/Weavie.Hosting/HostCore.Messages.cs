@@ -223,25 +223,26 @@ public sealed partial class HostCore {
 				? await NewSessionFromHostAsync(args, home, ct).ConfigureAwait(false)
 				: CommandResult.Failure("This page hasn't connected yet."),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
-				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+				null, id, ReadString(args, "agentProviderId"), SessionCommands.Flag(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.ReloadSession => await ReloadSessionAsync(
-				null, id, ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+				null, id, SessionCommands.Flag(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.OpenHomeSession => await OpenHomeSessionAsync(ct).ConfigureAwait(false),
+			SessionCommands.ForgetRepo => await ForgetRepoAsync(ReadString(args, "repo"), ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
 				id,
-				ReadBool(args, "stopBackgroundWork"),
+				SessionCommands.Flag(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
-			SessionCommands.DeleteSession when args is { } deleteArgs
-				&& ReadBool(deleteArgs, "classify") =>
-					await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.DeleteSession when SessionCommands.Flag(args, "classify") =>
+				await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.DeleteSession => await DeleteSessionAsync(
 				null,
 				id,
-				ReadBool(args, "force"),
-				ReadBool(args, "stopBackgroundWork"),
+				SessionCommands.DeleteConsent(SessionCommands.Flag(args, "force"), SessionCommands.Flag(args, "keepFolder")),
+				SessionCommands.Flag(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			_ => CommandResult.Failure($"'{message.Id}' is not a host-scoped session command."),
@@ -307,11 +308,6 @@ public sealed partial class HostCore {
 			? value.GetString()
 			: null;
 
-	private static bool ReadBool(JsonElement? args, string name) =>
-		args is { ValueKind: JsonValueKind.Object } element
-		&& element.TryGetProperty(name, out var value)
-		&& value.ValueKind == JsonValueKind.True;
-
 	private async Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
 		HostBranchPreviewRequest message,
 		CancellationToken ct) {
@@ -349,6 +345,7 @@ public sealed partial class HostCore {
 					ParseJsonElement(_global.DeviceSettingsJson()))
 				: null,
 			RepoStates(),
+			KnownRepos(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
 			BuildCommandUsage(),
@@ -434,6 +431,7 @@ public sealed partial class HostCore {
 		JsonElement Layout,
 		HomeSnapshot? Home,
 		RepoState[] Repos,
+		KnownRepo[] KnownRepos,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);

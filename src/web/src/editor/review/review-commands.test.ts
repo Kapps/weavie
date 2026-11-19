@@ -8,7 +8,7 @@ const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
   tab: undefined as TabOwner | undefined,
 }));
-vi.mock("../../bridge", () => ({ selectedSession: () => env.selected }));
+vi.mock("../../bridge", () => ({ isSelected: (session: unknown) => session === env.selected }));
 vi.mock("../session-store", () => ({
   activeTabFor: (session: ClientSession) => (session === env.selected ? env.tab : undefined),
 }));

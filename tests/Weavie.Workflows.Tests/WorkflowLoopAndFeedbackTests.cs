@@ -10,7 +10,8 @@ public sealed class WorkflowLoopAndFeedbackTests {
 		description: loops
 		stages:
 		  - id: review
-		    run: { prompt: review, outputs: { findings: text } }
+		    run: { prompt: review }
+		    outputs: { findings: text }
 		    then:
 		      ask: "next?"
 		      choices: { fix: fix, retest: retest, ok: wrap }
@@ -22,7 +23,8 @@ public sealed class WorkflowLoopAndFeedbackTests {
 		    run: { prompt: retest }
 		    then: review
 		  - id: wrap
-		    run: { prompt: wrap, outputs: { left: list } }
+		    run: { prompt: wrap }
+		    outputs: { left: list }
 		    then:
 		      ask: "anything left?"
 		      choices: { more: review, none: done }
@@ -40,7 +42,8 @@ public sealed class WorkflowLoopAndFeedbackTests {
 		      choices: { approve: tasks, skip: done, polish: polish }
 		  - id: polish
 		    if: { ask: "polish it?", by: user }
-		    run: { prompt: polish, outputs: { x: text } }
+		    run: { prompt: polish }
+		    outputs: { x: text }
 		    then: done
 		  - id: tasks
 		    if: "is the design big?"

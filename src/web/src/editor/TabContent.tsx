@@ -14,7 +14,7 @@ import {
   Switch,
 } from "solid-js";
 import type { BlocksTabViewState } from "../agent/AgentBlocksTab";
-import { type ClientSession, selectedSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
 import MediaPane, { type EditorPanePresence } from "./media/MediaPane";
@@ -186,13 +186,14 @@ function ActiveTabContent(props: {
 /** Restored tabs stay dormant until selected; only browsing contexts need retention while hidden. */
 export default function TabContent(props: {
   controller: EditorController;
+  // The session on screen, whose active tab is the one shown.
+  session: ClientSession | null;
   sessions: () => ClientSession[];
   pane: EditorPanePresence;
 }): JSX.Element {
-  const active = createMemo(() => {
-    const session = selectedSession();
-    return session === null ? undefined : activeTabFor(session);
-  });
+  const active = createMemo(() =>
+    props.session === null ? undefined : activeTabFor(props.session),
+  );
   createEffect(() => {
     if (active() === undefined) setContext("diffActive", false);
   });

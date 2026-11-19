@@ -22,7 +22,8 @@ public sealed class HostCoreWorkflowTests {
 		description: a stage the user approves, then a stage the model decides on
 		stages:
 		  - id: draft
-		    run: { prompt: "write the draft", outputs: { note: text } }
+		    run: { prompt: "write the draft" }
+		    outputs: { note: text }
 		    then:
 		      ask: "Approve the draft {{draft.note}}?"
 		      by: user
@@ -98,16 +99,22 @@ public sealed class HostCoreWorkflowTests {
 		Assert.Contains("Weavie now asks the user: Approve the draft v1?", session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s"), StringComparison.Ordinal);
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
 			&& line.Value.GetProperty("reason").GetString() == "Approve the draft v1?");
+		int question = session.Workflow.Current!.Asked!.Id;
 		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
-			new { run = "r-other", choice = "revise", feedback = "x" }, CancellationToken.None)).Ok);
+			new { run = "r-other", question, choice = "revise", feedback = "x" }, CancellationToken.None)).Ok);
 		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
-			new { run = runId, choice = "maybe" }, CancellationToken.None)).Ok);
+			new { run = runId, question, choice = "maybe" }, CancellationToken.None)).Ok);
+		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = runId, choice = "revise" }, CancellationToken.None)).Ok);
+		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = runId, question = question + 1, choice = "revise" }, CancellationToken.None)).Ok);
 		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
-			new { run = runId, choice = "revise", feedback = "shorter please" }, CancellationToken.None)).Ok);
+			new { run = runId, question, choice = "revise", feedback = "shorter please" }, CancellationToken.None)).Ok);
 		await WaitForEchoAsync(host, session, "The user answered \"revise\" to \"Approve the draft v1?\"");
 
 		session.Workflow.CompleteStage(Json("""{"note":"v2"}"""), "s");
-		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer, new { run = runId, choice = "approve" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = runId, question = session.Workflow.Current!.Asked!.Id, choice = "approve" }, CancellationToken.None)).Ok);
 		await WaitForEchoAsync(host, session, "polish v2");
 
 		session.Workflow.CompleteStage(Json("{}"), "s");
@@ -125,12 +132,13 @@ public sealed class HostCoreWorkflowTests {
 		var session = host.Session("wf");
 		var run = session.Workflow.Start("flow", Json("{}"));
 		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
-		session.Workflow.Answer(run.Id, "approve", "");
+		session.Workflow.Answer(run.Id, session.Workflow.Current!.Asked!.Id, "approve", "");
 		session.Workflow.CompleteStage(Json("{}"), "s");
 
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
 			&& line.Value.GetProperty("reason").GetString() == "Is v1 polished? (the decision confidence 0.79 is below the required 0.8)");
-		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer, new { run = run.Id, choice = "yes" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = run.Id, question = session.Workflow.Current!.Asked!.Id, choice = "yes" }, CancellationToken.None)).Ok);
 		await WaitForRunLineAsync(host, session, line => line is null);
 	}
 
@@ -283,7 +291,7 @@ public sealed class HostCoreWorkflowTests {
 		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
 
 		session.Status.Observe(new AgentPromptSubmitted(null, "busy"));
-		session.Workflow.Answer(run.Id, "approve", "");
+		session.Workflow.Answer(run.Id, session.Workflow.Current!.Asked!.Id, "approve", "");
 		if (retire == "cancel") session.Workflow.Cancel(run.Id);
 		else session.Workflow.FailStage("stuck");
 		session.Status.Observe(new AgentTurnStopped(false));

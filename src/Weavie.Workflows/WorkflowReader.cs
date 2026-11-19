@@ -54,48 +54,57 @@ internal static class WorkflowReader {
 						: new Dictionary<string, string>(),
 				})]
 				: [],
-			Stages = Resolve([.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))]),
+			Stages = [.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))],
 			SourceText = text,
 		};
+		definition = definition with { Stages = Resolve(definition.Stages) };
 		WorkflowSemantics.Check(definition, fileId(definition), check);
 		return check.HasErrors ? Failed(check.Diagnostics) : new WorkflowReadResult { Definition = definition, Diagnostics = check.Diagnostics };
 	}
 
-	// A reusing stage opens its conversation as the stage it names does; WorkflowSemantics reports a name that can't.
-	private static List<WorkflowStage> Resolve(List<WorkflowStage> stages) => [.. stages.Select(stage =>
-		stage.Run.Reuse is { } reused && stages.FirstOrDefault(s => s.Id == reused) is { Run.Reuse: null, Run.Context: not WorkflowContext.Continue } opener
-			? stage with { Run = stage.Run with { Context = opener.Run.Context } }
-			: stage)];
+	// A reusing stage opens its conversation as the sibling it names does, and a copied output takes its source's type;
+	// WorkflowSemantics reports a name that can't.
+	private static List<WorkflowStage> Resolve(IReadOnlyList<WorkflowStage> stages) => [.. stages.Select(stage => {
+		var children = Resolve(stage.Stages);
+		return stage with {
+			Stages = children,
+			Context = stage.Reuse is { } reused && stages.FirstOrDefault(s => s.Id == reused) is { Reuse: null, Context: not WorkflowContext.Continue } opener
+				? opener.Context : stage.Context,
+			Outputs = [.. stage.Outputs.Select(output => output.Source is { } source
+				&& (stage with { Stages = children }).Copied(source) is { } copied ? output with { Type = copied.Type } : output)],
+		};
+	})];
 
 	private static WorkflowStage ReadStage(JsonObject stage, string path, WorkflowCheck check) {
-		var work = stage["run"]!.AsObject();
+		var stages = stage["stages"] is JsonArray list
+			? [.. list.Select((child, i) => ReadStage(child!.AsObject(), $"{path}.stages[{i}]", check))]
+			: new List<WorkflowStage>();
 		return new WorkflowStage {
 			Id = Text(stage["id"]),
 			If = stage["if"] is { } condition ? Question(condition, $"{path}.if", check) : null,
-			Run = new WorkflowWork {
-				Context = work["context"] switch {
-					null => WorkflowContext.Continue,
-					JsonObject => WorkflowContext.Fresh,
-					var context => Text(context) switch {
-						"continue" => WorkflowContext.Continue,
-						"fork" => WorkflowContext.Fork,
-						"fresh" => WorkflowContext.Fresh,
-						_ => throw new InvalidOperationException("The workflow schema accepted an unknown conversation context."),
-					},
+			Foreach = Template(stage["foreach"], $"{path}.foreach", check),
+			Context = stage["context"] switch {
+				null => WorkflowContext.Continue,
+				JsonObject => WorkflowContext.Fresh,
+				var context => Text(context) switch {
+					"continue" => WorkflowContext.Continue,
+					"fork" => WorkflowContext.Fork,
+					"fresh" => WorkflowContext.Fresh,
+					_ => throw new InvalidOperationException("The workflow schema accepted an unknown conversation context."),
 				},
-				Reuse = work["context"] is JsonObject reuse ? Text(reuse["reuse"]) : null,
+			},
+			Reuse = stage["context"] is JsonObject reuse ? Text(reuse["reuse"]) : null,
+			Agent = stage["agent"] is { } agent ? Text(agent) : null,
+			Role = stage["role"] is { } role ? Text(role) : null,
+			Run = stage["run"] is JsonObject work ? new WorkflowWork {
 				Prompt = Template(work["prompt"], $"{path}.run.prompt", check),
 				Skill = work["skill"] is null ? null : Text(work["skill"]),
 				Args = Template(work["args"], $"{path}.run.args", check),
-				Outputs = work["outputs"] is JsonObject outputs
-					? [.. outputs.Select(output => new WorkflowOutputSpec {
-						Name = output.Key,
-						Type = WorkflowValues.ParseType(Text(output.Value)),
-					})]
-					: [],
-				Agent = work["agent"] is { } agent ? Text(agent) : null,
-				Role = work["role"] is { } role ? Text(role) : null,
-			},
+			} : null,
+			Stages = stages,
+			Outputs = stage["outputs"] is JsonObject outputs
+				? [.. outputs.Select(output => Output(output.Key, Text(output.Value), stages.Count > 0, $"{path}.outputs.{output.Key}", check))]
+				: [],
 			Then = stage["then"] switch {
 				null => new WorkflowThen.Sequential(),
 				JsonObject decide => new WorkflowThen.Decide(
@@ -107,6 +116,19 @@ internal static class WorkflowReader {
 				var target => new WorkflowThen.Goto(Text(target)),
 			},
 		};
+	}
+
+	// A stage with work declares a type; a stage with stages names the output of one of them it copies.
+	private static WorkflowOutputSpec Output(string name, string value, bool holdsStages, string path, WorkflowCheck check) {
+		if (!holdsStages) {
+			if (WorkflowSchema.ValueTypes.Contains(value)) return new() { Name = name, Type = WorkflowValues.ParseType(value), Source = null };
+			check.Add(path, $"\"{value}\" is not a type; a stage with run declares text, url, list, files, or pr");
+		} else if (WorkflowTemplate.TryParse(value, out var template, out _) && template.IsSingleReference(out var source)) {
+			return new() { Name = name, Type = WorkflowValueType.Text, Source = source };
+		} else {
+			check.Add(path, "a stage with stages takes each output from one of its stages: \"{{stage.output}}\"");
+		}
+		return new() { Name = name, Type = WorkflowValueType.Text, Source = null };
 	}
 
 	// A question is text (the model answers) or a mapping with `ask` and an optional `by`.

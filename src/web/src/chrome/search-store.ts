@@ -1,5 +1,10 @@
 import { createMemo, createSignal } from "solid-js";
-import { onSelectedSession, type SearchMatch, selectedSession } from "../bridge";
+import {
+  type ClientSession,
+  registerViewFeature,
+  requireOnScreen,
+  type SearchMatch,
+} from "../bridge";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import {
   groupByFile,
@@ -48,6 +53,8 @@ const visible = createMemo(() => visibleOf(matches(), collapsed()));
 
 let debounceTimer = 0;
 let previewTimer = 0;
+// The session whose results the panel shows: the one on screen.
+let projected: ClientSession | null = null;
 interface ActiveSearch {
   controller: AbortController;
   requested: { query: string; options: SearchOptions };
@@ -60,7 +67,7 @@ const searches = createSessionOwnedResource<SessionSearchState>(
   () => ({}),
   (session, state) => {
     state.request?.controller.abort();
-    if (selectedSession() === session) {
+    if (projected === session) {
       window.clearTimeout(debounceTimer);
       window.clearTimeout(previewTimer);
       projectResult(undefined);
@@ -68,7 +75,7 @@ const searches = createSessionOwnedResource<SessionSearchState>(
   },
 );
 // How results open in the editor — injected by App (the editor controller), like setNotifySink.
-let opener: (match: SearchMatch, focus: boolean) => void = () => {};
+let opener: (session: ClientSession, match: SearchMatch, focus: boolean) => void = () => {};
 
 function clearResults(): void {
   setMatches([]);
@@ -115,9 +122,18 @@ function projectResult(result: SearchResult | undefined): void {
   setApplied(result.applied);
 }
 
-onSelectedSession((session) => {
-  window.clearTimeout(debounceTimer);
-  window.clearTimeout(previewTimer);
+registerViewFeature((session) => {
+  projected = session;
+  showSearchOf(session);
+  return () => {
+    window.clearTimeout(debounceTimer);
+    window.clearTimeout(previewTimer);
+    projected = null;
+    projectResult(undefined);
+  };
+});
+
+function showSearchOf(session: ClientSession): void {
   const state = searches.get(session);
   const active = state?.request;
   if (
@@ -131,17 +147,19 @@ onSelectedSession((session) => {
   }
   if (state?.result !== undefined && matchesDraft(state.result)) {
     projectResult(state.result);
-  } else if (session !== null && query().length > 0) {
+  } else if (query().length > 0) {
     clearResults();
     setPhase("searching");
     runSearch();
   } else {
     projectResult(undefined);
   }
-});
+}
 
 /** Injects how a result opens in the editor (App wires the editor controller's openMatch). */
-export function setSearchOpener(fn: (match: SearchMatch, focus: boolean) => void): void {
+export function setSearchOpener(
+  fn: (session: ClientSession, match: SearchMatch, focus: boolean) => void,
+): void {
   opener = fn;
 }
 
@@ -159,7 +177,7 @@ function runSearch(): void {
     return;
   }
   const requested = { query: q, options: options() };
-  const session = selectedSession();
+  const session = projected;
   if (session === null) {
     clearResults();
     setPhase("idle");
@@ -200,7 +218,7 @@ function runSearch(): void {
         applied: requested,
       };
       state.result = result;
-      if (selectedSession() === session) {
+      if (projected === session) {
         projectResult(result);
       }
     })
@@ -216,7 +234,7 @@ function runSearch(): void {
         applied: requested,
       };
       state.result = result;
-      if (selectedSession() === session) {
+      if (projected === session) {
         projectResult(result);
       }
     });
@@ -224,9 +242,8 @@ function runSearch(): void {
 
 function beginSearchIntent(): boolean {
   window.clearTimeout(previewTimer);
-  const session = selectedSession();
-  if (session !== null) {
-    const state = searches.get(session);
+  if (projected !== null) {
+    const state = searches.get(projected);
     state?.request?.controller.abort();
     if (state !== undefined) {
       delete state.request;
@@ -317,8 +334,8 @@ export function seedSearch(text: string | null): void {
 
 function openIndex(index: number, focus: boolean): void {
   const match = matches()[index];
-  if (match !== undefined) {
-    opener(match, focus);
+  if (match !== undefined && projected !== null) {
+    opener(projected, match, focus);
   }
 }
 
@@ -356,8 +373,12 @@ export function openSelected(): void {
   }
 }
 
-/** F4 stepping: jump to the next/previous result and open it focused. False when there are no results. */
-export function stepSearchResult(delta: number): boolean {
+/** F4 stepping through `session`'s results, opening the next/previous focused. False when there are none. */
+export function stepSearchResult(session: ClientSession | null, delta: number): boolean {
+  if (session === null) {
+    return false;
+  }
+  requireOnScreen(session);
   if (phase() !== "ready") {
     return false;
   }

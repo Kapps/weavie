@@ -41,8 +41,6 @@ export interface SessionChip {
   unseen: boolean;
   /** Why this session's state can no longer be trusted and it must be reloaded, or null. */
   reloadRequired: string | null;
-  /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
-  workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
   external: boolean;
   /** The root of the repo the session's checkout belongs to. */
@@ -358,6 +356,12 @@ export interface RepoState {
   testProfile: string;
   suggestions: Suggestion[];
   recentFiles: string[];
+}
+
+/** A repo a session can be started in, with the host's name for it. */
+export interface KnownRepo {
+  repo: string;
+  label: string;
 }
 
 export type ResizeEdge =

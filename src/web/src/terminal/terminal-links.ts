@@ -26,7 +26,7 @@ import { refLinkPrefixFor } from "./ref-link-store";
 // and "16/9.0" don't match — only a real relative/rooted path (a/b.ext, ./x.md, /home/u/a.ts, ~/n.log) does.
 // A bare issue/PR reference like #123 (Claude prints these) → the origin repo's forge page. The lookbehind
 // excludes an embedded/entity form (abc#1, ##, &#123;); no leading zero and no trailing word char reject
-// #0/#012 and #123abc. Only linked when the repo resolves to a forge (refLinkPrefix != null); "#fff" never
+// #0/#012 and #123abc. Only linked when the repo resolves to a forge (refLinkPrefixFor is non-null); "#fff" never
 // matches (\d only).
 
 function revealFile(session: ClientSession, matchText: string): void {

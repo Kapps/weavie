@@ -30,7 +30,7 @@ public sealed class HostCoreDecisionProviderTests {
 		Assert.Equal(SystemOne, Assert.Single(host.Http.Requests).RequestUri!.AbsoluteUri);
 		Assert.Equal("Is v1 polished?", body.GetProperty("questions").GetProperty("decision").GetProperty("instructions").GetString());
 		Assert.Equal(("Bearer", "ts-key"), (host.Http.Requests[0].Headers.Authorization!.Scheme, host.Http.Requests[0].Headers.Authorization!.Parameter));
-		session.Workflow.Answer(run, "yes", "");
+		session.Workflow.Answer(run, session.Workflow.Current!.Asked!.Id, "yes", "");
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(0, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
 	}
@@ -62,7 +62,7 @@ public sealed class HostCoreDecisionProviderTests {
 		var session = host.Session("wf");
 		var run = session.Workflow.Start("flow", Json("{}"));
 		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
-		session.Workflow.Answer(run.Id, "approve", "");
+		session.Workflow.Answer(run.Id, session.Workflow.Current!.Asked!.Id, "approve", "");
 		session.Workflow.CompleteStage(Json("{}"), "s");
 		return (session, run.Id);
 	}

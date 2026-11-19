@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, reloadAcpProviders, submitAcpDraft } from "./acp-session";
@@ -58,6 +59,36 @@ export async function workflowTool(surface: Locator, name: string, args: unknown
     .toBeTruthy();
   expect(reply).not.toContain(`${name} failed:`);
   return reply!;
+}
+
+/** The id of the workflow run saved for the session worktree, under `home`. */
+export async function savedRun(
+  home: string,
+): Promise<{ id: string; asked: { id: number } | null }> {
+  const workspaces = join(home, ".weavie", "workspaces");
+  for (const dir of await readdir(workspaces)) {
+    const file = join(workspaces, dir, "workflow-run.json");
+    const run = existsSync(file) ? JSON.parse(await readFile(file, "utf8")).run : null;
+    if (run) return run;
+  }
+  throw new Error("No workflow run was persisted.");
+}
+
+/** Gives `choice` to the question run `run` is asking, by the number Weavie saved for it. */
+export function answerArgs(run: string, question: number, choice: string, feedback: string) {
+  return { id: "weavie.workflow.answer", args: { run, question, choice, feedback } };
+}
+
+/** Answers the question the session's run is asking through the interactive fake agent. */
+export async function answerWorkflow(
+  surface: Locator,
+  home: string,
+  choice: string,
+  feedback: string,
+): Promise<string> {
+  const run = await savedRun(home);
+  if (run.asked === null) throw new Error(`Run ${run.id} is asking no question.`);
+  return workflowTool(surface, "runCommand", answerArgs(run.id, run.asked.id, choice, feedback));
 }
 
 /** Saves a workflow in the session worktree. */

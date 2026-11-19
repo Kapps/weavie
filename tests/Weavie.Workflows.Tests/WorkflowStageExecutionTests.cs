@@ -8,7 +8,7 @@ public sealed partial class WorkflowRunnerTests {
 	[InlineData(WorkflowPhase.Asking)]
 	[InlineData(WorkflowPhase.Deciding)]
 	public async Task EndingTheCurrentConversationPausesItsWorkOrDecisionAndPreservesResumeState(WorkflowPhase phase) {
-		string flow = Flow.Replace("run: { prompt: \"do a\"", "run: { context: fresh, prompt: \"do a\"", StringComparison.Ordinal);
+		string flow = Flow.Replace("run: { prompt: \"do a\"", "context: fresh\n    run: { prompt: \"do a\"", StringComparison.Ordinal);
 		if (phase == WorkflowPhase.Deciding) flow = flow.Replace("by: user", "by: model", StringComparison.Ordinal);
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", flow);
 		using var runner = Runner();
@@ -42,7 +42,7 @@ public sealed partial class WorkflowRunnerTests {
 			var resumedToken = await _decider.Started.Reader.ReadAsync();
 			Assert.False(resumedToken.IsCancellationRequested);
 		} else {
-			Assert.Equal(phase == WorkflowPhase.Open ? WorkflowContext.Fresh : WorkflowContext.Continue, runner.Current.Kickoff!.Context);
+			Assert.Equal(phase == WorkflowPhase.Open, runner.Current.Kickoff!.Conversation is not null);
 		}
 	}
 

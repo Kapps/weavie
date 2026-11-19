@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // Valid 8×8 solid-color PNGs (signature + IHDR + zlib IDAT + IEND, CRC-correct), for the media-pane
 // journeys: PIXEL_RED seeds pixel.png; PIXEL_BLUE overwrites it to drive the fs-change refresh.
@@ -367,4 +368,18 @@ export function sessionWorktrees(repoRoot: string): string[] {
   const paths = [...out.matchAll(/^worktree (.+)$/gm)].map((m) => m[1].trim());
   const primary = paths[0]; // git lists the main working tree first
   return paths.filter((p) => p !== primary);
+}
+
+/** Creates a second repository, `infra`, beside the workspace, with one commit so a branch can fork from it. */
+export function createInfraRepo(workspace: string): string {
+  const dir = join(dirname(workspace), "infra");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "deploy.yaml"), "region: us-east-1\n");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "e2e@example.com");
+  git("config", "user.name", "Weavie E2E");
+  git("add", "-A");
+  git("commit", "-q", "-m", "seed");
+  return dir;
 }

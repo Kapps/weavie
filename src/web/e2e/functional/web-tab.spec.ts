@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { canonicalFsPath } from "../../src/editor/fs-path";
 import {
   activeSessionSlot,
@@ -189,6 +190,123 @@ test("same URL keeps isolated live state in two exact sessions", async ({ page }
   await expect(activeFrame(page).getByRole("textbox", { name: "Approval note" })).toHaveValue(
     "SECOND SESSION",
   );
+});
+
+// Two sessions on screen in turn. `show` waits for the selection to commit: the shell footer names the shown
+// session's branch only once it is selected, where the rail highlights a chip before the switch lands.
+async function twoSessions(page: Page, branch: string) {
+  const footerBranch = page.locator(
+    '.terminal-surface[data-kind="terminal:shell"] .footer-branch-name',
+  );
+  const firstBranch = (await footerBranch.textContent()) ?? "";
+  const firstSlot = await activeSessionSlot(page);
+  await createSession(page, { branch, provider: "claude" });
+  const secondSlot = await waitForSessionSwitch(page, firstSlot);
+  await expect(footerBranch).toHaveText(branch);
+  const chip = (slot: string) => page.locator(`.session-chip[data-session-slot="${slot}"]`);
+  const shown = (slot: string, name: string) => async (click: "click" | "dispatch") => {
+    if (click === "click") await chip(slot).click();
+    else await chip(slot).dispatchEvent("click");
+    await expect(footerBranch).toHaveText(name);
+  };
+  return {
+    firstSlot,
+    showFirst: shown(firstSlot, firstBranch),
+    showSecond: shown(secondSlot, branch),
+  };
+}
+
+// A prompt belongs to the session it was opened for. A selection that changes while it is open (stood in for
+// here by a click the modal would block) must not move the tab into the newly selected session.
+test("Open URL opens in the session the prompt was opened for", async ({ page }) => {
+  const url = `${origin}/form-owner`;
+  const tab = page.locator(`.editor-tab[title="${url}"]`);
+  const { showFirst, showSecond } = await twoSessions(page, "e2e/url-owner");
+  await showFirst("click");
+
+  await runCommand(page, "Open URL…");
+  const input = page.locator(".url-prompt-input");
+  await expect(input).toBeVisible();
+  await showSecond("dispatch");
+  await input.fill(url);
+  await input.press("Enter");
+  await expect(input).toBeHidden();
+
+  await showFirst("click");
+  await expect(tab).toHaveCount(1);
+  await showSecond("click");
+  await expect(tab).toHaveCount(0);
+});
+
+// A terminal link's menu is captured with its terminal's session, so "Open in Weavie" (openUrl with a url) opens
+// there even when the selection moves before the item is picked.
+test("Open in Weavie on a terminal link opens in that terminal's session", async ({ page }) => {
+  const url = `${origin}/form-terminal`;
+  const tab = page.locator(`.editor-tab[title="${url}"]`);
+  const { showFirst, showSecond } = await twoSessions(page, "e2e/url-terminal");
+  await showFirst("click");
+
+  const screen = page.locator(
+    '.terminal-surface[data-kind="terminal:shell"] .term-host:not(.hidden) .xterm-screen',
+  );
+  await screen.click();
+  await page.keyboard.type(`echo ${url}\n`);
+  const cell = () =>
+    page.evaluate((needle) => {
+      for (const term of Object.values(window.__WEAVIE_TERMINALS__ ?? {})) {
+        const buffer = term.buffer.active;
+        for (let row = buffer.length - 1; row >= 0; row--) {
+          const line = buffer.getLine(row)?.translateToString(true) ?? "";
+          if (line.startsWith(needle)) {
+            return { row: row - buffer.viewportY, col: 0, cols: term.cols, rows: term.rows };
+          }
+        }
+      }
+      return null;
+    }, url);
+  await expect.poll(cell).not.toBeNull();
+  const at = await cell();
+  const box = await screen.boundingBox();
+  if (at === null || box === null) throw new Error("The echoed link is not on screen.");
+  const x = box.x + (at.col + url.length / 2) * (box.width / at.cols);
+  const y = box.y + (at.row + 0.5) * (box.height / at.rows);
+  await page.mouse.move(x, y);
+  // xterm marks a hovered link with this class in the same step that hands its URL to the menu.
+  await expect(
+    page.locator(
+      '.terminal-surface[data-kind="terminal:shell"] .term-host:not(.hidden) .xterm-cursor-pointer',
+    ),
+  ).toHaveCount(1);
+  await page.mouse.click(x, y, { button: "right" });
+  const item = page.locator(".context-menu-item", { hasText: "Open in Weavie" });
+  await expect(item).toBeVisible();
+
+  await showSecond("dispatch");
+  await item.click();
+  await showFirst("click");
+  await expect(tab).toHaveCount(1);
+  await showSecond("click");
+  await expect(tab).toHaveCount(0);
+});
+
+// A prompt opened for a session that ends (unloaded from another window here) closes and says why, rather than
+// sending into the closed session.
+test("Open URL closes when its session ends", async ({ page, weavie }) => {
+  await twoSessions(page, "e2e/url-ended");
+  await runCommand(page, "Open URL…");
+  await expect(page.locator(".url-prompt-input")).toBeVisible();
+
+  const other = await page.context().newPage();
+  await other.goto(weavie.url, { waitUntil: "domcontentloaded" });
+  await expect(other.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+  await expect(other.locator(".session-chip.active")).toHaveAttribute("title", /^e2e\/url-ended —/);
+  await runCommand(other, "Unload Session");
+
+  await expect(page.locator(".url-prompt-input")).toBeHidden();
+  await expect(
+    page.locator(".toast", { hasText: "Open URL closed: its session ended." }),
+  ).toBeVisible();
+  await other.close();
 });
 
 test("restored inactive web tab stays dormant until activation", async ({ page, weavie }) => {

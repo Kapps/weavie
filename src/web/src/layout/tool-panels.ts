@@ -61,7 +61,7 @@ export function createToolPanels(options: {
       nonce: (previous?.nonce ?? 0) + 1,
     }));
   };
-  const open = async (kind: ToolKind): Promise<void> => {
+  const reveal = async (kind: ToolKind): Promise<string> => {
     dismissFloatingPopovers();
     const backendId = options.backendId();
     request(backendId, kind, true);
@@ -69,6 +69,10 @@ export function createToolPanels(options: {
       options.revealDock();
       await changeTool(backendId, kind, "show");
     }
+    return backendId;
+  };
+  const open = async (kind: ToolKind): Promise<void> => {
+    const backendId = await reveal(kind);
     if (backendId === options.backendId()) focus(kind);
   };
   const close = async (kind: ToolKind): Promise<void> => {
@@ -86,7 +90,7 @@ export function createToolPanels(options: {
     await changeTool(backendId, kind, action);
     if (backendId === options.backendId()) focus(kind);
   };
-  return { docked, visible, floating, focusRequest, open, close, toggleDock };
+  return { docked, visible, floating, focusRequest, reveal, open, close, toggleDock };
 }
 
 export type ToolPanels = ReturnType<typeof createToolPanels>;

@@ -1,0 +1,11 @@
+language js
+
+// The name as an identifier, an export name, or a string or template literal (`bridge["onSelectedSession"]`).
+or {
+  `onSelectedSession`,
+  JsLiteralExportName() as $export where { $export <: r"^onSelectedSession$" },
+  JsStringLiteralExpression() as $string where { $string <: r"^[\"']onSelectedSession[\"']$" },
+  JsTemplateExpression() as $template where { $template <: r"^`onSelectedSession`$" }
+} as $read where {
+  register_diagnostic(span=$read, message="onSelectedSession hands out the selection; it is read only where a render or a command starts (the files biome.json excludes from this rule). For work that runs while a session is on screen, use whileOnScreen or registerViewFeature; otherwise take the session as a parameter (docs/specs/multi-repo-workspaces.md)", severity="error")
+}

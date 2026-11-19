@@ -59,7 +59,6 @@ const runtime = vi.hoisted(() => ({
   sessions: [] as FakeSession[],
   cleanups: new Map<FakeSession, () => void>(),
   installer: undefined as Installer | undefined,
-  selected: null as FakeSession | null,
   models: [] as FakeModel[],
   onCreate: undefined as ((model: FakeModel) => void) | undefined,
   clients: [] as ClientRecord[],
@@ -86,7 +85,6 @@ function fakeUri(owner: FakeSession, path: string): FakeUri {
 
 vi.mock("../bridge", () => ({
   log: () => undefined,
-  selectedSession: () => runtime.selected,
   registerSessionFeature: (installer: Installer) => {
     runtime.installer = installer;
     for (const session of runtime.sessions) {
@@ -279,7 +277,6 @@ beforeEach(() => {
   runtime.sessions = [];
   runtime.cleanups = new Map();
   runtime.installer = undefined;
-  runtime.selected = null;
   runtime.models = [];
   runtime.onCreate = undefined;
   runtime.clients = [];
@@ -298,7 +295,6 @@ describe("session-owned language clients", () => {
   it("starts each identical path on its owning session without consulting selection", async () => {
     const first = session("a", "/repo");
     const second = session("b", "/repo");
-    runtime.selected = second;
     runtime.models = [model(first, "/repo/Same.cs"), model(second, "/repo/Same.cs")];
 
     const services = await import("./lsp-client");
@@ -331,9 +327,8 @@ describe("session-owned language clients", () => {
   });
 
   it("starts a model created later on the model's owner", async () => {
-    const first = session("a", "/repo/a");
+    session("a", "/repo/a");
     const second = session("b", "/repo/b");
-    runtime.selected = first;
     const services = await import("./lsp-client");
     await services.startLanguageServices();
 
@@ -369,17 +364,6 @@ describe("session-owned language clients", () => {
     const handler = runtime.clients[0]?.errorHandler;
     expect(handler?.error()).toEqual({ action: 1, handled: true });
     expect(handler?.closed()).toEqual({ action: 1, handled: true });
-  });
-
-  it("reads the workspace root from the selected session's owned state", async () => {
-    const first = session("a", "/repo/a");
-    const second = session("b", "/repo/b");
-    const services = await import("./lsp-client");
-
-    runtime.selected = first;
-    expect(services.currentWorkspaceRoot()).toBe("/repo/a");
-    runtime.selected = second;
-    expect(services.currentWorkspaceRoot()).toBe("/repo/b");
   });
 
   it("installs the same ownership behavior for sessions added after startup", async () => {

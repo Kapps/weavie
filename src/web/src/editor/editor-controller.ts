@@ -7,10 +7,10 @@ import { createSignal } from "solid-js";
 import {
   type ClientSession,
   isBrowserHostedShell,
+  isSelected,
   log,
   onSelectedSession,
   registerSessionFeature,
-  selectedSession,
 } from "../bridge";
 import { evaluateWhen } from "../commands/context";
 import { LinkDroppedError } from "../messaging/message-bus";
@@ -145,16 +145,16 @@ interface SessionProposal extends DiffProposal {
 
 /** Back/forward navigation through visited locations, exposed to the Go Back / Go Forward commands. */
 export interface NavActions {
-  /** Record where the selected session is now. */
-  capture(): void;
+  /** Record where `session` is now. */
+  capture(session: ClientSession): void;
   /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
   back(session: ClientSession): boolean;
   /** Go to the next location; false when there's nothing ahead. */
   forward(session: ClientSession): boolean;
-  /** Whether a previous location is available (reactive). */
-  canBack(): boolean;
-  /** Whether a next location is available (reactive). */
-  canForward(): boolean;
+  /** Whether `session` has a previous location (reactive). */
+  canBack(session: ClientSession): boolean;
+  /** Whether `session` has a next location (reactive). */
+  canForward(session: ClientSession): boolean;
 }
 
 export interface EditorController {
@@ -163,16 +163,12 @@ export interface EditorController {
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
   /**
-   * Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins).
+   * Opens a file in `session`, replaying once the editor chunk has loaded (last wins).
    * `line` reveals that line; `undefined` means no target, so an already-open tab keeps the user's position.
    */
-  openFile(path: string, line: number | undefined, preview?: boolean): void;
+  openFile(session: ClientSession, path: string, line: number | undefined): void;
   /** Reveals a file in `session`'s preview tab (a review surfacing its first file). */
   revealFile(session: ClientSession, path: string, line: number | undefined): void;
-  /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
-  openWebTab(url: string): void;
-  /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
-  openSourceTab(target: string): void;
   /**
    * Opens one of `session`'s agent cards or background tasks as a read-only, live tab; a background open never
    * takes the editor from what the user is doing in it.
@@ -183,13 +179,19 @@ export interface EditorController {
     path: string,
     intent: "navigation" | "background",
   ): void;
-  /** Focuses the editor (for focus-pane). */
-  focusEditor(): void;
+  /** Focuses `session`'s active tab (for focus-pane). */
+  focusEditor(session: ClientSession): void;
   /**
    * Opens a find-in-files hit in the preview tab, landing the cursor at line:column. `focus: false` reveals
    * without stealing focus — the panel's live preview while arrowing through results.
    */
-  openMatch(path: string, line: number, column: number, focus: boolean): void;
+  openMatch(
+    session: ClientSession,
+    path: string,
+    line: number,
+    column: number,
+    focus: boolean,
+  ): void;
   /** New File: asks the host to create a scratch buffer, which comes back as an open-file with `scratch`. */
   newFile(session: ClientSession): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
@@ -257,7 +259,7 @@ export interface EditorController {
   readonly tabs: TabActions;
   readonly nav: NavActions;
   /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
-  readonly symbols: () => SymbolActions;
+  readonly symbols: (session: ClientSession | null) => SymbolActions;
   dispose(): void;
 }
 
@@ -360,7 +362,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Reports its own failure as "Couldn't <action>"; an activation superseded by a newer one is not a failure.
   // Review state draws the whole session, so it renders whatever the activation's outcome.
   const rebindSession = async (session: ClientSession, action: string): Promise<void> => {
-    if (host === undefined || selectedSession() !== session) return;
+    if (host === undefined || !isSelected(session)) return;
     clearPresentedProposal();
     host.clear();
     const path = activePathFor(session);
@@ -377,7 +379,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
       }
     }
-    if (selectedSession() === session) renderReviewState(session);
+    if (isSelected(session)) renderReviewState(session);
   };
   // The active file's working-copy text, kept live off the editor model so Preview renders edits/reloads.
   const [activeContent, setActiveContent] = createSignal("");
@@ -454,7 +456,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     result: ActivateResult,
   ): Promise<TextEditorConnection | undefined> => {
-    if (selectedSession() !== session) return Promise.resolve(undefined);
+    if (!isSelected(session)) return Promise.resolve(undefined);
     const tab = tabOwnerFor(session, result.path);
     if (tab === undefined) return Promise.resolve(undefined);
     deps.onCurrentFileChanged(isFileTab(tab.entry) ? tab.entry.path : null);
@@ -497,28 +499,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  const focusEditorSurface = (): void => {
-    const session = selectedSession();
-    const tab = session === null ? undefined : activeTabFor(session);
-    if (tab !== undefined) tab.presentation?.focus();
-  };
+  const focusEditorSurface = (session: ClientSession): void =>
+    activeTabFor(session)?.presentation?.focus();
 
   // A background open never takes the keyboard: it shows its tab unfocused, or only adds it beside an editor the
   // user is typing in.
   const backgroundOpen = (session: ClientSession, intent: EditorOpenIntent) =>
     intent !== "background"
       ? {}
-      : selectedSession() === session && evaluateWhen("editorFocused")
+      : isSelected(session) && evaluateWhen("editorFocused")
         ? { activate: false }
         : { focus: false };
 
   const typingIn = (session: ClientSession, path: string): boolean =>
-    selectedSession() === session &&
-    activePathFor(session) === path &&
-    evaluateWhen("editorFocused");
+    isSelected(session) && activePathFor(session) === path && evaluateWhen("editorFocused");
 
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
-    if (selectedSession() !== session) return false;
+    if (!isSelected(session)) return false;
     if (intent === "background") return !evaluateWhen("editorFocused");
     if (intent !== "restore") navigation.depart(session);
     deps.onDestinationActivated();
@@ -546,23 +543,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  const openFile = (
-    path: string,
-    line: number | undefined,
-    preview = false,
-    scratch = false,
-  ): void => {
-    const session = selectedSession();
-    if (session !== null) {
-      openFileFor(session, path, line, preview, scratch, "navigation");
-    }
-  };
-
   // The document/workspace symbol query surface (monaco glue), captured once the editor chunk loads in start().
-  const displayedText = (): TextEditorConnection | undefined => {
-    const session = selectedSession();
-    return session === null ? undefined : editorContexts.get(session);
-  };
   const navigateFrom = async (
     source: TextEditorConnection,
     path: string,
@@ -571,7 +552,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     target: "source" | "file",
     origin: TextLocation | undefined,
   ): Promise<TextEditorConnection | undefined> => {
-    if (!editorContexts.displayed(source) || selectedSession() !== source.session) return undefined;
+    if (!editorContexts.displayed(source) || !isSelected(source.session)) return undefined;
     const { session } = source;
     if (origin !== undefined) source.restore(origin);
     navigation.depart(session);
@@ -595,8 +576,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const destination = await applyActive(session, result);
     return destination;
   };
-  const symbols = (): SymbolActions => {
-    const connection = displayedText();
+  const symbols = (session: ClientSession | null): SymbolActions => {
+    const connection = session === null ? undefined : editorContexts.get(session);
     const origin = connection?.capture();
     if (connection === undefined || origin === undefined) return noEditorSymbols;
     return createEditorSymbols({
@@ -615,18 +596,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     deps.fullscreenPane() !== null && (pane !== "editor" || activeTabFor(session) === undefined);
   const navigation = createEditorNavigation({
     pane: (session) => {
-      const pane = selectedSession() === session ? deps.fullscreenPane() : null;
+      const pane = isSelected(session) ? deps.fullscreenPane() : null;
       return pane !== null && standsIn(session, pane) ? pane : null;
     },
     reachable: (session, location) => !("pane" in location) || standsIn(session, location.pane),
     capture: (session) => {
       const tab = activeTabFor(session);
-      return selectedSession() !== session || tab === undefined ? undefined : captureLocation(tab);
+      return !isSelected(session) || tab === undefined ? undefined : captureLocation(tab);
     },
     restore: async (session, location, signal) => {
       signal.throwIfAborted();
-      if (selectedSession() !== session)
-        throw new DOMException("Editor view detached", "AbortError");
+      if (!isSelected(session)) throw new DOMException("Editor view detached", "AbortError");
       if ("pane" in location) {
         deps.showPane(location.pane);
         return;
@@ -648,20 +628,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       navigation.schedule(connection.session, location, connection.signal);
   });
 
-  // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
-  // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
-  const openWebTab = (url: string): void => {
-    const session = selectedSession();
-    if (session !== null) openOverlayTab(session, "web", url, "navigation");
-  };
-
-  // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
-  // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
-  const openSourceTab = (target: string): void => {
-    const session = selectedSession();
-    if (session !== null) openOverlayTab(session, "source", target, "navigation");
-  };
-
   // An overlay tab renders its owner's live state over the editor host; it holds no content of its own.
   const openOverlayTab = (
     session: ClientSession,
@@ -677,7 +643,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
   const applyOrClear = (session: ClientSession, next: ActivateResult | null): void => {
-    if (selectedSession() !== session) {
+    if (!isSelected(session)) {
       return;
     }
     if (next !== null) {
@@ -727,7 +693,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       dropReviewTabFor(review.session, review.path, review.priorActive);
     }
     reviewProposals.delete(review.session);
-    if (selectedSession() === review.session) {
+    if (isSelected(review.session)) {
       deps.onCurrentFileChanged(activePathFor(review.session));
     }
     review.session.feature("editor").publish("resolveDiff", {
@@ -848,7 +814,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         resolveEditorHost(created);
         container.setAttribute("data-ready", "true");
         editorMounted = true;
-        const session = selectedSession();
+        const session = presentedSession;
         if (session !== null && !pendingActivations.has(session)) {
           await rebindSession(session, "restore the editor session");
         } else if (session !== null) {
@@ -877,7 +843,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Open a review file on its first change as a preview tab (so ← / → reuses one tab); re-requests its turn-diff
   // so applied markers render even if the push was missed.
   const openReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
-    if (selectedSession() !== session) {
+    if (!isSelected(session)) {
       return;
     }
     if (!file.currentExists) {
@@ -911,7 +877,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     path: string | undefined,
     line: number | undefined,
   ): boolean => {
-    if (selectedSession() !== session) {
+    if (!isSelected(session)) {
       return false;
     }
     if (path === undefined) {
@@ -1146,7 +1112,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           connection === undefined ||
           presentation?.signal.aborted ||
           !editorContexts.displayed(connection) ||
-          selectedSession() !== session
+          !isSelected(session)
         )
           return;
         const file = reviews
@@ -1183,7 +1149,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const presentProposal = (session: ClientSession, proposal: SessionProposal): void => {
     const editorHost = host;
-    if (editorHost === undefined || selectedSession() !== session) {
+    if (editorHost === undefined || !isSelected(session)) {
       return;
     }
     if (activeReview?.session === session && activeReview.id === proposal.id) {
@@ -1271,7 +1237,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       session,
       message,
       (texts) => {
-        if (selectedSession() !== session) return;
+        if (!isSelected(session)) return;
         inlineDiff?.set(
           session,
           message.path,
@@ -1288,7 +1254,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderReviewState = (session: ClientSession): void => {
-    if (selectedSession() !== session) {
+    if (!isSelected(session)) {
       return;
     }
     ownPresentedReview(session);
@@ -1331,14 +1297,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const setTurnDiffFor = (session: ClientSession, message: ReviewFileDiff): void => {
     reviews.setDiff(session, message);
-    if (selectedSession() === session) {
+    if (isSelected(session)) {
       renderTurnDiff(session, message);
       commentProse?.refresh();
     }
   };
 
   const resetReviewFor = (session: ClientSession): void => {
-    if (selectedSession() === session) {
+    if (isSelected(session)) {
       resetPresentedReview(session);
     }
     reviews.reset(session);
@@ -1368,7 +1334,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (proposal.addedTab) {
       dropReviewTabFor(session, proposal.path, proposal.priorActive);
     }
-    if (selectedSession() === session) {
+    if (isSelected(session)) {
       deps.onCurrentFileChanged(activePathFor(session));
       renderReviewState(session);
     }
@@ -1499,7 +1465,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }),
       review.on<ReviewHistory>("history", (history) => {
         const state = reviews.setHistory(session, history);
-        if (selectedSession() === session) {
+        if (isSelected(session)) {
           inlineDiff?.bindHistory(fileHistoryHandlers(session));
           inlineDiff?.setReviewHistory(state.history);
         }
@@ -1515,7 +1481,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (restored !== null) {
           void host?.restoreEdits(session);
         }
-        if (restored !== null && editorMounted && selectedSession() === session) {
+        if (restored !== null && editorMounted && isSelected(session)) {
           void rebindSession(session, "restore the editor session");
         }
       }),
@@ -1538,13 +1504,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     };
   });
 
-  let presentedSession: ClientSession | null = selectedSession();
+  let presentedSession: ClientSession | null = null;
   const offSelection = onSelectedSession((session) => {
-    if (presentedSession !== null && presentedSession !== session) {
-      navigation.capture(presentedSession);
-      navigation.detach(presentedSession);
-    }
+    const previous = presentedSession;
     presentedSession = session;
+    if (previous !== null && previous !== session) {
+      navigation.capture(previous);
+      navigation.detach(previous);
+    }
     if (!editorMounted) {
       reviews.select(session);
       return;
@@ -1613,11 +1580,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   return {
     start,
-    openFile,
+    openFile: (session, path, line) => openFileFor(session, path, line, false, false, "navigation"),
     revealFile: (session: ClientSession, path: string, line: number | undefined) =>
       openFileFor(session, path, line, true, false, "reveal"),
-    openWebTab,
-    openSourceTab,
     openAgentTab: openOverlayTab,
     focusEditor: focusEditorSurface,
     reviseSelection: ({ session, model }, selection) => {
@@ -1658,16 +1623,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         );
       });
     },
-    openMatch: (path, line, column, focus) => {
-      const session = selectedSession();
-      if (session !== null) {
-        if (focus) {
-          activateDestinationFor(session, "navigation");
-        } else {
-          navigation.depart(session);
-        }
-        presentTab(session, openTabFor(session, path, { line, column, focus, preview: true }));
+    openMatch: (session, path, line, column, focus) => {
+      if (focus) {
+        activateDestinationFor(session, "navigation");
+      } else {
+        navigation.depart(session);
       }
+      presentTab(session, openTabFor(session, path, { line, column, focus, preview: true }));
     },
     newFile,
     save,
@@ -1704,7 +1666,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
                 return ({ path, line }) => {
                   if (
                     presentation?.signal.aborted ||
-                    selectedSession() !== session ||
+                    !isSelected(session) ||
                     activeTabFor(session) !== tab
                   )
                     return;
@@ -1788,32 +1750,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     tabs,
     nav: {
-      capture: () => {
-        const session = selectedSession();
-        if (session !== null) navigation.capture(session);
-      },
+      capture: (session) => navigation.capture(session),
       back: (session) => {
-        if (selectedSession() !== session) return false;
+        if (!isSelected(session)) return false;
         navigation.capture(session);
         const acted = session !== null && navHistoryFor(session).back();
         setNavRevision((revision) => revision + 1);
         return acted;
       },
       forward: (session) => {
-        if (selectedSession() !== session) return false;
+        if (!isSelected(session)) return false;
         const acted = session !== null && navHistoryFor(session).forward();
         setNavRevision((revision) => revision + 1);
         return acted;
       },
-      canBack: () => {
+      canBack: (session) => {
         navRevision();
-        const session = selectedSession();
-        return session !== null && navHistoryFor(session).canBack();
+        return navHistoryFor(session).canBack();
       },
-      canForward: () => {
+      canForward: (session) => {
         navRevision();
-        const session = selectedSession();
-        return session !== null && navHistoryFor(session).canForward();
+        return navHistoryFor(session).canForward();
       },
     },
     symbols,

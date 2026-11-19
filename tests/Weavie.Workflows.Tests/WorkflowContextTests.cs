@@ -7,11 +7,11 @@ public sealed partial class WorkflowRunnerTests {
 	[InlineData(WorkflowContext.Fork)]
 	[InlineData(WorkflowContext.Fresh)]
 	public void IndependentCompletionReportsToMainWhileRevisionAndResumeKeepTheStageConversation(WorkflowContext context) {
-		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", $"run: {{ context: {context.ToString().ToLowerInvariant()}, prompt: \"do a\"", StringComparison.Ordinal));
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", $"context: {context.ToString().ToLowerInvariant()}\n    run: {{ prompt: \"do a\"", StringComparison.Ordinal));
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
 		var execution = runner.Execution!;
-		Assert.Equal(context, run.Kickoff!.Context);
+		Assert.NotNull(run.Kickoff!.Conversation);
 		Assert.True(runner.TryClaimKickoff(run.Kickoff));
 		Assert.Contains("runs in its own conversation", runner.StageBlock());
 		Assert.DoesNotContain("Do the stage's work", runner.StageBlock());
@@ -25,7 +25,7 @@ public sealed partial class WorkflowRunnerTests {
 		Assert.Contains("End your turn", response);
 		Assert.Same(execution, runner.Execution);
 		var question = runner.Current!.Kickoff!;
-		Assert.Equal(WorkflowContext.Continue, question.Context);
+		Assert.Null(question.Conversation);
 		Assert.Contains("note = review findings", question.Text);
 		Assert.Contains("Summary: Checked the implementation", question.Text);
 		Assert.Contains("now asks the user: approve review findings?", question.Text);
@@ -37,14 +37,14 @@ public sealed partial class WorkflowRunnerTests {
 		runner.Answer(run.Id, "revise", "Include concurrency");
 		Assert.Same(execution, runner.Execution);
 		Assert.Throws<WorkflowException>(() => completed.Complete(Json("{\"note\":\"old\"}"), "old round"));
-		Assert.Equal(context, runner.Current!.Kickoff!.Context);
+		Assert.NotNull(runner.Current!.Kickoff!.Conversation);
 		Assert.Contains("Include concurrency", runner.Current.Kickoff.Text);
 		Assert.DoesNotContain("Checked the implementation", runner.Current.Kickoff.Text);
 		var revision = execution.Capture();
 		revision.Fail("Need more evidence");
 		runner.Resume(run.Id);
 		Assert.Same(execution, runner.Execution);
-		Assert.Equal(context, runner.Current!.Kickoff!.Context);
+		Assert.NotNull(runner.Current!.Kickoff!.Conversation);
 		Assert.Equal("a", runner.Current.Kickoff.Opens);
 	}
 
@@ -55,25 +55,29 @@ public sealed partial class WorkflowRunnerTests {
 			description: Reuse.
 			stages:
 			  - id: review
-			    run: { context: fresh, prompt: Review., outputs: { report: text } }
+			    context: fresh
+			    run: { prompt: Review. }
+			    outputs: { report: text }
 			  - id: fix
 			    run: { prompt: Fix. }
 			  - id: recheck
-			    run: { context: { reuse: review }, prompt: Recheck., outputs: { report: text } }
+			    context: { reuse: review }
+			    run: { prompt: Recheck. }
+			    outputs: { report: text }
 			""");
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
 		var review = runner.Execution!;
-		Assert.Equal("review", review.Opener!.Id);
+		Assert.Equal("review", review.Conversation!.Opener.Id);
 		Assert.DoesNotContain("opened again", review.Compose(false));
 		Assert.Contains("Stage \"review\" has opened again; your earlier work on it is above.", review.Compose(true));
 		runner.Jump(run.Id, "fix");
-		Assert.Null(runner.Execution!.Opener);
+		Assert.Null(runner.Execution!.Conversation);
 		Assert.Equal("", review.Compose(true));
 		runner.Jump(run.Id, "recheck");
 		var recheck = runner.Execution!;
-		Assert.Equal(WorkflowContext.Fresh, runner.Current!.Kickoff!.Context);
-		Assert.Equal("review", recheck.Opener!.Id);
+		Assert.NotNull(runner.Current!.Kickoff!.Conversation);
+		Assert.Equal("review", recheck.Conversation!.Opener.Id);
 		Assert.Contains("Stage \"recheck\" continues the conversation of stage \"review\"; that work is above.", recheck.Compose(true));
 		Assert.DoesNotContain("continues the conversation", runner.StageBlock());
 	}
@@ -85,7 +89,8 @@ public sealed partial class WorkflowRunnerTests {
 			description: Skill reuse.
 			stages:
 			  - id: review
-			    run: { context: fresh, skill: review, args: the change }
+			    context: fresh
+			    run: { skill: review, args: the change }
 			""");
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
@@ -101,9 +106,13 @@ public sealed partial class WorkflowRunnerTests {
 			description: Child reports.
 			stages:
 			  - id: review
-			    run: { context: fresh, prompt: Review., outputs: { findings: list } }
+			    context: fresh
+			    run: { prompt: Review. }
+			    outputs: { findings: list }
 			  - id: verify
-			    run: { context: fork, prompt: Verify., outputs: { result: text } }
+			    context: fork
+			    run: { prompt: Verify. }
+			    outputs: { result: text }
 			  - id: publish
 			    run: { skill: publish, args: release }
 			""");
@@ -113,15 +122,16 @@ public sealed partial class WorkflowRunnerTests {
 		var first = runner.Execution!.Capture();
 		first.Complete(Json("{\"findings\":[\"race\",\"leak\"]}"), "Reviewed");
 		var second = runner.Current!.Kickoff!;
-		Assert.Equal(WorkflowContext.Fork, second.Context);
-		Assert.Equal("Verify.", second.Text);
+		Assert.NotNull(second.Conversation);
+		Assert.EndsWith("\n\nVerify.", second.Text);
+		Assert.Contains("Summary: Reviewed", second.Text);
 		Assert.Contains("Summary: Reviewed", runner.Current.Unreported);
 		Assert.True(runner.TryClaimKickoff(second));
 		Assert.Contains("Summary: Reviewed", runner.Current.Unreported);
 		var next = runner.Execution!.Capture();
 		next.Complete(Json("{\"result\":\"all checks pass\"}"), "Verified");
 		var main = runner.Current!.Kickoff!;
-		Assert.Equal(WorkflowContext.Continue, main.Context);
+		Assert.Null(main.Conversation);
 		Assert.Equal("publish", main.Command);
 		Assert.Equal("publish", main.Opens);
 		Assert.StartsWith("/publish release\n\n", main.Text);
@@ -140,7 +150,9 @@ public sealed partial class WorkflowRunnerTests {
 			description: Final report.
 			stages:
 			  - id: review
-			    run: { context: fresh, prompt: Review., outputs: { note: text } }
+			    context: fresh
+			    run: { prompt: Review. }
+			    outputs: { note: text }
 			""");
 		WorkflowKickoff report;
 		using (var runner = Runner()) {
@@ -152,7 +164,7 @@ public sealed partial class WorkflowRunnerTests {
 			Assert.Equal(WorkflowPhase.Done, runner.Current!.Phase);
 			Assert.True(await execution.Retired);
 			report = runner.Current.Kickoff!;
-			Assert.Equal(WorkflowContext.Continue, report.Context);
+			Assert.Null(report.Conversation);
 			Assert.Empty(report.Opens);
 			Assert.Contains("note = no findings", report.Text);
 			Assert.Contains("Workflow flow finished.", report.Text);
@@ -172,7 +184,7 @@ public sealed partial class WorkflowRunnerTests {
 
 	[Fact]
 	public void AReportSurvivesAnUnsentQuestionBeingReplacedByAJump() {
-		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "run: { context: fresh, prompt: \"do a\"", StringComparison.Ordinal));
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "context: fresh\n    run: { prompt: \"do a\"", StringComparison.Ordinal));
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
 		var call = runner.Execution!.Capture();
@@ -180,14 +192,14 @@ public sealed partial class WorkflowRunnerTests {
 		var question = runner.Current!.Kickoff!;
 		runner.Jump(run.Id, "b");
 		Assert.False(runner.TryClaimKickoff(question));
-		Assert.Equal(WorkflowContext.Continue, runner.Current!.Kickoff!.Context);
+		Assert.Null(runner.Current!.Kickoff!.Conversation);
 		Assert.Contains("Result waits for main", runner.Current.Kickoff.Text);
 		Assert.Contains("do b", runner.Current.Kickoff.Text);
 	}
 
 	[Fact]
 	public async Task CancellingRetiresTheStageImmediatelyAndStillReportsItsAcceptedResult() {
-		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "run: { context: fresh, prompt: \"do a\"", StringComparison.Ordinal));
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "context: fresh\n    run: { prompt: \"do a\"", StringComparison.Ordinal));
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
 		var execution = runner.Execution!;
@@ -196,7 +208,7 @@ public sealed partial class WorkflowRunnerTests {
 		runner.Cancel(run.Id);
 		Assert.False(await execution.Retired);
 		Assert.Equal(WorkflowPhase.Cancelled, runner.Current!.Phase);
-		Assert.Equal(WorkflowContext.Continue, runner.Current.Kickoff!.Context);
+		Assert.Null(runner.Current.Kickoff!.Conversation);
 		Assert.Contains("accepted result", runner.Current.Kickoff.Text);
 		Assert.Contains("cancelled", runner.Current.Kickoff.Text);
 		Assert.DoesNotContain("now asks the user", runner.Current.Kickoff.Text);
@@ -205,7 +217,7 @@ public sealed partial class WorkflowRunnerTests {
 	[InlineData(false)]
 	[InlineData(true)]
 	public void RestartPausesADeliveredIndependentStageWithoutGuessingAContinuation(bool asking) {
-		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "run: { context: fresh, prompt: \"do a\"", StringComparison.Ordinal));
+		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow.Replace("run: { prompt: \"do a\"", "context: fresh\n    run: { prompt: \"do a\"", StringComparison.Ordinal));
 		using (var runner = Runner()) {
 			var run = runner.Start("flow", Json("{}"));
 			Assert.True(runner.TryClaimKickoff(run.Kickoff!));

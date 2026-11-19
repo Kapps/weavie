@@ -1,6 +1,6 @@
 import { For, type JSX, onCleanup, Show } from "solid-js";
 import { ApprovalActions } from "../../agent/AgentPaneActions";
-import { type AgentActionOption, type ClientSession, selectedSession } from "../../bridge";
+import type { AgentActionOption, ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
 import { activeTabFor } from "../session-store";
@@ -20,6 +20,7 @@ const reviewsFor = createSessionFeatureValue<{ reviews: PlanReview[] }, PlanRevi
 
 /** Answers the pending plan reviews of the active tab's plan file; approving saves the edited plan first. */
 export function PlanReviewBar(props: {
+  session: ClientSession | null;
   afterFlush: (session: ClientSession, path: string, action: string, send: () => void) => void;
 }): JSX.Element {
   const reviews = (session: ClientSession): PlanReview[] => {
@@ -27,7 +28,7 @@ export function PlanReviewBar(props: {
     return (reviewsFor(session) ?? []).filter((review) => review.path === path);
   };
   return (
-    <Show when={selectedSession()} keyed>
+    <Show when={props.session} keyed>
       {(session) => (
         <Show when={reviews(session).length > 0}>
           <div class="plan-review-bar" role="toolbar" aria-label="Plan review" ref={showKeys}>

@@ -12,7 +12,6 @@ public sealed partial class HostCore {
 	private void RestoreWorkflowDocuments() {
 		try {
 			if (_worktreeReconciliationFailed) throw new IOException("Worktree reconciliation failed; session ownership is incomplete.");
-			if (_unrestoredSessions.Count > 0) throw new IOException("A session couldn't be restored; session ownership is incomplete.");
 			if (_sessionStore.LoadFailure is { } failure) throw new IOException(failure);
 			_workflowDocuments.Restore(WorkflowDocumentOwners());
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) {

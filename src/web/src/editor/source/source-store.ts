@@ -1,4 +1,4 @@
-import { type ClientSession, registerSessionFeature, selectedSession } from "../../bridge";
+import { type ClientSession, registerSessionFeature } from "../../bridge";
 import {
   createSessionOwnedMap,
   createSessionOwnedState,
@@ -133,13 +133,6 @@ export function onSourceEditError(listener: (error: SourceEditError) => void): (
 
 export function openSourceTarget(session: ClientSession, url: string): void {
   session.feature("sources").publish("open", { url });
-}
-
-export function openSelectedSourceTarget(url: string): void {
-  const session = selectedSession();
-  if (session !== null) {
-    openSourceTarget(session, url);
-  }
 }
 
 export function saveSourceEdit(

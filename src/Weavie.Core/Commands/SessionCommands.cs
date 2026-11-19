@@ -86,7 +86,13 @@ public static class SessionCommands {
 	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; the workspace's own checkout is refused.</summary>
+	/// <summary>Opens the session on the workspace's home folder: the way back after that session was deleted.</summary>
+	public const string OpenHomeSession = "weavie.session.openHome";
+
+	/// <summary>Stops offering a repo (arg <c>repo</c>, its path) in the new-session Repository list.</summary>
+	public const string ForgetRepo = "weavie.session.forgetRepo";
+
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; a folder Weavie did not make is kept.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
@@ -331,6 +337,36 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = OpenHomeSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
+			Title = "Open Home Folder Session",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Session",
+			Description = "Open the session on the workspace's home folder, the folder the window was opened on. A "
+				+ "workspace starts with one; this brings it back after it was deleted, or loads it when it is dormant.",
+			Aliases = ["open home session", "home folder session", "restore home session", "main checkout session"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ForgetRepo,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
+			Title = "Forget Repository",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Session",
+			Description = "Stop offering a repository in the new-session Repository list, by 'repo' (its path). The "
+				+ "workspace remembers every repository it has had a session in; one that still has a session here, "
+				+ "and the home folder's, can't be forgotten.",
+			Aliases = ["forget repo", "remove repository from list", "forget repository"],
+			// It needs the path, which only a caller that names one has.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"repo\":{\"type\":\"string\",\"description\":\"Path of the repository to forget\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = UnloadSession,
 			SharedExecutionLane = LifecycleExecutionLane,
 			LanePerSession = true,
@@ -358,11 +394,13 @@ public static class SessionCommands {
 			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
-				+ "removed but its branch is kept, whoever created that worktree. The session on the workspace's own "
-				+ "checkout can't be deleted — unload it instead. "
+				+ "removed but its branch is kept, whoever created that worktree. A session on its repo's own folder (the "
+				+ "workspace's home folder, or a worktree whose repository is gone) is dropped and its folder kept; "
+				+ "weavie.session.openHome brings the home folder's session back. "
 				+ "Refuses a locked worktree outright, and refuses a worktree "
 				+ "with uncommitted changes or no branch unless 'force' is true. With "
-				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
+				+ "'classify' true it deletes nothing and instead returns the worktree's state "
+				+ "(clean/untracked/modified, or kept when the folder stays) "
 				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
 				+ "'Delete Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
@@ -370,6 +408,7 @@ public static class SessionCommands {
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the invoking session\"},"
 				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
+				+ "\"keepFolder\":{\"type\":\"boolean\",\"description\":\"Refuse unless the session's folder is kept (a 'kept' classification)\"},"
 				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"},"
 				+ StopBackgroundWorkArg + "}",
 		});
@@ -445,9 +484,6 @@ public static class SessionCommands {
 				+ "worktree and escalates the confirm when there are untracked files or uncommitted changes. The "
 				+ "interactive counterpart of weavie.session.delete.",
 			Aliases = ["delete session", "remove session", "delete worktree"],
-			// Hidden while the selected session is the workspace's own checkout, which delete refuses; an explicit
-			// id from a session menu still dispatches, since When gates only palette/menu presentation.
-			When = "selectedSessionDeletable",
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the selected session\"}}",
 		});
 
@@ -488,6 +524,8 @@ public static class SessionCommands {
 				GetString(argsJson, "id"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
 			dispatcher.RegisterHandler(CancelOperation, (argsJson, _) => host.CancelOperationAsync(GetString(argsJson, "id"))),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(OpenHomeSession, (_, ct) => host.OpenHomeSessionAsync(ct)),
+			dispatcher.RegisterHandler(ForgetRepo, (argsJson, ct) => host.ForgetRepoAsync(GetString(argsJson, "repo"), ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,
 				(argsJson, context, ct) => host.UnloadSessionAsync(
@@ -496,7 +534,7 @@ public static class SessionCommands {
 				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
 				: host.DeleteSessionAsync(
 					GetString(argsJson, "id"),
-					GetBool(argsJson, "force"),
+					DeleteConsent(GetBool(argsJson, "force"), GetBool(argsJson, "keepFolder")),
 					GetBool(argsJson, "stopBackgroundWork"),
 					context,
 					ct)),
@@ -552,6 +590,14 @@ public static class SessionCommands {
 		};
 	}
 
+	/// <summary>The consent a delete's <c>force</c> and <c>keepFolder</c> args give.</summary>
+	public static SessionDeleteConsent DeleteConsent(bool force, bool keepFolder) =>
+		keepFolder ? SessionDeleteConsent.KeepFolder : force ? SessionDeleteConsent.LoseWork : SessionDeleteConsent.Clean;
+
+	/// <summary>Reads the flag <paramref name="name"/> of a command's args, as every entry point to a session command does.</summary>
+	public static bool Flag(JsonElement? args, string name) =>
+		args is { ValueKind: JsonValueKind.Object } element && GetBool(element, name);
+
 	private static bool GetBool(JsonElement args, string name) {
 		if (!args.TryGetProperty(name, out var prop)) {
 			return false;
@@ -560,6 +606,7 @@ public static class SessionCommands {
 		return prop.ValueKind switch {
 			JsonValueKind.True => true,
 			JsonValueKind.False => false,
+			// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary.
 			JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
 			JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
 			_ => false,
@@ -623,18 +670,7 @@ public static class SessionCommands {
 
 		try {
 			using var doc = JsonDocument.Parse(argsJson);
-			if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty(name, out var prop)) {
-				return false;
-			}
-
-			return prop.ValueKind switch {
-				JsonValueKind.True => true,
-				JsonValueKind.False => false,
-				// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary.
-				JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
-				JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
-				_ => false,
-			};
+			return Flag(doc.RootElement, name);
 		} catch (JsonException) {
 			return false;
 		}

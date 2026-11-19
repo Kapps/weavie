@@ -26,7 +26,7 @@ vi.mock("../bridge", () => ({
     env.installers.push(installer);
     return () => env.installers.splice(env.installers.indexOf(installer), 1);
   },
-  selectedSession: () => env.selected,
+  isSelected: (session: ClientSession) => session === env.selected,
 }));
 
 // Any member is a no-op returning another stub: the editor chunk's Monaco objects, reduced to what init touches.
@@ -147,8 +147,8 @@ it("the latest reveal retains its placement while the editor has not initialized
   });
   for (const install of env.installers) install(session);
 
-  controller.openFile("/work/sample.txt", 7);
-  controller.openFile("/work/sample.txt", 3);
+  controller.openFile(session, "/work/sample.txt", 7);
+  controller.openFile(session, "/work/sample.txt", 3);
   const restore = vi.fn(async () => {});
   const tab = tabOwnerFor(session, "/work/sample.txt");
   if (tab === undefined) throw new Error("The reveal must open a tab.");

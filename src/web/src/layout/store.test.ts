@@ -1,6 +1,6 @@
 import { createComputed, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientSession, HostConnection } from "../bridge";
+import type { HostConnection } from "../bridge";
 import type { HostHello } from "../messaging/host-connection";
 import type { LayoutDocument } from "./types";
 
@@ -22,7 +22,6 @@ const bridgeState = vi.hoisted(
         | ((connection: HostConnection) => undefined | (() => void))
         | undefined,
       connections: new Map(),
-      setActiveBackendId: (_backendId: string): void => {},
     }) as {
       installer: ((connection: HostConnection) => undefined | (() => void)) | undefined;
       connections: Map<
@@ -33,28 +32,20 @@ const bridgeState = vi.hoisted(
           state?: (payload: { document: LayoutDocument }) => void;
         }
       >;
-      setActiveBackendId: (backendId: string) => void;
     },
 );
 
-vi.mock("../bridge", () => {
-  const [selected, setSelected] = createSignal<ClientSession | null>(null);
-  bridgeState.setActiveBackendId = (backendId: string) =>
-    setSelected({
-      connection: { id: backendId },
-      address: { slot: "primary", incarnation: `${backendId}-primary` },
-    } as ClientSession);
-  return {
-    selectedSession: selected,
-    registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
-      bridgeState.installer = installer;
-      return () => {};
-    },
-    hostConnection: (backendId: string) => connection(backendId).connection,
-  };
-});
+vi.mock("../bridge", () => ({
+  registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+    bridgeState.installer = installer;
+    return () => {};
+  },
+  hostConnection: (backendId: string) => connection(backendId).connection,
+}));
 
 const store = await import("./store");
+const [activeBackendId, setActiveBackendId] = createSignal("local");
+const layoutDocument = createRoot(() => store.createLayoutDocument(activeBackendId));
 
 function connection(backendId: string): {
   connection: HostConnection;
@@ -115,7 +106,7 @@ const document = (top: number): LayoutDocument => ({
 
 beforeEach(() => {
   posted.length = 0;
-  bridgeState.setActiveBackendId("local");
+  setActiveBackendId("local");
 });
 
 describe("layout host ownership", () => {
@@ -125,9 +116,9 @@ describe("layout host ownership", () => {
     deliver("remote:test", remote);
     deliver("local", local);
 
-    expect(store.layoutDocument()).toEqual(local);
-    bridgeState.setActiveBackendId("remote:test");
-    expect(store.layoutDocument()).toEqual(remote);
+    expect(layoutDocument()).toEqual(local);
+    setActiveBackendId("remote:test");
+    expect(layoutDocument()).toEqual(remote);
   });
 
   it("does not notify the active layout when a background backend restores", () => {
@@ -136,7 +127,7 @@ describe("layout host ownership", () => {
     let notifications = 0;
     const dispose = createRoot((rootDispose) => {
       createComputed(() => {
-        store.layoutDocument();
+        layoutDocument();
         notifications += 1;
       });
       return rootDispose;

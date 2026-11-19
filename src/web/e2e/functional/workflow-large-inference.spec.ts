@@ -14,7 +14,7 @@ stages:
   - id: collect
     run:
       prompt: Collect the evidence.
-      outputs: { evidence: text }
+    outputs: { evidence: text }
     then:
       ask: ${QUESTION}
       by: model

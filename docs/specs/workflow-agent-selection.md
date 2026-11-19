@@ -1,6 +1,6 @@
 # Workflow agent selection
 
-Status: partially built. `agents`, a `run` step's `agent` or `role`, and `continue`, `fork`, and `fresh` on the session's own
+Status: partially built. `agents`, a stage's `agent` or `role`, and `continue`, `fork`, and `fresh` on the session's own
 provider run end to end in native ACP sessions; another provider's steps, `check`, and run history are not built.
 Extends [workflows.md](workflows.md).
 
@@ -23,7 +23,7 @@ agents:
     options: { reasoning_effort: high }   # optional; the provider's config option ids and values
 ```
 
-A step's `agent` (on `run`; `check` takes one too once it exists) is one of those names; a step can't define an agent inline. A step with no
+A stage's `agent` (`check` takes one too once it exists) is one of those names; a step can't define an agent inline. A step with no
 `agent` runs on the **session's own model**: the one the session had outside the run. A workflow whose `continue` or
 `fork` step uses an agent runs only in that agent's provider's sessions, and says so when refused.
 
@@ -38,25 +38,25 @@ agents:
 stages:
   - id: spec
     run:
-      agent: planner
       prompt: Interview me, then write docs/specs/<slug>/design.md for "{{inputs.feature}}".
-      outputs: { dir: text }
+    agent: planner
+    outputs: { dir: text }
     then: { ask: "Approve {{spec.dir}}/design.md?", by: user, choices: { approve: build, revise: spec } }
   - id: build
     run:
-      agent: builder
       prompt: Implement {{spec.dir}}/design.md.
+    agent: builder
   - id: review
     run:
-      agent: reviewer
-      context: fresh
       prompt: Review this branch against {{spec.dir}}/design.md and report findings.
-      outputs: { findings: list }
+    agent: reviewer
+    context: fresh
+    outputs: { findings: list }
 ```
 
 ## Roles
 
-A step can ask for a role instead of an agent: `run: { role: planner, prompt: … }`. A role is a name the user owns, with
+A stage can ask for a role instead of an agent: `role: planner` beside its `run`. A role is a name the user owns, with
 one agent per session provider, saved user-wide in `~/.weavie/workflow-roles.json`; `planner` can be Fable in Claude
 sessions and Astra in Codex sessions. Workflows carry no description of a role and Weavie ships none; `planner`,
 `builder`, and `reviewer` are a convention. A step takes `agent` or `role`, not both, so a role never overrides a pinned

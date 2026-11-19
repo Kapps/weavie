@@ -1,25 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
+import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { createInfraRepo } from "../harness/git-workspace";
 
 // One workspace holding sessions from two repositories: a session is started in a second repo from the composer,
 // every chip then names its repo, and the labels go once the workspace is back to one repo. The host side of each
 // repo-scoped behavior (setup command, test profile, pull requests, restore) is covered by HostCoreMultiRepoTests.
-
-// A second repository beside the workspace, with one commit so a branch can fork from it.
-function createInfraRepo(workspace: string): string {
-  const dir = join(dirname(workspace), "infra");
-  mkdirSync(dir);
-  writeFileSync(join(dir, "deploy.yaml"), "region: us-east-1\n");
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
-  git("init", "-q", "-b", "main");
-  git("config", "user.email", "e2e@example.com");
-  git("config", "user.name", "Weavie E2E");
-  git("add", "-A");
-  git("commit", "-q", "-m", "seed");
-  return dir;
-}
 
 test("a session in a second repo joins the rail, labelled by repo until it is deleted", async ({
   page,
@@ -52,10 +40,9 @@ test("a session in a second repo joins the rail, labelled by repo until it is de
     await expect(path).toBeHidden();
     await expect(start).toBeEnabled();
 
-    // Enter in the path starts the session in the repo it names.
+    // Enter in the path starts the session in the repo it names, without waiting for that repo's workflows.
     await repository.selectOption({ label: "Other…" });
     await path.fill(infra);
-    await expect(start).toBeEnabled();
     await path.press("Enter");
     await expect(inbox).toBeHidden();
   });
@@ -105,4 +92,66 @@ test("a session in a second repo joins the rail, labelled by repo until it is de
     }
     await expect(repoLabels).toHaveCount(0);
   });
+
+  await test.step("the composer still offers the repo it has no session in", async () => {
+    await page.locator(".session-rail-add").click();
+    await expect(
+      page
+        .locator(".session-inbox")
+        .getByRole("combobox", { name: "Repository", exact: true })
+        .locator("option"),
+    ).toHaveText([basename(weavie.workspace), "infra", "Other…"]);
+  });
+});
+
+// Each open of Sessions starts over, even from the same session at the same location: a base or repo picked in
+// one open is never carried into the next.
+test("Sessions resets its picks when it opens again", async ({ page, weavie }) => {
+  const inbox = page.locator(".session-inbox");
+  const repository = inbox.getByRole("combobox", { name: "Repository", exact: true });
+  const base = inbox.getByRole("combobox", { name: "Branch starting point" });
+  const reopen = async (): Promise<void> => {
+    await page.keyboard.press("Escape");
+    await expect(inbox).toBeHidden();
+    await page.locator(".session-rail-add").click();
+    await expect(inbox).toBeVisible();
+  };
+  await page.locator(".session-rail-add").click();
+  await base.selectOption("source");
+  await expect(base).toHaveValue("source");
+  await reopen();
+  await expect(base).toHaveValue("main");
+
+  const path = inbox.getByRole("textbox", { name: "Repository path" }).first();
+  await repository.selectOption({ label: "Other…" });
+  await path.fill(weavie.workspace);
+  await reopen();
+  await expect(path).toBeHidden();
+  await expect(repository).toHaveValue(weavie.workspace);
+});
+
+// The home folder is not Weavie's to remove: deleting its session drops the session only, and it stays gone
+// until Open Home Folder Session brings it back.
+test("the home folder's session is deleted with its folder kept, and reopened by command", async ({
+  page,
+  weavie,
+}) => {
+  const chips = page.locator(".session-chip");
+  await expect(chips).toHaveCount(1);
+
+  await chips.first().click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  await expect(page.locator(".confirm-dialog")).toContainText(
+    "Its folder and everything in it are kept.",
+  );
+  await page.locator(".confirm-dialog .confirm-btn-danger").click();
+  await expect(chips).toHaveCount(0);
+  expect(existsSync(weavie.workspace)).toBe(true);
+
+  await page.reload();
+  await expect(page.locator("#splash")).toBeHidden();
+  await expect(chips).toHaveCount(0);
+
+  await runCommand(page, "Open Home Folder Session");
+  await expect(chips).toHaveCount(1);
 });

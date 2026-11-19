@@ -10,10 +10,14 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   that drives both the JSON Schema and positioned diagnostics, `listWorkflows` / `getWorkflowSchema` /
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
-- **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
-  `args`, `outputs`, `agent` or `role`, `context`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
-  `confidence`). Every other field is rejected as an unknown key.
-- **Agents and context** — `continue` borrows main input; `fork` and `fresh` own a separate native ACP conversation,
+- **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `foreach`, `agent` or
+  `role`, `context`, `outputs`, exactly one of `run` (`prompt` or `skill`, `args`) or `stages`, and `then` (a sibling,
+  `done`, or a decision with `ask`, `choices`, `limit`, `by`, `confidence`). Every other field is rejected as an unknown
+  key.
+- **Nested and repeated stages** — a stage with `stages` runs them in order and finishes with outputs it copies from
+  them; `foreach` repeats a stage once per entry of a list, each entry with its own conversations. The run keeps a
+  record per level it is inside. See [workflow-nested-stages](workflow-nested-stages/design.md).
+- **Agents and context** — relative to the conversation a stage sits in: `continue` borrows it; `fork` and `fresh` own a separate native ACP conversation,
   which a `fresh` stage keeps for the run and `{ reuse: <stage> }` continues
   ([workflow-context-reuse](workflow-context-reuse/brief.md)).
   A stage's `agent` selects its model and options on the session's provider before prompting; a stage's `role` does
@@ -23,20 +27,21 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow`, a `prompt`, and `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
-  agent, which runs `weavie.workflow.answer`.
+  agent, which runs `weavie.workflow.answer` with the question's number.
 - **Decisions** — answered by the decision provider (`by: model`) or the user (`by: user`); a model decision sees its
   question, the stage's outputs, and the agent's summary. A low-confidence, refused, failed, or invalid model answer, or a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   reply or decision, or a paused run, sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
+  Inside nested stages the stage is a path with each repeat's entry: `group 2/5 › review`.
 
 - **Starting from the composer** — the new-session composer's workflow field, suggested once from the prompt by the
   decision provider and started with the prompt and its images. See
   [new-session-workflow-picker/design.md](new-session-workflow-picker/design.md).
 
-Not built yet: `check`, another provider's steps, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), run history, suggestions, and model overrides on decisions.
+Not built yet: `check`, another provider's steps, child runs (`workflow`, `in`, `wait`, milestones), a stage that runs
+in its own session, run history, suggestions, and model overrides on decisions.
 
 ## Purpose
 
@@ -55,7 +60,8 @@ iteration, typed outputs, decisions, checks — is held by Weavie. The agent onl
 - **Workflow** — a YAML definition: inputs, milestones, ordered stages.
 - **Run** — one execution of a workflow, owned by a session and persisted with it. A session hosts many runs over its
   life; at most one run chain (a run plus the `in: here` children it is waiting on) is active at a time.
-- **Stage** — one unit of a run. Its `run` step does the work; `check` and `then` decide what happens after.
+- **Stage** — one unit of a run. It does work (`run`) or holds stages (`stages`); `check` and `then` decide what
+  happens after.
 - **Decision** — a question with choices, answered by a model or by the user (`by`). `if` and `then` take one;
   approvals are decisions the user answers.
 
@@ -184,18 +190,27 @@ stages: [<stage>]
 
 | Field | Meaning |
 | --- | --- |
-| `id` | unique within the workflow |
-| `if` | a yes/no decision; on no the stage is skipped and the run moves to the following stage. Text is shorthand for a question the model answers. |
-| `run` | the work step |
+| `id` | unique within the workflow file |
+| `if` | a yes/no decision; on no the stage is skipped and the run moves to the next sibling. Text is shorthand for a question the model answers. |
+| `run` | the work step; a stage has `run` or `stages`, not both |
+| `stages` | stages it holds, run in order; it finishes when their list finishes |
+| `agent` | the name of an entry in the workflow's `agents` that runs the stage's conversation ([workflow-agent-selection.md](workflow-agent-selection.md)) |
+| `role` | a role the user fills per provider, e.g. `planner`; a stage takes `agent` or `role`, not both |
+| `context` | `continue`, `fork`, `fresh`, or `{ reuse: <stage> }` naming a `fork` or `fresh` sibling, relative to the conversation the stage sits in; a reusing stage takes no `agent` or `role` |
+| `outputs` | on a stage with `run`, `{ <name>: text \| url \| list \| files \| pr }` its agent must report; on a stage with `stages`, `{ <name>: "{{<stage>.<output>}}" }` naming the output of one of them it copies |
+| `foreach` | one reference to a `list` or `files` value: the stage runs once per entry, in order; `{{<stage>.item}}` and `{{<stage>.index}}` name the entry inside it |
 | `check` | step that must pass when the stage completes (see [Completing a stage](#completing-a-stage)) |
-| `then` | what follows: a stage id, `done`, or a decision whose `choices` map each answer to a stage id or `done` |
+| `then` | what follows: a sibling, `done` (finishes the list the stage is in), or a decision whose `choices` map each answer to a sibling or `done` |
 | `reaches` | milestone reached when the stage completes |
 | `workflow` + `args` | run another workflow as this stage |
 | `in` | `here` (this session) or `new-session` (Weavie creates a linked session). Required with `workflow`. |
-| `foreach` | a `list` output; runs `workflow` once per item, exposed as `{{item}}` |
 | `wait` | for `workflow` stages: a child milestone, `done`, or `none` |
 
-Stages advance in order unless `then` says otherwise; a skipped stage falls through to the following one.
+Stages advance in order unless `then` says otherwise; a skipped stage falls through to the next sibling. A stage reads
+its siblings' outputs, everything the stage holding it can read, and the entry of each repeated stage holding it; a
+stage with `stages` also reads theirs in `outputs` and `then`. From outside, a repeated stage's output holds one value
+per entry, rendered as one labelled block each and read as one flat list by `foreach` and decision evidence. Its own
+`if`, `then`, and `limit` apply once to the whole repetition.
 
 **Decision** (`if` takes `ask` and `by`; `then` takes all four)
 
@@ -206,20 +221,16 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | `limit` | how many times in a row the model may answer this decision, whatever it answers, before the user is asked instead. The count restarts when the user answers any decision or another stage's `then` decision is answered, so it caps every loop through this decision (alternating answers included) without accumulating across separate passes. Model-answered decisions only; on `by: user` it is an error. |
 | `by` | `model` (default) or `user` |
 
-**Step**
+**Work** (`run`)
 
 | Field | Meaning |
 | --- | --- |
 | `skill` / `prompt` | what to run; `skill` is sent as the provider's real slash command (`/spec <args>`) |
 | `args` | text passed to the skill |
-| `agent` | the name of an entry in the workflow's `agents` ([workflow-agent-selection.md](workflow-agent-selection.md)) |
-| `role` | a role the user fills per provider, e.g. `planner`; a step takes `agent` or `role`, not both |
-| `context` | `continue`, `fork`, `fresh`, or `{ reuse: <stage> }` naming a `fork` or `fresh` stage; a reusing step takes no `agent` or `role` |
-| `outputs` | `{ <name>: text \| url \| list \| files \| pr }` the step must report |
 
 Templates reference `{{run.prompt}}` (what the run was started with), `{{inputs.<name>}}`, `{{<stage>.<output>}}`,
-and `{{run.documents}}`. The `run` stage id is reserved.
-`{{item}}` belongs to the deferred child-run syntax. There is no expression language.
+`{{<stage>.item}}`, `{{<stage>.index}}`, and `{{run.documents}}`. The `run` stage id is reserved. There is no expression
+language.
 
 ### Defaults
 
@@ -233,18 +244,20 @@ and `{{run.documents}}`. The `run` stage id is reserved.
 Nothing defaults to `fresh`: a step missing context it needed fails invisibly, while a fork's cost shows in run
 history. `fresh` is for deliberate independence (a reviewer that must not inherit the author's assumptions).
 
-- `continue` runs in the session's conversation.
-- `fork` copies the native ACP conversation with `session/fork` on every visit; its outputs and summary return to main.
+- `continue` runs in the conversation the stage sits in: main at the top, or its holding stage's.
+- `fork` copies that conversation with `session/fork` on every visit, once its turn has ended; its outputs and summary
+  return to it. A fork that names no agent runs on the model of the conversation it copies.
 - `fresh` starts a conversation seeded with the step's prompt or skill, arguments, and stage context on the stage's
   first visit, and continues it on every later visit, however the run arrives.
 - `{ reuse: <stage> }` continues the conversation that stage last opened, on that stage's agent, for a return with
   its own prompt or `limit`. Arriving first, it opens one as that stage would.
-- Forked and fresh steps appear as labelled conversation cards with replies and visible approvals. A conversation
-  stays open between visits, takes the user's replies, and closes when the run ends. Each visit runs in main's
+- Forked and fresh steps appear as conversation cards titled by their place in the run (`group 2 › task 3`), with
+  replies and visible approvals. A conversation stays open between visits, takes the user's replies, and closes when
+  the record that owns it ends: an entry of a repeated stage when the entry finishes, any other when the run ends. Each visit runs in main's
   permission mode, and a turn that continues earlier work says so in its stage block. Losing it during a visit
-  pauses the run; Resume restores it after an agent restart or reload, except that a `fork` stage reloaded mid-visit
-  forks main again. One that can't be continued is replaced by a
-  new one, with a line in main's transcript. Terminal Claude refuses both contexts.
+  pauses the run; Resume restores it after an agent restart or reload. One that can't be continued is replaced by a
+  new one, with a line in main's transcript, except a stage with `stages` whose stages already used it: the run pauses
+  naming what was lost, and Resume continues in a new one. Terminal Claude refuses both contexts.
 - All three share the worktree; files are never forked.
 
 #### Choosing context
@@ -305,7 +318,7 @@ stages:
   - id: design
     run:
       prompt: "Write {{run.documents}}/design.md and report its absolute path."
-      outputs: { design: files }
+    outputs: { design: files }
 ```
 
 Sessions created through `weavie.session.new` or `weavie.session.fork` inherit the invoking session's documents,
@@ -418,7 +431,7 @@ contributes empty text. Text readability uses the shared content decoder, includ
 ```yaml
 run:
   prompt: Write the review.
-  outputs: { review: files }
+outputs: { review: files }
 then:
   ask: "Does {{draft.review}} document every required check?"
   choices: { approve: build, revise: draft }
@@ -554,7 +567,7 @@ stages:
   - id: pr
     run:
       prompt: Push and open a draft PR describing the change.
-      outputs: { pr: pr }
+    outputs: { pr: pr }
 ```
 
 ### ship-task
@@ -575,7 +588,7 @@ stages:
       prompt: >
         Get an independent review of this branch's diff against main from a different configured
         agent than yourself (listAgents + consultAgent). Report its blocking findings.
-      outputs: { findings: text }
+    outputs: { findings: text }
     then:
       ask: "Do these findings contain anything blocking? {{review.findings}}"
       choices: { yes: fix, no: record }
@@ -588,13 +601,13 @@ stages:
   - id: record
     run:
       skill: record-tour
-      context: fork
-      outputs: { videos: files }
+    context: fork
+    outputs: { videos: files }
 
   - id: pr
     run:
       prompt: "Push and open a draft PR. Embed these videos: {{record.videos}}"
-      outputs: { pr: pr }
+    outputs: { pr: pr }
     reaches: pr-ready
 
   - id: respond
@@ -618,7 +631,7 @@ stages:
         write EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md.
 
         {{run.prompt}}
-      outputs: { dir: text }
+    outputs: { dir: text }
     then:
       ask: Approve the requirements in {{requirements.dir}}/requirements.md?
       by: user
@@ -634,7 +647,7 @@ stages:
   - id: tasks
     run:
       prompt: Break the design into small, independently testable tasks in {{requirements.dir}}/tasks.md.
-      outputs: { tasks: list }
+    outputs: { tasks: list }
     then:
       ask: Approve the task list?
       by: user
@@ -648,8 +661,7 @@ stages:
     wait: done
 ```
 
-The shipped `spec-driven` implements the task list in one stage that reports the tasks still `remaining` and loops
-until that list is empty (`limit: 3`), since `foreach` isn't built yet.
+The shipped `spec-driven` repeats one `implement` stage over the approved task list with `foreach`, on this branch.
 
 ### diagnose
 
@@ -663,7 +675,7 @@ stages:
       prompt: >
         Investigate "{{inputs.report}}" with whatever observability and chat tools you have (logs,
         metrics, Slack threads). Change no code. Report the likely cause, blast radius, and files involved.
-      outputs: { findings: text }
+    outputs: { findings: text }
     then:
       ask: "How involved is the fix for: {{research.findings}}"
       choices: { simple: quick, complex: spec }
@@ -704,7 +716,7 @@ stages:
     run:
       skill: spec
       args: "{{inputs.idea}}"
-      outputs: { notionUrl: url, tasks: list }
+    outputs: { notionUrl: url, tasks: list }
     then:
       ask: Approve the spec at {{spec.notionUrl}}?
       by: user

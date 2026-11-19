@@ -58,3 +58,54 @@ describe("carried edits when storage is full", () => {
     expect(carriedEdits(incarnation("new"))).toEqual({ "b.ts": "large" });
   });
 });
+
+describe("carried edits when storage refuses to remove them", () => {
+  beforeEach(() => window.sessionStorage.clear());
+
+  it("are forgotten for the departed slot all the same, and removed at the next cleanup", () => {
+    storeCarriedEdits(incarnation("old"), { "c.ts": "text" });
+    const removeItem = window.sessionStorage.removeItem;
+    window.sessionStorage.removeItem = () => {
+      throw new Error("denied");
+    };
+    expect(() => clearSlotDrafts("local", "slot")).not.toThrow();
+    window.sessionStorage.removeItem = removeItem;
+    expect(carriedEdits(incarnation("new"))).toEqual({});
+
+    clearSlotDrafts("local", "other");
+    expect(stored()).toEqual([]);
+  });
+
+  it("keep what a slot in use again writes, and nothing from before it departed", () => {
+    storeCarriedEdits(incarnation("old"), { "c.ts": "text" });
+    const removeItem = window.sessionStorage.removeItem;
+    window.sessionStorage.removeItem = () => {
+      throw new Error("denied");
+    };
+    clearSlotDrafts("local", "slot");
+    window.sessionStorage.removeItem = removeItem;
+
+    storeCarriedEdits(incarnation("reused"), { "d.ts": "new" });
+    clearSlotDrafts("local", "other");
+    expect(stored()).toEqual(["weavie-session-draft:editor-edits:local:slot"]);
+    expect(carriedEdits(incarnation("next"))).toEqual({ "d.ts": "new" });
+  });
+});
+
+const stored = (): string[] =>
+  Object.keys(window.sessionStorage).filter((key) => key.startsWith("weavie-session-draft"));
+
+describe("carried edits of hosts whose ids end alike", () => {
+  beforeEach(() => window.sessionStorage.clear());
+
+  it("are forgotten only for the exact host and slot", () => {
+    const remote = {
+      connection: { id: "remote:local" },
+      address: { slot: "slot", incarnation: "r" },
+    } as ClientSession;
+    storeCarriedEdits(remote, { "e.ts": "remote" });
+    clearSlotDrafts("local", "slot");
+    expect(carriedEdits(remote)).toEqual({ "e.ts": "remote" });
+    expect(stored()).toEqual(["weavie-session-draft:editor-edits:remote:local:slot"]);
+  });
+});

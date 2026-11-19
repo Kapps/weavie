@@ -14,6 +14,7 @@ public sealed partial class HostCore {
 			if (string.IsNullOrWhiteSpace(agentProviderId)) {
 				return CommandResult.Failure("Recreate needs an agent provider id.");
 			}
+			if (LostRefusal(target) is { } lost) return lost;
 			if (BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal) return refusal;
 
 			IAgentProvider provider;

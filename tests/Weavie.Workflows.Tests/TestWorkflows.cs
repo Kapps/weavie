@@ -59,3 +59,18 @@ internal sealed class FixedRoles(IReadOnlyList<WorkflowAgent> agents) : IWorkflo
 			? throw new WorkflowException($"role \"{missing}\" has no agent")
 			: agents;
 }
+
+/// <summary>The root record's state under the names the run used before it held records, and answers by the open question.</summary>
+internal static class WorkflowRunTestExtensions {
+	extension(WorkflowRun run) {
+		public Dictionary<string, Dictionary<string, WorkflowValue>> Outputs => run.Frames[0].Outputs;
+		public string Unreported => run.Frames[0].Owed.GetValueOrDefault("", "");
+		public Dictionary<string, int> Streaks => run.Frames[0].Streaks;
+	}
+
+	public static void Answer(this WorkflowRunner runner, string runId, string choice, string feedback) =>
+		runner.Answer(runId, runner.Current?.Asked?.Id ?? 0, choice, feedback);
+
+	public static WorkflowStep Answer(this WorkflowTransitions machine, WorkflowRun run, string choice, string feedback) =>
+		machine.Answer(run, run.Asked?.Id ?? 0, choice, feedback);
+}

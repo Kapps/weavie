@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { selectedSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 
 /** The active editor's cursor/selection/language/line-ending snapshot, rendered by the editor pane footer. */
@@ -18,10 +18,9 @@ const [snapshot, setSnapshot] = createSignal<{
   status: EditorStatus;
 } | null>(null);
 
-/** The visible text connection's cursor/selection/EOL, or null without a matching snapshot. */
-export function editorStatus(): EditorStatus | null {
+/** `session`'s text connection's cursor/selection/EOL, or null without a matching snapshot. */
+export function editorStatus(session: ClientSession | null): EditorStatus | null {
   const current = snapshot();
-  const session = selectedSession();
   return current !== null &&
     session === current.connection.session &&
     editorContexts.get(session) === current.connection

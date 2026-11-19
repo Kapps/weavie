@@ -30,6 +30,7 @@ import {
 } from "./agent/pane-store";
 import { WorkflowRunStatus } from "./agent/WorkflowRunStatus";
 import {
+  activeBackendId,
   activeBackendOffline,
   activeBackendPhase,
   backendName,
@@ -41,9 +42,11 @@ import {
   hostConnection,
   invokeSessionCommandOnBackend,
   isBrowserHostedShell,
+  isSelected,
   LOCAL_BACKEND_ID,
   type RolePick,
   registerViewFeature,
+  requireOnScreen,
   selectedSession,
   type TermSession,
   waitForClientSession,
@@ -57,11 +60,11 @@ import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
 import {
+  choicePickerOf,
+  credentialPromptOf,
   dismissChoicePicker,
   dismissCredentialPrompt,
   pickChoice,
-  selectedChoicePicker,
-  selectedCredentialPrompt,
 } from "./chrome/host-asks";
 import { createInitialFileSearch } from "./chrome/initial-file-search";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
@@ -72,6 +75,7 @@ import {
   focusOmnibarFileSearch,
   focusOmnibarPath,
 } from "./chrome/omnibar-controller";
+import { createOwnedSurface } from "./chrome/owned-surface";
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { currentPullRequestStatus } from "./chrome/pull-request-store";
@@ -102,14 +106,13 @@ import {
   stepRailTarget,
 } from "./chrome/session-store";
 import { panelOrder } from "./chrome/session-summary";
-import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
 import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import {
-  activeBackendBuildMismatch,
+  backendBuildMismatch,
   surfacePostUpdateNotice,
-  updateRestarting,
+  updateStateOf,
 } from "./chrome/update-store";
 import { hostWindowFocused, windowChrome, windowMaximized } from "./chrome/window-state";
 import { installClipboardTrimming } from "./clipboard";
@@ -161,22 +164,22 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import {
-  activePath,
   activePathFor,
   activeTabFor,
-  flushEditorSession,
-  openTabs,
+  flushEditorSessionFor,
+  openTabsFor,
 } from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
-import { onSourceEditError, openSelectedSourceTarget } from "./editor/source/source-store";
+import { onSourceEditError, openSourceTarget } from "./editor/source/source-store";
 import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
 import { cardTabPath, isFileTab, tabKind } from "./editor/tab-entry";
 
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
-import { selectedFileIndex } from "./files/session-file-index";
-import { revealSelectedFile, selectedDirectoryListings } from "./files/session-files";
+import { revealFileIn } from "./files/reveal";
+import { fileIndexFor } from "./files/session-file-index";
+import { directoryListingsFor } from "./files/session-files";
 import { GettingStartedModal } from "./getting-started/GettingStarted";
 import { createFullscreenColumn } from "./layout/fullscreen-column";
 import { ThemePicker } from "./theme/ThemePicker";
@@ -184,7 +187,7 @@ import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
 import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
-import { DEFAULT_LAYOUT_ROOT, layoutDocument, resizeLayout } from "./layout/store";
+import { createLayoutDocument, DEFAULT_LAYOUT_ROOT, resizeLayout } from "./layout/store";
 import { ToolPanel } from "./layout/ToolPanel";
 import { createToolPanels } from "./layout/tool-panels";
 import { isTool, type LayoutNode } from "./layout/types";
@@ -195,6 +198,7 @@ import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
 import { createMobileCommandPull } from "./mobile/mobile-command-pull";
 import { createMobileHistory, type MobilePreview } from "./mobile/mobile-history";
 import { createMobileVisualViewportStyle } from "./mobile/mobile-visual-viewport";
+import { createSessionsOpening } from "./mobile/sessions-opening";
 import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
@@ -279,14 +283,13 @@ export default function App(): JSX.Element {
   onCleanup(() => deferredFocus.dispose());
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
-  createInitialFileSearch(compact);
+  createInitialFileSearch(compact, selectedSession);
   const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
   const mobileHistory = createMobileHistory(compact);
   const mobileSurface = mobileHistory.surface;
   const navigateMobileSurface = mobileHistory.select;
   const drillMobileSurface = mobileHistory.drill;
   const [mobileTransition, setMobileTransition] = createSignal<MobileTransition | null>(null);
-  const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
   const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
   const publishMenuAction = (action: string, path?: string): boolean => {
     const host = localHost();
@@ -297,6 +300,7 @@ export default function App(): JSX.Element {
     return true;
   };
   // The selected host owns the tree; LayoutView owns only an in-flight resize preview.
+  const layoutDocument = createLayoutDocument(() => selectedSession()?.connection.id ?? null);
   const layoutRoot = (): LayoutNode => layoutDocument()?.root ?? DEFAULT_LAYOUT_ROOT;
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
@@ -573,11 +577,13 @@ export default function App(): JSX.Element {
   // Desktop opens the shared Sessions surface as a modal; compact mode keeps it as native navigation.
   const [sessionsModalOpen, setSessionsModalOpen] = createSignal(false);
   // The session Open Pull Request was invoked for: its repo is the one searched and opened in.
-  const [openPrOwner, setOpenPrOwner] = createSignal<ClientSession | null>(null);
-  const [diffAgainstOwner, setDiffAgainstOwner] = createSignal<ClientSession | null>(null);
+  const openPrPrompt = createOwnedSurface("Open Pull Request");
+  const diffAgainstPrompt = createOwnedSurface("Diff Against");
   const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
   const visibleBuildMismatch = createMemo(() =>
-    buildMismatchDismissed() || activeBackendOffline() ? null : activeBackendBuildMismatch(),
+    buildMismatchDismissed() || activeBackendOffline()
+      ? null
+      : backendBuildMismatch(activeBackendId()),
   );
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
@@ -617,7 +623,7 @@ export default function App(): JSX.Element {
       closeSessions();
     }
   });
-  const dirListings = selectedDirectoryListings;
+  const dirListings = () => directoryListingsFor(selectedSession());
   const toolPanels = createToolPanels({
     backendId: activeBackendId,
     root: layoutRoot,
@@ -627,8 +633,8 @@ export default function App(): JSX.Element {
   });
   const browserOpen = (): boolean => toolPanels.visible("files");
   const searchOpen = (): boolean => toolPanels.visible("search");
-  // Whether the "Open URL" prompt (web-tab address) is open.
-  const [urlPromptOpen, setUrlPromptOpen] = createSignal(false);
+  // The "Open URL" prompt (web-tab address) belongs to the session it was invoked for: the URL opens there.
+  const urlPrompt = createOwnedSurface("Open URL");
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
@@ -697,7 +703,11 @@ export default function App(): JSX.Element {
   };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
+  const selectedFileIndex = () => fileIndexFor(selectedSession());
   const indexRoot = (): string | null => selectedFileIndex().root;
+  const openTabs = () => openTabsFor(selectedSession());
+  const revealSelectedFile = (path: string, line: number | undefined): void =>
+    revealFileIn(selectedSession(), path, line, false);
   const [browserFilterRequest, setBrowserFilterRequest] = createSignal<{
     session: ClientSession;
   } | null>(null);
@@ -723,14 +733,21 @@ export default function App(): JSX.Element {
   });
   const editorCommands = createEditorCommands(editor, setContextMenu);
   // Entering or leaving fullscreen changes which location the session is at.
-  createEffect(on(desktopFullscreen, () => editor.nav.capture(), { defer: true }));
+  const captureLocation = (): void => {
+    const session = selectedSession();
+    if (session !== null) editor.nav.capture(session);
+  };
+  createEffect(on(desktopFullscreen, captureLocation, { defer: true }));
   createEffect(() => {
-    setContext("navigationBackAvailable", editor.nav.canBack());
-    setContext("navigationForwardAvailable", editor.nav.canForward());
+    const session = selectedSession();
+    setContext("navigationBackAvailable", session !== null && editor.nav.canBack(session));
+    setContext("navigationForwardAvailable", session !== null && editor.nav.canForward(session));
     setContext("reviewAvailable", editor.parkedReviewCount() > 0);
   });
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
-  setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
+  setSearchOpener((session, match, focus) =>
+    editor.openMatch(session, match.path, match.line, match.column, focus),
+  );
 
   // Bring the editor up once, deferred one frame past the first terminal paint so the splash-removed shell
   // reveals before the multi-MB editor chunk's eval + Monaco creation jams the main thread. Idempotent: both
@@ -765,9 +782,9 @@ export default function App(): JSX.Element {
   const switchPane = (kind: string): void => {
     const from = fullscreenPane();
     const step = from !== null && from !== kind;
-    if (step) editor.nav.capture();
+    if (step) captureLocation();
     setActivePane(kind);
-    if (step) editor.nav.capture();
+    if (step) captureLocation();
   };
   const focusPane = (kind: string): void => {
     deferredFocus.invalidate();
@@ -779,8 +796,9 @@ export default function App(): JSX.Element {
     }
     if (kind === "editor") {
       // An empty editor renders an opaque overlay over Monaco, so focusing it would park the caret out of sight.
-      if (openTabs().length > 0) {
-        editor.focusEditor();
+      const session = selectedSession();
+      if (session !== null && openTabsFor(session).length > 0) {
+        editor.focusEditor(session);
       }
       return;
     }
@@ -816,7 +834,7 @@ export default function App(): JSX.Element {
 
   // Dismiss Sessions before focusing its destination: the modal makes the pane area inert.
   const presentSession = (session: ClientSession, created: boolean): void => {
-    if (selectedSession() !== session) {
+    if (!isSelected(session)) {
       return;
     }
     const pane = created ? AGENT_PANE_KIND : compact() ? null : activePane();
@@ -837,7 +855,7 @@ export default function App(): JSX.Element {
       if (!selectShellTerminal(session, terminalId)) {
         return;
       }
-      if (selectedSession() === session) {
+      if (isSelected(session)) {
         focusPane("terminal:shell");
       }
     }),
@@ -1036,7 +1054,8 @@ export default function App(): JSX.Element {
     }
     const commit = beginClientSelection();
     const endSelection = beginSessionSelection(session.backendId, session.id);
-    flushEditorSession();
+    const leaving = selectedSession();
+    if (leaving !== null) flushEditorSessionFor(leaving);
     return editor
       .flushDirty()
       .then(async () => {
@@ -1092,10 +1111,14 @@ export default function App(): JSX.Element {
 
   // The location to preselect in the New Session prompt: the last-used backend if still connected, else
   // local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
-  const defaultLocation = (): string => {
+  const defaultLocation = createMemo((): string => {
     const last = lastLocation();
     return connectedBackends().some((b) => b.id === last) ? last : "local";
-  };
+  });
+  const inboxActive = createMemo(() =>
+    compact() ? mobileSurface() === "inbox" : sessionsModalOpen(),
+  );
+  const inboxOpening = createSessionsOpening(inboxActive, defaultLocation, selectedSession);
 
   // Switch to the next/prev LOADED chip in on-screen order (the pinned panel groups them) that stepRailTarget
   // picks (dormant and unreachable chips skipped); false falls the keystroke through when there's nothing to move to.
@@ -1113,13 +1136,6 @@ export default function App(): JSX.Element {
   };
   createEffect(() =>
     setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
-  );
-  // The palette's Delete Session… acts on the selected session, so it hides for the one the host refuses.
-  createEffect(() =>
-    setContext(
-      "selectedSessionDeletable",
-      sessions().find((session) => session.active)?.workspaceCheckout === false,
-    ),
   );
 
   // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
@@ -1141,7 +1157,8 @@ export default function App(): JSX.Element {
     { session }: { session: ClientSession | null },
   ): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
-    const active = sessions().find((s) => s.owner === session);
+    // A dormant row has no owner, so no session never names one.
+    const active = session === null ? undefined : sessions().find((s) => s.owner === session);
     const id = a?.id ?? active?.id;
     const backendId = a?.backendId ?? active?.backendId ?? "local";
     if (id === undefined) {
@@ -1206,11 +1223,13 @@ export default function App(): JSX.Element {
     }
     setDeleteReq(null);
     // A dirty worktree (untracked or modified) needs force, or git refuses the removal; so does a branchless
-    // one, whose commits the removal discards.
+    // one, whose commits the removal discards. A confirmed kept folder is all the host may then delete for.
+    const keepFolder = req.state === "kept";
     const result = await dispatchCommand(CommandIds.deleteSession, {
       id: req.id,
       backendId: req.backendId,
-      force: req.state !== "clean" || req.branchless,
+      force: !keepFolder && (req.state !== "clean" || req.branchless),
+      keepFolder,
     });
     if (!result.ok && result.cancelled !== true) {
       addToast("warn", result.error ?? "Couldn't delete the session.");
@@ -1297,7 +1316,7 @@ export default function App(): JSX.Element {
           <TabStrip
             session={selectedSession}
             tabs={openTabs}
-            activePath={activePath}
+            activePath={() => activePathFor(selectedSession())}
             controller={editor}
             trailing={
               <>
@@ -1327,11 +1346,20 @@ export default function App(): JSX.Element {
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
-            <TabContent sessions={editorSessions} controller={editor} pane={editorPresence} />
+            <TabContent
+              session={selectedSession()}
+              sessions={editorSessions}
+              controller={editor}
+              pane={editorPresence}
+            />
           </div>
-          <PlanReviewBar afterFlush={editor.afterFlush} />
+          <PlanReviewBar session={selectedSession()} afterFlush={editor.afterFlush} />
           <EditorFooter
-            onOpenRecent={(path) => editor.openFile(path, undefined)}
+            session={selectedSession()}
+            onOpenRecent={(path) => {
+              const session = selectedSession();
+              if (session !== null) editor.openFile(session, path, undefined);
+            }}
             root={() => indexRoot() ?? ""}
           />
         </div>
@@ -1386,7 +1414,7 @@ export default function App(): JSX.Element {
               <For each={agentTerminalSessions()}>
                 {(session) => {
                   const paneKey = terminalPaneKey(session, "claude");
-                  const selected = (): boolean => selectedSession() === session;
+                  const selected = (): boolean => isSelected(session);
                   onCleanup(() => forgetTerminalPane(paneKey));
                   return (
                     <div class="term-host" classList={{ hidden: !selected() }}>
@@ -1456,7 +1484,7 @@ export default function App(): JSX.Element {
                   {(id) => {
                     const paneKey = terminalPaneKey(session, id);
                     const isActive = (): boolean =>
-                      selectedSession() === session && activeShellTerminalId(session) === id;
+                      isSelected(session) && activeShellTerminalId(session) === id;
                     onCleanup(() => forgetTerminalPane(paneKey));
                     return (
                       <div class="term-host" classList={{ hidden: !isActive() }}>
@@ -1485,7 +1513,7 @@ export default function App(): JSX.Element {
         </div>
         {/* One status footer for both terminal panes, on the bottom (shell) pane; it carries the Claude
             session status too, so the Claude pane stays chrome-free below its TUI. */}
-        {kind === "terminal:shell" && <PaneFooter />}
+        {kind === "terminal:shell" && <PaneFooter session={selectedSession()} />}
       </div>
     );
   };
@@ -1582,7 +1610,7 @@ export default function App(): JSX.Element {
     });
     const offSourceErrors = onSourceEditError((error) => {
       const shown =
-        error.session === selectedSession() &&
+        isSelected(error.session) &&
         (activeSourceEditor()?.showSaveError(error.target, error.message, error.stale) ?? false);
       if (!shown) {
         addToast("error", `Notion edit failed: ${error.message}`);
@@ -1656,13 +1684,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.copyAgentCodeBlock, () => copyActiveAgentCodeBlock()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
-      registerCommand(CommandIds.filterFileBrowser, async () => {
-        const session = selectedSession();
+      registerCommand(CommandIds.filterFileBrowser, async (_args, { session }) => {
         if (session === null) throw new Error("Select a session to filter files.");
-        await toolPanels.open("files");
-        if (selectedSession() === session) {
-          setBrowserFilterRequest({ session });
-        }
+        requireOnScreen(session);
+        // Revealed without focus: the filter request focuses its own session's input.
+        await toolPanels.reveal("files");
+        requireOnScreen(session);
+        setBrowserFilterRequest({ session });
       }),
       registerCommand(CommandIds.dockFileBrowser, () => toolPanels.toggleDock("files")),
       registerCommand(CommandIds.dockSearch, () => toolPanels.toggleDock("search")),
@@ -1719,8 +1747,12 @@ export default function App(): JSX.Element {
         searchOpen() ? toggleSearchOption("excludeGitignored") : false,
       ),
       // F4 / Shift+F4 step the last search's results from anywhere; they decline (fall through) with none.
-      registerCommand(CommandIds.searchNextResult, () => stepSearchResult(1)),
-      registerCommand(CommandIds.searchPrevResult, () => stepSearchResult(-1)),
+      registerCommand(CommandIds.searchNextResult, (_args, { session }) =>
+        stepSearchResult(session, 1),
+      ),
+      registerCommand(CommandIds.searchPrevResult, (_args, { session }) =>
+        stepSearchResult(session, -1),
+      ),
 
       ...(
         [
@@ -1761,8 +1793,8 @@ export default function App(): JSX.Element {
         if (session !== null) editor.newFile(session);
       }),
       // An open preview block keeps its native redo, which shares this chord on some platforms.
-      registerCommand(CommandIds.zoomEmbed, () =>
-        focusedBlockEditor()?.editing === true ? false : zoomActiveEmbed(),
+      registerCommand(CommandIds.zoomEmbed, (_args, { session }) =>
+        focusedBlockEditor()?.editing === true ? false : zoomActiveEmbed(session),
       ),
       registerCommand(CommandIds.rotateMedia, (_args, { session }) =>
         runMediaAction(session, "rotate"),
@@ -1798,12 +1830,13 @@ export default function App(): JSX.Element {
       }),
       // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
       // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.
-      registerCommand(CommandIds.openUrl, (args) => {
+      registerCommand(CommandIds.openUrl, (args, { session }) => {
+        if (session === null) throw new Error("Select a session to open a URL.");
         const url = (args as { url?: unknown } | undefined)?.url;
         if (typeof url === "string" && url.length > 0) {
-          openSelectedSourceTarget(url);
+          openSourceTarget(session, url);
         } else {
-          setUrlPromptOpen(true);
+          urlPrompt.open(session);
         }
       }),
       registerCommand(CommandIds.openUrlExternal, (args) => {
@@ -1817,8 +1850,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.manageAcpAgents, () => openAcpRegistry(activeBackendId())),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, (_args, { session }) => {
-        setOpenPrOwner(session);
-        return session !== null;
+        if (session === null) return false;
+        openPrPrompt.open(session);
       }),
       registerCommand(CommandIds.openCurrentPr, () => {
         const pullRequest = currentPullRequest();
@@ -1835,7 +1868,7 @@ export default function App(): JSX.Element {
         if (typeof ref === "string" && ref.trim().length > 0) {
           diffAgainst(session, ref.trim());
         } else {
-          setDiffAgainstOwner(session);
+          diffAgainstPrompt.open(session);
         }
         return true;
       }),
@@ -2011,6 +2044,7 @@ export default function App(): JSX.Element {
               chrome={chrome()}
               maximized={windowMaximized()}
               focused={hostWindowFocused()}
+              session={selectedSession()}
               index={selectedFileIndex()}
               root={indexRoot()}
               currentFile={currentFile()}
@@ -2041,9 +2075,9 @@ export default function App(): JSX.Element {
           surface={mobileSurface()}
           compact={compact()}
           modalOpen={sessionsModalActive()}
-          inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
+          inboxActive={inboxActive()}
           sessions={sessions()}
-          initialBackendId={defaultLocation()}
+          inboxOpening={inboxOpening()}
           onOpen={(session) => openFromInbox(() => openSession(session))}
           onCreate={(resolveSeed, backendId, providerId, repo, source) =>
             openFromInbox(async () => {
@@ -2143,12 +2177,12 @@ export default function App(): JSX.Element {
           onResume={resumeToast}
         />
       </div>
-      <Show when={openPrOwner()} keyed>
+      <Show when={openPrPrompt.owner()} keyed>
         {(session) => (
           <OpenPrPrompt
             session={session}
             onOpen={(target) => {
-              setOpenPrOwner(null);
+              openPrPrompt.close();
               setLastLocation(session.connection.id);
               // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
               // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
@@ -2160,23 +2194,23 @@ export default function App(): JSX.Element {
               // The host resolves the PR's branch refs by number, then checks it out in that session's repo.
               openPullRequestIn(session, target);
             }}
-            onCancel={() => setOpenPrOwner(null)}
+            onCancel={openPrPrompt.close}
           />
         )}
       </Show>
-      <Show when={diffAgainstOwner()} keyed>
+      <Show when={diffAgainstPrompt.owner()} keyed>
         {(session) => (
           <DiffAgainstPrompt
             session={session}
             onPick={(ref) => {
-              setDiffAgainstOwner(null);
+              diffAgainstPrompt.close();
               diffAgainst(session, ref);
             }}
-            onCancel={() => setDiffAgainstOwner(null)}
+            onCancel={diffAgainstPrompt.close}
           />
         )}
       </Show>
-      <Show when={selectedCredentialPrompt()}>
+      <Show when={credentialPromptOf(selectedSession())}>
         {(prompt) => (
           <CredentialPrompt
             prompt={prompt()}
@@ -2184,7 +2218,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={selectedChoicePicker()}>
+      <Show when={choicePickerOf(selectedSession())}>
         {(picker) => (
           <ChoicePicker
             picker={picker()}
@@ -2234,10 +2268,10 @@ export default function App(): JSX.Element {
           Files
         </button>
       </Show>
-      <Suggestions cards={suggestions()} />
+      <Suggestions session={selectedSession()} />
       <ThemePicker />
       <GettingStartedModal />
-      <Show when={updateRestarting()}>
+      <Show when={updateStateOf(activeBackendId()).restarting}>
         <UpdateOverlay />
       </Show>
       <Show when={contextMenu()}>
@@ -2255,15 +2289,17 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={urlPromptOpen()}>
-        <UrlPrompt
-          onSubmit={(url) => {
-            setUrlPromptOpen(false);
-            // The host resolves it: a source (Notion) renders natively; anything else comes back as a web tab.
-            openSelectedSourceTarget(url);
-          }}
-          onCancel={() => setUrlPromptOpen(false)}
-        />
+      <Show when={urlPrompt.owner()} keyed>
+        {(session) => (
+          <UrlPrompt
+            onSubmit={(url) => {
+              urlPrompt.close();
+              // The host resolves it: a source (Notion) renders natively; anything else comes back as a web tab.
+              openSourceTarget(session, url);
+            }}
+            onCancel={urlPrompt.close}
+          />
+        )}
       </Show>
       <Show when={scratchNameReq()}>
         {(req) => (

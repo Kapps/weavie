@@ -94,3 +94,18 @@ describe("carried edits when storage refuses to remove them", () => {
 
 const stored = (): string[] =>
   Object.keys(window.sessionStorage).filter((key) => key.startsWith("weavie-session-draft"));
+
+describe("carried edits of hosts whose ids end alike", () => {
+  beforeEach(() => window.sessionStorage.clear());
+
+  it("are forgotten only for the exact host and slot", () => {
+    const remote = {
+      connection: { id: "remote:local" },
+      address: { slot: "slot", incarnation: "r" },
+    } as ClientSession;
+    storeCarriedEdits(remote, { "e.ts": "remote" });
+    clearSlotDrafts("local", "slot");
+    expect(carriedEdits(remote)).toEqual({ "e.ts": "remote" });
+    expect(stored()).toEqual(["weavie-session-draft:editor-edits:remote:local:slot"]);
+  });
+});

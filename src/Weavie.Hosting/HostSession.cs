@@ -141,7 +141,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		EditorSessionChanged += editorSession =>
 			ObservedPaths.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
-		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shells = new ShellTerminalSet(
 			Bus,
 			settings,
@@ -155,7 +154,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			View.Feature("view"),
 			_notificationMessages,
 			FileProvider,
-			FileIndex,
+			workspaceRoot,
+			async ct => (await FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false)).Files,
 			PublishEditorFileOpen);
 		DiffPresenter = new McpDiffPresenter(
 			_editorMessages,
@@ -455,12 +455,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
 
-	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
-	public WorkspaceFileIndex FileIndex { get; }
-
 	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
 
-	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
+	/// <summary>The session's authoritative file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }
 
 	/// <summary>The selected provider's terminal-compatible agent pane, when it has one.</summary>

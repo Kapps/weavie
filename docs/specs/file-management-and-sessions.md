@@ -67,10 +67,10 @@ directories; Windows and macOS use one kernel-recursive root subscription and fi
 inventory. It periodically refreshes the authoritative inventory and refreshes immediately when directory
 topology changes, so Linux startup and change capture never walk ignored trees such as `.git/objects`.
 
-For non-Git folders, the navigation index supplies the files and visited directories from its existing walk to
-the same flat watcher. Watcher mutations are replayed over that snapshot, so files created, moved, or deleted
-while navigation is still walking cannot be resurrected or lost. Change monitoring itself never initiates a
-workspace walk.
+A plain folder has the same inventory from a different listing: its own files come from a walk that prunes the
+noise directories and follows no directory link, and each repository beneath it is listed by that repository's
+git, so its ignore rules decide its files. A change re-lists only the changed paths through whichever of the two
+owns them; a `.git` entry arriving or leaving, or an ignore-rule edit, re-lists the folder that holds it.
 
 Its registered projections:
 

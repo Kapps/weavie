@@ -4,7 +4,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// <see cref="WorkspacePaths"/>: the ignored-segment set (case-insensitive), whole-path segment scanning, and
+/// <see cref="WorkspacePaths"/>: the ignored-segment set (case-insensitive) and
 /// the Windows drive-letter canonicalization (which must match the web's canonicalFsPath).
 /// </summary>
 public sealed class WorkspacePathsTests {
@@ -16,14 +16,6 @@ public sealed class WorkspacePathsTests {
 	[InlineData("src", false)]
 	public void IsIgnoredSegment_MatchesCaseInsensitively(string segment, bool ignored) =>
 		Assert.Equal(ignored, WorkspacePaths.IsIgnoredSegment(segment));
-
-	[Fact]
-	public void HasIgnoredSegment_TrueWhenAnySegmentIsIgnored() =>
-		Assert.True(WorkspacePaths.HasIgnoredSegment(Path.Combine("repo", "node_modules", "pkg", "index.js")));
-
-	[Fact]
-	public void HasIgnoredSegment_FalseWhenNoSegmentIsIgnored() =>
-		Assert.False(WorkspacePaths.HasIgnoredSegment(Path.Combine("repo", "src", "app.cs")));
 
 	[Fact]
 	public void CanonicalFsPath_LowercasesLeadingDriveLetter() =>

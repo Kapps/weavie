@@ -168,7 +168,7 @@ public sealed class SessionFileActivityTests {
 	private static SessionFileActivity Create() => new(
 		new WorkspaceInventory(
 			Path.GetTempPath(),
-			_ => Task.FromResult<IReadOnlyList<string>?>([])),
+			_ => Task.FromResult<IReadOnlyList<string>>([])),
 		_ => { },
 		watcherDebounceMs: 25);
 

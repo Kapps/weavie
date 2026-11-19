@@ -31,7 +31,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private IReadOnlySet<string> _files;
-	private bool _isRepository;
+	private IReadOnlySet<string> _listedGitDirectories = new HashSet<string>();
 	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
 	private Task? _stopTask;
@@ -161,25 +161,20 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
 			}
 
-			_inventory.Changed += SignalFullRefresh;
-			try {
-				var cooldown = Task.CompletedTask;
-				await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
-				_ready.TrySetResult();
-				while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
-					// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
-					if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
-						throw new IOException("Workspace file watching failed.", failure);
-					}
-
-					await cooldown.ConfigureAwait(false);
-					while (_refreshSignals.Reader.TryRead(out _)) { }
-					long started = Stopwatch.GetTimestamp();
-					await RefreshAsync(initial: false, TakeDirtyScope(), runCt).ConfigureAwait(false);
-					cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
+			var cooldown = Task.CompletedTask;
+			await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
+			_ready.TrySetResult();
+			while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
+				// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
+				if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
+					throw new IOException("Workspace file watching failed.", failure);
 				}
-			} finally {
-				_inventory.Changed -= SignalFullRefresh;
+
+				await cooldown.ConfigureAwait(false);
+				while (_refreshSignals.Reader.TryRead(out _)) { }
+				long started = Stopwatch.GetTimestamp();
+				await RefreshAsync(initial: false, TakeDirtyScope(), runCt).ConfigureAwait(false);
+				cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 			}
 		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
 			_ready.TrySetCanceled(_stopping.Token);
@@ -238,7 +233,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				return;
 			}
 
-			Volatile.Write(ref _isRepository, snapshot.IsRepository);
 			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 			if (!initial) {
 				foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
@@ -251,7 +245,13 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			}
 
 			Volatile.Write(ref _files, nextFiles);
-			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
+			var listedGitDirectories = snapshot.Directories
+				.Where(directory => Path.GetFileName(directory) == ".git")
+				.ToHashSet(PathIdentity.CanonicalComparer);
+			// Events inside a `.git` were dropped until this pass listed it, so it is listed once more.
+			bool gitDirectoryListed = !listedGitDirectories.IsSubsetOf(Volatile.Read(ref _listedGitDirectories));
+			Volatile.Write(ref _listedGitDirectories, listedGitDirectories);
+			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories) | gitDirectoryListed;
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");
@@ -265,7 +265,22 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		} while (watchesChanged);
 	}
 
+	// An ignore-rule file or a `.git` entry decides how its folder is listed, so that folder is what gets re-listed.
+	// Nothing else inside a `.git` is a workspace path, unless git does not yet accept it and the inventory lists it.
 	private void SignalRefresh(string path) {
+		string[] segments = Path.GetRelativePath(_inventory.Root, Path.GetFullPath(path)).Split(Path.DirectorySeparatorChar);
+		int git = Array.IndexOf(segments, ".git");
+		if (git >= 0) {
+			string gitDirectory = Path.Combine([_inventory.Root, .. segments[..(git + 1)]]);
+			if (git < segments.Length - 1 && !Volatile.Read(ref _listedGitDirectories).Contains(gitDirectory)) {
+				return;
+			}
+
+			path = Path.GetDirectoryName(gitDirectory)!;
+		} else if (WorkspacePaths.IsIgnoreRuleFile(path)) {
+			path = Path.GetDirectoryName(Path.GetFullPath(path))!;
+		}
+
 		lock (_dirtyLock) {
 			_dirtyPaths.Add(path);
 		}
@@ -281,7 +296,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 	private IReadOnlyCollection<string>? TakeDirtyScope() {
 		lock (_dirtyLock) {
-			var scope = _dirtyAll || !Volatile.Read(ref _isRepository) ? null : _dirtyPaths;
+			var scope = _dirtyAll ? null : _dirtyPaths;
 			_dirtyPaths = new HashSet<string>(PathIdentity.Comparer);
 			_dirtyAll = false;
 			return scope;

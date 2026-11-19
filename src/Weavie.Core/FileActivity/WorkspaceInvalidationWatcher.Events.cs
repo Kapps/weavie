@@ -5,118 +5,46 @@ namespace Weavie.Core.FileActivity;
 
 public sealed partial class WorkspaceInvalidationWatcher {
 	private void OnCreated(FileSystemEventArgs e) {
-		if (!Volatile.Read(ref _isRepository)) {
-			if (WorkspacePaths.HasIgnoredSegment(e.FullPath)) {
-				return;
-			}
-
-			if (Directory.Exists(e.FullPath)) {
-				_inventory.TrackNonRepositoryDirectory(e.FullPath);
-				_directoryWatchers.EnsureWatching(e.FullPath);
-			} else {
-				_inventory.TrackNonRepositoryFile(e.FullPath);
-				Record(e.FullPath, FileInvalidationKind.Created);
-			}
-		} else {
-			RecordKnown(e.FullPath, FileInvalidationKind.Created);
-		}
-
+		RecordKnown(e.FullPath, FileInvalidationKind.Created);
 		SignalRefresh(e.FullPath);
 	}
 
-	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-enumerates;
-	// non-repository tracking signals through the inventory's own Changed event when it learns a path.
+	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-lists anything.
 	private void OnChanged(FileSystemEventArgs e) {
-		if (!Volatile.Read(ref _isRepository)) {
-			if (Directory.Exists(e.FullPath) || WorkspacePaths.HasIgnoredSegment(e.FullPath)) {
-				return;
-			}
-
-			_inventory.TrackNonRepositoryFile(e.FullPath);
-			Record(e.FullPath, FileInvalidationKind.Changed);
-			return;
-		}
-
 		RecordKnown(e.FullPath, FileInvalidationKind.Changed);
 		if (WorkspacePaths.IsIgnoreRuleFile(e.FullPath)) {
-			SignalFullRefresh();
+			SignalRefresh(e.FullPath);
 		}
 	}
 
 	private void OnDeleted(FileSystemEventArgs e) {
-		if (Volatile.Read(ref _isRepository)) {
-			var descendants = KnownDescendants(e.FullPath);
-			if (descendants.Count > 0) {
-				foreach (string file in descendants) {
-					Record(file, FileInvalidationKind.Deleted);
-				}
-			} else {
-				RecordKnown(e.FullPath, FileInvalidationKind.Deleted);
-			}
-		} else if (_inventory.IsKnownNonRepositoryDirectory(e.FullPath)) {
-			foreach (string file in _inventory.ForgetNonRepositoryTree(e.FullPath)) {
+		var descendants = KnownDescendants(e.FullPath);
+		if (descendants.Count > 0) {
+			foreach (string file in descendants) {
 				Record(file, FileInvalidationKind.Deleted);
 			}
-		} else if (_inventory.ForgetNonRepositoryFile(e.FullPath)) {
-			Record(e.FullPath, FileInvalidationKind.Deleted);
+		} else {
+			RecordKnown(e.FullPath, FileInvalidationKind.Deleted);
 		}
 
 		SignalRefresh(e.FullPath);
 	}
 
 	private void OnRenamed(string oldPath, string newPath) {
-		bool repository = Volatile.Read(ref _isRepository);
-		if (repository) {
-			var descendants = KnownDescendants(oldPath);
-			if (descendants.Count > 0) {
-				foreach (string oldFile in descendants) {
-					string newFile = Path.Combine(newPath, Path.GetRelativePath(oldPath, oldFile));
-					Record(oldFile, FileInvalidationKind.Deleted);
-					Record(newFile, FileInvalidationKind.Created);
-				}
-			} else {
-				RecordKnown(oldPath, FileInvalidationKind.Deleted);
-				RecordKnown(newPath, FileInvalidationKind.Created);
+		var descendants = KnownDescendants(oldPath);
+		if (descendants.Count > 0) {
+			foreach (string oldFile in descendants) {
+				string newFile = Path.Combine(newPath, Path.GetRelativePath(oldPath, oldFile));
+				Record(oldFile, FileInvalidationKind.Deleted);
+				Record(newFile, FileInvalidationKind.Created);
 			}
-
-			SignalRefresh(oldPath);
-			SignalRefresh(newPath);
-			return;
+		} else {
+			RecordKnown(oldPath, FileInvalidationKind.Deleted);
+			RecordKnown(newPath, FileInvalidationKind.Created);
 		}
 
-		bool ignoredDestination = WorkspacePaths.HasIgnoredSegment(newPath);
-		if (_inventory.IsKnownNonRepositoryDirectory(oldPath)) {
-			if (ignoredDestination) {
-				foreach (string file in _inventory.ForgetNonRepositoryTree(oldPath)) {
-					Record(file, FileInvalidationKind.Deleted);
-				}
-			} else {
-				foreach (var move in _inventory.MoveNonRepositoryTree(oldPath, newPath)) {
-					Record(move.OldPath, FileInvalidationKind.Deleted);
-					Record(move.NewPath, FileInvalidationKind.Created);
-				}
-
-				_inventory.TrackNonRepositoryDirectory(newPath);
-				_directoryWatchers.EnsureWatching(newPath);
-			}
-
-			SignalFullRefresh();
-			return;
-		}
-
-		if (_inventory.ForgetNonRepositoryFile(oldPath)) {
-			Record(oldPath, FileInvalidationKind.Deleted);
-		}
-
-		if (!ignoredDestination && Directory.Exists(newPath)) {
-			_inventory.TrackNonRepositoryDirectory(newPath);
-			_directoryWatchers.EnsureWatching(newPath);
-		} else if (!ignoredDestination) {
-			_inventory.TrackNonRepositoryFile(newPath);
-			Record(newPath, FileInvalidationKind.Created);
-		}
-
-		SignalFullRefresh();
+		SignalRefresh(oldPath);
+		SignalRefresh(newPath);
 	}
 
 	private void OnError(Exception error) {

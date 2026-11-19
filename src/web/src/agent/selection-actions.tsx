@@ -2,7 +2,6 @@ import { MessageSquare, Plus } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { type ClientSession, onSelectedSession } from "../bridge";
-import { DraftBox } from "../chrome/DraftBox";
 import { modalActive, onModalOpened } from "../chrome/modal-state";
 import { insideOmnibar } from "../chrome/omnibar-controller";
 import { evaluateWhen, setContext } from "../commands/context";
@@ -106,7 +105,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
-            <DraftBox class="ui-field ui-draft-resize">
+            <label class="ui-draft ui-field ui-draft-resize">
               <textarea
                 data-agent-selection-comment
                 aria-label="Comment"
@@ -116,7 +115,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
                 value={comment()}
                 onInput={(event) => setComment(event.currentTarget.value)}
               />
-            </DraftBox>
+            </label>
             <div class="selection-comment-actions">
               <button type="button" class="ui-button" title="Cancel (Esc)" onClick={clear}>
                 Cancel

@@ -10,7 +10,6 @@ import {
   Show,
 } from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
-import { DraftBox } from "../chrome/DraftBox";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
@@ -479,7 +478,7 @@ export function AgentComposer(props: {
         onAccept={acceptSlash}
         onDismiss={() => setSlashDismissed(true)}
       />
-      <DraftBox class="agent-compose-draft">
+      <label class="ui-draft agent-compose-draft">
         <textarea
           ref={textareaRef}
           data-agent-paste-target
@@ -513,7 +512,7 @@ export function AgentComposer(props: {
             }
           }}
         />
-      </DraftBox>
+      </label>
       <div class="agent-compose-actions ui-button-group">
         <Show when={canInterrupt()}>
           <button

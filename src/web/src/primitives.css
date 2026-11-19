@@ -295,7 +295,7 @@
     border-color: var(--accent);
   }
 
-  /* A multi-line field: the box holds the block padding, so a scrolled draft is clipped inside it. */
+  /* The <label> around a <textarea>: it holds the block padding, so a scrolled draft is clipped inside it. */
   .ui-draft {
     display: block;
     height: auto;
@@ -319,7 +319,7 @@
     font: var(--font-chrome-mono);
   }
 
-  /* A multi-line field of content text, as tall as its rows. */
+  /* A multi-line field of content text. */
   .ui-field-content {
     padding-block: 7px;
     font: var(--font-content);

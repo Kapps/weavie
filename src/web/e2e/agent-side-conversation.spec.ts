@@ -74,4 +74,16 @@ test("a side conversation spaces its turns like the pane and keeps its reply box
   expect(clearance).toBeGreaterThanOrEqual(6);
   // Focus shows on the border, so the card's clipped edge cuts nothing off.
   await expect(reply).toHaveCSS("outline-style", "none");
+
+  // A press on the box's padding stays in the reply, and the box's corner drags it taller.
+  const box = aside.locator(".ui-draft");
+  await reply.blur();
+  await box.click({ position: { x: 30, y: 3 } });
+  await expect(reply).toBeFocused();
+  const { x, y, width, height } = (await box.boundingBox())!;
+  await page.mouse.move(x + width - 3, y + height - 3);
+  await page.mouse.down();
+  await page.mouse.move(x + width - 3, y + height + 57);
+  await page.mouse.up();
+  expect((await box.boundingBox())!.height).toBeGreaterThan(height + 40);
 });

@@ -66,7 +66,6 @@ export default defineConfig({
         "native-bridge.spec.ts",
         "middle-click-autoscroll.spec.ts",
         "new-session-paste.spec.ts",
-        "new-session-prompt.spec.ts",
         "new-session-workflow-field.spec.ts",
         "agent-composer.spec.ts",
         "runner-connect.spec.ts",

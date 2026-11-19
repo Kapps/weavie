@@ -1,7 +1,6 @@
 import { ChevronDown, ClipboardCheck } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
-import { DraftBox } from "../../chrome/DraftBox";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -188,7 +187,7 @@ function ReviewPanel(props: {
         Finish your review
         <span>{props.set.viewerIsAuthor ? `your PR #${number}` : `PR #${number}`}</span>
       </div>
-      <DraftBox class="weavie-pr-composer-box">
+      <label class="ui-draft weavie-pr-composer-box">
         <textarea
           // A frame later, after the review the command opened (or the palette) has settled focus.
           ref={(el) => requestAnimationFrame(() => el.focus({ preventScroll: true }))}
@@ -205,7 +204,7 @@ function ReviewPanel(props: {
           onFocus={focus.onFocus}
           onBlur={focus.onBlur}
         />
-      </DraftBox>
+      </label>
       <Show
         when={!props.set.viewerIsAuthor}
         fallback={

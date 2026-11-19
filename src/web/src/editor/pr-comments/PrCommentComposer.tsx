@@ -1,5 +1,4 @@
 import { createEffect, createSignal, type JSX, on, onCleanup, onMount, Show } from "solid-js";
-import { DraftBox } from "../../chrome/DraftBox";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 
@@ -127,7 +126,7 @@ export function PrCommentComposer(props: {
   });
   return (
     <div class="weavie-pr-composer">
-      <DraftBox class="weavie-pr-composer-box">
+      <label class="ui-draft weavie-pr-composer-box">
         <textarea
           ref={input}
           data-pr-comment-input
@@ -145,7 +144,7 @@ export function PrCommentComposer(props: {
           onFocus={focus.onFocus}
           onBlur={focus.onBlur}
         />
-      </DraftBox>
+      </label>
       <Show when={error()}>
         {(message) => <div class="weavie-pr-composer-error">{message()}</div>}
       </Show>

@@ -10,7 +10,6 @@ import {
 } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import type { ClientSession, LaunchOrigin, RolePick } from "../bridge";
-import { DraftBox } from "../chrome/DraftBox";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -214,7 +213,7 @@ export function NewSessionComposer(props: {
         }
       }}
     >
-      <DraftBox class="session-composer-prompt">
+      <label class="ui-draft session-composer-prompt">
         <textarea
           ref={promptInput}
           aria-label="Prompt for a new session"
@@ -226,7 +225,7 @@ export function NewSessionComposer(props: {
           onInput={(event) => setPrompt(event.currentTarget.value)}
           onPaste={attachmentStore.capturePaste}
         />
-      </DraftBox>
+      </label>
       <Show when={attachments().length > 0}>
         <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
       </Show>

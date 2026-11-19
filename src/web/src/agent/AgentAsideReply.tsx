@@ -1,6 +1,5 @@
 import { type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { DraftBox } from "../chrome/DraftBox";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
@@ -52,7 +51,7 @@ export function AgentAsideReply(props: {
           onRemove={composer.removeAttachment}
         />
       </Show>
-      <DraftBox class="ui-field ui-field-content ui-draft-resize">
+      <label class="ui-draft ui-field ui-field-content ui-draft-resize">
         <textarea
           ref={textarea}
           data-agent-paste-target
@@ -72,7 +71,7 @@ export function AgentAsideReply(props: {
             }
           }}
         />
-      </DraftBox>
+      </label>
       <Show when={composer.state().error !== null}>
         <div class="agent-compose-error">{composer.state().error}</div>
       </Show>

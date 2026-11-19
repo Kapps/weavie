@@ -664,5 +664,5 @@ Deterministic tests run on the fake ACP agent. Real-agent checks are steps 1 and
 - [x] 7. Web: the e2e spec; `vite build` and `dotnet build` before running it.
 - [x] 8. Docs and `AGENTS.md`; `spec-driven` with `foreach`; converted and validated copies of
       `feature-build`, `issue-fix`, and `quick-fix` in the run's shared documents folder under `personal-workflows/`.
-- [ ] 9. The small nested workflow on a real agent in the running app. (The prove stage records it.)
+- [x] 9. The small nested workflow on a real agent in the running app (real Claude; recorded in the prove stage).
 - [x] 10. `dotnet format`, `biome check --write`, and a duplication pass over the whole diff.

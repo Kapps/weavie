@@ -239,7 +239,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				}
 			}
 
-			watchesChanged = _directoryWatchers.Reconcile(change.Snapshot.Directories);
+			// Events inside a `.git` were dropped until this pass listed it, so it is listed once more.
+			watchesChanged = _directoryWatchers.Reconcile(change.Snapshot.Directories)
+				| change.AddedDirectories.Any(directory => Path.GetFileName(directory) == ".git");
 			// Watch sets skip a missing directory because its parent's watch reports it; nothing reports the root.
 			if (!Directory.Exists(_inventory.Root)) {
 				throw new DirectoryNotFoundException($"The workspace folder {_inventory.Root} no longer exists.");

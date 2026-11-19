@@ -457,7 +457,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
 
-	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
+	/// <summary>The session's authoritative file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }
 
 	/// <summary>The selected provider's terminal-compatible agent pane, when it has one.</summary>

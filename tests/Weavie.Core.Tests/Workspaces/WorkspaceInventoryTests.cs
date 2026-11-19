@@ -168,6 +168,60 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
 
 		Assert.Equal(Paths("odd/file.txt"), snapshot.Files);
+		Assert.Contains(_root.Combine("odd", ".git"), snapshot.Directories);
+	}
+
+	[Fact]
+	public async Task PlainFolderListsAGitFileThatPointsNowhereAsAFile() {
+		_root.WriteFile("stale/.git", "gitdir: /nowhere/at/all\n");
+		_root.WriteFile("stale/file.txt", "");
+
+		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+
+		Assert.Equal(Paths("stale/.git", "stale/file.txt"), snapshot.Files);
+		Assert.DoesNotContain(_root.Combine("stale", ".git"), snapshot.Directories);
+	}
+
+	[Fact]
+	public async Task PlainFolderListsARepositoryWhoseGitDirectoryIsALink() {
+		if (OperatingSystem.IsWindows()) return;
+		using var store = new TempGitRepo();
+		Directory.CreateSymbolicLink(Path.Combine(_root.CreateDirectory("child"), ".git"), Path.Combine(store.Path, ".git"));
+		_root.WriteFile("child/.gitignore", "build/\n");
+		_root.WriteFile("child/build/out.o", "");
+		_root.WriteFile("child/src/a.c", "");
+		var inventory = new WorkspaceInventory(_root.Path);
+
+		var full = await inventory.RefreshAsync();
+		_root.WriteFile("child/build/new.o", "");
+		var scoped = await inventory.RefreshAsync([_root.Combine("child", "build", "new.o"), _root.Combine("child", "src", "a.c")]);
+
+		Assert.Equal(Paths("child/.gitignore", "child/src/a.c"), full.Files);
+		Assert.Equal(full.Files, scoped.Files);
+	}
+
+	[Fact]
+	public async Task ARepositoryGitCannotReadFailsTheListingByName() {
+		string bad = InitRepository("bad");
+		File.WriteAllText(Path.Combine(bad, ".git", "index"), "not an index");
+
+		var failure = await Assert.ThrowsAsync<GitException>(() => new WorkspaceInventory(_root.Path).RefreshAsync());
+
+		Assert.StartsWith(bad, failure.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task AChangeARepositoryIgnoresKeepsThePlainFolderSnapshot() {
+		InitRepository("repo");
+		_root.WriteFile("repo/.gitignore", "build/\n");
+		_root.WriteFile("repo/src/a.c", "");
+		var inventory = new WorkspaceInventory(_root.Path);
+		var before = await inventory.RefreshAsync();
+
+		_root.WriteFile("repo/build/out.o", "");
+		var after = await inventory.RefreshAsync(inventory.CoveringScope([_root.Combine("repo", "build", "out.o")]));
+
+		Assert.Same(before, after);
 	}
 
 	[Fact]
@@ -195,6 +249,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 
 		File.Delete(_root.Combine("plain", "gone.txt"));
 		_root.WriteFile("plain/new.txt", "");
+		_root.WriteFile("plain/out", "");
 		_root.WriteFile("fresh/deep/file.txt", "");
 		_root.WriteFile("fresh/node_modules/pkg/index.js", "");
 		_root.WriteFile("repo/src/new.py", "");
@@ -205,6 +260,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		var scoped = await inventory.RefreshAsync([
 			_root.Combine("plain", "gone.txt"),
 			_root.Combine("plain", "new.txt"),
+			_root.Combine("plain", "out"),
 			_root.Combine("fresh"),
 			_root.Combine("fresh", "node_modules", "pkg", "index.js"),
 			_root.Combine("repo", "src", "new.py"),
@@ -217,7 +273,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		Assert.Equal(full.Files, scoped.Files);
 		Assert.Equal(full.Directories, scoped.Directories);
 		Assert.Equal(
-			Paths("cloned/main.go", "fresh/deep/file.txt", "plain/a.txt", "plain/new.txt", "repo/.gitignore", "repo/src/a.py", "repo/src/new.py"),
+			Paths("cloned/main.go", "fresh/deep/file.txt", "plain/a.txt", "plain/new.txt", "plain/out", "repo/.gitignore", "repo/src/a.py", "repo/src/new.py"),
 			scoped.Files.Order(StringComparer.Ordinal));
 	}
 

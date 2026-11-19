@@ -70,7 +70,7 @@ topology changes, so Linux startup and change capture never walk ignored trees s
 A plain folder has the same inventory from a different listing: its own files come from a walk that prunes the
 noise directories and follows no directory link, and each repository beneath it is listed by that repository's
 git, so its ignore rules decide its files. A change re-lists only the changed paths through whichever of the two
-owns them; a `.git` entry arriving or leaving, or an ignore-rule edit, re-lists the folder.
+owns them; a `.git` entry arriving or leaving, or an ignore-rule edit, re-lists the folder that holds it.
 
 Its registered projections:
 

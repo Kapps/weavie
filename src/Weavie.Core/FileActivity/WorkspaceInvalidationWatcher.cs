@@ -31,6 +31,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private IReadOnlySet<string> _files;
+	private IReadOnlySet<string> _listedGitDirectories = new HashSet<string>();
 	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
 	private Task? _stopTask;
@@ -244,6 +245,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			}
 
 			Volatile.Write(ref _files, nextFiles);
+			Volatile.Write(ref _listedGitDirectories, snapshot.Directories
+				.Where(directory => Path.GetFileName(directory) == ".git")
+				.ToHashSet(PathIdentity.CanonicalComparer));
 			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
 			if (watchesChanged) {
 				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
@@ -253,18 +257,26 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		} while (watchesChanged);
 	}
 
-	// Nothing inside a `.git` directory is a workspace path, but one arriving or leaving decides who lists its folder.
+	// An ignore-rule file or a `.git` entry decides how its folder is listed, so that folder is what gets re-listed.
+	// Nothing else inside a `.git` is a workspace path, unless git does not yet accept it and the inventory lists it.
 	private void SignalRefresh(string path) {
-		string[] segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+		string[] segments = Path.GetRelativePath(_inventory.Root, Path.GetFullPath(path)).Split(Path.DirectorySeparatorChar);
 		int git = Array.IndexOf(segments, ".git");
-		if (git == segments.Length - 1) {
-			SignalFullRefresh();
-		} else if (git < 0) {
-			lock (_dirtyLock) {
-				_dirtyPaths.Add(path);
+		if (git >= 0) {
+			string gitDirectory = Path.Combine([_inventory.Root, .. segments[..(git + 1)]]);
+			if (git < segments.Length - 1 && !Volatile.Read(ref _listedGitDirectories).Contains(gitDirectory)) {
+				return;
 			}
-			_refreshSignals.Writer.TryWrite(true);
+
+			path = Path.GetDirectoryName(gitDirectory)!;
+		} else if (WorkspacePaths.IsIgnoreRuleFile(path)) {
+			path = Path.GetDirectoryName(Path.GetFullPath(path))!;
 		}
+
+		lock (_dirtyLock) {
+			_dirtyPaths.Add(path);
+		}
+		_refreshSignals.Writer.TryWrite(true);
 	}
 
 	private void SignalFullRefresh() {

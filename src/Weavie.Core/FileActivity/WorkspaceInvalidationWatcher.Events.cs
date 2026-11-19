@@ -9,11 +9,11 @@ public sealed partial class WorkspaceInvalidationWatcher {
 		SignalRefresh(e.FullPath);
 	}
 
-	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-enumerates.
+	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-lists anything.
 	private void OnChanged(FileSystemEventArgs e) {
 		RecordKnown(e.FullPath, FileInvalidationKind.Changed);
 		if (WorkspacePaths.IsIgnoreRuleFile(e.FullPath)) {
-			SignalFullRefresh();
+			SignalRefresh(e.FullPath);
 		}
 	}
 

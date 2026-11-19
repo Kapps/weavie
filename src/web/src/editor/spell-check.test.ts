@@ -1,14 +1,18 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const bridge = vi.hoisted(() => ({ request: vi.fn(), changed: () => {} }));
+const options = vi.hoisted(() => ({ locale: "fr", changed: () => {} }));
 const tokenization = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("./spell-tokens", () => ({
   createSpellingTokens: () => ({ read: tokenization.load, dispose: () => {} }),
 }));
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 vi.mock("../editor-options", () => ({
-  currentEditorOptions: () => ({ spellCheck: true }),
-  onEditorOptionsChanged: () => () => {},
+  currentEditorOptions: () => ({ spellCheck: true, spellCheckLocale: options.locale }),
+  onEditorOptionsChanged: (handler: () => void) => {
+    options.changed = handler;
+    return () => {};
+  },
 }));
 vi.mock("../commands/registry", () => ({ findCommand: () => ({ keys: ["ctrl+shift+f8"] }) }));
 vi.mock("../notify/notify", () => ({ notify: vi.fn() }));
@@ -125,7 +129,31 @@ it("sends a visible line whole", async () => {
   await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request.mock.calls[0]![1]).toEqual({
     spans: [{ line: 1, offset: 0, text: "teh word", identifier: false }],
+    locale: "fr",
   });
+  spelling.dispose();
+});
+
+it("drops a check answered after the locale changed and asks again in the new one", async () => {
+  const { spelling, set } = fixture("teh");
+  let resolveOld: (value: unknown) => void = () => {};
+  bridge.request.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  await vi.advanceTimersByTimeAsync(100);
+  options.locale = "de";
+  options.changed();
+  set.mockClear();
+  resolveOld([{ line: 1, offset: 0, word: "teh" }]);
+  await Promise.resolve();
+  expect(set).not.toHaveBeenCalled();
+  bridge.request.mockResolvedValue([]);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(bridge.request.mock.calls[1]![1]).toMatchObject({ locale: "de" });
+  options.locale = "fr";
   spelling.dispose();
 });
 

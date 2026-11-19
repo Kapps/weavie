@@ -2,7 +2,13 @@ import { createSignal } from "solid-js";
 import type { CommandResult } from "./commands/types";
 import { basename } from "./editor/fs-path";
 import { ChunkedMessageReceiver } from "./messaging/chunked-message";
-import { type ClientSession, HostConnection, type HostHello } from "./messaging/host-connection";
+import {
+  type ClientSession,
+  type HomeHello,
+  HostConnection,
+  type HostHello,
+  homeHello,
+} from "./messaging/host-connection";
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type {
@@ -59,7 +65,7 @@ const installedHostFeatures = new Map<
 const [backendList, setBackendList] = createSignal<BackendInfo[]>([]);
 const [selected, setSelected] = createSignal<ClientSession | null>(null);
 const [resourceBases, setResourceBases] = createSignal<Record<string, string>>({});
-type SelectionLocation = NonNullable<HostHello["rail"]["selected"]>;
+type SelectionLocation = NonNullable<HomeHello["rail"]["selected"]>;
 const [preferredSelection, setPreferredSelection] = createSignal<SelectionLocation | null>(null);
 const [localSelectionReady, setLocalSelectionReady] = createSignal(false);
 let selectionChosenBeforeRestore = false;
@@ -210,6 +216,18 @@ export function registerHostFeature(installer: HostFeatureInstaller): () => void
   };
 }
 
+/** Installs a feature on the home connection only: the host that serves this page. */
+export function registerHomeFeature(installer: HostFeatureInstaller): () => void {
+  return registerHostFeature((connection) =>
+    connection.isLocal ? installer(connection) : undefined,
+  );
+}
+
+/** One of the home host's features, for request/response calls. */
+export function homeFeature(name: string) {
+  return homeConnection().host.feature(name);
+}
+
 function installSessionFeature(session: ClientSession, installer: SessionFeatureInstaller): void {
   let installed = installedSessionFeatures.get(session);
   if (installed === undefined) {
@@ -288,7 +306,7 @@ function rememberSelection(session: ClientSession): void {
 
 function restoreSelection(hello: HostHello): void {
   if (!selectionChosenBeforeRestore) {
-    setPreferredSelection(hello.rail.selected);
+    setPreferredSelection(homeHello(hello).rail.selected);
   }
   setLocalSelectionReady(true);
   reconcileSessions();
@@ -432,13 +450,38 @@ function clearBackendPhase(backendId: string): void {
   });
 }
 
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function homeConnection(): HostConnection {
+  return hostConnection(LOCAL_BACKEND_ID) ?? fail("The Weavie host is not connected.");
+}
+
 function createConnection(
   id: string,
   name: string,
   isLocal: boolean,
   send: (json: string) => void,
 ): HostConnection {
-  const connection = new HostConnection(id, name, isLocal, send, (error) => reportError(id, error));
+  const connection = new HostConnection(
+    id,
+    name,
+    isLocal,
+    send,
+    (error) => reportError(id, error),
+    () =>
+      homeConnection().currentHello?.device ??
+      fail("The host serving this page hasn't answered yet."),
+  );
+  if (!isLocal) {
+    // The host's only route to this page's device: device settings requests go to the home and nowhere else.
+    connection.host
+      .feature("device")
+      .handle("settings", (request, signal) =>
+        homeFeature("device").request("settings", request, signal),
+      );
+  }
   connection.onCatalog(reconcileSessions);
   connection.onHello((hello) => {
     if (connection.isLocal) {

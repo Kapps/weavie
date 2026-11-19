@@ -198,8 +198,3 @@ label.agent-input-choice:hover {
   color: var(--accent);
   content: "\25cf";
 }
-
-.agent-input-question textarea {
-  height: auto;
-  padding: 4px 8px;
-}

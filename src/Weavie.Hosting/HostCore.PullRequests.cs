@@ -108,6 +108,7 @@ public sealed partial class HostCore {
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},
+			SourceDevice,
 			ct).ConfigureAwait(false);
 		if (!created.Ok) {
 			return created;

@@ -24,6 +24,7 @@ public sealed partial class HostCore {
 			Unseen = slot.Unseen,
 			WorktreePath = slot.WorktreePath,
 			WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
+			Device = slot.Device.Current.Home,
 			// A session git couldn't place comes back as it was saved once its repository does.
 			Loaded = slot.Lost?.Loaded ?? slot.Loaded,
 			AgentProviderId = slot.AgentProviderId,
@@ -64,6 +65,7 @@ public sealed partial class HostCore {
 
 			if (slot is { }) {
 				slot.WorkflowDocumentsDirectory = item.WorkflowDocumentsDirectory;
+				slot.Device.Restore(item.Device);
 				slot.LastActiveAt = item.LastActiveAt;
 				slot.Unseen = item.Unseen;
 			}
@@ -134,8 +136,9 @@ public sealed partial class HostCore {
 		return placed;
 	}
 
-	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, LostRepository? lost) => new() {
+	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, LostRepository? lost) => new() {
 		Label = label,
+		Device = NewDevice(null),
 		Repo = repo,
 		WorktreePath = item.WorktreePath,
 		AgentProviderId = item.AgentProviderId,
@@ -148,7 +151,7 @@ public sealed partial class HostCore {
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
+			session = CreateSession(slot);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);

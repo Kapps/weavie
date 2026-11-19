@@ -410,7 +410,7 @@ turns into a paused run with that reason.
   workspace those settings belong to (`settingsWorkspaceRoot`, the host's `WorkspaceRoot`) and routes `setSetting`,
   `getSetting`, `listSettings`, and `clearSetting` there, so a default set from any session is the one the composer
   reads.
-- **`workflow.default`.** String, `ApplyMode.Live`, default `""`, `SettingScope.Workspace`. It
+- **`workflow.default`.** String, `ApplyMode.Live`, default `""`, `SettingOwner.Repo`. It
   is checked when read; the catalog response carries the value and, when it can't be used, `defaultProblem`:
   `The default workflow "x" isn't a workflow here.`, `… is invalid: <error>.`, or `… declares inputs, so a prompt
   alone can't start it.`

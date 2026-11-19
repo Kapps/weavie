@@ -493,6 +493,18 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Whether a page downloading <paramref name="session"/>'s file list gets one. It gets none when the host
+	/// answers "not found" and none when the session closes under the request, whichever notices a deleted folder first.
+	/// </summary>
+	public async Task<bool> RequestFileListAsync(HostSession session) {
+		try {
+			return await Core.WriteFileIndexAsync(session.Address, null, () => Stream.Null, CancellationToken.None);
+		} catch (OperationCanceledException) when (session.Background.Stopping.IsCancellationRequested) {
+			return false;
+		}
+	}
+
 	/// <summary>Publishes a session event from the test client.</summary>
 	public void SessionEvent(HostSession session, string feature, string name, object payload) {
 		var element = JsonSerializer.SerializeToElement(payload, JsonOptions);
@@ -668,6 +680,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			new HttpClient(http), new FileCredentialStore(credentialsDir), settings, inference);
 		return new HostServices {
 			Settings = settings,
+			Device = DeviceIdentity.LoadOrCreate(Path.Combine(tempRoot, "device.json")),
 			CommandRegistry = registry,
 			SuggestionRegistry = Weavie.Core.Suggestions.CoreSuggestions.CreateRegistry(),
 			Keybindings = keybindings,

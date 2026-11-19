@@ -80,7 +80,11 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
       }
       const result = await session
         .feature("spelling")
-        .request<Misspelling[], { spans: SpellSpan[] }>("check", { spans }, pending.signal);
+        .request<Misspelling[], { spans: SpellSpan[]; locale: string }>(
+          "check",
+          { spans, locale: currentEditorOptions().spellCheckLocale },
+          pending.signal,
+        );
       if (
         pending.signal.aborted ||
         model.isDisposed() ||

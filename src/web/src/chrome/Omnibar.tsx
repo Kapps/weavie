@@ -20,20 +20,12 @@ import {
 } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
 import { captureCommandUsage, commandUsage } from "../commands/usage-store";
-import { canonicalFsPath, samePath } from "../editor/fs-path";
+import { canonicalFsPath, repoRelativePath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
-import {
-  buildPathTree,
-  type PathTreeNode,
-  type PathTreeRow,
-  pathAncestorKeys,
-  visiblePathTreeRows,
-} from "../files/path-tree";
-import {
-  acquireDirectory,
-  selectedDirectoryListings,
-  selectedFileIndex,
-} from "../files/session-files";
+import type { FileIndex } from "../files/file-index";
+import { type PathTreeRow, pathAncestorKeys, visiblePathTreeRows } from "../files/path-tree";
+import { selectedFileIndex } from "../files/session-file-index";
+import { acquireDirectory, selectedDirectoryListings } from "../files/session-files";
 import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
@@ -63,17 +55,13 @@ const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
 };
 
 // The center omnibar quick-open: file tree when the query is empty, fuzzy-ranked flat list when typing, and a
-// command palette when the query leads with ">". Focusing it asks the host for the file index.
+// command palette when the query leads with ">".
 export function Omnibar(props: {
-  files: string[];
-  // A session switch invalidated the index and the new worktree's walk is still running — the empty list
-  // means "loading", not "this worktree has no files".
-  filesPending: boolean;
+  index: FileIndex;
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
   onOpenFile: (abs: string, line: number | undefined) => void;
-  onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
   symbols: () => SymbolActions;
 }): JSX.Element {
@@ -163,13 +151,11 @@ export function Omnibar(props: {
   const pathView = createMemo(() => pathRows().slice(0, VIEW_CAP));
 
   const fileSearch = createFileSearch({
-    files: () => props.files,
-    root: () => props.root ?? "",
+    index: () => props.index,
     query: () => (searchMode() ? query() : ""),
     recent: recentFiles,
     currentFile: () => props.currentFile,
   });
-  const rows = fileSearch.rows;
   const view = fileSearch.view;
 
   // Symbol modes (@ / #): the editor sources + ranks the symbols; this omnibar only renders and navigates. Active
@@ -190,14 +176,12 @@ export function Omnibar(props: {
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  const treeNodes = createMemo<PathTreeNode<string>[]>(() =>
-    buildPathTree(rows().map((row) => ({ path: row.rel, value: row.abs }))),
-  );
   const visibleRows = createMemo<PathTreeRow<string>[]>(() => {
-    if (!treeMode()) {
+    if (!open() || !treeMode()) {
       return [];
     }
-    return visiblePathTreeRows(treeNodes(), expanded(), VIEW_CAP);
+    props.index.version;
+    return visiblePathTreeRows(props.index.tree(), expanded(), VIEW_CAP);
   });
 
   // The palette: visible commands whose `when` passes, fuzzy-ranked (with positions) over the text after ">".
@@ -246,16 +230,17 @@ export function Omnibar(props: {
           : 0;
 
   // True while an open tree-mode session still needs to center on the current file — the first reveal usually
-  // runs against an empty `rows()`, so the later file-index arrival finishes it.
+  // runs before the file list has arrived, so its arrival finishes it.
   const [pendingReveal, setPendingReveal] = createSignal(false);
 
   // Expand the current file's folder chain and center the selection on it. Returns false when the current
-  // file isn't in the index yet (host reply in flight); the caller re-attempts once `rows()` arrives.
+  // file isn't listed yet (the list is still downloading); the caller re-attempts when the list changes.
   const focusCurrentInTree = (): boolean => {
     const cf = props.currentFile;
     let revealed = true;
     if (cf !== null) {
-      const row = rows().find((r) => samePath(r.abs, cf));
+      const rel = repoRelativePath(props.index.root ?? "", cf);
+      const row = props.index.find(rel) ?? props.index.findLoose(rel);
       if (row !== undefined) {
         setExpanded(new Set(pathAncestorKeys(row.rel)));
       } else {
@@ -291,7 +276,7 @@ export function Omnibar(props: {
   // Finish the reveal once the async file index lands, then stop so later manual expand/collapse stands.
   createEffect(
     on(
-      rows,
+      () => props.index.version,
       () => {
         if (open() && treeMode() && pendingReveal()) {
           focusCurrentInTree();
@@ -349,7 +334,6 @@ export function Omnibar(props: {
           priorFocus = active;
         }
         setOpen(true);
-        props.onRequestIndex();
         queueMicrotask(() => {
           inputRef.focus();
           // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
@@ -668,7 +652,6 @@ export function Omnibar(props: {
               priorFocus = from;
             }
             setOpen(true);
-            props.onRequestIndex();
           }}
           onClick={() => setOpen(true)}
           onKeyDown={onKeyDown}
@@ -692,7 +675,7 @@ export function Omnibar(props: {
             onSelect={setSelected}
             rowProps={nav.row}
             hiddenCount={hiddenCount}
-            filesPending={props.filesPending}
+            index={props.index}
             currentFile={props.currentFile}
             pathRows={pathView}
             pathError={pathError}

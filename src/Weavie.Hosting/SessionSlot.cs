@@ -37,6 +37,9 @@ public sealed class SessionSlot {
 	/// <summary>The provider this session uses. Existing sessions default to Claude.</summary>
 	public required string AgentProviderId { get; set; }
 
+	/// <summary>The device the session belongs to.</summary>
+	public required SessionDevice Device { get; init; }
+
 	/// <summary>The live backend, or <c>null</c> when this slot is unloaded (dormant).</summary>
 	public HostSession? Session { get; set; }
 

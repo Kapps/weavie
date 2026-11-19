@@ -5,19 +5,6 @@ import { createSessionOwnedState } from "../messaging/session-owned-state";
 import type { DirEntry, DirListings } from "./FileBrowser";
 import { revealFileIn } from "./reveal";
 
-interface FileIndex {
-  root: string | null;
-  /** The host's home directory, so `~/…` in open-by-path expands against the host, not the browser. */
-  home: string | null;
-  files: string[];
-  pending: boolean;
-}
-
-// The index and the directory listings are separate signals on purpose. Held together, every listing reply
-// invalidated readers of the index too — so a consumer deriving a request from the index (open-by-path) would
-// re-request on its own reply and never settle. Split, that whole class of loop can't be written.
-const EMPTY_INDEX: FileIndex = { root: null, home: null, files: [], pending: false };
-const indexes = createSessionOwnedState<FileIndex>(() => EMPTY_INDEX);
 const listings = createSessionOwnedState<DirListings>(() => ({}));
 interface DirectorySubscription {
   id: string;
@@ -41,9 +28,6 @@ function updateListings(
   listings.update(session, mutate);
 }
 
-export const fileIndexFor = (session: ClientSession | null): FileIndex =>
-  indexes.get(session) ?? EMPTY_INDEX;
-export const selectedFileIndex = (): FileIndex => fileIndexFor(selectedSession());
 export const selectedDirectoryListings = (): DirListings => {
   return listings.get(selectedSession()) ?? {};
 };
@@ -51,10 +35,6 @@ export const selectedDirectoryListings = (): DirListings => {
 /** As {@link revealFileIn}, for whichever session is selected. */
 export function revealSelectedFile(path: string, line: number | undefined, preview = false): void {
   revealFileIn(selectedSession(), path, line, preview);
-}
-
-export function refreshSelectedFileIndex(): void {
-  selectedSession()?.feature("files").publish("refreshIndex", {});
 }
 
 /** Retains a listing and its watch until this session's last consumer releases it. */
@@ -177,26 +157,13 @@ registerSessionFeature((session) => {
       }
     }
   });
-  const offIndex = files.on<{ root: string; home?: string; files: string[]; pending?: boolean }>(
-    "index",
-    (message) => {
-      const previousRoot = indexes.get(session)?.root ?? null;
-      if (message.pending === true && message.root === previousRoot) {
-        for (const [path, subscription] of directories.get(session) ?? [])
-          listDirectory(session, path, subscription);
-        return;
-      }
-      indexes.update(session, () => ({
-        root: message.root,
-        // An empty profile path is no answer: `~` stays unresolvable rather than naming the root.
-        home: message.home === undefined || message.home === "" ? null : message.home,
-        files: message.files,
-        pending: message.pending === true,
-      }));
-    },
-  );
+  // The host sends the workspace on every sync, and a listing held across a reconnect may have missed changes.
+  const offWorkspace = files.on("workspace", () => {
+    for (const [path, subscription] of directories.get(session) ?? [])
+      listDirectory(session, path, subscription);
+  });
   return () => {
-    offIndex();
+    offWorkspace();
     offChanged();
   };
 });

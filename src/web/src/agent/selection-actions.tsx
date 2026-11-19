@@ -117,16 +117,17 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
             aria-label="Comment on Selection"
             style={`left:clamp(8px, ${point.x}px, calc(100vw - 368px));${above ? "bottom" : "top"}:${inset}px;max-height:calc(100vh - ${inset + 8}px)`}
           >
-            <textarea
-              class="selection-comment-input ui-field"
-              data-agent-selection-comment
-              aria-label="Comment"
-              placeholder="Comment"
-              rows={3}
-              ref={(element) => queueMicrotask(() => element.focus())}
-              value={comment()}
-              onInput={(event) => setComment(event.currentTarget.value)}
-            />
+            <label class="ui-draft ui-field ui-draft-resize">
+              <textarea
+                data-agent-selection-comment
+                aria-label="Comment"
+                placeholder="Comment"
+                rows={3}
+                ref={(element) => queueMicrotask(() => element.focus())}
+                value={comment()}
+                onInput={(event) => setComment(event.currentTarget.value)}
+              />
+            </label>
             <div class="selection-comment-actions">
               <button type="button" class="ui-button" title="Cancel (Esc)" onClick={clear}>
                 Cancel

@@ -124,10 +124,6 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		session.Bus.PeerDisconnected += _fileRoutes.ReleasePreviews;
-		files.Handle("refreshIndex", MessageActivity.Droppable("Refreshing the file index"), WireJson.Default.EmptyPayload, (_, _) => {
-			PushFileIndexToWeb(session, false);
-			return Task.CompletedTask;
-		});
 
 		session.Bus.Feature("search").Handle(
 			"query", MessageActivity.ActionFailed("Searching files"), WireJson.Default.JsonElement, WireJson.Default.JsonElement,
@@ -192,7 +188,7 @@ public sealed partial class HostCore {
 		PushReviewStateToWeb(session, target);
 		PushReviewCommits(session, target);
 		session.DiffPresenter.Replay(target.Feature("editor"));
-		PushFileIndexToWeb(session, true, target);
+		PushWorkspaceToWeb(session, target);
 		PushGitStatus(session, target);
 		PushPullRequestStatus(session, target);
 		PushRefLinkBase(session, target);
@@ -268,7 +264,7 @@ public sealed partial class HostCore {
 		}
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) =>
-			_core.NewSessionAsync(_source.Address, request, ct);
+			_core.NewSessionAsync(_source.Address, request, SourceDevice, ct);
 
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);

@@ -359,6 +359,7 @@ test.describe("at a large editor font", () => {
   }) => {
     const surface = await createAcpSession(page, "acp-composer-row");
     const draft = surface.locator("[data-agent-composer] textarea");
+    const field = surface.locator(".agent-compose-draft");
     const run = surface.getByRole("button", { name: "Run", exact: true });
     const edges = async (locator: typeof draft) => {
       const box = (await locator.boundingBox())!;
@@ -367,11 +368,11 @@ test.describe("at a large editor font", () => {
 
     await draft.fill("one line");
     await expect(draft).toHaveCSS("font-size", "22px");
-    expect(await edges(run)).toEqual(await edges(draft));
+    expect(await edges(run)).toEqual(await edges(field));
 
     await draft.fill("one\ntwo\nthree");
-    const [button, field] = [await edges(run), await edges(draft)];
-    expect(button.bottom).toBe(field.bottom);
-    expect(button.top).toBeGreaterThan(field.top);
+    const [button, box] = [await edges(run), await edges(field)];
+    expect(button.bottom).toBe(box.bottom);
+    expect(button.top).toBeGreaterThan(box.top);
   });
 });

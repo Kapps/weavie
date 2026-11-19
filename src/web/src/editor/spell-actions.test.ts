@@ -3,6 +3,7 @@ import type { ContextMenuItem } from "../chrome/ContextMenu";
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../notify/notify", () => ({ notify: vi.fn() }));
+vi.mock("../editor-options", () => ({ currentEditorOptions: () => ({ spellCheckLocale: "fr" }) }));
 vi.mock("./session-uri-owner", () => ({ sessionForUri: () => ({ feature: () => ({ request }) }) }));
 vi.mock("./monaco-setup", () => ({
   monaco: {
@@ -68,7 +69,11 @@ it("queries only when the menu loads and applies a chosen suggestion as one undo
   expect(request).not.toHaveBeenCalled();
   const controller = new AbortController();
   const entries = await menu.loadEntries!(controller.signal);
-  expect(request).toHaveBeenCalledWith("suggest", { word: "teh" }, expect.any(AbortSignal));
+  expect(request).toHaveBeenCalledWith(
+    "suggest",
+    { word: "teh", locale: "fr" },
+    expect.any(AbortSignal),
+  );
   controller.abort(); // Menus close before dispatching their selected command.
   actions.correct((entries[0] as ContextMenuItem).args);
   expect(executeEdits).toHaveBeenCalledWith("spelling", [

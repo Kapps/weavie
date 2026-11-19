@@ -256,17 +256,19 @@ export function NewSessionComposer(props: {
         }
       }}
     >
-      <textarea
-        ref={promptInput}
-        aria-label="Prompt for a new session"
-        placeholder="What do you want to work on?"
-        rows={3}
-        value={prompt()}
-        onFocus={() => setContext("newSessionPromptFocused", props.active)}
-        onBlur={() => setContext("newSessionPromptFocused", false)}
-        onInput={(event) => setPrompt(event.currentTarget.value)}
-        onPaste={attachmentStore.capturePaste}
-      />
+      <label class="ui-draft session-composer-prompt">
+        <textarea
+          ref={promptInput}
+          aria-label="Prompt for a new session"
+          placeholder="What do you want to work on?"
+          rows={3}
+          value={prompt()}
+          onFocus={() => setContext("newSessionPromptFocused", props.active)}
+          onBlur={() => setContext("newSessionPromptFocused", false)}
+          onInput={(event) => setPrompt(event.currentTarget.value)}
+          onPaste={attachmentStore.capturePaste}
+        />
+      </label>
       <Show when={attachments().length > 0}>
         <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
       </Show>

@@ -56,7 +56,7 @@ public sealed class HostCoreInferencePermissionTests {
 		Assert.True(unloaded.GetProperty("ok").GetBoolean());
 
 		var result = await host.HostRequestAsync<JsonElement>(
-			"commands",
+			"sessions",
 			"invoke",
 			new { id = CoreCommands.EnableAutomaticInference, args = new { } });
 

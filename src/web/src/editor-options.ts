@@ -1,9 +1,9 @@
-// Editor-behavior options (Monaco IEditorOptions) — the editor analogue of fonts.ts. The host owns the
-// source of truth (typed `editor.*` settings) and delivers it injected as `window.__WEAVIE_EDITOR_OPTIONS__`
-// before navigation + re-pushed as `settings.editorOptions` on change. Consumers read currentEditorOptions()
-// at creation and subscribe via onEditorOptionsChanged() for live updates.
+// Editor-behavior options (Monaco IEditorOptions) — the editor analogue of fonts.ts: the `editorOptions` device
+// setting, built from the typed `editor.*` settings. Consumers read currentEditorOptions() at creation and
+// subscribe via onEditorOptionsChanged() for live updates.
 
-import { type EditorOptionsSpec, hostInjected, registerHostFeature } from "./bridge";
+import type { EditorOptionsSpec } from "./bridge";
+import { deviceSetting } from "./device-settings";
 import { DEFAULT_EDITOR_OPTIONS } from "./editor-options-defaults";
 
 export type { EditorOptionsSpec };
@@ -15,35 +15,15 @@ declare global {
   }
 }
 
-let current: EditorOptionsSpec = hostInjected(
+const options = deviceSetting(
+  "editorOptions",
   "__WEAVIE_EDITOR_OPTIONS__",
   window.__WEAVIE_EDITOR_OPTIONS__,
   DEFAULT_EDITOR_OPTIONS,
 );
 
-const subscribers = new Set<(options: EditorOptionsSpec) => void>();
-
 /** The editor options to use right now — read this when creating the editor. */
-export function currentEditorOptions(): EditorOptionsSpec {
-  return current;
-}
+export const currentEditorOptions = options.current;
 
 /** Subscribe to live editor-option changes; returns an unsubscribe function. */
-export function onEditorOptionsChanged(handler: (options: EditorOptionsSpec) => void): () => void {
-  subscribers.add(handler);
-  return () => {
-    subscribers.delete(handler);
-  };
-}
-
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
-  return connection.host.feature("settings").on<EditorOptionsSpec>("editorOptions", (options) => {
-    current = options;
-    for (const handler of subscribers) {
-      handler(current);
-    }
-  });
-});
+export const onEditorOptionsChanged = options.onChanged;

@@ -135,7 +135,7 @@ test("an open Go to File query follows external create, rename and delete", asyn
 });
 
 test.describe("file request completion", () => {
-  let completedIndexes = 0;
+  let indexChanges = 0;
   let failedListings = 0;
   let listingError = "";
   let failingDirectory = "";
@@ -157,12 +157,7 @@ test.describe("file request completion", () => {
           });
           server.onMessage((data) => {
             const message = JSON.parse(decodeTestWebSocketMessage(data));
-            if (
-              message.feature === "files" &&
-              message.name === "index" &&
-              message.payload.pending === false
-            )
-              completedIndexes += 1;
+            if (message.feature === "files" && message.name === "indexChanged") indexChanges += 1;
             if (listings.delete(message.requestId)) {
               expect(message.error).toBeNull();
               message.error = `Cannot list directory: ${failingDirectory}`;
@@ -202,11 +197,12 @@ test.describe("file request completion", () => {
     weavie,
   }) => {
     const directory = join(weavie.workspace, "unbrowsed-empty");
+    const previous = indexChanges;
     await mkdir(directory);
-    const previous = completedIndexes;
     await page.locator(".tb-omnibar-input").click();
     await page.locator(".tb-omnibar-input").fill("new-nested-match");
-    await expect.poll(() => completedIndexes).toBeGreaterThan(previous);
+    // The host lists the empty directory, and so watches it, before the file arrives.
+    await expect.poll(() => indexChanges).toBeGreaterThan(previous);
     await writeFile(join(directory, "new-nested-match.txt"), "first child");
     await expect(
       page.locator(".tb-omnibar-row", { hasText: "new-nested-match.txt" }),

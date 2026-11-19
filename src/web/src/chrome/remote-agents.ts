@@ -6,8 +6,9 @@ import {
   disconnectBackend,
   hostConnection,
   LOCAL_BACKEND_ID,
-  registerHostFeature,
+  registerHomeFeature,
 } from "../bridge";
+import { homeHello } from "../messaging/host-connection";
 import { notify } from "../notify/notify";
 
 // A registered remote agent: a name plus how to reach its runner's control plane. The runner mints the actual
@@ -65,11 +66,8 @@ export function removeAgent(name: string): void {
 
 // Honored only from the LOCAL backend — a remote runner pushes its own registry, which must not leak in. The
 // host includes it in hello and publishes changes after add/remove.
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
-  const offHello = connection.onHello((hello) => reconcile(hello.remoteAgents));
+registerHomeFeature((connection) => {
+  const offHello = connection.onHello((hello) => reconcile(homeHello(hello).remoteAgents));
   const offChanged = connection.host
     .feature("remoteAgents")
     .on<{ agents: RemoteAgent[] }>("changed", ({ agents }) => reconcile(agents));

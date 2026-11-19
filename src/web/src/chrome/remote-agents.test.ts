@@ -23,7 +23,7 @@ vi.mock("../bridge", () => ({
       }),
     },
   }),
-  registerHostFeature: () => () => {},
+  registerHomeFeature: () => () => {},
   LOCAL_BACKEND_ID: "local",
 }));
 

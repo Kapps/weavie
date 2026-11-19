@@ -17,22 +17,28 @@ public sealed partial class HostCore {
 		WireSystemNotificationMessages();
 		WireCommandUsage();
 
+		WireDeviceMessages();
 		var connection = _messages.Host.Feature("connection");
-		connection.HandleAfterResponse(
-			"hello", MessageActivity.ActionFailed("Connecting to Weavie"), WireJson.Default.EmptyPayload, WireJson.Default.HostHello,
-			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
-				BuildHello(),
-				_ => {
-					// Getting Started covers inference, so the tip and inference offer wait until setup is done.
-					if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
-						OfferStartupTip();
-						OfferAutomaticInference();
-					} else {
-						_messages.Host.Feature("gettingStarted").Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
-					}
+		connection.HandleOwnedAfterResponse(
+			"hello", MessageActivity.ActionFailed("Connecting to Weavie"), WireJson.Default.HelloRequest, WireJson.Default.HostHello,
+			(request, page, _) => {
+				page.Home = new PageHome(request.Home);
+				bool home = request.Home is null;
+				return Task.FromResult(new ResponseWithCompletion<HostHello>(
+					BuildHello(home),
+					_ => {
+						// Getting Started covers inference, so the tip and inference offer wait until setup is done.
+						// Setup and the tip are a device's own, so only a page this host serves is offered them.
+						if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
+							if (home) OfferStartupTip();
+							OfferAutomaticInference();
+						} else if (home) {
+							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
+						}
 
-					return Task.CompletedTask;
-				})));
+						return Task.CompletedTask;
+					}));
+			});
 
 		var clipboard = _messages.Host.Feature("clipboard");
 		clipboard.Handle("write", MessageActivity.ActionFailed("Copying to the clipboard"), WireJson.Default.ClipboardWrite, (message, _) => {
@@ -148,11 +154,11 @@ public sealed partial class HostCore {
 			"branches", MessageActivity.ActionFailed("Listing branches"), WireJson.Default.BranchesRequest, WireJson.Default.StringArray,
 			ListBranchesAsync);
 
-		_messages.Host.Feature("sessions").HandleKeyed(
+		_messages.Host.Feature("sessions").HandleKeyedOwned(
 			"invoke", CommandActivity, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			CommandExecutionLane,
-			async (message, ct) => CommandWireResult.From(
-				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
+			async (message, page, ct) => CommandWireResult.From(
+				await InvokeHostSessionCommandAsync(message, page, ct).ConfigureAwait(false)));
 		_messages.Host.Feature("sessionCreation").HandleWithCallerProgress(
 			"previewBranch", MessageActivity.Droppable("Suggesting a branch name"), WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
@@ -206,12 +212,16 @@ public sealed partial class HostCore {
 
 	private async Task<CommandResult> InvokeHostSessionCommandAsync(
 		CommandRequest message,
+		MessagePeer page,
 		CancellationToken ct) {
 		var args = message.Args;
 		string? id = ReadString(args, "id");
 		return message.Id switch {
 			CoreCommands.ResetCommandLearning => ResetCommandLearning(),
-			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
+			CoreCommands.EnableAutomaticInference => InferenceCommands.EnableAutomatic(_settings),
+			SessionCommands.NewSession => _messages.TryGetHome(page.Transport, out var home)
+				? await NewSessionFromHostAsync(args, home, ct).ConfigureAwait(false)
+				: CommandResult.Failure("This page hasn't connected yet."),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
 				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.ReloadSession => await ReloadSessionAsync(
@@ -264,7 +274,7 @@ public sealed partial class HostCore {
 			? definition.ExecutionLaneFor(message.Args?.GetRawText())
 			: "unknown-command";
 
-	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {
+	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, DeviceIdentity? device, CancellationToken ct) {
 		if (args is not { ValueKind: JsonValueKind.Object } element) {
 			return Task.FromResult(CommandResult.Failure("New session arguments must be an object."));
 		}
@@ -276,7 +286,7 @@ public sealed partial class HostCore {
 		var source = ReadSessionAddress(element, "source");
 		return hasSource && source is null
 			? Task.FromResult(CommandResult.Failure("The source session address is invalid."))
-			: NewSessionAsync(source, request, ct);
+			: NewSessionAsync(source, request, _ => device, ct);
 	}
 
 	private static SessionAddress? ReadSessionAddress(JsonElement args, string name) {
@@ -324,17 +334,22 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 	}
 
-	private HostHello BuildHello() {
+	private HostHello BuildHello(bool home) {
 		using var layout = JsonDocument.Parse(LayoutSerialization.SerializeCompact(_layout.Current));
 		var hello = new HostHello(
+			_device,
 			_hostIncarnation,
 			BuildNumber,
 			BuildSessionCatalog(),
 			layout.RootElement.Clone(),
-			RemoteAgentSnapshots(),
-			BuildRailSnapshot(),
-			BuildSearchSnapshot(),
-			BuildReviewOverviewSnapshot(),
+			home
+				? new HomeSnapshot(
+					RemoteAgentSnapshots(),
+					BuildRailSnapshot(),
+					BuildSearchSnapshot(),
+					BuildReviewOverviewSnapshot(),
+					ParseJsonElement(_global.DeviceSettingsJson()))
+				: null,
 			RepoStates(),
 			KnownRepos(),
 			[.. _sources.ConnectedLinkHosts()],
@@ -411,20 +426,29 @@ public sealed partial class HostCore {
 
 	internal sealed record ReviewOverviewSnapshot(string[] Collapsed);
 
+	/// <summary>A page's hello: the home that serves it, or none when this host does.</summary>
+	internal sealed record HelloRequest(DeviceIdentity? Home);
+
 	internal sealed record HostHello(
+		DeviceIdentity Device,
 		string HostIncarnation,
 		string BuildNumber,
 		SessionCatalogEntry[] Sessions,
 		JsonElement Layout,
-		RemoteAgentSnapshot[] RemoteAgents,
-		RailSnapshot Rail,
-		SearchSnapshot Search,
-		ReviewOverviewSnapshot ReviewOverview,
+		HomeSnapshot? Home,
 		RepoState[] Repos,
 		KnownRepo[] KnownRepos,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
+
+	/// <summary>What only a page this host serves reads: its remote agents, chrome state and device settings.</summary>
+	internal sealed record HomeSnapshot(
+		RemoteAgentSnapshot[] RemoteAgents,
+		RailSnapshot Rail,
+		SearchSnapshot Search,
+		ReviewOverviewSnapshot ReviewOverview,
+		JsonElement DeviceSettings);
 
 	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
 

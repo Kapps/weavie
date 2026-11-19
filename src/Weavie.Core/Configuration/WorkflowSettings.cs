@@ -20,7 +20,7 @@ public static class WorkflowSettings {
 		registry.Register(new SettingDefinition {
 			Key = Default,
 			Kind = SettingKind.String,
-			Scope = SettingScope.Workspace,
+			Owner = SettingOwner.Repo,
 			Description = "The workflow id the new-session composer preselects, from listWorkflows; empty for no workflow. It must be "
 				+ "valid and declare no inputs. Set it for one repository, or user-wide for every repository without its own.",
 			Aliases = ["default workflow", "preselect workflow", "new session workflow"],
@@ -30,6 +30,7 @@ public static class WorkflowSettings {
 		registry.Register(new SettingDefinition {
 			Key = DecisionConfidence,
 			Kind = SettingKind.Number,
+			Owner = SettingOwner.Machine,
 			Description = "Minimum model confidence for automatic workflow decisions, and for the new-session composer to apply its "
 				+ "workflow or role-model suggestion; lower confidence asks you instead, or leaves the composer's field as it was.",
 			Aliases = ["workflow confidence", "decision confidence"],
@@ -41,6 +42,7 @@ public static class WorkflowSettings {
 		registry.Register(new SettingDefinition {
 			Key = MaxStageAttempts,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "How many times a workflow stage's completion can be rejected (missing or mistyped outputs) before the run pauses for you.",
 			Aliases = ["workflow attempts", "stage attempts", "workflow retries"],
 			Apply = ApplyMode.Live,
@@ -52,6 +54,7 @@ public static class WorkflowSettings {
 		registry.Register(new SettingDefinition {
 			Key = OpenReviewItem,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "When a workflow asks you a question, have the agent open the main document it is about in a preview tab of that session.",
 			Aliases = ["workflow open document", "open review document", "workflow auto open"],
 			Apply = ApplyMode.Live,

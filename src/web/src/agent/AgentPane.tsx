@@ -50,7 +50,7 @@ export function AgentPane(props: {
     if (
       target instanceof Element &&
       target.closest(
-        "textarea, input, select, [contenteditable]:not([contenteditable='false'])",
+        "textarea, input, select, .ui-draft, [contenteditable]:not([contenteditable='false'])",
       ) !== null
     ) {
       return;

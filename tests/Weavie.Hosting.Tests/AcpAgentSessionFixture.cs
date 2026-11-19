@@ -438,6 +438,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				ExposeIdeTools = true,
 				Settings = settings,
 				SettingsWorkspaceRoot = workspace,
+				SettingsTools = new SettingsTools(settings, "test-machine"),
+				DeviceSettings = new SettingsTools(settings, "test-device"),
 				Layout = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 				Editor = editor,
 				Commands = new CommandDispatcher(commandRegistry),

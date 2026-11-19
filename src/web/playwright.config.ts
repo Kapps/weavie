@@ -67,6 +67,7 @@ export default defineConfig({
         "middle-click-autoscroll.spec.ts",
         "new-session-paste.spec.ts",
         "new-session-workflow-field.spec.ts",
+        "paired-device-settings.spec.ts",
         "agent-composer.spec.ts",
         "runner-connect.spec.ts",
         "session-switch-performance.spec.ts",

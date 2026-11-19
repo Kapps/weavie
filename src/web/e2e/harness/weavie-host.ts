@@ -65,6 +65,8 @@ export interface LaunchOptions {
   markdownView: "preview" | "source";
   /** The seeded `editor.reviewFilesAhead`. */
   reviewFilesAhead: number;
+  /** Remote agents the host starts registered with, as a native app that has added a runner. */
+  remoteAgents?: { name: string; url: string; token: string }[];
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
@@ -220,6 +222,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     join(weavieRoot, "settings.toml"),
     `[editor]\nmarkdownView = "${options.markdownView}"\nreviewFilesAhead = ${options.reviewFilesAhead}\n${options.setupCompleted ? "[gettingStarted]\ncompleted = true\n" : ""}`,
   );
+  if (options.remoteAgents) {
+    await writeFile(
+      join(weavieRoot, "remote-agents.json"),
+      JSON.stringify({ version: 1, agents: options.remoteAgents }),
+    );
+  }
   // Journeys find sessions by their rail chips, so the host starts with the session panel unpinned.
   await writeFile(
     join(weavieRoot, "rail-state.json"),

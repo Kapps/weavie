@@ -30,6 +30,9 @@ public static class WeaviePaths {
 	/// <summary>The user settings file: <c>~/.weavie/settings.toml</c>.</summary>
 	public static string SettingsFile { get; } = Path.Combine(Root, "settings.toml");
 
+	/// <summary>This root's stable identity (<c>~/.weavie/device.json</c>), named by the pages it serves.</summary>
+	public static string DeviceFile { get; } = Path.Combine(Root, "device.json");
+
 	/// <summary>The user keybindings file: <c>~/.weavie/keybindings.json</c> (a list of {key, command, args?, when?} records).</summary>
 	public static string KeybindingsFile { get; } = Path.Combine(Root, "keybindings.json");
 

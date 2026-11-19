@@ -37,6 +37,9 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession : IAsyncDisposable {
 	private readonly CapabilityRegistryHost _registry;
 
+	/// <summary>Test seam for the device settings of the device this session belongs to.</summary>
+	internal IDeviceSettings DeviceSettingsForTest { get; }
+
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
@@ -80,6 +83,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(paths);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentNullException.ThrowIfNull(owner);
+		DeviceSettingsForTest = owner.DeviceSettings;
 		var settings = services.Settings;
 		string workspaceRoot = paths.WorkspaceRoot;
 
@@ -210,6 +214,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 				ExposeIdeTools = exposeRegistryIdeTools,
 				Settings = settings,
 				SettingsWorkspaceRoot = Repo.Root,
+				SettingsTools = services.SettingsTools,
+				DeviceSettings = owner.DeviceSettings,
 				Layout = services.Layout,
 				Editor = Editor,
 				Commands = Commands,
@@ -454,8 +460,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
-
-	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
 
 	/// <summary>The session's authoritative file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }

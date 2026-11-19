@@ -18,7 +18,7 @@ const findCommand = vi.hoisted(() =>
 const runCommand = vi.hoisted(() => vi.fn());
 
 vi.mock("../bridge", () => ({
-  registerHostFeature: (installer: (connection: unknown) => (() => void) | undefined) => {
+  registerHomeFeature: (installer: (connection: unknown) => (() => void) | undefined) => {
     harness.installer = installer;
     return () => {};
   },
@@ -46,15 +46,14 @@ vi.mock("../splash", () => ({
 
 await import("./startup-tip");
 
-function install(isLocal: boolean): {
+function install(): {
   cleanup: () => void;
   show: (payload: unknown) => void;
 } {
   const handlers = new Map<string, Handler>();
   const cleanup =
     harness.installer?.({
-      id: isLocal ? "local" : "remote:worker",
-      isLocal,
+      id: "local",
       host: {
         feature: () => ({
           on: (name: string, handler: Handler) => {
@@ -87,7 +86,7 @@ describe("startup tip intake", () => {
   });
 
   it("waits for the splash, appends the effective shortcut, and offers the command as a button", () => {
-    const installed = install(true);
+    const installed = install();
 
     installed.show(tip);
     expect(notify).not.toHaveBeenCalled();
@@ -107,7 +106,7 @@ describe("startup tip intake", () => {
 
   it("omits the shortcut for an unbound command but keeps its button", () => {
     keyHint.mockReturnValueOnce("");
-    const installed = install(true);
+    const installed = install();
     harness.splashDismissed?.();
 
     installed.show(tip);
@@ -123,7 +122,7 @@ describe("startup tip intake", () => {
 
   it("holds a command tip until the catalog names its command", () => {
     findCommand.mockReturnValueOnce(undefined);
-    const installed = install(true);
+    const installed = install();
     harness.splashDismissed?.();
 
     installed.show(tip);
@@ -135,7 +134,7 @@ describe("startup tip intake", () => {
   });
 
   it("shows a later tip immediately when the splash is already gone and ignores repeats", () => {
-    const installed = install(true);
+    const installed = install();
     harness.splashDismissed?.();
 
     installed.show({ ...tip, commandId: null });
@@ -149,16 +148,6 @@ describe("startup tip intake", () => {
       undefined,
     );
     expect(keyHint).not.toHaveBeenCalled();
-    installed.cleanup();
-  });
-
-  it("ignores tips from remote hosts", () => {
-    const installed = install(false);
-
-    installed.show(tip);
-    harness.splashDismissed?.();
-
-    expect(notify).not.toHaveBeenCalled();
     installed.cleanup();
   });
 });

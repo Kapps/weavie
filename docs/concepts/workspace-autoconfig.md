@@ -48,7 +48,7 @@ Detection produces the **same two settings** the Claude flow produces, so everyt
 | `worktree.setupCommand` (`CoreSettings.cs`) | Workspace | the package-restore command (`pnpm install`, `dotnet restore`, `go mod download`) |
 | `test.profile` (`TestSettings.cs`, JSON array of `TestRule`) | Workspace | one rule per detected test convention — `glob` + `symbol`(+`header`) + `runOne` and optional exact-file `runFile` |
 
-Both are `SettingScope.Workspace`, persisted out-of-repo at `~/.weavie/workspaces/<id>/settings.toml`.
+Both are `SettingOwner.Repo`, persisted out-of-repo at `~/.weavie/workspaces/<id>/settings.toml`.
 The unset/`[]` distinction is preserved: detection writes concrete values on success and **leaves a
 setting unset** when it can't derive one confidently (see *Graceful degradation*).
 

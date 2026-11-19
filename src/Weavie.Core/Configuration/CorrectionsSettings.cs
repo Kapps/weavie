@@ -15,6 +15,7 @@ public static class CorrectionsSettings {
 		registry.Register(new SettingDefinition {
 			Key = Enabled,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Enable experimental correction capture and Learn From My Corrections. Disabled by default pending a full rework.",
 			Aliases = ["learn from my corrections", "correction learning"],
 			Apply = ApplyMode.Live,
@@ -24,6 +25,7 @@ public static class CorrectionsSettings {
 		registry.Register(new SettingDefinition {
 			Key = LearnThreshold,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "How many post-turn corrections (reverted hunks / hand-edits to the agent's output) "
 				+ "accumulate before the 'teach Claude from your corrections' card appears. The Learn From My "
 				+ "Corrections command works at any count; this only gates the nudge.",

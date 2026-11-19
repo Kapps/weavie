@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Commands;
@@ -115,16 +116,16 @@ internal partial class MessageBus : IAsyncDisposable {
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
-		Func<TRequest, CancellationToken, Task<TResponse>> handler) {
+		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) {
 		ArgumentNullException.ThrowIfNull(lane);
 		ArgumentNullException.ThrowIfNull(handler);
 		return RegisterHandler(
 			feature,
 			name,
 			Keyed(activity, requestType, feature, name),
-			async (_, payload, ct) => {
+			async (peer, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
-				var response = await handler(request, ct).ConfigureAwait(false);
+				var response = await handler(request, peer, ct).ConfigureAwait(false);
 				return new HandlerResponse(JsonSerializer.SerializeToElement(response, responseType), null);
 			},
 			SessionExecution.Keyed,
@@ -139,7 +140,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
-		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler,
+		Func<TRequest, MessagePeer, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
@@ -148,9 +149,9 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			Fixed(activity),
-			async (_, payload, ct) => {
+			async (peer, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
-				var response = await handler(request, ct).ConfigureAwait(false);
+				var response = await handler(request, peer, ct).ConfigureAwait(false);
 				return new HandlerResponse(
 					JsonSerializer.SerializeToElement(response.Payload, responseType),
 					response.AfterResponse);
@@ -201,7 +202,7 @@ internal partial class MessageBus : IAsyncDisposable {
 			activity,
 			eventType,
 			WireJson.Default.EmptyPayload,
-			async (message, ct) => new ResponseWithCompletion<EmptyPayload>(
+			async (message, _, ct) => new ResponseWithCompletion<EmptyPayload>(
 				EmptyPayload.Value,
 				await handler(message, ct).ConfigureAwait(false)),
 			execution);
@@ -454,6 +455,9 @@ internal partial class MessageBus : IAsyncDisposable {
 				document.RootElement.Clone()).ToTransportMessage());
 	}
 
+	/// <summary>Raised with each request or event a handler admits, before the handler runs.</summary>
+	internal event Action<WebPeer, MessageEnvelope>? Received;
+
 	internal Task DispatchAsync(WebPeer peer, MessageEnvelope envelope) {
 		ArgumentNullException.ThrowIfNull(envelope);
 		if (envelope.Scope != Scope || envelope.Session != Address) {
@@ -517,7 +521,12 @@ internal partial class MessageBus : IAsyncDisposable {
 		}
 
 		if (dispatch is not null) {
-			admitted!.SetResult();
+			try {
+				Received?.Invoke(peer, envelope);
+			} finally {
+				admitted!.SetResult();
+			}
+
 			return dispatch;
 		}
 
@@ -541,6 +550,11 @@ internal partial class MessageBus : IAsyncDisposable {
 
 		return Task.CompletedTask;
 	}
+
+	/// <summary>The connected pages that have sent this bus a message.</summary>
+	internal ICollection<MessagePeer> Peers => _peers.Values;
+
+	internal bool TryGetPeer(WebPeer peer, [NotNullWhen(true)] out MessagePeer? owner) => _peers.TryGetValue(peer, out owner);
 
 	internal MessagePeer Peer(WebPeer peer) =>
 		_peers.GetOrAdd(peer, candidate => new MessagePeer(this, candidate));

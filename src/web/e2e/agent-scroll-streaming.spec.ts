@@ -261,8 +261,8 @@ test("a reply start offset of 0 pins a long live reply against the top of the pa
   openPanes,
 }) => {
   const pane = await openPane(openPanes, "pin-top");
-  const defaults = await page.evaluate(() => window.__WEAVIE_AGENT__);
-  pane.host.publishHost("settings", "agent-defaults", { ...defaults, replyStartOffset: 0 });
+  const display = await page.evaluate(() => window.__WEAVIE_AGENT_DISPLAY__);
+  pane.host.publishHost("settings", "agentDisplay", { ...display, replyStartOffset: 0 });
   await stream(pane, "long-reply", 400);
   await expect(jumpToLatest(page)).toBeVisible();
   const top = await page

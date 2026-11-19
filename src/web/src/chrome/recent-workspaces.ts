@@ -1,14 +1,11 @@
 import { createSignal } from "solid-js";
-import { registerHostFeature } from "../bridge";
+import { registerHomeFeature } from "../bridge";
 
 const [recentWorkspaces, setRecentWorkspaces] = createSignal<readonly string[]>(
   window.__WEAVIE_SHELL__?.recents ?? [],
 );
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
+registerHomeFeature((connection) => {
   return connection.host
     .feature("recentWorkspaces")
     .on<{ recents: string[] }>("changed", ({ recents }) => {

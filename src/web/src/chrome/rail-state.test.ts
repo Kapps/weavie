@@ -16,7 +16,7 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("../bridge", () => ({
-  registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+  registerHomeFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
     harness.installer = installer;
     return () => {};
   },
@@ -34,7 +34,6 @@ function connection(id: string): { connection: HostConnection; rail?: (state: Ra
   const created = {} as { connection: HostConnection; rail?: (state: RailState) => void };
   created.connection = {
     id,
-    isLocal: id === "local",
     onHello: () => () => {},
     host: {
       feature: () => ({
@@ -84,9 +83,6 @@ describe("rail-state host sync", () => {
     expect(rail.parkedCollapsed()).toBe(false);
     expect(rail.fullscreenWidth()).toBe(900);
   });
-
-  it("does not install the local rail-state channel on a remote backend", () =>
-    expect(connection("remote:r").rail).toBeUndefined());
 });
 
 describe("setters", () => {

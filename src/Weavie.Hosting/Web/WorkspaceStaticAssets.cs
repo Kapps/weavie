@@ -16,7 +16,7 @@ internal static class WorkspaceStaticAssets {
 			string path = context.Request.Path.Value ?? "/";
 			if (assets.GetFileInfo(path + Brotli).Exists) {
 				context.Response.Headers.Vary = "Accept-Encoding";
-				if (AcceptsBrotli(context.Request)) {
+				if (Accepts(context.Request, "br")) {
 					context.Request.Path = path + Brotli;
 					context.Response.Headers.ContentEncoding = "br";
 				}
@@ -35,9 +35,10 @@ internal static class WorkspaceStaticAssets {
 		});
 	}
 
-	private static bool AcceptsBrotli(HttpRequest request) =>
+	/// <summary>Whether <paramref name="request"/> accepts a response in <paramref name="contentEncoding"/>.</summary>
+	internal static bool Accepts(HttpRequest request, string contentEncoding) =>
 		request.GetTypedHeaders().AcceptEncoding.Any(encoding =>
-			string.Equals(encoding.Value.Value, "br", StringComparison.OrdinalIgnoreCase) && (encoding.Quality ?? 1) > 0);
+			string.Equals(encoding.Value.Value, contentEncoding, StringComparison.OrdinalIgnoreCase) && (encoding.Quality ?? 1) > 0);
 
 	private sealed class UncompressedContentTypes : IContentTypeProvider {
 		private readonly FileExtensionContentTypeProvider _types = new();

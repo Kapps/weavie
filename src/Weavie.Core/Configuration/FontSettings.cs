@@ -99,6 +99,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = GlobalFamily,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Font family for the editor and terminal (a CSS font-family stack; the editor "
 				+ "and terminal can override it).",
 			Aliases = ["font", "font family", "typeface"],
@@ -109,6 +110,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = GlobalSize,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = "Font size in pixels for the editor and terminal (overridable per surface).",
 			Aliases = ["font size", "text size"],
 			Apply = ApplyMode.Live,
@@ -119,6 +121,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = GlobalWeight,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Font weight for the editor and terminal (overridable per surface).",
 			Aliases = ["font weight", "boldness"],
 			AllowedValues = Weights,
@@ -133,6 +136,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = InterfaceFamily,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Font family for the interface: menus, tabs, panels, and labels (a CSS font-family stack).",
 			Aliases = ["interface font", "ui font", "chrome font"],
 			Apply = ApplyMode.Live,
@@ -142,6 +146,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = InterfaceSize,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = "Text size in pixels for the interface: menus, tabs, panels, and labels. Rows, buttons, "
 				+ "fields, and icons scale with it.",
 			Aliases = ["interface font size", "ui font size", "ui size", "interface scale", "chrome font size"],
@@ -153,6 +158,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = ProseFamily,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Font family for agent replies and rendered markdown (a CSS font-family stack); "
 				+ "empty uses the interface font.",
 			Aliases = ["agent font", "agent text font", "prose font", "reading font", "markdown font"],
@@ -200,6 +206,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = familyKey,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = $"Font family for the {surface} only; empty inherits the global font.family.",
 			Aliases = [.. aliasRoots, $"{surface} font family"],
 			Apply = ApplyMode.Live,
@@ -209,6 +216,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = sizeKey,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = $"Font size in pixels for the {surface} only; 0 inherits the global font.size.",
 			Aliases = [$"{surface} font size"],
 			Apply = ApplyMode.Live,
@@ -219,6 +227,7 @@ public static class FontSettings {
 		registry.Register(new SettingDefinition {
 			Key = weightKey,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = $"Font weight for the {surface} only; 'inherit' uses the global font.weight.",
 			Aliases = [$"{surface} font weight"],
 			AllowedValues = [InheritWeight, .. Weights],

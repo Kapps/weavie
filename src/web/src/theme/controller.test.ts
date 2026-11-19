@@ -5,13 +5,14 @@ const properties = new Map<string, string>();
 const editorProperties = new Map<string, string>();
 vi.mock("../bridge", () => ({
   hostInjected: (_key: string, _value: unknown, dev: unknown) => dev,
-  registerHostFeature: (install: (connection: unknown) => void) =>
+  registerHomeFeature: (install: (connection: unknown) => void) =>
     install({
-      isLocal: true,
+      onInitializing: () => () => {},
       host: {
         feature: () => ({
           on: (_event: string, handler: typeof receiveTheme) => {
             receiveTheme = handler;
+            return () => {};
           },
         }),
       },

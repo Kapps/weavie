@@ -1,8 +1,8 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Opaque identity for one page attached to a host transport. Application features never receive this value;
-/// the message router uses it to return responses to the physical peer that issued a request.
+/// Opaque identity for one page attached to a host transport: the message router returns responses to the
+/// physical peer that issued a request, and a session remembers the page that claimed it as its device.
 /// </summary>
 public readonly record struct WebPeer {
 	/// <summary>Creates an opaque transport peer.</summary>

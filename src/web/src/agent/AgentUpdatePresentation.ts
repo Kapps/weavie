@@ -1,5 +1,5 @@
 import { type Accessor, createMemo, createSignal } from "solid-js";
-import type { AgentDefaults } from "../bridge";
+import type { AgentDisplay } from "../bridge";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 import {
@@ -9,7 +9,7 @@ import {
   shareTranscript,
 } from "./AgentTranscriptSnapshot";
 
-export type ProgressDisplay = AgentDefaults["progressDisplay"];
+export type ProgressDisplay = AgentDisplay["progressDisplay"];
 
 /** Presentation owns visible indexes; activity updates continue to address the canonical snapshot. */
 export function createUpdatePresentation(

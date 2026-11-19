@@ -76,6 +76,12 @@ vi.mock("../bridge", () => {
       harness.hostInstallers.push(installer);
       return () => {};
     },
+    registerHomeFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+      harness.hostInstallers.push((connection) =>
+        connection.isLocal ? installer(connection) : undefined,
+      );
+      return () => {};
+    },
     registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
       harness.sessionInstallers.push(installer);
       return () => {};

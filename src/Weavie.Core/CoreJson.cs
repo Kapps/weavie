@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.Changes;
+using Weavie.Core.Configuration;
 using Weavie.Core.Corrections;
 using Weavie.Core.Review;
 using Weavie.Core.Shell;
@@ -16,6 +17,7 @@ namespace Weavie.Core;
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(CorrectionRecord))]
+[JsonSerializable(typeof(DeviceIdentity))]
 internal sealed partial class CoreJson : JsonSerializerContext;
 
 /// <summary>Source-generated contracts for the camelCase payloads Core builds for the page.</summary>

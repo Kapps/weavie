@@ -19,6 +19,10 @@ load it only when you need it.
   Claude. Capabilities are *registered* in Core and surfaced as MCP tools: **settings**, **commands**
   (named actions), and **prompts** (bundled instructions an agent starts via `runPrompt`). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
+- **Settings ownership** — a setting belongs to whoever reads it: the device showing the page (fonts, theme,
+  editor options), the machine running the session, or a repo on it. Device settings live at the device's
+  home, the host that serves its page, and an agent's settings tools send them there from any session. See
+  [docs/specs/settings-ownership.md](docs/specs/settings-ownership.md).
 - **Hook bridge** — the spawned `claude` runs a standalone relay binary (`Weavie.HookRelay`, co-located with the host
   by the build) as its hooks — PermissionRequest (the permission gate, fires only when a tool would prompt)
   plus PreToolUse/PostToolUse (the change-tracking feed) — via a per-instance `--settings` file. The relay forwards

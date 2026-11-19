@@ -6,7 +6,6 @@ import {
   type ClientSession,
   sessionResourceUrl,
 } from "../bridge";
-import { agentProgressDisplay, agentThoughtDisplay } from "../chrome/agent-default";
 import { sessionInfo } from "../chrome/session-store";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
@@ -25,6 +24,7 @@ import {
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import type { AgentPaneConversationRows } from "./AgentPaneConversationRows";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
+import { agentDisplay } from "./agent-display";
 import { clearBlocks, putBlocks } from "./block-store";
 import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
@@ -35,8 +35,8 @@ const models = createSessionOwnedResource(
     createRoot((dispose) => ({
       ...createAgentPaneModel(
         session,
-        () => agentThoughtDisplay(session.connection.id),
-        () => agentProgressDisplay(session.connection.id),
+        () => agentDisplay().thoughtDisplay,
+        () => agentDisplay().progressDisplay,
       ),
       dispose,
     })),

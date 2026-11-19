@@ -6,7 +6,7 @@
 
 import { createSignal } from "solid-js";
 import type { ThemeMode, ThemeSlot } from "../bridge";
-import { hostInjected, registerHostFeature } from "../bridge";
+import { deviceSetting } from "../device-settings";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
@@ -102,16 +102,13 @@ function activeSlot(s: ThemeState): Slot {
 // Seeded synchronously at module load so currentXtermTheme()/currentMonacoTheme() are valid before any
 // terminal or the editor is created (which happens before any host push).
 let version = 1;
-let state: ThemeState = (() => {
-  // Dev fallback is the built-in Weavie Light/Dark pair (ids only). The shipped host always injects
-  // __WEAVIE_THEME__; a missing value throws (see hostInjected).
-  const injected = hostInjected<InjectedTheme>("__WEAVIE_THEME__", window.__WEAVIE_THEME__, {
-    mode: "system",
-    light: { id: WEAVIE_LIGHT_ID },
-    dark: { id: WEAVIE_DARK_ID },
-  });
-  return computeState(injected);
-})();
+// Dev fallback is the built-in Weavie Light/Dark pair (ids only); the shipped host always injects the theme.
+const theme = deviceSetting<InjectedTheme>("theme", "__WEAVIE_THEME__", window.__WEAVIE_THEME__, {
+  mode: "system",
+  light: { id: WEAVIE_LIGHT_ID },
+  dark: { id: WEAVIE_DARK_ID },
+});
+let state: ThemeState = computeState(theme.current());
 
 const appearanceOf = (s: ThemeState) => ({ mode: s.mode, light: s.light.id, dark: s.dark.id });
 const [appearance, setAppearance] = createSignal(appearanceOf(state));
@@ -299,12 +296,7 @@ function setActive(injected: InjectedTheme): void {
   reapplyActive();
 }
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
-  return connection.host.feature("settings").on<InjectedTheme>("theme", setActive);
-});
+theme.onChanged(setActive);
 
 // Live OS light/dark flips re-theme all surfaces in place under `system` mode (both themes are already
 // resolved, so no host round-trip); a no-op under a forced mode.

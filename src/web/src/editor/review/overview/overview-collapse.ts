@@ -3,9 +3,10 @@ import {
   type ClientSession,
   hostConnection,
   LOCAL_BACKEND_ID,
-  registerHostFeature,
+  registerHomeFeature,
 } from "../../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../../editor-options";
+import { homeHello } from "../../../messaging/host-connection";
 import type { ReviewOverview } from "../review-store";
 
 // Which overview sections are collapsed. `editor.reviewOverviewCollapse` picks the memory: one app-global set kept
@@ -16,10 +17,9 @@ onEditorOptionsChanged((options) => setMode(options.reviewOverviewCollapse));
 
 const [global, setGlobal] = createSignal<readonly string[]>([]);
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) return;
+registerHomeFeature((connection) => {
   const offHello = connection.onHello((hello) => {
-    setGlobal(hello.reviewOverview.collapsed);
+    setGlobal(homeHello(hello).reviewOverview.collapsed);
   });
   const offState = connection.host
     .feature("reviewOverview")

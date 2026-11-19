@@ -8,8 +8,8 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The app-wide host features every page gets, with or without a workspace: themes, settings writes, the agent
-/// defaults, and ACP installs, plus the live pushes when those change. A workspace's <see cref="HostCore"/> and the
+/// The app-wide host features every page gets, with or without a workspace: themes, settings writes, the device
+/// setting groups, the agent defaults, and ACP installs, plus the live pushes when those change. A workspace's <see cref="HostCore"/> and the
 /// welcome screen each attach one to their own message bus; dispose to detach from the app-global stores.
 /// </summary>
 internal sealed class GlobalHostFeatures : IDisposable {
@@ -19,6 +19,11 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	private readonly List<IDisposable> _handlers = [];
 	private readonly CancellationTokenSource _lifetime = new();
 
+	// The device setting groups: each is a page global before navigation, a field of the hello's device settings,
+	// and a "settings" push when one of its keys changes.
+	private readonly DeviceGroup[] _deviceGroups;
+	private readonly DeviceGroup _themeGroup;
+
 	public GlobalHostFeatures(HostMessageBus host, HostServices services, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(host);
 		ArgumentNullException.ThrowIfNull(services);
@@ -26,6 +31,14 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		_host = host;
 		_services = services;
 		_log = log;
+		var settings = services.Settings;
+		_deviceGroups = [
+			new("fonts", "__WEAVIE_FONTS__", FontSettings.Keys, () => FontSettings.BuildJson(settings)),
+			_themeGroup = new("theme", "__WEAVIE_THEME__", ThemeSettings.Keys, () => ThemeJson.Build(settings, services.ThemeOverrides, log)),
+			new("editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.Keys, () => EditorSettings.BuildJson(settings)),
+			new("notifications", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.Keys, () => NotificationSettings.BuildJson(settings)),
+			new("agentDisplay", "__WEAVIE_AGENT_DISPLAY__", AgentSettings.DisplayKeys, () => AgentSettings.BuildDisplayJson(settings)),
+		];
 		WireThemes();
 		WireSettings();
 		WireAgents();
@@ -40,13 +53,16 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		_services.AgentProviders.Changed += PushAgentDefaults;
 	}
 
-	/// <summary>The page globals every Weavie page reads: agent defaults, fonts, resolved theme, commands, and keybindings.</summary>
+	/// <summary>The page globals every Weavie page reads: agent defaults, the device setting groups, commands, and keybindings.</summary>
 	public string BootstrapScript() =>
 		$"window.__WEAVIE_AGENT__ = {AgentDefaultsJson()};"
-		+ $"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_services.Settings)};"
-		+ $"window.__WEAVIE_THEME__ = {ThemeJson()};"
+		+ string.Concat(_deviceGroups.Select(group => $"window.{group.Global} = {group.Build()};"))
 		+ $"window.__WEAVIE_COMMANDS__ = {_services.Keybindings.BuildCommandsJson()};"
 		+ $"window.__WEAVIE_KEYBINDINGS__ = {_services.Keybindings.BuildKeybindingsJson()};";
+
+	/// <summary>Every device setting group by name, for the hello.</summary>
+	public string DeviceSettingsJson() =>
+		$"{{{string.Join(',', _deviceGroups.Select(group => $"\"{group.Name}\":{group.Build()}"))}}}";
 
 	public string AgentDefaultsJson() => AgentSettings.BuildJson(
 		_services.Settings,
@@ -59,8 +75,6 @@ internal sealed class GlobalHostFeatures : IDisposable {
 			_services.Settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider, WireJson.Default.String));
 		}
 	}
-
-	private string ThemeJson() => Weavie.Core.Theming.ThemeJson.Build(_services.Settings, _services.ThemeOverrides, _log);
 
 	private void WireThemes() {
 		var themes = _host.Feature("themes");
@@ -161,22 +175,20 @@ internal sealed class GlobalHostFeatures : IDisposable {
 			PushAgentDefaults();
 		}
 
-		if (ThemeSettings.Keys.Contains(change.Key)) {
-			PushTheme();
-		}
-
-		if (FontSettings.Keys.Contains(change.Key)) {
-			_host.Feature("settings").PublishJson("fonts", FontSettings.BuildJson(_services.Settings));
-		}
+		PushDeviceGroups(group => group.Keys.Contains(change.Key));
 	}
 
 	private void OnThemeOverridesChanged(string themeId) {
 		if (ThemeSettings.IsSelectedThemeId(_services.Settings, themeId)) {
-			PushTheme();
+			PushDeviceGroups(group => group == _themeGroup);
 		}
 	}
 
-	private void PushTheme() => _host.Feature("settings").PublishJson("theme", ThemeJson());
+	private void PushDeviceGroups(Func<DeviceGroup, bool> changed) {
+		foreach (var group in _deviceGroups.Where(changed)) {
+			_host.Feature("settings").PublishJson(group.Name, group.Build());
+		}
+	}
 
 	/// <summary>Re-pushes the agent defaults, e.g. once a PATH import may have changed which agents resolve.</summary>
 	public void PushAgentDefaults() => _host.Feature("settings").PublishJson("agent-defaults", AgentDefaultsJson());
@@ -203,6 +215,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}
 	}
 
+	private sealed record DeviceGroup(string Name, string Global, IReadOnlyCollection<string> Keys, Func<string> Build);
 	internal sealed record InstallResult(string Id, string Operation, string? Error);
 	internal sealed record WebLogMessage(string Level, string Message);
 	internal sealed record SettingRead(string Key);

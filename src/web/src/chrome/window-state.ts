@@ -3,7 +3,7 @@
 // state defaults. One source for the title bar, the attention intake, and seen-marking.
 
 import { createSignal } from "solid-js";
-import { registerHostFeature } from "../bridge";
+import { registerHomeFeature } from "../bridge";
 
 const [chrome, setChrome] = createSignal<WeavieWindowChrome | null>(
   window.__WEAVIE_SHELL__?.chrome ?? window.__WEAVIE_WELCOME__?.chrome ?? null,
@@ -19,10 +19,7 @@ window.addEventListener("focus", tickPage);
 window.addEventListener("blur", tickPage);
 document.addEventListener("visibilitychange", tickPage);
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
+registerHomeFeature((connection) => {
   const feature = connection.host.feature("window");
   const offState = feature.on<{ maximized: boolean; focused: boolean }>(
     "state",

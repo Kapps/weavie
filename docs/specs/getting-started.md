@@ -39,7 +39,7 @@ belongs to [workspace auto-config](../concepts/workspace-autoconfig.md).
 
 The welcome screen has no workspace, so the app-wide message handlers live in `GlobalHostFeatures`, not
 `HostCore`: themes, `settings.get` / `settings.set`, `agentDefaults.get` / `setProvider`, ACP registry list/install,
-web logging, and the theme / agent-defaults / command-catalog pushes. `HostCore` and `WelcomeController` each attach
+web logging, and the device setting / agent-defaults / command-catalog pushes. `HostCore` and `WelcomeController` each attach
 one to their own message bus, so a page gets the same app-wide features with or without a workspace open.
 
 ```mermaid

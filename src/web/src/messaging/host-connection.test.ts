@@ -29,40 +29,38 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
 });
 
 const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHello => ({
+  device: { id: "host-id", name: "host" },
   hostIncarnation,
   buildNumber: "test",
   sessions,
   layout: {},
-  remoteAgents: [],
-  rail: {
-    lastLocation: "",
-    selected: null,
-    panelPinned: false,
-    panelWidth: 300,
-    parkedCollapsed: true,
-    fullscreenWidth: 1200,
-  },
-  search: {
-    options: {
-      caseSensitive: false,
-      wholeWord: false,
-      regex: false,
-      excludeGitignored: true,
-      include: "",
-      exclude: "",
+  home: {
+    remoteAgents: [],
+    rail: {
+      lastLocation: "",
+      selected: null,
+      panelPinned: false,
+      panelWidth: 300,
+      parkedCollapsed: true,
+      fullscreenWidth: 1200,
     },
-    recentTerms: [],
+    search: {
+      options: {
+        caseSensitive: false,
+        wholeWord: false,
+        regex: false,
+        excludeGitignored: true,
+        include: "",
+        exclude: "",
+      },
+      recentTerms: [],
+    },
+    reviewOverview: { collapsed: [] },
+    deviceSettings: {},
   },
-  reviewOverview: { collapsed: [] },
   repos: [],
   sourceLinkHosts: [],
-  agentDefaults: {
-    defaultProvider: "acp",
-    replyStartOffset: 0.5,
-    progressDisplay: "all",
-    thoughtDisplay: "all",
-    providers: [],
-  },
+  agentDefaults: { defaultProvider: "acp", providers: [] },
   commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
@@ -98,7 +96,7 @@ const event = (
   error: null,
 });
 
-function harness(initialHello: HostHello) {
+function harness(initialHello: HostHello, isLocal = true) {
   const sent: MessageEnvelope[] = [];
   const errors: unknown[] = [];
   let nextHello = initialHello;
@@ -106,7 +104,7 @@ function harness(initialHello: HostHello) {
   connection = new HostConnection(
     "local",
     "Local",
-    true,
+    isLocal,
     (json) => {
       const envelope = parseEnvelope(json);
       if (envelope === null) {
@@ -120,6 +118,7 @@ function harness(initialHello: HostHello) {
       }
     },
     (error) => errors.push(error),
+    () => ({ id: "home-id", name: "laptop" }),
   );
   return {
     connection,
@@ -132,6 +131,17 @@ function harness(initialHello: HostHello) {
 }
 
 describe("HostConnection session ownership", () => {
+  it("names its home in the hello only to a host that doesn't serve the page", async () => {
+    const helloPayload = async (isLocal: boolean) => {
+      const host = harness(hello("host-one", []), isLocal);
+      await host.connection.connect();
+      return host.sent.find((envelope) => envelope.name === "hello")?.payload;
+    };
+
+    expect(await helloPayload(false)).toEqual({ home: { id: "home-id", name: "laptop" } });
+    expect(await helloPayload(true)).toEqual({ home: null });
+  });
+
   it("initializes host defaults before installing sessions, including reconnects", async () => {
     const primary = address("primary", "one");
     const initial = hello("host-one", [entry("primary", primary)]);
@@ -139,19 +149,19 @@ describe("HostConnection session ownership", () => {
     let defaults: HostHello["agentDefaults"] | undefined;
     const seen: string[] = [];
     host.connection.onCatalog((_catalog, sessions) => {
-      if (sessions.length > 0) seen.push(defaults!.thoughtDisplay);
+      if (sessions.length > 0) seen.push(defaults!.defaultProvider);
     });
     host.connection.onInitializing((value) => {
       defaults = value.agentDefaults;
     });
     await host.connection.connect();
-    expect(seen).toEqual(["all"]);
+    expect(seen).toEqual(["acp"]);
     host.connection.transportDropped();
     const next = hello("host-two", [entry("primary", address("primary", "two"))]);
-    next.agentDefaults.thoughtDisplay = "collapsed";
+    next.agentDefaults.defaultProvider = "other";
     host.setHello(next);
     await host.connection.connect();
-    expect(seen).toEqual(["all", "collapsed"]);
+    expect(seen).toEqual(["acp", "other"]);
     expect(host.errors).toEqual([]);
   });
 

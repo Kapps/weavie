@@ -51,6 +51,7 @@ public static class ThemeSettings {
 		registry.Register(new SettingDefinition {
 			Key = ModeKey,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			AllowedValues = ["system", "light", "dark"],
 			Description = "Appearance mode: 'system' follows the OS light/dark setting (the default), 'light' always "
 				+ "uses your light theme, 'dark' always uses your dark theme. The actual theme for each polarity is "
@@ -63,6 +64,7 @@ public static class ThemeSettings {
 		registry.Register(new SettingDefinition {
 			Key = LightKey,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "The color theme used in light mode (and in system mode when the OS is light): a built-in "
 				+ "id (e.g. 'weavie-light') or an installed theme id (e.g. 'dracula-theme.theme-dracula/Dracula'). "
 				+ "Takes effect immediately whenever light is the active polarity.",
@@ -74,6 +76,7 @@ public static class ThemeSettings {
 		registry.Register(new SettingDefinition {
 			Key = DarkKey,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "The color theme used in dark mode (and in system mode when the OS is dark): a built-in "
 				+ "id (e.g. 'weavie-dark') or an installed theme id (e.g. 'dracula-theme.theme-dracula/Dracula'). "
 				+ "Takes effect immediately whenever dark is the active polarity.",
@@ -90,6 +93,7 @@ public static class ThemeSettings {
 		registry.Register(new SettingDefinition {
 			Key = key,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = $"The color theme for the code editor and diff views in {polarity} mode, independent of the "
 				+ $"app theme (theme.{polarity}) used by chat, panels, and terminals. Empty (the default) makes the editor "
 				+ "follow the app theme. Accepts the same ids as theme.light/theme.dark; set both editor keys to one id "

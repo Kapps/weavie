@@ -1,7 +1,8 @@
-// The notifications.* settings, host-owned: injected before navigation and published by the local host's
-// settings feature on change. Presentation happens locally, so remote hosts cannot replace this source.
+// The notifications.* settings: the `notifications` device setting. Presentation happens on this device, so
+// only its home host supplies them.
 
-import { hostInjected, type NotificationPrefs, registerHostFeature } from "../bridge";
+import type { NotificationPrefs } from "../bridge";
+import { deviceSetting } from "../device-settings";
 
 export type { NotificationPrefs };
 
@@ -22,24 +23,12 @@ const DEFAULT_PREFS: NotificationPrefs = {
   gates: { turnComplete: true, needsInput: true, failed: true },
 };
 
-let current: NotificationPrefs = hostInjected(
+const prefs = deviceSetting(
+  "notifications",
   "__WEAVIE_NOTIFICATIONS__",
   window.__WEAVIE_NOTIFICATIONS__,
   DEFAULT_PREFS,
 );
 
 /** The notification prefs to apply right now — read at each attention event, so changes apply live. */
-export function notificationPrefs(): NotificationPrefs {
-  return current;
-}
-
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
-  return connection.host
-    .feature("settings")
-    .on<NotificationPrefs>("notification-prefs", (prefs) => {
-      current = prefs;
-    });
-});
+export const notificationPrefs = prefs.current;

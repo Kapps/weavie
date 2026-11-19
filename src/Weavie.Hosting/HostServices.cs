@@ -37,6 +37,9 @@ public sealed record HostServices : IDisposable {
 	/// <summary>The contextual-suggestion catalog (built-in nudges the per-workspace service evaluates).</summary>
 	public required SuggestionRegistry SuggestionRegistry { get; init; }
 
+	/// <summary>This root's stable identity (<c>~/.weavie/device.json</c>), named by the pages it serves.</summary>
+	public required DeviceIdentity Device { get; init; }
+
 	/// <summary>The user keybindings resolved over the defaults (<c>~/.weavie/keybindings.json</c>).</summary>
 	public required KeybindingStore Keybindings { get; init; }
 
@@ -157,6 +160,7 @@ public sealed record HostServices : IDisposable {
 		var connected = ConnectedServicesComposition.Create(new HttpClient(), credentials, settings, inference);
 		return new HostServices {
 			Settings = settings,
+			Device = DeviceIdentity.LoadOrCreate(WeaviePaths.DeviceFile),
 			CommandRegistry = registry,
 			SuggestionRegistry = suggestions,
 			Keybindings = keybindings,

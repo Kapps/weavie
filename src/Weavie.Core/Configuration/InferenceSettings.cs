@@ -31,6 +31,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = Enabled,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Allow Weavie features to make isolated model queries through the configured inference "
 				+ "provider. Calls never enter the interactive session transcript. Off by default. Takes effect on "
 				+ "the next query.",
@@ -41,6 +42,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = AllowAutomatic,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
 			Description = "Allow Weavie to spend inference tokens without a directly-triggering user action, such as "
 				+ "branch-name preview, the new-session workflow and role-model suggestions, or continuous review after an edit. Explicit actions such as reviewing a plan or "
 				+ "diagnosing a test failure do not require this. Off by default. Takes effect on the next query.",
@@ -51,6 +53,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = DefaultProvider,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Agent provider used for every ad-hoc inference query. Use 'claude' for Claude Code or an "
 				+ "installed ACP provider id. Takes effect on the next query.",
 			Aliases = ["inference provider", "default inference provider", "ai suggestion provider"],
@@ -64,6 +67,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = Model,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Provider-native model id for ad-hoc inference, such as 'opus'. Empty uses the provider's "
 				+ "category default, independent of the chat's model. Takes effect on the next query.",
 			Aliases = ["inference model", "suggestion model", "ad hoc model"],
@@ -74,6 +78,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = Effort,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Provider-native reasoning effort id for ad-hoc inference, such as 'low'. Empty uses the "
 				+ "provider's category default. Takes effect on the next query.",
 			Aliases = ["inference effort", "reasoning effort for inference", "suggestion effort"],
@@ -83,6 +88,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = FastMode,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Fast Mode for ad-hoc inference: 'on', 'off', or 'inherit' to keep the provider default. "
 				+ "Takes effect on the next query.",
 			Aliases = ["inference fast mode", "fast inference", "priority inference"],
@@ -93,6 +99,7 @@ public static class InferenceSettings {
 		registry.Register(new SettingDefinition {
 			Key = DecisionProvider,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "Who answers workflow decisions and suggests a workflow for a new session's prompt: 'agent' runs a typed query through the inference provider; "
 				+ "'openai' calls OpenAI Decisions (gpt-6-luna, data terms https://openai.com/policies/); 'typesafe' "
 				+ "calls TypeSafe Jev (data terms https://docs.typesafe.ai/legal.md). Choosing a vendor sends it the "

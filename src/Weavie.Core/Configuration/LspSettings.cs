@@ -19,7 +19,7 @@ public static class LspSettings {
 			registry.Register(new SettingDefinition {
 				Key = CommandKey(descriptor.Id),
 				Kind = SettingKind.Json,
-				Scope = SettingScope.Workspace,
+				Owner = SettingOwner.Repo,
 				Description = $"The {descriptor.DisplayName} language server to run: a JSON array of the executable and its "
 					+ "arguments, e.g. [\"node_modules/.bin/server\",\"--stdio\"]. A bare name is found on PATH; a path is "
 					+ $"relative to the session's worktree. Empty runs {builtIn} on PATH. setSetting stores it for this "

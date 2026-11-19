@@ -25,6 +25,7 @@ public sealed partial class HostCore {
 				Unseen = slot.Unseen,
 				WorktreePath = slot.WorktreePath,
 				WorkflowDocumentsDirectory = slot.WorkflowDocumentsDirectory,
+				Device = slot.Device.Current.Home,
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
 				EditorSession = slot.EditorSession,
@@ -54,6 +55,7 @@ public sealed partial class HostCore {
 
 			if (slot is { }) {
 				slot.WorkflowDocumentsDirectory = item.WorkflowDocumentsDirectory;
+				slot.Device.Restore(item.Device);
 				slot.LastActiveAt = item.LastActiveAt;
 				slot.Unseen = item.Unseen;
 			}
@@ -116,8 +118,9 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private static SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
+	private SessionSlot DormantSlot(SessionDescriptor item, Repo repo, string label, string worktreePath) => new() {
 		Label = label,
+		Device = NewDevice(null),
 		Repo = repo,
 		WorktreePath = worktreePath,
 		AgentProviderId = item.AgentProviderId,
@@ -129,7 +132,7 @@ public sealed partial class HostCore {
 	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
 		HostSession? session = null;
 		try {
-			session = CreateSession(slot.Repo, slot.WorktreePath, slot.Label, slot.AgentProviderId, slot.ShellTerminals);
+			session = CreateSession(slot);
 			session.InheritedWorkflowDocuments = slot.WorkflowDocumentsDirectory;
 			RestoreSlotEditor(session, slot);
 			ReplaySession(session);

@@ -51,7 +51,7 @@ public enum SettingSource {
 	/// <summary>A <c>WEAVIE_*</c> environment variable (wins over any file).</summary>
 	Environment,
 
-	/// <summary>The workspace's out-of-repo overlay <c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c> (only for <see cref="SettingScope.Workspace"/> keys).</summary>
+	/// <summary>The workspace's out-of-repo overlay <c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c> (only for <see cref="SettingOwner.Repo"/> keys).</summary>
 	WorkspaceFile,
 
 	/// <summary>The user's <c>settings.toml</c>.</summary>
@@ -62,18 +62,18 @@ public enum SettingSource {
 }
 
 /// <summary>
-/// Where a setting is stored and resolved from. <see cref="User"/> keys live in the shared user file
-/// (one value across every workspace, e.g. theme); <see cref="Workspace"/> keys live in the workspace's
-/// out-of-repo overlay (<c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>) and are resolved per workspace
-/// (e.g. the test profile), falling back to the user file when the workspace hasn't set them. See
-/// <c>docs/specs/settings.md</c>.
+/// Who reads a setting, which decides where it is stored and which host an agent's change reaches. See
+/// <c>docs/specs/settings-ownership.md</c>.
 /// </summary>
-public enum SettingScope {
-	/// <summary>Cross-workspace: stored in the user file, one value everywhere.</summary>
-	User,
+public enum SettingOwner {
+	/// <summary>The screen in front of the user: stored in the settings file of the host that serves its page.</summary>
+	Device,
 
-	/// <summary>Per-workspace: stored out-of-repo in <c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>, resolved against the active workspace.</summary>
-	Workspace,
+	/// <summary>The machine a session's processes run on: stored in that machine's settings file.</summary>
+	Machine,
+
+	/// <summary>One repo on one machine: stored out-of-repo in <c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>, over the machine file.</summary>
+	Repo,
 }
 
 /// <summary>
@@ -135,14 +135,14 @@ public sealed record SettingDefinition {
 	/// </summary>
 	public Func<object?, ValidationResult>? Validate { get; init; }
 
-	/// <summary>Keys removed from the same file whenever a write changes this setting's value, e.g. options it scopes.</summary>
+	/// <summary>Keys of the same owner removed from the same file whenever a write changes this setting's value, e.g. options it scopes.</summary>
 	public IReadOnlyList<string> Resets { get; init; } = [];
 
 	/// <summary>How a change to this setting takes effect.</summary>
 	public ApplyMode Apply { get; init; } = ApplyMode.NextSession;
 
-	/// <summary>Where the value is stored and resolved from — the shared user file or the workspace's out-of-repo overlay.</summary>
-	public SettingScope Scope { get; init; } = SettingScope.User;
+	/// <summary>Who reads the value.</summary>
+	public required SettingOwner Owner { get; init; }
 
 	/// <summary>
 	/// The derived override env var: <c>WEAVIE_</c> + the key uppercased with <c>.</c> → <c>_</c>

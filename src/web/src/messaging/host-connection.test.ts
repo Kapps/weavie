@@ -57,13 +57,8 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   reviewOverview: { collapsed: [] },
   repos: [],
   sourceLinkHosts: [],
-  agentDefaults: {
-    defaultProvider: "acp",
-    replyStartOffset: 0.5,
-    progressDisplay: "all",
-    thoughtDisplay: "all",
-    providers: [],
-  },
+  agentDefaults: { defaultProvider: "acp", providers: [] },
+  deviceSettings: {},
   commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
@@ -152,19 +147,19 @@ describe("HostConnection session ownership", () => {
     let defaults: HostHello["agentDefaults"] | undefined;
     const seen: string[] = [];
     host.connection.onCatalog((_catalog, sessions) => {
-      if (sessions.length > 0) seen.push(defaults!.thoughtDisplay);
+      if (sessions.length > 0) seen.push(defaults!.defaultProvider);
     });
     host.connection.onInitializing((value) => {
       defaults = value.agentDefaults;
     });
     await host.connection.connect();
-    expect(seen).toEqual(["all"]);
+    expect(seen).toEqual(["acp"]);
     host.connection.transportDropped();
     const next = hello("host-two", [entry("primary", address("primary", "two"))]);
-    next.agentDefaults.thoughtDisplay = "collapsed";
+    next.agentDefaults.defaultProvider = "other";
     host.setHello(next);
     await host.connection.connect();
-    expect(seen).toEqual(["all", "collapsed"]);
+    expect(seen).toEqual(["acp", "other"]);
     expect(host.errors).toEqual([]);
   });
 

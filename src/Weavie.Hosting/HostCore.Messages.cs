@@ -343,6 +343,7 @@ public sealed partial class HostCore {
 			RepoStates(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
+			ParseJsonElement(_global.DeviceSettingsJson()),
 			BuildCommandUsage(),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
@@ -431,6 +432,7 @@ public sealed partial class HostCore {
 		RepoState[] Repos,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
+		JsonElement DeviceSettings,
 		CommandUsageSnapshot CommandUsage, CommandCatalogSnapshot CommandCatalog);
 
 	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);

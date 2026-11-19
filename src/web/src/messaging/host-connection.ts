@@ -61,6 +61,8 @@ export interface HostHello {
   repos: RepoState[];
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
+  /** The host's device setting groups by name; a page applies only its home's. */
+  deviceSettings: Record<string, unknown>;
   commandUsage: CommandUsageSnapshot;
   commandCatalog: {
     commands: CommandInfo[];

@@ -6,7 +6,7 @@ import {
   hostConnection,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
-  registerHostFeature,
+  registerHomeFeature,
 } from "../bridge";
 import { dispatchCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -146,10 +146,7 @@ function focusSession(backendId: string, address: SessionAddress): void {
   });
 }
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
+registerHomeFeature((connection) => {
   return connection.host
     .feature("notifications")
     .on<{ backendId: string; address: SessionAddress }>("activated", ({ backendId, address }) => {

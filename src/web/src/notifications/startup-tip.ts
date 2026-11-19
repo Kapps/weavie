@@ -1,4 +1,4 @@
-import { registerHostFeature } from "../bridge";
+import { registerHomeFeature } from "../bridge";
 import { keyHintInCatalog } from "../commands/key-hint";
 import {
   findCommandInCatalog,
@@ -21,11 +21,7 @@ function message(backendId: string, tip: StartupTip): string {
   return `Tip: ${tip.lead}${shortcut}. ${tip.detail}`;
 }
 
-registerHostFeature((connection) => {
-  if (!connection.isLocal) {
-    return;
-  }
-
+registerHomeFeature((connection) => {
   let pending: StartupTip | null = null;
   let splashDismissed = false;
   let shown = false;

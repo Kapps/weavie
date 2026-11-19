@@ -22,45 +22,37 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task ReplyStartOffset_IsInjectedAndRepushedOnChange() {
+	public async Task AgentDisplay_IsInjectedSentInTheHelloAndRepushedOnChange() {
 		await using var host = await TestHost.StartAsync();
-		Assert.Contains("\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"all\"}", host.Core.BuildBootstrap());
-		host.Bridge.Clear();
+		const string defaults = "{\"replyStartOffset\":0.5,\"thoughtDisplay\":\"collapsed\",\"progressDisplay\":\"all\"}";
+		Assert.Contains($"window.__WEAVIE_AGENT_DISPLAY__ = {defaults};", host.Core.BuildBootstrap());
+		var hello = await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
+		Assert.Equal(defaults, hello.GetProperty("deviceSettings").GetProperty("agentDisplay").GetRawText());
+		Assert.False(hello.GetProperty("agentDefaults").TryGetProperty("thoughtDisplay", out _));
 
-		host.Settings.Set(AgentSettings.ReplyStartOffset, JsonSerializer.SerializeToElement(0.25));
+		(string Key, string Property, object Value)[] changes = [
+			(AgentSettings.ReplyStartOffset, "replyStartOffset", 0.25),
+			(AgentSettings.ThoughtDisplay, "thoughtDisplay", "all"),
+			(AgentSettings.ProgressDisplay, "progressDisplay", "latest"),
+		];
+		foreach (var (key, property, value) in changes) {
+			host.Bridge.Clear();
+			host.Settings.Set(key, JsonSerializer.SerializeToElement(value));
+			var push = host.Bridge.LastEvent("settings", "agentDisplay");
+			Assert.Equal(JsonSerializer.Serialize(value), push!.Value.GetProperty(property).GetRawText());
+			Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
+		}
 
-		var push = host.Bridge.LastEvent("settings", "agent-defaults");
-		Assert.Equal(0.25, push!.Value.GetProperty("replyStartOffset").GetDouble());
+		hello = await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
+		Assert.Equal("all", hello.GetProperty("deviceSettings").GetProperty("agentDisplay").GetProperty("thoughtDisplay").GetString());
 	}
 
-	[Fact]
-	public async Task ThoughtDisplay_IsCollapsedByDefaultAndRepushesEachValidatedChoice() {
+	[Theory]
+	[InlineData(AgentSettings.ThoughtDisplay)]
+	[InlineData(AgentSettings.ProgressDisplay)]
+	public async Task AgentDisplay_RejectsAnUnknownChoice(string key) {
 		await using var host = await TestHost.StartAsync();
-		var defaults = await host.HostRequestAsync<JsonElement>("agentDefaults", "get", new { });
-		Assert.Equal("collapsed", defaults.GetProperty("thoughtDisplay").GetString());
-		foreach (string mode in new[] { "all", "collapsed" }) {
-			host.Bridge.Clear();
-			host.Settings.Set(AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement(mode));
-			var push = host.Bridge.LastEvent("settings", "agent-defaults");
-			Assert.Equal(mode, push!.Value.GetProperty("thoughtDisplay").GetString());
-		}
-		Assert.Throws<SettingValidationException>(() => host.Settings.Set(
-			AgentSettings.ThoughtDisplay, JsonSerializer.SerializeToElement("guessed-replies")));
-	}
-
-	[Fact]
-	public async Task ProgressDisplay_IsAllByDefaultAndRepushesEachValidatedChoice() {
-		await using var host = await TestHost.StartAsync();
-		var defaults = await host.HostRequestAsync<JsonElement>("agentDefaults", "get", new { });
-		Assert.Equal("all", defaults.GetProperty("progressDisplay").GetString());
-		foreach (string mode in new[] { "latest", "all" }) {
-			host.Bridge.Clear();
-			host.Settings.Set(AgentSettings.ProgressDisplay, JsonSerializer.SerializeToElement(mode));
-			var push = host.Bridge.LastEvent("settings", "agent-defaults");
-			Assert.Equal(mode, push!.Value.GetProperty("progressDisplay").GetString());
-		}
-		Assert.Throws<SettingValidationException>(() => host.Settings.Set(
-			AgentSettings.ProgressDisplay, JsonSerializer.SerializeToElement("guessed-replies")));
+		Assert.Throws<SettingValidationException>(() => host.Settings.Set(key, JsonSerializer.SerializeToElement("guessed-replies")));
 	}
 
 	[Fact]

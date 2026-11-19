@@ -84,12 +84,15 @@ export interface NotificationPrefs {
 
 export interface AgentDefaults {
   defaultProvider: string;
+  providers: AgentProviderInfo[];
+}
+
+/** How a device presents agent conversations. */
+export interface AgentDisplay {
   /** Where a reply read from its start rests: a fraction of the agent pane's height below its top. */
   replyStartOffset: number;
   thoughtDisplay: "collapsed" | "all";
   progressDisplay: "latest" | "all";
-  /** Whether highlighting reply text attaches it to the next prompt. */
-  providers: AgentProviderInfo[];
 }
 
 export interface AgentProviderInfo {

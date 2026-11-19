@@ -343,7 +343,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public Task WaitForShutdownAsync() => _http.WaitForShutdownAsync();
 
 	/// <summary>
-	/// The same-origin page bootstrap: resolved fonts, editor options, theme, command catalog, keybindings, and
+	/// The same-origin page bootstrap: the device setting groups, agent defaults, command catalog, keybindings, and
 	/// shell config. Call after <see cref="StartAsync"/>.
 	/// </summary>
 	public string BuildBootstrap() => BuildBootstrap(new Uri(_http.MediaBaseUrl).PathAndQuery);
@@ -351,22 +351,12 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private string BuildBootstrap(string resourceBase) {
 		return
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase, WireJson.Default.String)};"
-			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ _global.BootstrapScript()
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.Window.Chrome, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
 
 	internal string BuildCrossOriginBootstrap() =>
 		BuildBootstrap(_http.TransportMediaBaseUrl);
-
-	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
-	// event name when any of its Keys changes. One row per group — the bootstrap and the change handler
-	// both iterate this table.
-	private static readonly (IReadOnlyList<string> Keys, string EventName, string Global,
-		Func<SettingsStore, string> Build)[] LiveSettingGroups = [
-		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
-		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
-	];
 
 	/// <summary>The app's build identity (public version plus internal build number, e.g. <c>0.2.1.1507</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
@@ -377,8 +367,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public void PushWindowState(bool maximized, bool focused) => _windowFeature.PushState(maximized, focused);
 
 	/// <summary>
-	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/layout
-	/// edits re-push their resolved values (app-wide theme/agent/keybinding pushes live in GlobalHostFeatures).
+	/// Wires the live reactions to store changes: a changed shell reopens the terminal; the device setting,
+	/// agent and keybinding pushes live in GlobalHostFeatures.
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens every loaded session's shell pane.
@@ -390,15 +380,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 				}
 			}));
 
-		// Live settings groups: re-push the resolved values so the web applies them in place.
 		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (change.Key == CoreSettings.CommandLearning) PushCommandUsage();
-			foreach (var (keys, eventName, _, build) in LiveSettingGroups) {
-				if (keys.Contains(change.Key)) {
-					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
-				}
-			}
 			// Getting Started just asked about inference, so don't ask again this run.
 			if (change.Key == CoreSettings.GettingStartedCompleted) {
 				Interlocked.Exchange(ref _automaticInferenceOffered, 1);

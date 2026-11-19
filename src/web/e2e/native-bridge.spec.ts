@@ -3,9 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import type { HostHello } from "../src/messaging/host-connection";
-import type { AgentDefaults } from "../src/messaging/protocol-types";
 import { test } from "./harness/network-fixtures";
-import { MOCK_AGENT_DEFAULTS, MockHost, mockSession } from "./mock-host";
+import { MOCK_AGENT_DEFAULTS, MOCK_DEVICE_SETTINGS, MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -46,7 +45,8 @@ test.describe("native in-process bridge contract", () => {
         },
       ],
     });
-    await page.addInitScript((agentDefaults: AgentDefaults) => {
+    const settings = { agentDefaults: MOCK_AGENT_DEFAULTS, deviceSettings: MOCK_DEVICE_SETTINGS };
+    await page.addInitScript((defaults: Pick<HostHello, "agentDefaults" | "deviceSettings">) => {
       window.__WEAVIE_RESOURCE_BASE__ = `${window.location.origin}/weavie-media`;
       interface Address {
         slot: string;
@@ -158,7 +158,7 @@ test.describe("native in-process bridge contract", () => {
             reviewOverview: { collapsed: [] },
             repos: [],
             sourceLinkHosts: [],
-            agentDefaults,
+            ...defaults,
             commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
             commandCatalog: { commands: [], keybindings: [] },
           } satisfies HostHello);
@@ -180,7 +180,7 @@ test.describe("native in-process bridge contract", () => {
         payload,
       ) => push(event(scope, session, feature, name, payload));
       window.__weaviePostMessage = send;
-    }, MOCK_AGENT_DEFAULTS);
+    }, settings);
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });
 

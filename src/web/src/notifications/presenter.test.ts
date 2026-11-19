@@ -22,9 +22,8 @@ vi.mock("../bridge", () => ({
   }),
   isBrowserHostedShell: () => state.browserShell,
   LOCAL_BACKEND_ID: "local",
-  registerHostFeature: (register: (connection: unknown) => void) =>
+  registerHomeFeature: (register: (connection: unknown) => void) =>
     register({
-      isLocal: true,
       host: {
         feature: () => ({
           request,

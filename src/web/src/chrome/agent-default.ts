@@ -1,5 +1,5 @@
-// Agent settings are injected before navigation and re-pushed live. The New Session prompt reads
-// them per backend so a remote host's providers and defaults never leak into another host.
+// Each host's agent providers and default, injected before navigation and re-pushed live. The New Session
+// prompt reads them per backend so a remote host's providers and defaults never leak into another host.
 
 import { createSignal } from "solid-js";
 import {
@@ -19,9 +19,6 @@ declare global {
 
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
-  replyStartOffset: 0.5,
-  progressDisplay: "all",
-  thoughtDisplay: "collapsed",
   providers: [
     {
       id: "claude",
@@ -39,28 +36,13 @@ const [byBackend, setByBackend] = createSignal(
   new Map<string, AgentDefaults>([[LOCAL_BACKEND_ID, injected]]),
 );
 
-function defaultsFor(backendId: string): Pick<AgentDefaults, "defaultProvider" | "providers"> {
+function defaultsFor(backendId: string): AgentDefaults {
   return (
     byBackend().get(backendId) ?? {
       defaultProvider: "",
       providers: [],
     }
   );
-}
-
-/** How far down the agent pane a reply read from its start rests; a preference of the host serving this page. */
-export function agentReplyStartOffset(): number {
-  return byBackend().get(LOCAL_BACKEND_ID)!.replyStartOffset;
-}
-
-/** The thought presentation selected on the session's own backend. */
-export function agentThoughtDisplay(backendId: string): AgentDefaults["thoughtDisplay"] {
-  return byBackend().get(backendId)!.thoughtDisplay;
-}
-
-/** The progress presentation selected on the session's own backend. */
-export function agentProgressDisplay(backendId: string): AgentDefaults["progressDisplay"] {
-  return byBackend().get(backendId)!.progressDisplay;
 }
 
 /** The provider the New Session prompt should preselect. */

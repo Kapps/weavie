@@ -1,8 +1,9 @@
 import { AlertTriangle } from "lucide-solid";
 import { createSignal, type JSX, onMount, Show } from "solid-js";
 import type { InferenceChoices } from "../bridge";
+import { homeFeature } from "../bridge";
 import { ControlBar } from "../chrome/ControlBar";
-import { localFeature, writeSetting } from "./state";
+import { writeSetting } from "./state";
 import type { SetupRun } from "./steps";
 
 /** What suggestions run on: agent, model, effort, and Fast Mode pickers whose options the agent itself reports. */
@@ -17,7 +18,7 @@ export function SuggestionProfile(props: {
     const turn = ++asked;
     setLoading(true);
     try {
-      const next = await localFeature("inferenceControls").request<InferenceChoices>("get", {});
+      const next = await homeFeature("inferenceControls").request<InferenceChoices>("get", {});
       if (turn === asked) setChoices(next);
     } finally {
       if (turn === asked) setLoading(false);

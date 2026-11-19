@@ -210,6 +210,20 @@ export function registerHostFeature(installer: HostFeatureInstaller): () => void
   };
 }
 
+/** Installs a feature on the home connection only: the host that serves this page. */
+export function registerHomeFeature(installer: HostFeatureInstaller): () => void {
+  return registerHostFeature((connection) =>
+    connection.isLocal ? installer(connection) : undefined,
+  );
+}
+
+/** One of the home host's features, for request/response calls. */
+export function homeFeature(name: string) {
+  const connection = hostConnection(LOCAL_BACKEND_ID);
+  if (connection === undefined) throw new Error("The Weavie host is not connected.");
+  return connection.host.feature(name);
+}
+
 function installSessionFeature(session: ClientSession, installer: SessionFeatureInstaller): void {
   let installed = installedSessionFeatures.get(session);
   if (installed === undefined) {

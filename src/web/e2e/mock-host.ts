@@ -145,9 +145,6 @@ const DEFAULT_LAYOUT = {
 
 export const MOCK_AGENT_DEFAULTS: AgentDefaults = {
   defaultProvider: "claude",
-  replyStartOffset: 0.5,
-  progressDisplay: "all",
-  thoughtDisplay: "collapsed",
   providers: [
     {
       id: "claude",
@@ -207,6 +204,7 @@ export class MockHost {
   private readonly editorRevisions = new Map<string, number>();
   private readonly pausedAgentHistory = new Set<() => void>();
   private readonly pausedFileRequests: MessageEnvelope[] = [];
+  private readonly deviceSettings = { ...MOCK_DEVICE_SETTINGS };
   private socket: WebSocket | null = null;
   private sessions: MockSession[];
   private pendingHello: MessageEnvelope | null = null;
@@ -307,6 +305,9 @@ export class MockHost {
   }
 
   publishHost(feature: string, name: string, payload: unknown): void {
+    if (feature === "settings" && name in this.deviceSettings) {
+      this.deviceSettings[name] = payload;
+    }
     this.send({
       scope: "host",
       session: null,
@@ -872,6 +873,7 @@ export class MockHost {
       repos: [],
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
+      deviceSettings: this.deviceSettings,
       commandUsage: { enabled: true, halfLifeMilliseconds: 604800000, entries: [] },
       commandCatalog: this.commandCatalog,
     };
@@ -969,15 +971,16 @@ const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
 export function mockEditorOptions(overrides: Partial<EditorOptionsSpec>): EditorOptionsSpec {
   return { ...DEFAULT_EDITOR_OPTIONS, gitBlame: "off", spellCheck: false, ...overrides };
 }
-const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
-  __WEAVIE_FONTS__: {
+/** The device setting groups a mock host starts with, by hello name. */
+export const MOCK_DEVICE_SETTINGS: Record<string, unknown> = {
+  fonts: {
     editor: FONT_SPEC,
     terminal: FONT_SPEC,
     interface: '"Sora", system-ui, sans-serif',
     interfaceSize: 13,
     prose: '"Sora", system-ui, sans-serif',
   },
-  __WEAVIE_NOTIFICATIONS__: {
+  notifications: {
     sounds: true,
     os: true,
     volume: 70,
@@ -985,8 +988,16 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     gates: { turnComplete: true, needsInput: true, failed: true },
   },
   // Git and spelling use real Core services in functional tests; this transport-only host serves neither.
-  __WEAVIE_EDITOR_OPTIONS__: mockEditorOptions({}),
-  __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
+  editorOptions: mockEditorOptions({}),
+  theme: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
+  agentDisplay: { replyStartOffset: 0.5, thoughtDisplay: "collapsed", progressDisplay: "all" },
+};
+const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
+  __WEAVIE_FONTS__: MOCK_DEVICE_SETTINGS.fonts,
+  __WEAVIE_NOTIFICATIONS__: MOCK_DEVICE_SETTINGS.notifications,
+  __WEAVIE_EDITOR_OPTIONS__: MOCK_DEVICE_SETTINGS.editorOptions,
+  __WEAVIE_THEME__: MOCK_DEVICE_SETTINGS.theme,
+  __WEAVIE_AGENT_DISPLAY__: MOCK_DEVICE_SETTINGS.agentDisplay,
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
   __WEAVIE_AGENT__: MOCK_AGENT_DEFAULTS,

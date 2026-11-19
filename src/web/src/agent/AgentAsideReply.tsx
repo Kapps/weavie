@@ -4,17 +4,18 @@ import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
 import { registerComposerPasteTarget } from "./composer-clipboard";
-import { replyComposer } from "./composer-store";
+import type { ReplyComposer } from "./composer-store";
 import { agentImageBlob } from "./pasted-images";
 
 export function AgentAsideReply(props: {
   session: ClientSession;
-  conversationId: string;
+  composer: ReplyComposer;
+  label: string;
   /** Whether the box takes focus as it opens: only in the view where Reply was pressed. */
   autofocus: boolean;
   onClose: () => void;
 }): JSX.Element {
-  const composer = replyComposer(props.session, props.conversationId);
+  const composer = props.composer;
   let textarea!: HTMLTextAreaElement;
   const canSubmit = () => {
     const state = composer.state();
@@ -55,13 +56,14 @@ export function AgentAsideReply(props: {
         ref={textarea}
         class="ui-field ui-field-content"
         data-agent-paste-target
-        aria-label="Reply to BTW"
+        aria-label={props.label}
         title={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
         rows={2}
         value={composer.state().draft}
         onInput={(event) => composer.setDraft(event.currentTarget.value)}
         onPaste={composer.captureImagePaste}
-        onKeyDown={(event) => {
+        // On the element itself: a card between editor lines keeps key events from reaching the document.
+        on:keydown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
             props.onClose();

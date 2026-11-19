@@ -1,12 +1,19 @@
 import { createEffect, createRoot, createSignal } from "solid-js";
-import type { SubmissionState } from "../../agent/composer-state";
+import type { AgentSelection, SubmissionState } from "../../agent/composer-state";
+import {
+  clearReplyComposer,
+  followUpComposer,
+  type ReplyComposer,
+} from "../../agent/composer-store";
 import { hasSubmission } from "../../agent/inline-reply";
 import { agentPaneModel } from "../../agent/pane-store";
 import { type ClientSession, selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
-import { registerCommand } from "../../commands/registry";
+import { type CommandHandler, registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { createSessionOwnedResource } from "../../messaging/session-owned-state";
+import { notify } from "../../notify/notify";
+import { editorContexts } from "../editor-context";
 import { monaco } from "../monaco-setup";
 
 /** A prompt sent from an editor selection, answered under the line it was sent from. */
@@ -17,9 +24,16 @@ export interface InlineReply {
   /** The model decoration that follows the line the reply sits under. */
   readonly mark: string;
   readonly question: string;
+  /** What the question is about, attached again to each follow-up. */
+  readonly selection: AgentSelection;
+  /** The submissions asked from this card after the first, oldest first. */
+  readonly followUps: readonly string[];
   /** Why the host refused the prompt. */
   readonly error: string | null;
+  readonly collapsed: boolean;
 }
+
+const composerKey = (id: string): string => `inline-reply:${id}`;
 
 const EMPTY: readonly InlineReply[] = [];
 
@@ -36,6 +50,7 @@ const owned = createSessionOwnedResource(
         const kept = list().filter((reply) => !leaving.includes(reply));
         for (const { id, model, mark } of leaving) {
           delivered.delete(id);
+          clearReplyComposer(session, composerKey(id));
           if (!model.isDisposed()) model.deltaDecorations([mark], []);
           if (kept.some((reply) => reply.model === model)) continue;
           watched.get(model)?.();
@@ -60,20 +75,30 @@ const owned = createSessionOwnedResource(
         }
         setList((current) => [...current, reply]);
       };
+      const patch = (id: string, change: (reply: InlineReply) => Partial<InlineReply>): void => {
+        if (list().some((reply) => reply.id === id))
+          setList((current) =>
+            current.map((reply) => (reply.id === id ? { ...reply, ...change(reply) } : reply)),
+          );
+      };
       const offState = session
         .feature("agent")
         .on<SubmissionState>("submissionState", ({ id, status, error }) => {
-          if (status === "dropped") remove((reply) => reply.id === id);
-          else if (status === "rejected" && list().some((reply) => reply.id === id))
-            setList((current) =>
-              current.map((reply) => (reply.id === id ? { ...reply, error } : reply)),
-            );
+          if (status === "accepted") return;
+          // A follow-up that went nowhere leaves the thread; its box holds a refusal's reason.
+          const asked = list().find((reply) => reply.followUps.includes(id));
+          if (asked !== undefined)
+            patch(asked.id, (reply) => ({
+              followUps: reply.followUps.filter((other) => other !== id),
+            }));
+          else if (status === "dropped") remove((reply) => reply.id === id);
+          else patch(id, () => ({ error }));
         });
       // A prompt that left the transcript was cleared or rewound away, and its reply went with it.
       createEffect(() => {
         const pane = agentPaneModel(session);
         if (pane === null || !pane.historyComplete() || list().length === 0) return;
-        const snapshot = pane.unfolded();
+        const snapshot = pane.transcript();
         remove((reply) => {
           if (!hasSubmission(snapshot, reply.id)) return delivered.has(reply.id);
           delivered.add(reply.id);
@@ -83,6 +108,7 @@ const owned = createSessionOwnedResource(
       return {
         list,
         add,
+        patch,
         remove,
         dispose: () => {
           offState();
@@ -105,6 +131,7 @@ export function addInlineReply(
   line: number,
   id: string,
   question: string,
+  selection: AgentSelection,
 ): void {
   const state = owned.get(session);
   if (state === undefined) return;
@@ -119,17 +146,93 @@ export function addInlineReply(
       },
     ],
   );
-  state.add({ id, model, mark: mark!, question, error: null });
+  state.add({
+    id,
+    model,
+    mark: mark!,
+    question,
+    selection,
+    followUps: [],
+    error: null,
+    collapsed: false,
+  });
+}
+
+export function setInlineReplyCollapsed(
+  session: ClientSession,
+  id: string,
+  collapsed: boolean,
+): void {
+  owned.get(session)?.patch(id, () => ({ collapsed }));
 }
 
 export function dismissInlineReply(session: ClientSession, id: string): void {
   owned.get(session)?.remove((reply) => reply.id === id);
 }
 
+/** The composer of `reply`'s follow-up box, whose prompts join the card. */
+export const inlineFollowUp = (session: ClientSession, reply: InlineReply): ReplyComposer =>
+  followUpComposer(session, composerKey(reply.id), reply.selection, (followUp) =>
+    owned.get(session)?.patch(reply.id, (current) => ({
+      followUps: [...current.followUps, followUp],
+    })),
+  );
+
+// The reply a command names by `id`, else the one at or nearest above the cursor in the session's editor.
+function target(session: ClientSession, args: unknown): InlineReply | undefined {
+  const replies = inlineReplies(session);
+  const id = (args as { id?: unknown } | null | undefined)?.id;
+  if (id !== undefined) {
+    const named = replies.find((reply) => reply.id === id);
+    if (named === undefined) throw new Error(`There is no inline reply '${String(id)}'.`);
+    return named;
+  }
+  const connection = editorContexts.get(session);
+  const cursor = connection?.editor.getPosition()?.lineNumber;
+  if (connection === undefined || cursor === undefined) return undefined;
+  const line = (reply: InlineReply): number =>
+    reply.model.getDecorationRange(reply.mark)?.startLineNumber ?? Number.POSITIVE_INFINITY;
+  return replies
+    .filter((reply) => reply.model === connection.model && line(reply) <= cursor)
+    .sort((a, b) => line(b) - line(a))[0];
+}
+
+const onTarget =
+  (act: (session: ClientSession, reply: InlineReply) => void): CommandHandler =>
+  (args, { session }) => {
+    const reply = session === null ? undefined : target(session, args);
+    if (session === null || reply === undefined) {
+      notify("info", "There's no inline reply at or above the cursor.", "inline-replies");
+      return;
+    }
+    act(session, reply);
+  };
+
 registerCommand(CommandIds.dismissInlineReplies, (_args, { session }) => {
   if (session === null) return false;
   owned.get(session)?.remove(() => true);
 });
+registerCommand(
+  CommandIds.dismissInlineReply,
+  onTarget((session, reply) => dismissInlineReply(session, reply.id)),
+);
+registerCommand(
+  CommandIds.toggleInlineReply,
+  onTarget((session, reply) => setInlineReplyCollapsed(session, reply.id, !reply.collapsed)),
+);
+registerCommand(
+  CommandIds.replyToInlineReply,
+  onTarget((session, reply) => {
+    setInlineReplyCollapsed(session, reply.id, false);
+    inlineFollowUp(session, reply).setOpen(true);
+    // The box is in the card once the state lands; the editor showing it is the one to type in.
+    editorContexts
+      .get(session)
+      ?.editor.getContainerDomNode()
+      .querySelector<HTMLElement>(`[data-inline-reply="${reply.id}"] textarea`)
+      ?.focus();
+  }),
+);
 
 createRoot(() =>
   createEffect(() => setContext("agentInlineReplies", inlineReplies(selectedSession()).length > 0)),

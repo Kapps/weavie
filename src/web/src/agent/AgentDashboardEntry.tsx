@@ -1,6 +1,9 @@
 import { For, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { liveKeyHint } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { AgentBlockEntry } from "./AgentBlockEntry";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { AgentCardShell } from "./AgentCardShell";
 import type { AgentBlockTranscriptEntry, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { blockUpdatedAt, ownCardOnFocus, setCardCollapsed } from "./agent-cards";
@@ -30,7 +33,8 @@ export function AgentDashboardEntry(props: {
         </Show>
       }
       onToggle={toggle}
-      card={card}
+      toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
+      actions={<AgentCardOpenButton card={card} />}
       onOwn={own}
       data={{ "data-agent-dashboard": dashboardId }}
     >

@@ -8,6 +8,7 @@ import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { type AgentPaneScrollState, createAgentPaneScroll } from "./AgentPaneScroll";
 import { AgentTranscript } from "./AgentTranscript";
+import { toggleMember } from "./nested-expansion";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot extends AgentPaneScrollState {
@@ -236,17 +237,4 @@ export function AgentTranscriptViewport(props: {
       </div>
     </div>
   );
-}
-
-function toggleMember(current: ReadonlySet<string>, entryId: string, included: boolean) {
-  if (current.has(entryId) === included) {
-    return current;
-  }
-  const next = new Set(current);
-  if (included) {
-    next.add(entryId);
-  } else {
-    next.delete(entryId);
-  }
-  return next;
 }

@@ -1,13 +1,17 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { liveKeyHint } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { AgentAsideReplyBox } from "./AgentAsideReplyBox";
+import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { AgentCardShell } from "./AgentCardShell";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "./AgentPendingRequests";
 import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
 import { CollapsibleCardContent } from "./CollapsibleCardContent";
+import { replyComposer } from "./composer-store";
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -37,7 +41,8 @@ export function AsideEntry(props: {
         </Show>
       }
       onToggle={toggle}
-      card={card}
+      toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
+      actions={<AgentCardOpenButton card={card} />}
       onOwn={own}
       data={{ "data-agent-aside": conversationId }}
     >
@@ -54,7 +59,8 @@ export function AsideEntry(props: {
         <Show when={props.entry.asideReplyable !== false}>
           <AgentAsideReplyBox
             session={props.session}
-            conversationId={conversationId}
+            composer={replyComposer(props.session, conversationId)}
+            label="Reply to BTW"
             disabled={props.entry.asideActive === true}
           />
         </Show>

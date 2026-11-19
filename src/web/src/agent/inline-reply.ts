@@ -1,39 +1,44 @@
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
-import { isAssistantMessage } from "./transcript-row";
 
-/** What the agent has said to one prompt. */
+/** What the agent has done about one prompt and the follow-ups asked under it. */
 export interface SubmissionReply {
-  /** The agent's messages and errors between the prompt and the user's next input. */
+  /**
+   * The pane's rows from the prompt to the user's next unrelated input: the agent's work, and each follow-up
+   * as the user's row. Other conversations' cards and the prompts' own attachments are left out.
+   */
   readonly entries: readonly AgentTranscriptEntry[];
   /** Whether the agent may still add to them. */
   readonly working: boolean;
 }
 
-const promptIndex = (snapshot: AgentTranscriptSnapshot, id: string): number =>
-  snapshot.entries.findLastIndex((entry) => entry.submissionId === id);
-
 /** Whether submission `id`'s prompt is in the transcript. */
 export const hasSubmission = (snapshot: AgentTranscriptSnapshot, id: string): boolean =>
-  promptIndex(snapshot, id) >= 0;
+  snapshot.entries.some((entry) => entry.submissionId === id);
 
-/** The reply to submission `id`, or null while its prompt is not in the transcript. */
+// A prompt's own selections and images follow its text; ones that start a turn are a later prompt.
+const attached = (entry: AgentTranscriptEntry | undefined): boolean =>
+  entry?.tone === "user" && entry.submissionId === undefined && entry.turnStart !== true;
+
+/** The reply to submission `id` and its `followUps`, or null while `id`'s prompt is not in the transcript. */
 export function submissionReply(
   snapshot: AgentTranscriptSnapshot,
   id: string,
+  followUps: readonly string[],
 ): SubmissionReply | null {
   const all = snapshot.entries;
-  let index = promptIndex(snapshot, id);
+  let index = all.findLastIndex((entry) => entry.submissionId === id);
   if (index < 0) return null;
-  // The prompt's own selections and images follow its text; ones that start a turn are a later prompt.
-  const attached = (entry: AgentTranscriptEntry | undefined): boolean =>
-    entry?.tone === "user" && entry.submissionId === undefined && entry.turnStart !== true;
-  do index += 1;
-  while (attached(all[index]));
   const entries: AgentTranscriptEntry[] = [];
-  for (; index < all.length && all[index]!.tone !== "user"; index += 1) {
+  let afterPrompt = true;
+  for (index += 1; index < all.length; index += 1) {
     const entry = all[index]!;
-    if (isAssistantMessage(entry) || (entry.kind === "notice" && entry.tone === "error"))
+    if (afterPrompt && attached(entry)) continue;
+    afterPrompt = false;
+    if (entry.tone === "user") {
+      if (entry.submissionId === undefined || !followUps.includes(entry.submissionId)) break;
       entries.push(entry);
+      afterPrompt = true;
+    } else if (entry.kind !== "aside") entries.push(entry);
   }
   return { entries, working: index === all.length && snapshot.turnActive };
 }

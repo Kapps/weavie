@@ -1,50 +1,40 @@
-/* A reply to a prompt sent from a selection (inline-reply-controller.tsx): a zone card under the selection's last
-   line, holding the question and what the agent has said to it. */
-.inline-reply {
-  --card-pad: 10px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  max-height: calc(var(--editor-height) * 0.6);
-  overflow: auto;
-  color: var(--fg);
-  font: var(--font-chrome-body);
+/* A reply to a prompt sent from a selection (inline-reply-controller.tsx): the pane's card as a zone card under the
+   selection's last line. Its head stays put while a long reply scrolls beneath it. */
+[data-inline-reply] {
+  margin: 0;
 }
 
-.inline-reply-head {
-  display: flex;
+[data-inline-reply] .agent-aside-head {
   align-items: center;
-  gap: 8px;
 }
 
-.inline-reply-question {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inline-reply-head > .ui-icon-button {
-  color: var(--dim);
-}
-
-.inline-reply-head > .ui-icon-button:hover,
-.inline-reply-head > .ui-icon-button:focus-visible {
+/* The question names the card, so it reads as text, not as a caption, and an open card shows all of it. */
+[data-inline-reply] .agent-aside-toggle-label {
   color: var(--fg);
 }
 
-.inline-reply .agent-markdown {
-  max-width: none;
+[data-inline-reply] .agent-aside-toggle[aria-expanded="true"] {
+  height: auto;
+  font: var(--font-chrome-body-wrap);
+  white-space: normal;
+  text-align: start;
 }
 
-.inline-reply-status {
-  color: var(--dim);
+.inline-reply-body {
+  max-height: calc(var(--editor-height) * 0.6);
+  background: none;
+}
+
+[data-inline-reply] .agent-markdown {
+  max-width: none;
 }
 
 .inline-reply-error {
   margin: 0;
   color: var(--bad);
   font: var(--font-chrome-body-wrap);
+}
+
+p.inline-reply-error {
+  padding: 8px 10px;
 }

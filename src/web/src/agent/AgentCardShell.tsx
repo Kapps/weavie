@@ -1,13 +1,9 @@
 import type { JSX } from "solid-js";
-import { liveKeyHint } from "../commands/keys-live";
-import { CommandIds } from "../commands/types";
-import type { AgentCardRef } from "../editor/tab-entry";
-import { AgentCardOpenButton } from "./AgentCardOpenButton";
 import { DisclosureIcon } from "./AgentDisclosure";
 import { AgentCardToggleContext } from "./agent-row-context";
 import { CollapsibleCardContent } from "./CollapsibleCardContent";
 
-/** The box a BTW or dashboard card sits in: a head that collapses it and opens it in a tab, then its body. */
+/** The box a BTW, dashboard or inline reply card sits in: a head that collapses it and holds its actions, then its body. */
 export function AgentCardShell(props: {
   label: string;
   collapsed: boolean;
@@ -15,7 +11,10 @@ export function AgentCardShell(props: {
   headOnly: boolean;
   meta: JSX.Element;
   onToggle: () => void;
-  card: AgentCardRef;
+  /** The shortcut that toggles this card, as a tooltip suffix; empty when none reaches it. */
+  toggleHint: string;
+  /** What the head offers after its meta: Open in a tab, Dismiss. */
+  actions: JSX.Element;
   onOwn: (event: Event) => void;
   data: Record<`data-${string}`, string>;
   children: JSX.Element;
@@ -34,14 +33,14 @@ export function AgentCardShell(props: {
           class="ui-row agent-aside-toggle"
           aria-label={toggleLabel()}
           aria-expanded={!props.collapsed}
-          title={`${toggleLabel()}${liveKeyHint(CommandIds.toggleAgentAside)}`}
+          title={`${toggleLabel()}${props.toggleHint}`}
           onClick={props.onToggle}
         >
           <DisclosureIcon />
           <span class="agent-aside-toggle-label">{props.label}</span>
         </button>
         {props.meta}
-        <AgentCardOpenButton card={props.card} />
+        {props.actions}
       </div>
       <CollapsibleCardContent collapsed={props.headOnly}>
         <div class="agent-aside-body">

@@ -19,15 +19,15 @@ flowchart LR
 ## Finding the reply
 
 The host journals a submitted prompt's text with `ItemId` set to the client's submission id, so the transcript
-row that holds it carries `submissionId`. `submissionReply(snapshot, id)` reads the reply from the pane's
-unfolded transcript (every reply, whatever `agent.progressDisplay` folds away): the agent's messages and error
-notices after that row and its attachments, up to the user's next input. The reply is still being written
-while that span is the transcript's last and the turn is active. Output the agent adds to the turn later with
-no new user input, such as after a background task finishes, continues the card as it continues the turn.
+row that holds it carries `submissionId`. `submissionReply(snapshot, id, followUps)` reads the card's rows from
+the pane's own transcript: everything after that row and its attachments, up to the user's next input that is
+not one of the card's follow-ups. A `/btw` asked meanwhile is another conversation and is left out. The reply
+is still being written while that span is the transcript's last and the turn is active. Output the agent adds
+to the turn later with no new user input, such as after a background task finishes, continues the card as it
+continues the turn.
 
-A comment sent into a running turn is steered into it or queued, as any prompt is. A steer's reply is what the
-agent says after the steer. The `queue` feed names each waiting submission by id, so a queued comment reads
-`Queued`; any other undelivered one reads `Sending`.
+A comment sent into a running turn is steered into it or queued, as any prompt is. The `queue` feed names each
+waiting submission by id, so a queued comment reads `Queued`; any other undelivered one reads `Sending`.
 
 The host reports a submission's fate on `submissionState`: `accepted`, `rejected` with a reason, or `dropped`
 when an accepted prompt leaves the queue and never reaches the transcript: Restart Agent or `/clear` with it
@@ -38,24 +38,45 @@ with the rest. `dropped` is an event, so a page disconnected when it is sent kee
 ## The card
 
 A zone card (`zone-cards.tsx`, as PR threads use) below the selection's last line, so it pushes code down
-instead of covering it, and scrolls inside itself past 60% of the editor's height. It shows the comment, each
-message of the reply as it streams, and the pane's working status while the turn runs, including when the
-agent is waiting on an approval or an answer. A refused prompt shows the host's reason; its comment and
-excerpt return to the composer as before.
+instead of covering it. It is the pane's own card, not a second renderer:
+
+- **Shell:** `AgentCardShell`, the box of a `/btw` or dashboard card. The head is the question (one line
+  collapsed, wrapped when open), the status (`Working`, `Waiting on your approval`, `Queued`, `Sending`,
+  `No reply`, `Not sent`) and ✕. Clicking the head collapses the card to that line; a collapsed card still
+  shows a request waiting on the user.
+- **Body:** `NestedTranscript` over the card's rows, so markdown, tool activity, thinking, earlier-update
+  folding, charts, tables, approvals and questions render and act as they do in the pane. It scrolls inside
+  itself past 60% of the editor's height.
+- **Reply:** the `/btw` reply box over `followUpComposer`. It opens holding the card's selection, sends to the
+  main conversation, and its prompt joins the card as a follow-up, shown as the user's row.
+
+A refused first prompt shows the host's reason in the card and returns its comment and excerpt to the
+composer; a refused follow-up shows the reason in its box.
 
 The selection toolbar clears when its selection moves on screen (a scroll, a resize, a card growing above
 it); a comment being written stays through all of them.
+
+## Commands
+
+All web-run, unbound, and offered only while the session has an inline reply (`agentInlineReplies`). Each of
+the first three acts on the reply named by `id`, else the one at or nearest above the cursor.
+
+| Id | Title |
+|---|---|
+| `weavie.agent.toggleInlineReply` | Toggle Inline Reply |
+| `weavie.agent.replyToInlineReply` | Reply to Inline Reply |
+| `weavie.agent.dismissInlineReply` | Dismiss Inline Reply |
+| `weavie.agent.dismissInlineReplies` | Dismiss Inline Replies |
 
 ## Lifetime
 
 Inline replies are client state owned by the session. Each holds a decoration on the text model that follows
 its line through edits. A reply ends when:
 
-- the user dismisses it (the card's ✕, or **Dismiss Inline Replies**, `weavie.agent.dismissInlineReplies`,
-  web, unbound, `When = "agentInlineReplies"`, which clears the session's),
+- the user dismisses it (the card's ✕ or a Dismiss command),
 - its model is disposed (the file's last tab closes) or its whole text is replaced, which discards the mark,
 - its prompt leaves the loaded transcript (`/clear`, Rewind),
-- the host drops its prompt undelivered,
+- the host drops its first prompt undelivered (a dropped follow-up only leaves the card),
 - the page reloads.
 
 Every editor showing the model shows its cards. The card layer exists only while a model has a reply.

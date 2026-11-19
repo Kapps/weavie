@@ -426,10 +426,13 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		RecordWirePrompt("session/prompt", parameters);
 		_prompted = true;
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
-		string text = PromptText(prompt);
+		string full = PromptText(prompt);
+		// A selection rides along as its own block; the instruction is what the user typed.
+		string text = string.Concat(TextBlocks(prompt, assistant: false)
+			.Where(block => block?.StartsWith("Attached selection (", StringComparison.Ordinal) != true));
 		File.AppendAllText(
 			StatePath("prompts.log"),
-			$"{_sessionId}:{text}{Environment.NewLine}");
+			$"{_sessionId}:{full}{Environment.NewLine}");
 		foreach (string? context in AssistantContext(prompt)) {
 			File.AppendAllText(StatePath("assistant-context.log"), $"{_sessionId}:{context}{Environment.NewLine}");
 		}
@@ -581,7 +584,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_message_chunk",
 				["messageId"] = $"fork-agent-{File.ReadLines(TranscriptPath(_sessionId!)).Count()}",
-				["content"] = Text("echo: " + text),
+				["content"] = Text("echo: " + full),
 			});
 		}
 		return new JsonObject { ["stopReason"] = "end_turn" };

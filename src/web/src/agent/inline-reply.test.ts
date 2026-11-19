@@ -23,15 +23,17 @@ const turn = (type: "turn-started" | "turn-completed", turnId: string): AgentPan
   turnId,
 });
 
-function reply(messages: AgentPaneUpdate[], id: string) {
+function thread(messages: AgentPaneUpdate[], id: string, followUps: string[]) {
   return createRoot((dispose) => {
     const model = createTestAgentPaneModel({} as ClientSession);
     model.replace(messages);
-    const result = submissionReply(model.transcript(), id);
+    const result = submissionReply(model.transcript(), id, followUps);
     dispose();
     return result && { said: result.entries.map((entry) => entry.text), working: result.working };
   });
 }
+
+const reply = (messages: AgentPaneUpdate[], id: string) => thread(messages, id, []);
 
 describe("the reply to one submission", () => {
   const asked = [
@@ -120,5 +122,22 @@ describe("the reply to one submission", () => {
       said("2", "c", "That is a diagram."),
     ];
     expect(reply(imageOnly, "ask")).toEqual({ said: [], working: false });
+  });
+
+  it("carries on through the follow-ups asked under it, as the user's rows without their attachments", () => {
+    const followed = [
+      ...asked,
+      said("1", "a", "It backs off."),
+      turn("turn-completed", "1"),
+      turn("turn-started", "2"),
+      row("user-message", "2", "more", "and on a timeout?"),
+      { ...row("user-selection", "2", "excerpt-again", "retry()"), summary: "notes.txt:1:1-1:8" },
+      said("2", "c", "Then it gives up."),
+    ];
+    expect(thread(followed, "ask", ["more"])).toEqual({
+      said: ["It backs off.", "and on a timeout?", "Then it gives up."],
+      working: true,
+    });
+    expect(reply(followed, "ask")).toEqual({ said: ["It backs off."], working: false });
   });
 });

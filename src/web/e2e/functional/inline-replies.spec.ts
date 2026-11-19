@@ -30,7 +30,7 @@ test("a comment sent from an editor selection is answered under that selection",
   await askAboutFirstLine(page, "why this line");
 
   const card = page.locator("[data-inline-reply]");
-  await expect(card.locator(".inline-reply-question")).toHaveText("why this line");
+  await expect(card.locator(".agent-aside-toggle-label")).toHaveText("why this line");
   await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
   await expect(card.locator(".agent-working")).toHaveCount(0);
   // The card sits between the line it was sent from and the next, pushing the code below it down.
@@ -46,7 +46,9 @@ test("a comment sent from an editor selection is answered under that selection",
   // A long reply scrolls inside the card, which never outgrows the editor.
   const editorHeight = (await page.locator(".monaco-editor").first().boundingBox())!.height;
   expect(
-    await card.evaluate((element) => Number.parseFloat(getComputedStyle(element).maxHeight)),
+    await card
+      .locator(".inline-reply-body")
+      .evaluate((element) => Number.parseFloat(getComputedStyle(element).maxHeight)),
   ).toBeCloseTo(editorHeight * 0.6, 0);
 
   await card.getByRole("button", { name: "Dismiss", exact: true }).click();
@@ -121,7 +123,7 @@ test("a queued comment's card ends when a restart drops the comment", async ({ p
   await askAboutFirstLine(page, "why this line");
 
   const card = page.locator("[data-inline-reply]");
-  await expect(card.locator(".inline-reply-status")).toHaveText("Queued");
+  await expect(card.locator(".agent-aside-head small")).toHaveText("Queued");
   await runCommand(page, "Restart Agent");
   await expect(card).toHaveCount(0);
 });
@@ -162,4 +164,78 @@ test("a card stays under its line through edits at that line", async ({ page }) 
   await expect(page.locator(".monaco-editor .view-line").first()).toContainText("// added below");
   await page.keyboard.press("ControlOrMeta+z");
   await underFirstLine();
+});
+
+test("a card folds to its question, takes a follow-up, and answers to its commands", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "inline-reply-thread");
+  await openFile(page, "notes.txt");
+  await askAboutFirstLine(page, "why this line");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+
+  const head = card.locator(".agent-aside-toggle");
+  await head.click();
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  await expect(card.locator(".agent-markdown")).toBeHidden();
+  await head.click();
+  await expect(card.locator(".agent-markdown")).toBeVisible();
+
+  // The follow-up is about the same selection, and its answer joins the card.
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = card.getByRole("textbox", { name: "Reply", exact: true });
+  await expect(reply).toBeFocused();
+  await expect(card.locator(".agent-attachment-selection")).toContainText("notes.txt:1:1-1:16");
+  await reply.fill("and the next one");
+  await page.keyboard.press("Enter");
+  await expect(card.locator(".agent-tone-user")).toContainText("and the next one");
+  await expect(card.locator(".agent-markdown").last()).toContainText("echo: and the next one");
+  await expect(card.locator(".agent-markdown").last()).toContainText("notes.txt:1:1-1:16");
+  await expect(reply).toHaveCount(0);
+  await expect(
+    surface.locator(".agent-markdown", { hasText: "echo: and the next one" }),
+  ).toBeVisible();
+
+  // The card commands act on the card at or nearest above the cursor.
+  await clickIntoEditor(page);
+  await runCommand(page, "Toggle Inline Reply");
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  await runCommand(page, "Reply to Inline Reply");
+  await expect(head).toHaveAttribute("aria-expanded", "true");
+  await expect(reply).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(reply).toHaveCount(0);
+  await clickIntoEditor(page);
+  await runCommand(page, "Dismiss Inline Reply");
+  await expect(card).toHaveCount(0);
+});
+
+test.describe("with permissions asked", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "mcp", tool: "setSetting", args: { key: "agent.allowAllPermissions", value: false } },
+      ],
+    },
+  });
+
+  test("a request the agent makes is answered from the card, with the agent pane hidden", async ({
+    page,
+  }) => {
+    await createAcpSession(page, "inline-reply-approval");
+    await openFile(page, "notes.txt");
+    await clickIntoEditor(page);
+    await runCommand(page, "Toggle Fullscreen Pane");
+    await askAboutFirstLine(page, "permission");
+
+    const card = page.locator("[data-inline-reply]");
+    await expect(card.locator(".agent-working")).toContainText("Waiting on your approval");
+    // A collapsed card still shows what it is waiting on.
+    await card.locator(".agent-aside-toggle").click();
+    await card.getByRole("button", { name: "Allow", exact: true }).click();
+    await card.locator(".agent-aside-toggle").click();
+    await expect(card.locator(".agent-markdown")).toContainText("permission: allow-once");
+    await expect(card.locator(".agent-working")).toHaveCount(0);
+  });
 });

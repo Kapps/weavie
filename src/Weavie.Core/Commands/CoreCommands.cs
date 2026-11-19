@@ -187,6 +187,15 @@ public static partial class CoreCommands {
 	/// <summary>Removes every inline reply from the session's editors (web-handled).</summary>
 	public const string DismissInlineReplies = "weavie.agent.dismissInlineReplies";
 
+	/// <summary>Removes the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	public const string DismissInlineReply = "weavie.agent.dismissInlineReply";
+
+	/// <summary>Collapses or expands the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	public const string ToggleInlineReply = "weavie.agent.toggleInlineReply";
+
+	/// <summary>Opens the follow-up box of the inline reply named by <c>id</c>, else the one at or nearest above the cursor (web-handled).</summary>
+	public const string ReplyToInlineReply = "weavie.agent.replyToInlineReply";
+
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
 	public const string AttachAgentBlock = "weavie.agent.attachBlock";
 
@@ -1303,9 +1312,26 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Remove every agent reply shown under an editor selection in this session; the replies stay in the agent pane.",
-			Aliases = ["dismiss inline reply", "clear inline replies", "close inline replies", "hide inline replies"],
+			Aliases = ["clear inline replies", "close inline replies", "hide inline replies"],
 			When = "agentInlineReplies",
 		});
+
+		foreach (var (id, title, description, aliases) in new (string, string, string, string[])[] {
+			(DismissInlineReply, "Dismiss Inline Reply", "Remove", ["close inline reply", "hide inline reply"]),
+			(ToggleInlineReply, "Toggle Inline Reply", "Collapse or expand", ["collapse inline reply", "expand inline reply", "fold inline reply"]),
+			(ReplyToInlineReply, "Reply to Inline Reply", "Ask a follow-up in", ["follow up inline", "ask again inline", "reply inline"]),
+		}) {
+			registry.Register(new CommandDefinition {
+				Id = id,
+				Title = title,
+				RunsIn = CommandLocation.Web,
+				Category = "Agent",
+				Description = $"{description} the agent reply shown under an editor selection: the one at or nearest above the cursor, or the one named by id.",
+				ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"The inline reply's id; the one at or nearest above the cursor when omitted\"}}",
+				Aliases = aliases,
+				When = "agentInlineReplies",
+			});
+		}
 
 		registry.Register(new CommandDefinition {
 			Id = AttachAgentBlock,

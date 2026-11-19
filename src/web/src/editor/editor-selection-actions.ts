@@ -43,12 +43,13 @@ export function connectSelectionActions(connection: TextEditorConnection): () =>
       selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
         ? selection.endLineNumber - 1
         : selection.endLineNumber;
+    const excerpt = { label, text: `${source}\n${text}` };
     actions.show(
-      { label, text: `${source}\n${text}` },
+      excerpt,
       { x: rect.left + position.left, y: rect.top + position.top + position.height },
       (id, comment) => {
         if (!currentEditorOptions().inlineReplies) return;
-        addInlineReply(session, model, lastLine, id, comment);
+        addInlineReply(session, model, lastLine, id, comment, excerpt);
         // The reply opens below the line, so a line low in the view moves up to leave it room.
         const { height } = editor.getLayoutInfo();
         if (editor.getTopForLineNumber(lastLine) - editor.getScrollTop() > height / 2)

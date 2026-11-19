@@ -1,15 +1,17 @@
 import { createEffect, createSignal, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentAsideReply } from "./AgentAsideReply";
-import { replyComposer } from "./composer-store";
+import type { ReplyComposer } from "./composer-store";
 
-/** A BTW's Reply button and box; the box takes focus only where Reply was pressed, so a second view never steals it. */
+/** A card's Reply button and box; the box takes focus only where Reply was pressed, so a second view never steals it. */
 export function AgentAsideReplyBox(props: {
   session: ClientSession;
-  conversationId: string;
+  composer: ReplyComposer;
+  /** What the box's input is called: "Reply to BTW". */
+  label: string;
   disabled: boolean;
 }): JSX.Element {
-  const composer = replyComposer(props.session, props.conversationId);
+  const composer = props.composer;
   const [openedHere, setOpenedHere] = createSignal(false);
   // However the box closes (Cancel, a sent reply, the other view), the next Reply starts unclaimed.
   createEffect(() => {
@@ -34,7 +36,8 @@ export function AgentAsideReplyBox(props: {
     >
       <AgentAsideReply
         session={props.session}
-        conversationId={props.conversationId}
+        composer={composer}
+        label={props.label}
         autofocus={openedHere()}
         onClose={() => composer.setOpen(false)}
       />

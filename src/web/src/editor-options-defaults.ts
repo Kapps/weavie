@@ -37,4 +37,5 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   reviewStepSettled: false,
   reviewFilesAhead: 2,
   spellCheck: true,
+  spellCheckLocale: "en",
 };

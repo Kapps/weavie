@@ -264,6 +264,9 @@ test("spelling suggestions are requested on demand and saved corrections support
   await expect.poll(() => readFile(file, "utf8")).toBe("A mispelled word.\ncolor colour\n");
   await expect(page.getByRole("img", { name: "Unsaved changes" })).toHaveCount(0);
   expect(suggestions()).toHaveLength(1);
+  expect(requests.map((message) => (message.payload as { locale: string }).locale)).toEqual(
+    requests.map(() => "en"),
+  );
 });
 
 test("mixed English spellings and technical words remain valid while technical typos can be corrected", async ({

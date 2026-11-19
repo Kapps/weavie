@@ -408,6 +408,8 @@ export interface EditorOptionsSpec {
   /** Files past the ones on screen the unified review mounts while it rests. */
   reviewFilesAhead: number;
   spellCheck: boolean;
+  /** The dictionary every spelling request names; the session's host installs one it lacks. */
+  spellCheckLocale: string;
 }
 
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";

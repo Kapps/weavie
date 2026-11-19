@@ -1,5 +1,6 @@
 import type { ContextMenuContent } from "../chrome/ContextMenu";
 import { CommandIds } from "../commands/types";
+import { currentEditorOptions } from "../editor-options";
 import { notify } from "../notify/notify";
 import { monaco } from "./monaco-setup";
 import { sessionForUri } from "./session-uri-owner";
@@ -63,7 +64,11 @@ export function createSpellingActions(
         try {
           suggestions = await session
             .feature("spelling")
-            .request<string[], { word: string }>("suggest", { word: hit.word }, combined);
+            .request<string[], { word: string; locale: string }>(
+              "suggest",
+              { word: hit.word, locale: currentEditorOptions().spellCheckLocale },
+              combined,
+            );
         } catch (error) {
           if (combined.aborted) return [];
           throw error;

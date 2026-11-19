@@ -7,33 +7,49 @@ using WeCantSpell.Hunspell;
 
 namespace Weavie.Core.Spelling;
 
-/// <summary>Installs versioned Hunspell dictionaries before persisting the selected backend locale.</summary>
-public sealed partial class SpellLanguages(SettingsStore settings, HttpClient http) : IDisposable {
-	private const string Revision = "8cfea406b505e4d7df52d5a19bce525df98c54ab";
-	private readonly string _cache = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(settings.FilePath))!, "dictionaries", Revision);
-	private readonly SemaphoreSlim _install = new(1);
-	private readonly Lock _gate = new();
-	private (string Locale, SpellVocabulary Words)? _loaded;
+/// <summary>Versioned Hunspell dictionaries, downloaded under a cache root the first time a locale is asked for.</summary>
+public sealed partial class SpellLanguages(string cacheRoot, HttpClient http) : IDisposable {
+	/// <summary>What a locale code looks like, for the surfaces that reject one.</summary>
+	public const string LocaleCodeHint = "Use a locale code such as en-US, en-GB, fr, or de. Run Set Spelling Locale without arguments to list available codes.";
 
-	/// <summary>Resolves one immutable dictionary for the duration of a check or suggestion request.</summary>
-	public SpellVocabulary Current {
-		get {
-			string locale = settings.RequireString(EditorSettings.SpellCheckLocale);
-			if (locale == "en") return SpellVocabulary.English.Value;
-			lock (_gate) {
-				if (_loaded is { } cached && cached.Locale == locale) return cached.Words;
-				string path = LocalePath(locale);
-				if (!Directory.Exists(path)) throw new InvalidOperationException($"Spelling locale '{locale}' is not installed. Run Set Spelling Locale to download it.");
-				var words = Load(path, locale);
-				_loaded = (locale, words);
-				return words;
+	private const string Revision = "8cfea406b505e4d7df52d5a19bce525df98c54ab";
+	private readonly string _cache = Path.Combine(cacheRoot, "dictionaries", Revision);
+	private readonly CancellationTokenSource _lifetime = new();
+	private readonly Lock _gate = new();
+	private readonly Dictionary<string, Task<SpellVocabulary>> _installs = new(StringComparer.Ordinal);
+
+	/// <summary>Whether <paramref name="locale"/> has the shape of a dictionary locale code.</summary>
+	public static bool IsLocaleCode(string locale) => LocaleCode().IsMatch(locale);
+
+	/// <summary>
+	/// The dictionary for <paramref name="locale"/>, installing it when this machine doesn't have it. Callers for
+	/// one locale share one install, which outlives any single caller's cancellation.
+	/// </summary>
+	public async Task<SpellVocabulary> ForAsync(string locale, CancellationToken ct) {
+		if (locale == "en") return SpellVocabulary.English.Value;
+		if (!IsLocaleCode(locale)) throw new ArgumentException(LocaleCodeHint);
+		string path = Path.Combine(_cache, locale);
+		Task<SpellVocabulary> install;
+		lock (_gate) {
+			if (!_installs.TryGetValue(locale, out install!)) {
+				var lifetime = _lifetime.Token;
+				install = Task.Run(() => Directory.Exists(path) ? Task.FromResult(Load(path, locale)) : DownloadAsync(locale, path, lifetime), lifetime);
+				_installs[locale] = install;
 			}
+		}
+		try {
+			return await install.WaitAsync(ct).ConfigureAwait(false);
+		} catch when (install.IsFaulted || install.IsCanceled) {
+			lock (_gate) {
+				if (_installs.GetValueOrDefault(locale) == install) _installs.Remove(locale);
+			}
+			throw;
 		}
 	}
 
-	/// <summary>Handles the agent-callable command; no argument returns the upstream catalogue.</summary>
-	public async Task<CommandResult> SetLocaleAsync(string? argsJson, CancellationToken ct) {
-		await _install.WaitAsync(ct).ConfigureAwait(false);
+	/// <summary>Handles the agent-callable command against the device's <paramref name="settings"/>; no argument returns the upstream catalogue.</summary>
+	public async Task<CommandResult> SetLocaleAsync(SettingsStore settings, string? argsJson, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(settings);
 		try {
 			using var args = JsonDocument.Parse(argsJson ?? "{}");
 			if (!args.RootElement.TryGetProperty("locale", out var value)) {
@@ -46,26 +62,15 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 				return CommandResult.Success($"Current spelling locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}. Ask the agent to select a locale.", JsonSerializer.Serialize(new SpellLocales(locales), PageJson.Default.SpellLocales));
 			}
 			string locale = value.GetString() ?? throw new ArgumentException("Provide a locale code.");
-			string path = LocalePath(locale);
-			if (locale != "en") {
-				var words = Directory.Exists(path) ? Load(path, locale) : await DownloadAsync(locale, path, ct).ConfigureAwait(false);
-				lock (_gate) _loaded = (locale, words);
-			}
-			ct.ThrowIfCancellationRequested();
+			// Installing here proves the dictionary exists before the locale is saved.
+			await ForAsync(locale, ct).ConfigureAwait(false);
 			var result = settings.Set(EditorSettings.SpellCheckLocale, JsonSerializer.SerializeToElement(locale, CoreJson.Default.String));
 			return CommandResult.Success(result.ShadowedByEnv is { } variable
 				? $"Saved spelling locale '{locale}', but {variable} overrides it. Effective locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}."
 				: $"Spelling locale set to {locale}.");
 		} catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or JsonException or InvalidDataException or SettingValidationException or SettingsFileMalformedException) {
 			return CommandResult.Failure(ex.Message);
-		} finally {
-			_install.Release();
 		}
-	}
-
-	private string LocalePath(string locale) {
-		if (!LocaleCode().IsMatch(locale)) throw new ArgumentException("Use a locale code such as en-US, en-GB, fr, or de. Run Set Spelling Locale without arguments to list available codes.");
-		return Path.Combine(_cache, locale);
 	}
 
 	private async Task<SpellVocabulary> DownloadAsync(string locale, string path, CancellationToken ct) {
@@ -99,8 +104,11 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	[GeneratedRegex(@"\A[a-z]{2,3}(?:-[A-Za-z0-9]+)*\z", RegexOptions.NonBacktracking)]
 	private static partial Regex LocaleCode();
 
-	/// <summary>Releases command serialization resources after the host's requests have drained.</summary>
-	public void Dispose() => _install.Dispose();
+	/// <summary>Stops installs still downloading.</summary>
+	public void Dispose() {
+		_lifetime.Cancel();
+		_lifetime.Dispose();
+	}
 }
 
 internal sealed record SpellLocales(IReadOnlyList<string> Locales);

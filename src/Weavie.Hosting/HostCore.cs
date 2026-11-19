@@ -167,7 +167,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_settingsTools = new SettingsTools(_settings, _device.Name);
 		_userDictionary = new(Path.Combine(Path.GetDirectoryName(_settings.FilePath)!, "dictionary.txt"), confined: false, watch: true);
 		_userDictionary.Changed += InvalidateSpelling;
-		_spellLanguages = new(_settings, _spellingHttp);
+		_spellLanguages = new(Path.GetDirectoryName(_settings.FilePath)!, _spellingHttp);
 		var messagePolicy = new MessageExecutionPolicy(
 			TimeSpan.FromSeconds(2),
 			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
@@ -189,6 +189,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		FontCommands.RegisterHandlers(_clientCommands, _settings);
 		GitBlameCommands.RegisterHandlers(_clientCommands, _settings);
 		ReviewItemCommands.RegisterHandlers(_clientCommands, _settings);
+		_clientCommands.RegisterHandler(CoreCommands.SpellSetLocale, (args, ct) => _spellLanguages.SetLocaleAsync(_settings, args, ct));
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
@@ -393,7 +394,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (change.Key == CoreSettings.CommandLearning) PushCommandUsage();
-			if (change.Key == EditorSettings.SpellCheckLocale) InvalidateSpelling();
 			foreach (var (keys, eventName, _, build) in LiveSettingGroups) {
 				if (keys.Contains(change.Key)) {
 					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));

@@ -160,4 +160,29 @@ describe("the reply to one submission", () => {
       working: false,
     });
   });
+
+  it("keeps a request waiting on the user in the card of the prompt it came after", () => {
+    const steeredPast = [
+      ...asked,
+      {
+        ...row("approval-requested", "1", "may-i", "Run the tests"),
+        requestId: "may-i",
+        status: "pending",
+      },
+      row("user-steer", "1", "other", "what is building?"),
+      said("1", "b", "The app."),
+    ];
+    const kinds = (id: string) =>
+      createRoot((dispose) => {
+        const model = createTestAgentPaneModel({} as ClientSession);
+        model.replace(steeredPast);
+        const result = submissionReply(model.transcript(), id, []);
+        dispose();
+        return (
+          result && { rows: result.entries.map((entry) => entry.kind), working: result.working }
+        );
+      });
+    expect(kinds("ask")).toEqual({ rows: ["request"], working: true });
+    expect(kinds("other")).toEqual({ rows: ["message"], working: true });
+  });
 });

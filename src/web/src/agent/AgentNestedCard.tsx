@@ -40,6 +40,7 @@ export function NestedTranscript(props: {
                 entry={entry()}
                 keyboardRequestKey={props.keyboardRequestKey}
                 latestPromptTurn={null}
+                rewindable={false}
                 onDetailsToggle={props.onDetailsToggle}
                 onUpdatesToggle={props.onUpdatesToggle}
                 sectionLabel={null}

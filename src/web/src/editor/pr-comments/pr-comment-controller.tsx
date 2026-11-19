@@ -198,19 +198,6 @@ export function createPrComments(
       return error;
     };
 
-    // The applied review's floating toolbar covers the bottom of the editor it reviews.
-    const reviewToolbarInset = (): number => {
-      const editorBox = editor.getDomNode()?.getBoundingClientRect();
-      const toolbar = editor
-        .getContainerDomNode()
-        .closest("[data-kind]")
-        ?.querySelector(".weavie-inline-toolbar")
-        ?.getBoundingClientRect();
-      return editorBox === undefined || toolbar == null || toolbar.top >= editorBox.bottom
-        ? 0
-        : editorBox.bottom - toolbar.top;
-    };
-
     const disposeCards = createZoneCards(
       editor,
       cards,
@@ -251,7 +238,6 @@ export function createPrComments(
           </Show>
         );
       },
-      reviewToolbarInset,
       12,
     );
 

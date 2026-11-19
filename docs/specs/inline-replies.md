@@ -22,7 +22,9 @@ The host journals a submitted prompt's text with `ItemId` set to the client's su
 row that holds it carries `submissionId`. `submissionReply(snapshot, id, followUps)` reads the card's rows from
 the pane's own transcript: what follows that row, and each follow-up's row, up to the user's next unrelated
 input. Turns the user had with the agent in between are gaps, not the end of the card. A prompt's own
-attachments and a `/btw` asked meanwhile are left out. The reply is still being written while the transcript
+attachments and a `/btw` asked meanwhile are left out. The pane shows a request waiting on the user last,
+wherever it was asked, so each such row names the user's row it came after (`promptedBy`) and joins the card
+that row belongs to. The reply is still being written while the transcript
 ends inside one of those spans and the turn is active. Output the agent adds
 to the turn later with no new user input, such as after a background task finishes, continues the card as it
 continues the turn.
@@ -35,7 +37,9 @@ when an accepted prompt leaves the queue and never reaches the transcript: Resta
 queued or steering unanswered, or a delivery that fails before the prompt is journaled. A steer the agent has
 not answered returns to the queue when its conversation ends, so it is dropped or handed to the successor
 with the rest; the old process may already have injected it, so the agent can see such a steer twice.
-`dropped` is an event, so a page disconnected when it is sent keeps the card until dismissed.
+`dropped` is an event, so a page disconnected when it is sent keeps the card until dismissed. A delivery that
+fails as it starts reports `dropped` before the submit's `accepted`; a consumer acts on `dropped` whenever it
+comes.
 
 ## The card
 
@@ -52,8 +56,11 @@ card, not a second renderer:
   itself past 60% of the editor's height.
 - **Reply:** the card reply box (`AgentCardReplyBox`, as a `/btw` uses) over `followUpComposer`. It opens
   holding the card's code as it stands now, sends to the main conversation, and its prompt joins the card as
-  a follow-up, shown as the user's row without Rewind. It counts as a comment box, so typing in it never
-  acts on the editor's review.
+  a follow-up, shown as the user's row. A follow-up needs text, which is the row its card finds it by.
+
+The whole card is a comment box (`data-comment-box`): focus inside it is `commentFocused` and not
+`editorFocused`, so typing in its reply or in an agent's question never acts on the editor or its review.
+Rewind is offered only by the pane's own transcript, never by a nested one.
 
 A refused first prompt shows the host's reason in the card and returns its comment and excerpt to the
 composer; a refused follow-up shows the reason in its box.
@@ -64,8 +71,9 @@ it); a comment being written stays through all of them.
 ## Commands
 
 All web-run, unbound, and offered only while the session has an inline reply (`agentInlineReplies`). Each of
-the first three acts on the reply named by `id`, else the one in view nearest the cursor. The card's head and
-✕ show the bound shortcut.
+the first three acts on the reply named by `id`, else the card the user last pressed or focused (it owns the
+commands until they press elsewhere, as the pane's cards do), else the one in view nearest the cursor. The
+card's head, ✕ and Reply show the bound shortcut.
 
 | Id | Title |
 |---|---|

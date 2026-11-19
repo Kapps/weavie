@@ -1,11 +1,12 @@
 import { X } from "lucide-solid";
-import { createMemo, type JSX, Match, Show, Switch } from "solid-js";
+import { createMemo, type JSX, Match, on, onCleanup, Show, Switch } from "solid-js";
 import { AgentCardReplyBox } from "../../agent/AgentCardReplyBox";
 import { AgentCardShell } from "../../agent/AgentCardShell";
 import { NestedTranscript } from "../../agent/AgentNestedCard";
 import { hasPendingRequest } from "../../agent/AgentPendingRequests";
 import { sameItems } from "../../agent/AgentTranscriptSnapshot";
 import { AgentWorkingStatus } from "../../agent/AgentWorkingStatus";
+import { ownsCommand, ownTarget } from "../../agent/agent-command-owner";
 import { agentQueuedSubmissions } from "../../agent/agent-queue-store";
 import { CollapsibleCardContent } from "../../agent/CollapsibleCardContent";
 import { hasSubmission, submissionReply } from "../../agent/inline-reply";
@@ -16,6 +17,7 @@ import { liveKeyHint } from "../../commands/keys-live";
 import { CommandIds } from "../../commands/types";
 import {
   dismissInlineReply,
+  INLINE_REPLY_OWNED,
   type InlineReply,
   inlineFollowUp,
   setInlineReplyCollapsed,
@@ -60,10 +62,19 @@ export function InlineReplyCard(props: {
     agentQueuedSubmissions(props.session).some((waiting) => undelivered().includes(waiting.id));
   const collapsed = () => props.reply.collapsed;
   // A transcript reload replaces every reply composer, so the box takes a new one with each generation.
-  const followUp = createMemo(() => {
-    pane()?.generation();
-    return inlineFollowUp(props.session, props.reply);
-  });
+  const followUp = createMemo(
+    on(
+      () => pane()?.generation(),
+      () => inlineFollowUp(props.session, props.reply),
+    ),
+  );
+  // The card last pressed or focused is the one its commands act on, until the user presses elsewhere.
+  let release: (() => void) | null = null;
+  onCleanup(() => release?.());
+  const own = (event: Event): void => {
+    if (!ownsCommand(INLINE_REPLY_OWNED, release))
+      release = ownTarget(INLINE_REPLY_OWNED, event.currentTarget as Element, props.reply.id);
+  };
   return (
     <AgentCardShell
       label={props.reply.question}
@@ -109,8 +120,9 @@ export function InlineReplyCard(props: {
           <X aria-hidden="true" />
         </button>
       }
-      onOwn={() => {}}
-      data={{ "data-inline-reply": props.reply.id }}
+      onOwn={own}
+      // A comment box throughout, so typing in its reply or an agent's question never acts on the editor.
+      data={{ "data-inline-reply": props.reply.id, "data-comment-box": "" }}
     >
       <div class="inline-reply-body agent-body">
         <Show when={props.reply.error}>
@@ -132,13 +144,13 @@ export function InlineReplyCard(props: {
       </div>
       <Show when={answer() !== null}>
         <CollapsibleCardContent collapsed={collapsed()}>
-          {/* A comment box, so typing in it never acts on the editor's review. */}
-          <div data-comment-box>
+          <div data-inline-follow-up>
             <AgentCardReplyBox
               session={props.session}
               composer={followUp()}
               label="Reply"
               hint="Paste text or images"
+              replyTitle={`Reply to Inline Reply${liveKeyHint(CommandIds.replyToInlineReply)}`}
               disabled={false}
             />
           </div>

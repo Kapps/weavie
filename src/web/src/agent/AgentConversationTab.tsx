@@ -47,6 +47,7 @@ export default function AgentConversationTab(props: {
               session={props.session}
               composer={replyComposer(props.session, card().conversationId!)}
               label="Reply to BTW"
+              replyTitle="Reply"
               hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
               disabled={card().asideActive === true}
             />

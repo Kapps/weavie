@@ -16,8 +16,10 @@ export function orderPendingRequests(source: readonly AgentTranscriptEntry[]): {
   const history: AgentTranscriptEntry[] = [];
   const pending: AgentTranscriptEntry[] = [];
   const retained = new Set<string>();
+  let prompt: string | undefined;
   for (const original of source) {
     let entry = original;
+    if (entry.tone === "user") prompt = entry.id;
     if (entry.conversation !== undefined) {
       if (entry.conversation.transcript().pendingRowIndexes.length > 0) retained.add(entry.id);
     } else if (entry.asideEntries !== undefined) {
@@ -26,7 +28,7 @@ export function orderPendingRequests(source: readonly AgentTranscriptEntry[]): {
       if (aside.pendingRowIndexes.length > 0) retained.add(entry.id);
     }
     if (isPendingRequest(entry)) {
-      pending.push(entry);
+      pending.push(prompt === undefined ? entry : { ...entry, promptedBy: prompt });
       retained.add(entry.id);
     } else {
       history.push(entry);

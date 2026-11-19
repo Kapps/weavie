@@ -23,7 +23,7 @@ export function AgentCardReply(props: {
     return (
       state.pendingSubmission === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
-      (state.draft.trim().length > 0 || state.attachments.length > 0)
+      (state.draft.trim().length > 0 || (!composer().needsText && state.attachments.length > 0))
     );
   };
   onMount(() => {

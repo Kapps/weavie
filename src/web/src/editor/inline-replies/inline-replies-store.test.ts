@@ -8,6 +8,7 @@ const host = vi.hoisted(() => ({
   pane: null as unknown,
   cleared: [] as string[],
   connection: undefined as unknown,
+  owned: undefined as string | undefined,
   select: (_session: unknown): void => {},
 }));
 vi.mock("../../bridge", async () => {
@@ -43,16 +44,9 @@ vi.mock("../selection-excerpt", () => ({
   selectionExcerpt: () => ({ label: "notes.txt:1:1-1:8", text: "retry()" }),
 }));
 vi.mock("../monaco-setup", () => ({
-  monaco: {
-    Range: class {
-      constructor(
-        readonly startLineNumber: number,
-        readonly startColumn: number,
-      ) {}
-    },
-    editor: { TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 1 } },
-  },
+  monaco: { editor: { TrackedRangeStickiness: { GrowsOnlyWhenTypingBefore: 3 } } },
 }));
+vi.mock("../../agent/agent-command-owner", () => ({ ownedTarget: () => host.owned }));
 
 import { createSignal } from "solid-js";
 import type { AgentTranscriptSnapshot } from "../../agent/AgentPaneTranscriptTypes";
@@ -126,7 +120,6 @@ function openModel() {
     return { dispose: () => listeners.delete(name) };
   };
   const model = {
-    getLineMaxColumn: () => 8,
     // Each mark stays on the code it was made for.
     getDecorationRange: (mark: string) => lines.get(mark) ?? null,
     deltaDecorations: (old: string[], added: { range: ReturnType<typeof onLine> }[]) => {
@@ -160,6 +153,7 @@ describe("inline replies", () => {
     host.pane = null;
     host.cleared.length = 0;
     host.connection = undefined;
+    host.owned = undefined;
     host.select(null);
   });
 
@@ -240,6 +234,10 @@ describe("inline replies", () => {
     cursor = 38;
     run(CommandIds.dismissInlineReply, undefined);
     expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["upper", "offscreen"]);
+    // The card the user is in wins over the cursor.
+    host.owned = "offscreen";
+    run(CommandIds.dismissInlineReply, undefined);
+    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["upper"]);
     expect(() => run(CommandIds.dismissInlineReply, { id: "gone" })).toThrow("no inline reply");
   });
 

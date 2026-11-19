@@ -94,6 +94,17 @@ describe("paneFocusContext", () => {
     });
   });
 
+  it("counts a comment box inside the editor as a comment, not as the editor", () => {
+    const pane = elementInPane("editor", "editor", false);
+    const input = {
+      closest: (selector: string) =>
+        selector === "[data-comment-box]" ? pane : pane.closest(selector),
+    } as unknown as Element;
+
+    expect(paneFocusContext(pane)).toMatchObject({ editorFocused: true, commentFocused: false });
+    expect(paneFocusContext(input)).toMatchObject({ editorFocused: false, commentFocused: true });
+  });
+
   it("only enables composer commands from inside the structured composer", () => {
     const input = elementInPane("terminal:claude", "structured-agent", true);
 

@@ -64,6 +64,7 @@ export function AsideEntry(props: {
             session={props.session}
             composer={composer}
             label="Reply to BTW"
+            replyTitle="Reply"
             hint={`Paste text or images${keyHint(CommandIds.agentPaste)}`}
             disabled={props.entry.asideActive === true}
           />

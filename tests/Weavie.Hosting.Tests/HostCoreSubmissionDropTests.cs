@@ -38,11 +38,30 @@ public sealed class HostCoreSubmissionDropTests {
 		await Eventually(() => Dropped(host, session, steer));
 	}
 
-	private static async Task<HostSession> HoldTurnAsync(TestHost host, TempDirectory state, string mode) {
+	[Fact]
+	public async Task APromptWhoseDeliveryFailsBeforeItIsJournaledIsReportedDropped() {
+		using var state = new TempDirectory("weavie-dropped-unjournaled");
+		await using var host = await TestHost.StartAsync();
+		var session = await StartAsync(host, state, "");
+		var lost = AgentTurnSubmission.Prompt("look at this") with {
+			Attachments = [new AgentInputAttachment.Image { Id = "gone", Path = state.Combine("gone.png"), Mime = "image/png" }],
+		};
+
+		session.Agent.Structured!.Submit(lost);
+
+		await Eventually(() => Dropped(host, session, lost));
+	}
+
+	private static async Task<HostSession> StartAsync(TestHost host, TempDirectory state, string mode) {
 		host.RegisterFakeAcp("fake-acp", mode, state.Path);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "dropped", Base = "main", AgentProviderId = "fake-acp" })).Ok);
 		var session = host.Session("dropped");
 		await Eventually(() => session.Agent.Controls!.ControlState.Ready);
+		return session;
+	}
+
+	private static async Task<HostSession> HoldTurnAsync(TestHost host, TempDirectory state, string mode) {
+		var session = await StartAsync(host, state, mode);
 		session.Agent.Structured!.Submit(AgentTurnSubmission.Prompt("hold"));
 		await Eventually(() => File.Exists(Path.Combine(session.WorkspaceRoot, "hold-started")));
 		return session;

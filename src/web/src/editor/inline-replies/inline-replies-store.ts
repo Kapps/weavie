@@ -1,4 +1,5 @@
 import { createEffect, createRoot, createSignal } from "solid-js";
+import { ownedTarget } from "../../agent/agent-command-owner";
 import type { SubmissionState } from "../../agent/composer-state";
 import {
   clearReplyComposer,
@@ -47,6 +48,8 @@ const owned = createSessionOwnedResource(
         const leaving = list().filter(gone);
         if (leaving.length === 0) return;
         const kept = list().filter((reply) => !leaving.includes(reply));
+        // The cards unmount first: a mounted one would take a new composer as its old one is cleared.
+        setList(kept);
         for (const { id, followUps, model, mark } of leaving) {
           for (const prompt of [id, ...followUps]) delivered.delete(prompt);
           clearReplyComposer(session, composerKey(id));
@@ -55,7 +58,6 @@ const owned = createSessionOwnedResource(
           watched.get(model)?.();
           watched.delete(model);
         }
-        setList(kept);
       };
       const add = (reply: InlineReply): void => {
         const { model } = reply;
@@ -195,7 +197,11 @@ export const inlineFollowUp = (session: ClientSession, reply: InlineReply): Repl
       })),
   );
 
-// The reply a command names by `id`, else the one in view nearest the cursor in the session's editor.
+/** The context key held while a card owns the card commands; its target is that reply's id. */
+export const INLINE_REPLY_OWNED = "agentInlineReplyOwned";
+
+// The reply a command names by `id`, else the card the user last pressed or focused, else the one in view
+// nearest the cursor in the session's editor.
 function target(session: ClientSession, args: unknown): InlineReply | undefined {
   const replies = inlineReplies(session);
   const id = (args as { id?: unknown } | null | undefined)?.id;
@@ -204,6 +210,8 @@ function target(session: ClientSession, args: unknown): InlineReply | undefined 
     if (named === undefined) throw new Error(`There is no inline reply '${String(id)}'.`);
     return named;
   }
+  const owned = replies.find((reply) => reply.id === ownedTarget<string>(INLINE_REPLY_OWNED));
+  if (owned !== undefined) return owned;
   const connection = editorContexts.get(session);
   const cursor = connection?.editor.getPosition()?.lineNumber;
   if (connection === undefined || cursor === undefined) return undefined;
@@ -251,7 +259,9 @@ registerCommand(
     editorContexts
       .get(session)
       ?.editor.getContainerDomNode()
-      .querySelector<HTMLElement>(`[data-inline-reply="${reply.id}"] textarea`)
+      .querySelector<HTMLElement>(
+        `[data-inline-reply="${reply.id}"] [data-inline-follow-up] textarea`,
+      )
       ?.focus();
   }),
 );

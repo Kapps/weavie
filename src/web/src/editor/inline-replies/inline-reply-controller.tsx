@@ -34,7 +34,6 @@ export function createInlineReplies(
           editor,
           cards,
           (reply) => <InlineReplyCard reply={reply()} session={session} />,
-          () => 0,
           0,
         ),
       );

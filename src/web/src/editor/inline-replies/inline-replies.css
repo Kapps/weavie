@@ -28,11 +28,6 @@
   max-width: none;
 }
 
-/* Rewinding the conversation is the pane's act; a follow-up's row under code does not offer it. */
-[data-inline-reply] .agent-entry-rewind:not(.agent-entry-open) {
-  display: none;
-}
-
 .inline-reply-error {
   margin: 0;
   color: var(--bad);

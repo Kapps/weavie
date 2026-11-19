@@ -10,6 +10,8 @@ export function AgentCardReplyBox(props: {
   /** What the box's input is called: "Reply to BTW". */
   label: string;
   hint: string;
+  /** The Reply button's tooltip: its command and shortcut where it has one. */
+  replyTitle: string;
   disabled: boolean;
 }): JSX.Element {
   // Read where it is used: its host hands over a new one when the transcript reloads.
@@ -27,6 +29,7 @@ export function AgentCardReplyBox(props: {
           type="button"
           class="agent-aside-reply-button ui-button"
           disabled={props.disabled}
+          title={props.replyTitle}
           onClick={() => {
             setOpenedHere(true);
             composer().setOpen(true);

@@ -28,7 +28,6 @@ export function createZoneCards<T>(
   editor: monaco.editor.ICodeEditor,
   cards: Accessor<ZoneCard<T>[]>,
   renderCard: (data: Accessor<T>) => JSX.Element,
-  bottomInset: () => number,
   /** How far in from the code's left edge the cards start, kept clear on the right too. */
   inset: number,
 ): () => void {
@@ -70,8 +69,21 @@ export function createZoneCards<T>(
     setList([...slots.values()]);
   });
 
-  // Keeps the card holding focus fully in view — clear of whatever the caller says floats over the editor's
-  // bottom edge — by scrolling the editor, the only thing that moves cards and code together.
+  // The applied review's floating toolbar covers the bottom of the editor it reviews.
+  const bottomInset = (): number => {
+    const editorBox = editor.getDomNode()?.getBoundingClientRect();
+    const toolbar = editor
+      .getContainerDomNode()
+      .closest("[data-kind]")
+      ?.querySelector(".weavie-inline-toolbar")
+      ?.getBoundingClientRect();
+    return editorBox === undefined || toolbar == null || toolbar.top >= editorBox.bottom
+      ? 0
+      : editorBox.bottom - toolbar.top;
+  };
+
+  // Keeps the card holding focus fully in view, clear of that toolbar, by scrolling the editor, the only
+  // thing that moves cards and code together.
   const reveal = (slot: Slot<T>, node: HTMLElement): void => {
     if (!node.contains(document.activeElement)) return;
     const top = slot.top();

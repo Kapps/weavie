@@ -192,7 +192,11 @@ test("a card folds to its question, takes a follow-up, and answers to its comman
   const reply = card.getByRole("textbox", { name: "Reply", exact: true });
   await expect(reply).toBeFocused();
   await expect(card.locator(".agent-attachment-selection")).toContainText("notes.txt:1:1-1:16");
+  // The attached code alone is not a follow-up: its card finds it by its text.
+  const send = card.locator(".agent-aside-reply-actions").getByRole("button", { name: "Reply" });
+  await expect(send).toBeDisabled();
   await reply.fill("and the next one");
+  await expect(send).toBeEnabled();
   await page.keyboard.press("Enter");
   await expect(card.locator(".agent-tone-user")).toContainText("and the next one");
   await expect(card.locator(".agent-markdown").last()).toContainText("echo: and the next one");

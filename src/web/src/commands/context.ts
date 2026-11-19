@@ -37,13 +37,14 @@ export function hasTextSelection(): boolean {
 export function paneFocusContext(el: Element | null): ContextOverrides {
   const pane = el?.closest("[data-kind]");
   const prComment = el?.closest("[data-pr-comment-input]") != null;
+  const comment = prComment || el?.closest("[data-comment-box]") != null;
   const kind = pane?.getAttribute("data-kind") ?? null;
   const surface = pane?.getAttribute("data-surface") ?? null;
   return {
     focusedTool: el?.closest("[data-tool]")?.getAttribute("data-tool") ?? null,
     focusedPane: kind,
-    editorFocused: !prComment && (surface === "editor" || (surface === null && kind === "editor")),
-    commentFocused: prComment || el?.closest("[data-comment-box]") != null,
+    editorFocused: !comment && (surface === "editor" || (surface === null && kind === "editor")),
+    commentFocused: comment,
     prCommentFocused: prComment,
     agentSelectionCommentFocused: el?.closest("[data-agent-selection-comment]") != null,
     terminalFocused:

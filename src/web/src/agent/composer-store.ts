@@ -43,11 +43,14 @@ type PreparedSubmission = NonNullable<ReturnType<typeof state.prepareSubmission>
 function boxComposer(
   session: ClientSession,
   key: string,
+  needsText: boolean,
   opening: (owner: state.ComposerOwner) => void,
   deliver: (owner: state.ComposerOwner, submission: PreparedSubmission) => void,
 ) {
   const owner = state.composerOwner(session, key);
   return {
+    /** Whether an attachment alone is not enough to send. */
+    needsText,
     state: () => state.composerState(owner),
     setDraft: (draft: string) => state.setComposerDraft(owner, draft),
     setError: (error: string) => state.setComposerError(owner, error),
@@ -79,6 +82,7 @@ export const replyComposer = (session: ClientSession, conversationId: string): R
   boxComposer(
     session,
     conversationId,
+    false,
     () => {},
     (owner, submission) => state.publishAgent(owner, "replyAside", { conversationId, submission }),
   );
@@ -86,6 +90,7 @@ export const replyComposer = (session: ClientSession, conversationId: string): R
 /**
  * The composer of a follow-up box keyed `key`: each prompt goes to the main conversation, and the box opens
  * holding what `selection` is now, so the follow-up is about the same code. `sent` receives each submission's id.
+ * A follow-up needs text.
  */
 export const followUpComposer = (
   session: ClientSession,
@@ -96,10 +101,14 @@ export const followUpComposer = (
   boxComposer(
     session,
     key,
+    // A follow-up's row in the transcript is its text, which is how its card finds it.
+    true,
     (owner) => {
+      // Whatever excerpt an earlier opening left is of the code as it was then.
+      for (const attachment of state.composerState(owner).attachments)
+        if (attachment.kind === "selection") state.removeComposerAttachment(owner, attachment.id);
       const excerpt = selection();
-      if (excerpt !== null && state.composerState(owner).attachments.length === 0)
-        state.attachSelection(owner, excerpt);
+      if (excerpt !== null) state.attachSelection(owner, excerpt);
     },
     (owner, submission) => {
       state.publishAgent(owner, "submit", submission);

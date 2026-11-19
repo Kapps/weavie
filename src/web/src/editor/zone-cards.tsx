@@ -8,7 +8,6 @@ import { monaco } from "./monaco-setup";
 import "./zone-cards.css";
 
 const CARD_MAX_WIDTH = 760;
-const CARD_INSET = 12;
 
 export interface ZoneCard<T> {
   key: string;
@@ -30,6 +29,8 @@ export function createZoneCards<T>(
   cards: Accessor<ZoneCard<T>[]>,
   renderCard: (data: Accessor<T>) => JSX.Element,
   bottomInset: () => number,
+  /** How far in from the code's left edge the cards start, kept clear on the right too. */
+  inset: number,
 ): () => void {
   const slots = new Map<string, Slot<T>>();
   const [list, setList] = createSignal<Slot<T>[]>([]);
@@ -159,8 +160,8 @@ export function createZoneCards<T>(
               style={{
                 top: `${slot.top()}px`,
                 visibility: Number.isFinite(slot.top()) ? "visible" : "hidden",
-                left: `${layout().contentLeft + CARD_INSET}px`,
-                width: `${Math.max(0, Math.min(CARD_MAX_WIDTH, layout().contentWidth - layout().verticalScrollbarWidth - 2 * CARD_INSET))}px`,
+                left: `${layout().contentLeft + inset}px`,
+                width: `${Math.max(0, Math.min(CARD_MAX_WIDTH, layout().contentWidth - layout().verticalScrollbarWidth - 2 * inset))}px`,
               }}
             >
               {renderCard(slot.data)}

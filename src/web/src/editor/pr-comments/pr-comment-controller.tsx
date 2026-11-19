@@ -252,6 +252,7 @@ export function createPrComments(
         );
       },
       reviewToolbarInset,
+      12,
     );
 
     const fixItem = (placement: ThreadPlacement): FixItem | null =>

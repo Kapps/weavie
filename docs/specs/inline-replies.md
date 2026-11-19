@@ -40,7 +40,8 @@ with the rest; the old process may already have injected it, so the agent can se
 ## The card
 
 A zone card (`zone-cards.tsx`, as PR threads use) below the selection's last line, so it pushes code down
-instead of covering it. It is the pane's own card, not a second renderer:
+instead of covering it. Its left edge is the code's; a PR thread keeps its own inset. It is the pane's own
+card, not a second renderer:
 
 - **Shell:** `AgentCardShell`, the box of a `/btw` or dashboard card. The head is the question (one line
   collapsed, wrapped when open), the status (`Working`, `Waiting on your approval`, `Queued`, `Sending`,

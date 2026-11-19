@@ -11,7 +11,7 @@ namespace Weavie.Core.Tests;
 public sealed class SessionChangeTrackerPersistenceTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
-	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
+	private static SessionChangeTracker Tracker(IFileSystem files, IReviewPersistence persistence) =>
 		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	private static void Edit(SessionChangeTracker tracker, InMemoryFileSystem files, string content) {
@@ -198,6 +198,17 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		resumed.CloseReview();
 
 		Assert.Empty(Tracker(files, persistence).TurnChanges());
+	}
+
+	[Fact]
+	public void ReconciliationFailure_PreservesTheValidReviewAndPropagatesTheOriginalError() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		Edit(Tracker(files, persistence), files, "proposal");
+		var saved = persistence.Read();
+		var failure = new ArgumentException("Could not inspect the working file");
+		Assert.Same(failure, Assert.Throws<ArgumentException>(() => Tracker(new UnreadableFileSystem(failure), persistence)));
+		Assert.Equal(saved, persistence.Read());
 	}
 
 	[Fact]

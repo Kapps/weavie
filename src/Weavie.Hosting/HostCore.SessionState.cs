@@ -212,4 +212,4 @@ public sealed partial class HostCore {
 		error is AggregateException aggregate ? aggregate.Flatten().InnerExceptions[0] : error;
 }
 
-internal sealed record CorruptReviewRefusal(string CorruptReviewSlot, string SessionName);
+internal sealed record CorruptReviewRefusal(string CorruptReviewSlot, string SessionName, string Reason);

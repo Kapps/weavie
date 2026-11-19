@@ -10,11 +10,12 @@ public sealed class SavedReview(string workspaceRoot) {
 	public string DirectoryPath { get; } = Path.Combine(WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
 	private string Database => Path.Combine(DirectoryPath, "review.db");
 
-	/// <summary>Restores the tracker, distinguishing damaged database contents from storage access failures.</summary>
-	public SessionChangeTracker Restore(Func<IReviewPersistence, SessionChangeTracker> restore) {
-		ArgumentNullException.ThrowIfNull(restore);
+	/// <summary>Opens the worktree's review record store.</summary>
+	public IReviewPersistence Open() => ReadDatabase(() => new ReviewPersistence(Database));
+
+	internal static T ReadDatabase<T>(Func<T> read) {
 		try {
-			return restore(new ReviewPersistence(Database));
+			return read();
 		} catch (Exception error) when (error.GetBaseException() is SqliteException {
 			SqliteErrorCode: raw.SQLITE_CORRUPT or raw.SQLITE_NOTADB
 		}) {

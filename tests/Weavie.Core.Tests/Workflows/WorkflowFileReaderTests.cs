@@ -40,7 +40,12 @@ public sealed class WorkflowFileReaderTests {
 	[InlineData("denied", "access denied")]
 	[InlineData("io", "file could not be read")]
 	public void ExpectedFailuresReturnSafeReasons(string failure, string expected) {
-		var reader = new WorkflowFileReader(new FailingFileSystem(failure));
+		var reader = new WorkflowFileReader(new UnreadableFileSystem(failure switch {
+			"missing" => new FileNotFoundException("private detail"),
+			"directory" => new DirectoryNotFoundException("private detail"),
+			"denied" => new UnauthorizedAccessException("private detail"),
+			_ => new IOException("private detail"),
+		}));
 		Assert.Equal(new WorkflowFileRead.Unreadable(expected), reader.Read(Files(Path.GetTempPath()), "document.txt"));
 	}
 
@@ -49,28 +54,7 @@ public sealed class WorkflowFileReaderTests {
 	[InlineData("\u0000")]
 	public void InvalidPathsDoNotReachTheFilesystem(string path) =>
 		Assert.Equal(new WorkflowFileRead.Unreadable("not a file path inside the worktree or run documents directory"),
-			new WorkflowFileReader(new FailingFileSystem("unexpected")).Read(Files(Path.GetTempPath()), path));
+			new WorkflowFileReader(new UnreadableFileSystem(new InvalidOperationException("Unexpected filesystem access"))).Read(Files(Path.GetTempPath()), path));
 
 	private static WorkflowFileScope Files(string worktree) => new(worktree, Path.Combine(Path.GetTempPath(), "documents"));
-
-	private sealed class FailingFileSystem(string failure) : IFileSystem {
-		public bool TryReadAllText(string path, out string contents) => throw failure switch {
-			"missing" => new FileNotFoundException("private detail"),
-			"directory" => new DirectoryNotFoundException("private detail"),
-			"denied" => new UnauthorizedAccessException("private detail"),
-			"io" => new IOException("private detail"),
-			_ => new InvalidOperationException("Unexpected filesystem access"),
-		};
-		public bool FileExists(string path) => throw new NotSupportedException();
-		public bool DirectoryExists(string path) => throw new NotSupportedException();
-		public bool TryGetStat(string path, out FileStat stat) => throw new NotSupportedException();
-		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) => throw new NotSupportedException();
-		public string ReadAllText(string path) => throw new NotSupportedException();
-		public byte[] ReadAllBytes(string path) => throw new NotSupportedException();
-		public void WriteAllText(string path, string contents) => throw new NotSupportedException();
-		public void WriteAllBytes(string path, byte[] contents) => throw new NotSupportedException();
-		public void AppendAllText(string path, string contents) => throw new NotSupportedException();
-		public void WriteAllTextAtomic(string path, string contents) => throw new NotSupportedException();
-		public void DeleteFile(string path) => throw new NotSupportedException();
-	}
 }

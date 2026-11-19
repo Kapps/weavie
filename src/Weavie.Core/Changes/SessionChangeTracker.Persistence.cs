@@ -49,8 +49,34 @@ public sealed partial class SessionChangeTracker {
 
 	private void RestoreCheckpoint() {
 		ArgumentNullException.ThrowIfNull(_persistence);
-		var records = _persistence.Read();
+		var records = SavedReview.ReadDatabase(_persistence.Read);
 		if (records.Count == 0) return;
+		var saved = DecodeCheckpoint(records);
+		_restoring = true;
+		try {
+			foreach (var file in saved.Files) {
+				RestoreState(file);
+				_historyHeads[file.Path] = CaptureHistoryHead(file.Path);
+			}
+			foreach (var (entry, action) in saved.History)
+				(entry.Undo ? _undoStack : _redoStack).Add(action, entry.Id);
+			_nextHistoryId = saved.Metadata.NextHistoryId;
+			_review = saved.Metadata.Review;
+			_nextOriginId = saved.Metadata.NextOriginId;
+			_nextActionId = saved.Metadata.NextActionId;
+			foreach (var (conversation, prompt) in saved.Prompts) _conversationPrompts.Add(conversation, prompt);
+			_savedMetadata = records["metadata"];
+			_dirtyFiles.Clear();
+			_historyDirty.Clear();
+			_dirtyHistory.Clear();
+			_dirtyHistoryPatches.Clear();
+			_dirtyPrompts.Clear();
+			// A git review is re-listed rather than reconciled: disk may have moved to another base meanwhile.
+			if (_review is null) ReconcileReviewDisk();
+		} finally { _restoring = false; }
+	}
+
+	private ReviewSnapshot DecodeCheckpoint(IReadOnlyDictionary<string, string> records) {
 		try {
 			var metadata = _json.Deserialize(records["metadata"], _json.Types.ReviewMetadata);
 			var storedTexts = records.Where(pair => pair.Key.StartsWith(TextPrefix, StringComparison.Ordinal))
@@ -84,17 +110,12 @@ public sealed partial class SessionChangeTracker {
 			var groupsByEntry = patchGroups.ToLookup(group => group.HistoryId);
 			if (patchGroups.Any(group => !history.Any(entry => entry.Id == group.HistoryId))) throw new JsonException("Orphan history patches.");
 			if (storedTexts.Keys.Any(hash => !_storedTexts.Referenced(hash))) throw new JsonException("The review contains unreferenced saved text.");
-			var actions = history.ToDictionary(entry => entry.Id, entry => new ReviewAction(entry.ActionId, entry.Kind,
-				entry.TouchesDisk, entry.Line, [.. groupsByEntry[entry.Id].SelectMany(group => group.Patches)]));
-			var saved = new ReviewSnapshot(metadata.Root, [.. files],
-				[.. history.Where(entry => entry.Undo).OrderBy(entry => entry.Id).Select(entry => actions[entry.Id])],
-				[.. history.Where(entry => !entry.Undo).OrderBy(entry => entry.Id).Select(entry => actions[entry.Id])],
-				metadata.Review, metadata.NextOriginId, metadata.NextActionId, prompts);
-
-			if (!PathIdentity.Equals(saved.Root, _workspaceRoot) || saved.Files is null || saved.Undo is null || saved.Redo is null || saved.Prompts is null
-				|| saved.Review is { } review && !PathIdentity.Equals(review.Worktree, _workspaceRoot))
+			var ordered = history.OrderBy(entry => entry.Id).Select(entry => (Entry: entry, Action: new ReviewAction(
+				entry.ActionId, entry.Kind, entry.TouchesDisk, entry.Line, [.. groupsByEntry[entry.Id].SelectMany(group => group.Patches)]))).ToArray();
+			if (!PathIdentity.Equals(metadata.Root, _workspaceRoot)
+				|| metadata.Review is { } review && !PathIdentity.Equals(review.Worktree, _workspaceRoot))
 				throw new JsonException("The review does not belong to this worktree.");
-			foreach (var file in saved.Files) {
+			foreach (var file in files) {
 				if (file is null || !file.Tracked && file.Provenance is null || file.Path is null || !Path.IsPathFullyQualified(file.Path) || !_isInScope(file.Path)
 					|| file.Current is null || file.ReviewBaseline is null || file.AcceptedAnchor is null
 					|| file.PreEdit is null || file.Disk is null)
@@ -104,39 +125,20 @@ public sealed partial class SessionChangeTracker {
 					|| !ValidGaps(provenance.DeletedAtGap, provenance.Lines.Length)))
 					throw new JsonException("The review contains invalid file provenance.");
 			}
-			var paths = saved.Files.Select(file => file.Path).ToHashSet(PathIdentity.Comparer);
-			foreach (var action in saved.Undo.Concat(saved.Redo)) {
+			var paths = files.Select(file => file.Path).ToHashSet(PathIdentity.Comparer);
+			foreach (var (_, action) in ordered) {
 				if (action is null || !Enum.IsDefined(action.Kind) || action.Patches is null || action.PatchCount == 0
 					|| action.Patches.Any(patch => !ValidPatch(patch, paths)))
 					throw new JsonException("The review contains an invalid decision.");
 			}
-			var patches = saved.Undo.Concat(saved.Redo).SelectMany(action => action.Patches).ToArray();
+			var patches = ordered.SelectMany(entry => entry.Action.Patches).ToArray();
 			if (patches.Select(patch => patch.Id).Distinct().Count() != patches.Length
-				|| patches.Any(patch => patch.Id > saved.NextActionId))
+				|| patches.Any(patch => patch.Id > metadata.NextActionId))
 				throw new JsonException("The review contains invalid decision identities.");
-			_restoring = true;
-			foreach (var file in saved.Files) {
-				RestoreState(file);
-				_historyHeads[file.Path] = CaptureHistoryHead(file.Path);
-			}
-			foreach (var entry in history.OrderBy(entry => entry.Id))
-				(entry.Undo ? _undoStack : _redoStack).Add(actions[entry.Id], entry.Id);
-			_nextHistoryId = metadata.NextHistoryId;
-			_review = saved.Review;
-			_nextOriginId = saved.NextOriginId;
-			_nextActionId = saved.NextActionId;
-			foreach (var (conversation, prompt) in saved.Prompts) _conversationPrompts.Add(conversation, prompt);
-			_savedMetadata = records["metadata"];
-			_dirtyFiles.Clear();
-			_historyDirty.Clear();
-			_dirtyHistory.Clear();
-			_dirtyHistoryPatches.Clear();
-			_dirtyPrompts.Clear();
-			// A git review is re-listed rather than reconciled: disk may have moved to another base meanwhile.
-			if (_review is null) ReconcileReviewDisk();
+			return new(metadata, files, ordered, prompts);
 		} catch (Exception error) when (error is JsonException or ArgumentException or KeyNotFoundException) {
 			throw new InvalidReviewCheckpointException(error);
-		} finally { _restoring = false; }
+		}
 	}
 
 	// Restore and whole-set actions inspect only paths already held by this review; never rewrite disk on load.
@@ -170,6 +172,6 @@ public sealed partial class SessionChangeTracker {
 		SynchronizeHistory(external: true, except: null);
 	}
 
-	private sealed record ReviewSnapshot(string Root, PathState[] Files, List<ReviewAction> Undo,
-		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, Dictionary<string, string?> Prompts);
+	private sealed record ReviewSnapshot(ReviewMetadata Metadata, List<PathState> Files,
+		(StoredHistory Entry, ReviewAction Action)[] History, Dictionary<string, string?> Prompts);
 }

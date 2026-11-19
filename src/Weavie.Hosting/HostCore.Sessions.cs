@@ -801,10 +801,12 @@ public sealed partial class HostCore {
 				result.SetResult(CommandResult.Success(
 					$"Loaded session '{NameOf(target)}' in the background.",
 					SessionAddressJson(target)));
+			} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+				result.SetCanceled(ct);
 			} catch (Exception ex) {
 				string message = ReportSessionRestoreFailure(target, ex);
-				result.SetResult(ex is InvalidReviewCheckpointException && !clearCorruptReview
-					? CommandResult.Failure(message, JsonSerializer.Serialize(new CorruptReviewRefusal(target.Id, NameOf(target)), WireJson.Default.CorruptReviewRefusal))
+				result.SetResult(ex is InvalidReviewCheckpointException invalid && !clearCorruptReview
+					? CommandResult.Failure(message, JsonSerializer.Serialize(new CorruptReviewRefusal(target.Id, NameOf(target), invalid.InnerException!.Message), WireJson.Default.CorruptReviewRefusal))
 					: CommandResult.Failure(message));
 			}
 		});

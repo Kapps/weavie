@@ -34,7 +34,12 @@ const SELECTED_SESSION_TARGETS = new Set<string>([
   CommandIds.deleteSession,
   CommandIds.reloadSession,
 ]);
-const SESSION_LIFECYCLE = new Set([...SELECTED_SESSION_TARGETS, CommandIds.recreateSession]);
+// Loads track each host request inside recovery, releasing the spinner while the user decides.
+const TRACKED_LIFECYCLE = new Set(
+  [...SELECTED_SESSION_TARGETS, CommandIds.recreateSession].filter(
+    (id) => id !== CommandIds.loadSession,
+  ),
+);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -395,7 +400,7 @@ async function routeCoreCommand(
     return result;
   };
   // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
-  if (SESSION_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
+  if (TRACKED_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
     return trackSessionCommand(target, trackedId, run);
   }
   return run();

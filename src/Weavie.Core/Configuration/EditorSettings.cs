@@ -167,6 +167,7 @@ public static class EditorSettings {
 		registry.Register(new SettingDefinition {
 			Key = SpellCheckLocale,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Default = "en",
 			Apply = ApplyMode.Live,
 			Description = "Spelling dictionary on this backend. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; use weavie.spell.setLocale to download and select a regional dictionary or another language.",
@@ -175,6 +176,7 @@ public static class EditorSettings {
 		registry.Register(new SettingDefinition {
 			Key = InlayHints,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = "Inline type and parameter-name hints in the editor (the greyed ': Type' and "
 				+ "'name:' annotations). 'offUnlessPressed' hides them until you hold Ctrl+Alt; "
 				+ "'onUnlessPressed' shows them until you do.",
@@ -399,6 +401,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			Apply = ApplyMode.Live,
@@ -410,6 +413,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			AllowedValues = allowed,
@@ -424,6 +428,7 @@ public static class EditorSettings {
 		new() {
 			Key = key,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Device,
 			Description = description,
 			Aliases = aliases,
 			Apply = ApplyMode.Live,

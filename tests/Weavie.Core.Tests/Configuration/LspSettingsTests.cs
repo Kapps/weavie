@@ -46,7 +46,7 @@ public sealed class LspSettingsTests : IDisposable {
 		Assert.Equal(
 			LanguageServerCatalog.All.Select(d => $"lsp.{d.Id}.command"),
 			registry.Definitions.Select(d => d.Key));
-		Assert.All(registry.Definitions, d => Assert.Equal(SettingScope.Workspace, d.Scope));
+		Assert.All(registry.Definitions, d => Assert.Equal(SettingOwner.Repo, d.Owner));
 	}
 
 	[Theory]

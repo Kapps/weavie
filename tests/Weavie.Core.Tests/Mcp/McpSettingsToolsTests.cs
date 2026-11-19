@@ -53,7 +53,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.Equal(CoreSettings.CreateRegistry().Definitions.Count, rows.Count);
 		Assert.InRange(text!.Length, 1, McpCommandToolsTests.IndexBudget);
 		Assert.Equal(
-			["key", "type", "aliases", "value", "source", "allowedValues"],
+			["key", "type", "owner", "aliases", "value", "source", "allowedValues"],
 			rows.Single(s => s.GetProperty("key").GetString() == "theme.mode").EnumerateObject().Select(p => p.Name));
 		Assert.Contains("terminal.shell", keys);
 		Assert.Contains("workspace", keys);

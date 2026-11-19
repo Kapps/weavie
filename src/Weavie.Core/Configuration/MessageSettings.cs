@@ -14,6 +14,7 @@ public static class MessageSettings {
 		registry.Register(new SettingDefinition {
 			Key = OperationDeadlineSeconds,
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "Maximum seconds an inbound host or session message may spend queued, running its "
 				+ "handler, and finishing response-owned work. A slow operation shows a busy toast; reaching this "
 				+ "deadline fails that operation, and a session-critical one asks for a session reload. Applies after "

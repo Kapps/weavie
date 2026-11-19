@@ -11,6 +11,7 @@ public static class DeveloperSettings {
 		registry.Register(new SettingDefinition {
 			Key = WebInspector,
 			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Device,
 			Description = "Allow attaching a web inspector to the desktop app's page (Safari's Develop menu on macOS, "
 				+ "DevTools on Windows), e.g. to take a memory snapshot. Applies after restarting Weavie.",
 			Aliases = ["dev tools", "devtools", "web inspector", "inspect element", "debug the page"],

@@ -35,15 +35,15 @@ public sealed record ClearResult {
 
 /// <summary>
 /// A single resolved-value change, raised to subscribers of <see cref="SettingsStore.SettingChanged"/>.
-/// <see cref="WorkspaceRoot"/> is the workspace a <see cref="SettingScope.Workspace"/> change belongs to,
+/// <see cref="WorkspaceRoot"/> is the workspace a <see cref="SettingOwner.Repo"/> change belongs to,
 /// or <c>null</c> for a cross-workspace (user-file/env) change.
 /// </summary>
 public readonly record struct SettingChange(string Key, object? OldValue, object? NewValue, SettingSource Source, string? WorkspaceRoot);
 
 /// <summary>
-/// Loads, resolves, and persists settings as TOML and is the change hub the host reacts to. Cross-workspace
-/// (<see cref="SettingScope.User"/>) keys live in the shared user file (<c>~/.weavie/settings.toml</c>);
-/// per-workspace (<see cref="SettingScope.Workspace"/>) keys live in each registered workspace's out-of-repo
+/// Loads, resolves, and persists settings as TOML and is the change hub the host reacts to. Device and machine
+/// keys live in the shared user file (<c>~/.weavie/settings.toml</c>);
+/// <see cref="SettingOwner.Repo"/> keys live in each registered workspace's out-of-repo
 /// overlay (<c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>). Resolution precedence is env var → workspace file → user file → registered
 /// default; values are coerced to their declared <see cref="SettingKind"/> and validated. Writes go through
 /// Tomlyn's comment-preserving document so unknown subtrees and user comments survive a round-trip. The shared
@@ -115,7 +115,7 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>
 	/// Registers a workspace so its out-of-repo settings overlay is loaded and (if watching is on)
-	/// watched, backing <see cref="SettingScope.Workspace"/> resolution for <paramref name="workspaceRoot"/>.
+	/// watched, backing <see cref="SettingOwner.Repo"/> resolution for <paramref name="workspaceRoot"/>.
 	/// Idempotent per root; the caller reads current values fresh after registering.
 	/// </summary>
 	public void RegisterWorkspace(string workspaceRoot) {
@@ -187,9 +187,9 @@ public sealed class SettingsStore : IDisposable {
 	public SetResult Set(string key, JsonElement value) => SetOnLayer(key, value, workspaceRoot: null);
 
 	/// <summary>
-	/// As <see cref="Set(string, JsonElement)"/>, but a <see cref="SettingScope.Workspace"/> key is written to
+	/// As <see cref="Set(string, JsonElement)"/>, but a <see cref="SettingOwner.Repo"/> key is written to
 	/// <paramref name="workspaceRoot"/>'s out-of-repo overlay (registering the workspace if needed);
-	/// a <see cref="SettingScope.User"/> key ignores <paramref name="workspaceRoot"/> and writes the user file.
+	/// any other key ignores <paramref name="workspaceRoot"/> and writes the user file.
 	/// </summary>
 	public SetResult Set(string key, JsonElement value, string workspaceRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
@@ -279,10 +279,10 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// The file a write targets: a Workspace-scoped key with a root goes to that workspace's overlay (registered
-	// on demand for writes); everything else — including a Workspace key with no root — goes to the user file.
+	// The file a write targets: a Repo key with a root goes to that workspace's overlay (registered
+	// on demand for writes); everything else — including a Repo key with no root — goes to the user file.
 	private SettingsFileLayer TargetLayerLocked(SettingDefinition definition, string? workspaceRoot, bool createIfMissing) {
-		if (definition.Scope != SettingScope.Workspace || workspaceRoot is null) {
+		if (definition.Owner != SettingOwner.Repo || workspaceRoot is null) {
 			return _userLayer;
 		}
 
@@ -317,7 +317,7 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Builds the <c>listSettings</c> index JSON (key, type, aliases, value, source, allowed values) with values resolved through env → user file → default (no workspace overlay).</summary>
 	public string BuildIndexJson() => BuildIndex(workspaceRoot: null);
 
-	/// <summary>As <see cref="BuildIndexJson()"/>, resolving <see cref="SettingScope.Workspace"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
+	/// <summary>As <see cref="BuildIndexJson()"/>, resolving <see cref="SettingOwner.Repo"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
 	public string BuildIndexJson(string workspaceRoot) => BuildIndex(workspaceRoot);
 
 	private string BuildIndex(string? workspaceRoot) {
@@ -341,7 +341,7 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Builds the <c>getSetting</c> JSON (the full entry) for one key resolved through env → user file → default (no workspace overlay).</summary>
 	public string BuildGetJson(string key) => BuildGet(key, workspaceRoot: null);
 
-	/// <summary>As <see cref="BuildGetJson(string)"/>, resolving a <see cref="SettingScope.Workspace"/> key against <paramref name="workspaceRoot"/>'s overlay.</summary>
+	/// <summary>As <see cref="BuildGetJson(string)"/>, resolving a <see cref="SettingOwner.Repo"/> key against <paramref name="workspaceRoot"/>'s overlay.</summary>
 	public string BuildGetJson(string key, string workspaceRoot) => BuildGet(key, workspaceRoot);
 
 	private string BuildGet(string key, string? workspaceRoot) {
@@ -373,7 +373,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// The listSettings index omits what getSetting adds: description, scope, default, and apply.
+	// The listSettings index omits what getSetting adds: description, default, and apply.
 	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot, bool detailed) {
 		var (value, source) = ResolveLocked(definition, workspaceRoot);
 
@@ -386,8 +386,9 @@ public sealed class SettingsStore : IDisposable {
 				definition.Resets.Count == 0
 					? definition.Description
 					: $"{definition.Description} Changing it clears {string.Join(", ", definition.Resets)}.");
-			writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
 		}
+
+		writer.WriteString("owner", OwnerName(definition.Owner));
 
 		writer.WriteStartArray("aliases");
 		foreach (string alias in definition.Aliases) {
@@ -431,7 +432,7 @@ public sealed class SettingsStore : IDisposable {
 			Log?.Invoke($"[settings] {definition.Key}: ignoring invalid {definition.EnvVar}='{env}' ({error}); falling back.");
 		}
 
-		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
+		if (definition.Owner == SettingOwner.Repo && workspaceRoot is not null
 			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)
 			&& registration.Layer.TryGetValue(definition.Key, out object? wsValue)) {
 			if (TryCoerceFile(definition, wsValue, out object? coerced, out string? error)) {
@@ -671,7 +672,7 @@ public sealed class SettingsStore : IDisposable {
 	// Seeds a workspace's resolved cache so a later reload can diff against it and only fire real changes.
 	private void SeedWorkspaceResolvedLocked(WorkspaceRegistration registration) {
 		foreach (var definition in _registry.Definitions) {
-			if (definition.Scope == SettingScope.Workspace) {
+			if (definition.Owner == SettingOwner.Repo) {
 				registration.Resolved[definition.Key] = ResolveLocked(definition, registration.Root).Value;
 			}
 		}
@@ -697,7 +698,7 @@ public sealed class SettingsStore : IDisposable {
 
 	private void DiffWorkspaceLocked(WorkspaceRegistration registration, List<SettingChange> changes) {
 		foreach (var definition in _registry.Definitions) {
-			if (definition.Scope != SettingScope.Workspace) {
+			if (definition.Owner != SettingOwner.Repo) {
 				continue;
 			}
 
@@ -797,6 +798,13 @@ public sealed class SettingsStore : IDisposable {
 		SettingKind.Path => "path",
 		SettingKind.Json => "json",
 		_ => kind.ToString().ToLowerInvariant(),
+	};
+
+	private static string OwnerName(SettingOwner owner) => owner switch {
+		SettingOwner.Device => "device",
+		SettingOwner.Machine => "machine",
+		SettingOwner.Repo => "repo",
+		_ => throw new ArgumentOutOfRangeException(nameof(owner), owner, "Unknown setting owner."),
 	};
 
 	private static string SourceName(SettingSource source) => source switch {

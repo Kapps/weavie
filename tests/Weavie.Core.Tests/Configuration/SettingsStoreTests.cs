@@ -20,9 +20,9 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	private static SettingsRegistry ScalarRegistry() {
 		var registry = new SettingsRegistry();
-		registry.Register(new SettingDefinition { Key = "t.str", Kind = SettingKind.String, Description = "a string", Default = "fallback" });
-		registry.Register(new SettingDefinition { Key = "t.flag", Kind = SettingKind.Bool, Description = "a flag", Default = false });
-		registry.Register(new SettingDefinition { Key = "t.num", Kind = SettingKind.Int, Description = "a number", Default = 0L });
+		registry.Register(new SettingDefinition { Key = "t.str", Kind = SettingKind.String, Owner = SettingOwner.Machine, Description = "a string", Default = "fallback" });
+		registry.Register(new SettingDefinition { Key = "t.flag", Kind = SettingKind.Bool, Owner = SettingOwner.Machine, Description = "a flag", Default = false });
+		registry.Register(new SettingDefinition { Key = "t.num", Kind = SettingKind.Int, Owner = SettingOwner.Machine, Description = "a number", Default = 0L });
 		return registry;
 	}
 
@@ -33,12 +33,13 @@ public sealed class SettingsStoreTests : IDisposable {
 			Key = "t.wsstr",
 			Kind = SettingKind.String,
 			Description = "a per-workspace string",
-			Scope = SettingScope.Workspace,
+			Owner = SettingOwner.Repo,
 			Default = "ws-default",
 		});
 		registry.Register(new SettingDefinition {
 			Key = "t.userstr",
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "a user string",
 			Default = "user-default",
 		});
@@ -215,7 +216,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Set_PathKind_WritesLiteralStringForWindowsPath() {
 		var registry = new SettingsRegistry();
-		registry.Register(new SettingDefinition { Key = "claude.path", Kind = SettingKind.Path, Description = "claude" });
+		registry.Register(new SettingDefinition { Key = "claude.path", Kind = SettingKind.Path, Owner = SettingOwner.Machine, Description = "claude" });
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("claude.path", Json("\"C:\\\\tools\\\\claude.exe\""));
@@ -231,7 +232,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Set_ThreeSegmentKey_WritesNestedDottedKey_AndRoundTrips() {
 		var registry = new SettingsRegistry();
-		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "editor font size", Default = 0L });
+		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Owner = SettingOwner.Machine, Description = "editor font size", Default = 0L });
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("editor.font.size", Json("14"));
@@ -313,6 +314,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		registry.Register(new SettingDefinition {
 			Key = "theme",
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "color theme",
 			AllowedValues = ["dark", "light"],
 		});
@@ -330,6 +332,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		registry.Register(new SettingDefinition {
 			Key = "t.even",
 			Kind = SettingKind.Int,
+			Owner = SettingOwner.Machine,
 			Description = "must be even",
 			Validate = value => value is long l && l % 2 == 0
 				? ValidationResult.Success
@@ -411,7 +414,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		// A [table] header rather than the root dotted key Set writes — RemoveKeyLocked must handle both.
 		File.WriteAllText(FilePath, "[editor.font]\nsize = 22\n");
 		var registry = new SettingsRegistry();
-		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "size", Default = 0L });
+		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Owner = SettingOwner.Machine, Description = "size", Default = 0L });
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Equal(22L, store.Resolve("editor.font.size").Value);
 
@@ -486,6 +489,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		registry.Register(new SettingDefinition {
 			Key = "theme",
 			Kind = SettingKind.String,
+			Owner = SettingOwner.Machine,
 			Description = "color theme",
 			Aliases = ["colors"],
 			AllowedValues = ["dark", "light"],

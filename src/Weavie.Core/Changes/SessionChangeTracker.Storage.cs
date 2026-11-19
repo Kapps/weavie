@@ -17,22 +17,22 @@ public sealed partial class SessionChangeTracker {
 
 	private StoredFile Store(string path, TextChanges texts) {
 		var state = Capture(path, withDisk: false);
-		return new(path, texts.Add(path, state.Baseline), state.BaselineExists, texts.Add(path, state.Current), state.CurrentExists,
+		return new(path, state.Tracked, texts.Add(path, state.Current), state.CurrentExists,
 			texts.Add(path, state.ReviewBaseline), state.ReviewBaselineExists, texts.Add(path, state.AcceptedAnchor),
 			state.AcceptedAnchorExists, texts.Add(path, state.PreEdit), state.Provenance is { } provenance
 				? new StoredProvenance(texts.Add(path, provenance.Text), provenance.Lines, provenance.DeletedAtGap) : null);
 	}
 
 	// A file's boundaries reference content-addressed text records, so a save rewrites only the texts that changed.
-	private sealed record StoredFile(string Path, string Baseline, bool BaselineExists, string Current, bool CurrentExists,
+	private sealed record StoredFile(string Path, bool Held, string Current, bool CurrentExists,
 		string ReviewBaseline, bool ReviewBaselineExists, string AcceptedAnchor, bool AcceptedAnchorExists, string PreEdit,
 		StoredProvenance? Provenance) {
-		public HashSet<string> Hashes() => [.. new[] { Baseline, Current, ReviewBaseline, AcceptedAnchor, PreEdit, Provenance?.Text }.OfType<string>()];
+		public HashSet<string> Hashes() => [.. new[] { Current, ReviewBaseline, AcceptedAnchor, PreEdit, Provenance?.Text }.OfType<string>()];
 
 		public PathState Restore(IReadOnlyDictionary<string, string> texts) {
 			string Text(string hash) => hash is not null && texts.TryGetValue(hash, out string? text)
 				? text : throw new JsonException("Invalid review text reference.");
-			return new(Path, true, Text(Baseline), BaselineExists, Text(Current), CurrentExists,
+			return new(Path, Held, Text(Current), CurrentExists,
 				Text(ReviewBaseline), ReviewBaselineExists, Text(AcceptedAnchor), AcceptedAnchorExists, Text(PreEdit),
 				Provenance is { } provenance ? new ProvenanceFile {
 					Text = Text(provenance.Text),

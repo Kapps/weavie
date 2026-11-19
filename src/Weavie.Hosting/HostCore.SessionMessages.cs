@@ -60,8 +60,8 @@ public sealed partial class HostCore {
 			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
-		review.Handle("accept", MessageActivity.ActionFailed("Accepting changes"), WireJson.Default.EmptyPayload, (_, _) => {
-			RunReviewAction(session, () => CloseReview(session));
+		review.Handle("accept", MessageActivity.ActionFailed("Keeping changes"), WireJson.Default.EmptyPayload, (_, _) => {
+			RunReviewAction(session, () => KeepAll(session));
 			return Task.CompletedTask;
 		});
 		review.Handle("revertAll", MessageActivity.SessionCritical("Reverting all changes"), WireJson.Default.EmptyPayload, (_, _) => {
@@ -100,9 +100,9 @@ public sealed partial class HostCore {
 			"text", MessageActivity.ActionFailed("Loading a review baseline"), WireJson.Default.ReviewTextRequest, WireJson.Default.ReviewTextResult,
 			(message, _) => Task.FromResult(new ReviewTextResult(session.Changes.ReviewText(message.Path, message.Revision))));
 		review.Handle("diffAgainst", MessageActivity.ActionFailed("Changing the diff base"), WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewOpened, (message, ct) =>
-			ChooseDiffAgainstFromWebAsync(session, message.Reference, message.Replaces, ct));
-		review.Handle("diffAgainstBase", MessageActivity.ActionFailed("Reviewing the branch"), WireJson.Default.DiffAgainstBaseMessage, WireJson.Default.ReviewOpened, (message, ct) =>
-			DiffAgainstBaseFromWebAsync(session, message.Replaces, ct));
+			ChooseDiffAgainstFromWebAsync(session, message.Reference, ct));
+		review.Handle("diffAgainstBase", MessageActivity.ActionFailed("Reviewing the branch"), WireJson.Default.EmptyPayload, WireJson.Default.ReviewOpened, (_, ct) =>
+			DiffAgainstBaseFromWebAsync(session, ct));
 
 		session.Bus.Feature("revise").Handle("start", MessageActivity.ActionFailed("Starting a revision"), WireJson.Default.ReviseStartMessage, (message, _) => {
 			StartRevise(session, message);
@@ -241,11 +241,8 @@ public sealed partial class HostCore {
 
 	internal sealed record PreviewRelease(string Grant);
 
-	/// <summary>Diff against <c>Reference</c>; <c>Replaces</c> names the open review the user agreed to close, if any.</summary>
-	internal sealed record DiffAgainstMessage(string Reference, string? Replaces);
-
-	/// <summary>Review the whole branch; <c>Replaces</c> as in <see cref="DiffAgainstMessage"/>.</summary>
-	internal sealed record DiffAgainstBaseMessage(string? Replaces);
+	/// <summary>Diff against <c>Reference</c>, replacing whatever review is open.</summary>
+	internal sealed record DiffAgainstMessage(string Reference);
 
 	internal sealed record PullRequestQuery(string Query);
 

@@ -43,9 +43,10 @@ public sealed partial class HostCore {
 		session.FileActivity.Subscribe(
 			"review presentation",
 			fact => fact switch {
-				BufferSaved saved => RefreshReviewAsync(session, saved.Path),
-				FileChanged changed => RefreshReviewAsync(session, changed.Path),
-				FileDeleted deleted => RefreshReviewAsync(session, deleted.Path),
+				BufferSaved saved => JoinAndRefreshReviewAsync(session, saved.Path, CancellationToken.None),
+				FileChanged changed => JoinAndRefreshReviewAsync(session, changed.Path, CancellationToken.None),
+				FileDeleted deleted => JoinAndRefreshReviewAsync(session, deleted.Path, CancellationToken.None),
+				FilesInvalidated invalidated => InvalidateReview(session, invalidated),
 				_ => Task.CompletedTask,
 			},
 			OnFailure);
@@ -54,6 +55,20 @@ public sealed partial class HostCore {
 			"git status projection",
 			fact => fact is InventoryChanged ? Task.CompletedTask : InvokeForSessionAsync(() => PushGitStatus(session)),
 			OnFailure);
+	}
+
+	private async Task JoinAndRefreshReviewAsync(HostSession session, string path, CancellationToken ct) {
+		await JoinReviewAsync(session, path, ct).ConfigureAwait(false);
+		await RefreshReviewAsync(session, path).ConfigureAwait(false);
+	}
+
+	// The watcher echoes every save and agent edit the review already shows; anything else re-lists it from git.
+	private static Task InvalidateReview(HostSession session, FilesInvalidated invalidated) {
+		if (session.Changes.Review is not null && !session.Changes.AccountsFor(invalidated.Changes.Select(change => change.Path))) {
+			session.ReviewListing.Invalidate();
+			session.ReviewHead.RequestRefresh();
+		}
+		return Task.CompletedTask;
 	}
 
 	// Built as it is published, on the dispatcher, so it can never land after a newer push a review action made there

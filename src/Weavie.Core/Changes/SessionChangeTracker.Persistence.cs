@@ -27,7 +27,7 @@ public sealed partial class SessionChangeTracker {
 		var changes = new Dictionary<string, string?>(StringComparer.Ordinal);
 		var texts = new TextChanges(_storedTexts);
 		foreach (string path in _dirtyFiles)
-			changes[FileKey(path)] = _baseline.ContainsKey(path) ? _json.Serialize(Store(path, texts), _json.Types.StoredFile) : texts.Release(path);
+			changes[FileKey(path)] = _acceptedAnchor.ContainsKey(path) || _provenance.ContainsKey(path) ? _json.Serialize(Store(path, texts), _json.Types.StoredFile) : texts.Release(path);
 		texts.Collect(changes);
 		foreach (var (id, entry) in _dirtyHistory)
 			changes["history:" + id] = entry is null ? null : _json.Serialize(new StoredHistory(id, entry.Undo, entry.Action.Id, entry.Action.Kind, entry.Action.TouchesDisk, entry.Action.Line), _json.Types.StoredHistory);
@@ -95,8 +95,8 @@ public sealed partial class SessionChangeTracker {
 				|| saved.Review is { } review && !PathIdentity.Equals(review.Worktree, _workspaceRoot))
 				throw new JsonException("The review does not belong to this worktree.");
 			foreach (var file in saved.Files) {
-				if (file is null || !file.Tracked || file.Path is null || !Path.IsPathFullyQualified(file.Path) || !_isInScope(file.Path)
-					|| file.Baseline is null || file.Current is null || file.ReviewBaseline is null || file.AcceptedAnchor is null
+				if (file is null || !file.Tracked && file.Provenance is null || file.Path is null || !Path.IsPathFullyQualified(file.Path) || !_isInScope(file.Path)
+					|| file.Current is null || file.ReviewBaseline is null || file.AcceptedAnchor is null
 					|| file.PreEdit is null || file.Disk is null)
 					throw new JsonException("The review contains an out-of-scope file.");
 				if (file.Provenance is { } provenance && (provenance.Text is null || provenance.Lines.IsDefault
@@ -132,38 +132,43 @@ public sealed partial class SessionChangeTracker {
 			_dirtyHistory.Clear();
 			_dirtyHistoryPatches.Clear();
 			_dirtyPrompts.Clear();
-			ReconcileReviewDisk();
+			// A git review is re-listed rather than reconciled: disk may have moved to another base meanwhile.
+			if (_review is null) ReconcileReviewDisk();
 		} catch (Exception error) when (error is JsonException or ArgumentException or KeyNotFoundException) {
 			throw new IOException("The saved review could not be restored; its document was left untouched.", error);
 		} finally { _restoring = false; }
 	}
 
-	// Restore and history actions inspect only paths already owned by this review; never rewrite disk on load.
+	// Restore and whole-set actions inspect only paths already held by this review; never rewrite disk on load.
 	private void ReconcileReviewDisk() {
-		foreach (string path in _baseline.Keys.ToArray()) {
-			bool exists = _fileSystem.FileExists(path);
-			if (!TryReadOrEmpty(path, out string actual)) {
-				SuspendReview(path);
-				if (_fileSystem.TryGetStat(path, out var stat)) _nonText[path] = stat;
-				continue;
-			}
-			if (!exists) {
-				_current[path] = string.Empty;
-				_missingCurrent.Add(path);
-				if (_provenance.TryGetValue(path, out var provenance)) _provenance[path] = RebaseProvenance(provenance, string.Empty, []);
-			} else if (_missingCurrent.Remove(path)) {
-				_current[path] = actual;
-				_provenance[path] = ProvenanceFile.Empty(actual);
-			} else if (!_provenance.TryGetValue(path, out var provenance) || provenance.Text != actual) {
-				if (_review is not null) {
-					_current[path] = actual;
-					CaptureProvenanceBaseline(path, actual);
-				} else CaptureHandEdit(path, actual);
-			}
+		foreach (string path in _acceptedAnchor.Keys.ToArray()) ReconcilePath(path);
+	}
+
+	// A git review shows disk; the default review shows the agent's changes, folding the user's saves in as corrections.
+	private void ReconcilePath(string path) {
+		if (!_acceptedAnchor.ContainsKey(path)) return;
+		bool exists = _fileSystem.FileExists(path);
+		if (!TryReadOrEmpty(path, out string actual)) {
+			SuspendReview(path);
+			if (_fileSystem.TryGetStat(path, out var stat)) _nonText[path] = stat;
+			return;
+		}
+		_nonText.Remove(path);
+		if (_review is not null) {
+			SetText(_current, _missingCurrent, path, actual, exists);
+			if (_provenance.TryGetValue(path, out var held) && held.Text != actual) _provenance[path] = RebaseProvenance(held, actual, []);
+		} else if (!exists) {
+			_current[path] = string.Empty;
+			_missingCurrent.Add(path);
+			if (_provenance.TryGetValue(path, out var provenance)) _provenance[path] = RebaseProvenance(provenance, string.Empty, []);
+		} else if (_missingCurrent.Remove(path)) {
+			_current[path] = actual;
+			_provenance[path] = ProvenanceFile.Empty(actual);
+		} else if (!_provenance.TryGetValue(path, out var provenance) || provenance.Text != actual) {
+			CaptureHandEdit(path, actual);
 		}
 		SynchronizeHistory(external: true, except: null);
 	}
-
 
 	private sealed record ReviewSnapshot(string Root, PathState[] Files, List<ReviewAction> Undo,
 		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, Dictionary<string, string?> Prompts);

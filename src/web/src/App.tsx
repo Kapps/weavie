@@ -997,32 +997,17 @@ export default function App(): JSX.Element {
   // omnibar or a dialog: their own navigation while the diff computed is newer, so it wins.
   const diffAgainst = (session: ClientSession, reference: string): void =>
     openDiff(session, "diffAgainst", { reference });
-  // A session holds one review; replacing one against another source closes it like Close Diff, so ask first.
+  // A session holds one review; starting one replaces it with git's answer.
   const openDiff = (
     session: ClientSession,
     kind: "diffAgainst" | "diffAgainstBase",
     payload: object,
   ): void => {
     const activeAtRequest = activePathFor(session);
-    type Answer = {
-      outcome: "none" | "opened" | "resumed";
-      replaces: string | null;
-      label: string;
-    };
-    const request = (replaces: string | null) =>
-      session.feature("review").request<Answer, object>(kind, { ...payload, replaces });
-    // Each refusal names the review open right now, so a confirm only ever closes the review it described.
-    const settle = async (answer: Answer): Promise<Answer> => {
-      if (answer.replaces === null) return answer;
-      const replace = await confirm({
-        title: `Switch from ${answer.replaces} to ${answer.label}?`,
-        body: `Switching closes the ${answer.replaces} review, accepting what's left in it, as Close Diff does.`,
-        confirmLabel: "Switch",
-      });
-      return replace ? settle(await request(answer.replaces)) : answer;
-    };
-    void request(null)
-      .then(settle)
+    type Answer = { outcome: "none" | "opened" | "resumed"; label: string };
+    void session
+      .feature("review")
+      .request<Answer, object>(kind, payload)
       .then(({ outcome }) => {
         if (
           outcome === "none" ||
@@ -1323,7 +1308,7 @@ export default function App(): JSX.Element {
                   <button
                     type="button"
                     class="editor-review-action editor-review-close ui-button"
-                    title={`Accept remaining changes and close diff${keyHint(CommandIds.reviewClose)}`}
+                    title={`Close diff${keyHint(CommandIds.reviewClose)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
                   >
                     <span class="ui-icon">

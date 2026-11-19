@@ -7,77 +7,47 @@ using Weavie.Core.Review;
 
 namespace Weavie.Hosting;
 
-// The review-diff surface: a session's worktree diffed against a base commit, reviewed through the SAME inline
-// accept/reject engine as a turn (HostCore.WebBridge.cs). Fed by two producers — an opened pull request
-// (HostCore.PullRequests.cs) and the local "diff against <ref>" command — which both SEED the session's change
-// tracker from the merge-base and let keep/revert + accumulating new-turn edits flow through the shared
-// turn-changes / turn-diff messages. See docs/specs/diff-against.md.
+// A git review: the session's worktree compared with a base commit, reviewed through the same inline keep/revert
+// engine as a turn (HostCore.WebBridge.cs). Fed by an opened pull request (HostCore.PullRequests.cs) and the local
+// "diff against <ref>" command; every start and re-list replaces the review with git's answer. See
+// docs/specs/review-state.md.
 public sealed partial class HostCore {
 
 	/// <summary>
-	/// Arms a "diff against &lt;ref&gt;" review on its owning session: resolves the ref to a commit, diffs the
-	/// working tree from its merge-base with HEAD (so a branch shows only this side's changes), and seeds the
-	/// change tracker so the diff reviews through the same accept/reject engine as a turn. Failures surface as
-	/// toasts; an empty diff says so and retracts any prior review instead of arming an unwalkable navigator.
-	/// Answers whether a new review opened; the page shows its overview only if the user hasn't navigated since asking.
-	/// A review against another source is replaced only when <paramref name="replaces"/> names it, the review the user
-	/// agreed to close; otherwise the answer names the open review so the page can ask (again).
+	/// Starts a "diff against &lt;ref&gt;" review on its owning session: resolves the ref, then lists the working tree
+	/// against its merge-base with HEAD (so a branch shows only this side's changes), replacing whatever review was
+	/// open. Failures surface as toasts. Answers whether a new review opened; the page shows its overview only if the
+	/// user hasn't navigated since asking.
 	/// </summary>
-	private async Task<ReviewOpened> DiffAgainstFromWebAsync(
-		HostSession session,
-		GitService git,
-		string reference,
-		string? replaces,
-		CancellationToken ct) {
+	private async Task<ReviewOpened> DiffAgainstFromWebAsync(HostSession session, GitService git, string reference, CancellationToken ct) {
 		reference = reference.Trim();
 		if (reference.Length == 0) {
 			return ReviewOpened.No;
 		}
 
-		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
-		ReviewContext review;
-		IReadOnlyList<DiffFileChange> changes;
+		ReviewContext? review = null;
+		bool resuming = false;
 		try {
-			if (await git.ResolveCommitAsync(worktree, reference, ct).ConfigureAwait(false) is not { } target) {
-				Notify(session, "warn", $"'{reference}' isn't a branch, tag, or commit here.");
-				return ReviewOpened.No;
-			}
+			bool replaced = await StartReviewAsync(session, async token => {
+				if (await git.ResolveCommitAsync(worktree, reference, token).ConfigureAwait(false) is not { } target) {
+					Notify(session, "warn", $"'{reference}' isn't a branch, tag, or commit here.");
+					return null;
+				}
 
-			string head = await git.GetHeadCommitAsync(worktree, ct).ConfigureAwait(false);
-			if (await git.MergeBaseAsync(worktree, target, head, ct).ConfigureAwait(false) is not { } mergeBase) {
-				Notify(session, "warn", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
-				return ReviewOpened.No;
-			}
+				if (await git.MergeBaseAsync(worktree, target, "HEAD", token).ConfigureAwait(false) is not { } mergeBase) {
+					Notify(session, "warn", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
+					return null;
+				}
 
-			string branch = await git.GetCurrentBranchAsync(worktree, ct).ConfigureAwait(false) ?? string.Empty;
-			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree, reference, branch);
-			changes = await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false);
-		} catch (GitException ex) {
+				string branch = await git.GetCurrentBranchAsync(worktree, token).ConfigureAwait(false) ?? string.Empty;
+				review = new ReviewContext(0, $"vs {reference}", mergeBase, null, worktree, reference, branch);
+				resuming = session.Changes.Review is { } open && open.SameSource(review);
+				return review;
+			}, ct).ConfigureAwait(false);
+			return replaced ? new(resuming ? ReviewOutcome.Resumed : ReviewOutcome.Opened, review!.Label) : ReviewOpened.No;
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Notify(session, "warn", $"Couldn't diff against '{reference}': {ex.Message}");
-			return ReviewOpened.No;
-		}
-
-		if (changes.Count == 0) {
-			// An empty Git diff does not discard saved rejection receipts.
-			Notify(session, "info", $"No changes against '{reference}'.");
-			if (session.Changes.Review is not { } open || !open.SameSource(review)) return ReviewOpened.No;
-		}
-
-		if (session.Changes.Review is { } current && !current.SameSource(review) && current.Label != replaces) {
-			return new(ReviewOutcome.None, current.Label, review.Label);
-		}
-
-		try {
-			var outcome = await SeedAndArmReviewAsync(review, session, changes, seeds => replaces is null
-				? session.Changes.ArmReview(review, seeds, request)
-				: session.Changes.ReplaceReview(review, seeds, request, replaces), ct).ConfigureAwait(false);
-			// Another review took over while this one was computing: ask about that one instead.
-			return outcome == ReviewOutcome.None && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
-				? new(ReviewOutcome.None, now.Label, review.Label)
-				: new(outcome, null, review.Label);
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
-			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
 			return ReviewOpened.No;
 		}
 	}
@@ -87,14 +57,10 @@ public sealed partial class HostCore {
 	/// <see cref="GitService.ChooseBranchBaseAsync"/>), so Review Branch keeps comparing with it. That runs after the
 	/// answer: the page reveals the review only if the user hasn't navigated, so a late answer would override them.
 	/// </summary>
-	private async Task<ReviewOpened> ChooseDiffAgainstFromWebAsync(
-		HostSession session,
-		string reference,
-		string? replaces,
-		CancellationToken ct) {
+	private async Task<ReviewOpened> ChooseDiffAgainstFromWebAsync(HostSession session, string reference, CancellationToken ct) {
 		var git = GitService.ForOperation();
-		var result = await DiffAgainstFromWebAsync(session, git, reference, replaces, ct).ConfigureAwait(false);
-		if (result.Replaces is null && session.Changes.Review?.Label == result.Label) {
+		var result = await DiffAgainstFromWebAsync(session, git, reference, ct).ConfigureAwait(false);
+		if (result.Outcome != ReviewOutcome.None && session.Changes.Review?.Label == result.Label) {
 			_ = session.Background.Run(stopping => ChooseBranchBaseAsync(session, git, reference.Trim(), stopping));
 		}
 
@@ -114,14 +80,14 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Reviews the whole branch: a diff against <see cref="BranchBaseRefAsync"/> from their merge-base.</summary>
-	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
+	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, CancellationToken ct) {
 		var git = GitService.ForOperation();
 		if (await BranchBaseRefAsync(session, git, ct).ConfigureAwait(false) is not { } reference) {
 			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
 			return ReviewOpened.No;
 		}
 
-		return await DiffAgainstFromWebAsync(session, git, reference, replaces, ct).ConfigureAwait(false);
+		return await DiffAgainstFromWebAsync(session, git, reference, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>The ref a whole-branch review compares against (see <see cref="GitService.ResolveBranchBaseAsync"/>).</summary>
@@ -151,81 +117,118 @@ public sealed partial class HostCore {
 			: null;
 
 	/// <summary>
-	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
-	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
-	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff, and answers whether it opened a new review or resumed the same source (keeping the user's place).
-	/// <paramref name="arm"/> attaches the seeds on the UI thread, answering whether the review it was asked for armed.
-	/// Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the session usable.
+	/// Starts a review the user asked for: <paramref name="resolve"/> finds its base (null when it toasted why it can't),
+	/// then it is listed — again from the top whenever HEAD moved while git was read, so it never shows a mix of two
+	/// commits. Answers whether the session's review was replaced.
 	/// </summary>
-	private async Task<ReviewOutcome> SeedAndArmReviewAsync(
-		ReviewContext review,
-		HostSession session,
-		IReadOnlyList<DiffFileChange> changes,
-		Func<ReviewSeed[], bool> arm,
-		CancellationToken ct) {
-		var git = new GitService();
-		var existing = session.Changes.Review;
-		bool resuming = existing is not null && existing.SameSource(review);
-		var paths = changes.Select(change => change.Path).ToList();
-		if (resuming && existing!.MergeBase != review.MergeBase) {
-			// A review moving to a new merge-base re-reads every file it holds there that Git would show it.
-			string root = Path.GetFullPath(review.Worktree);
-			string[] held = [.. session.Changes.TrackedPaths().Where(path => path.StartsWith(root + Path.DirectorySeparatorChar, PathIdentity.Comparison))];
-			var ignored = await git.FindIgnoredAsync(root, held, ct).ConfigureAwait(false);
-			paths.AddRange(held.Where(path => !ignored.Contains(path))
-				.Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
-				.Except(paths, StringComparer.Ordinal));
-		}
-
-		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
+	private async Task<bool> StartReviewAsync(
+		HostSession session, Func<CancellationToken, Task<ReviewContext?>> resolve, CancellationToken ct) {
+		var request = session.Changes.BeginReviewRequest();
 		try {
-			var baselines = await git
-				.ReadFilesAtRefsAsync(review.Worktree, [.. paths.Select(path => (review.MergeBase, path))], ct)
-				.ConfigureAwait(false);
-			for (int i = 0; i < paths.Count; i++) {
-				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, paths[i]));
-				seeds.Add((absolute, baselines[i], await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false)));
+			while (true) {
+				var start = session.ReviewListing.Observe();
+				if (await resolve(ct).ConfigureAwait(false) is not { } review) return false;
+				var listed = await ListReviewAsync(session, review, request, start, ct).ConfigureAwait(false);
+				if (listed != Listed.HeadMoved) return listed == Listed.Replaced;
 			}
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-			Log($"[weavie] review '{review.Label}': diff failed: {ex.Message}");
-			throw;
+		} finally {
+			EndListing(session, request);
 		}
-
-		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
-		return await _ui.InvokeAsync(() => {
-			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
-			ReviewSeed[] armed = [.. seeds.Select(seed => new ReviewSeed(seed.Absolute,
-				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists))];
-			bool armedReview;
-			try {
-				armedReview = arm(armed);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				// Arming may have replaced what the page holds revisions of before it failed.
-				PushReviewStateToWeb(session, session.Bus.BroadcastTarget);
-				throw;
-			}
-
-			if (!armedReview)
-				return Task.FromResult(ReviewOutcome.None);
-
-			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
-			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
-				PushTurnDiffToWeb(session, path);
-			return Task.FromResult(resuming ? ReviewOutcome.Resumed : seeds.Count > 0 ? ReviewOutcome.Opened : ReviewOutcome.None);
-		}, ct).ConfigureAwait(false);
 	}
 
-	/// <summary>The changed-file list for <paramref name="review"/> — the file axis of the diff walk.</summary>
-	private static Task<IReadOnlyList<DiffFileChange>> ComputeReviewChangesAsync(
-		ReviewContext review,
-		CancellationToken ct) =>
-		// A PR diffs merge-base → its committed head; a local "diff against" diffs merge-base → the working
-		// tree, so uncommitted edits are part of the review (its per-file "current" is the disk file either way).
-		review.PrNumber > 0
-			? new GitService().DiffRefsAsync(review.Worktree, review.MergeBase, review.HeadRef, ct)
-			: new GitService().DiffWorktreeAsync(review.Worktree, review.MergeBase, ct);
+	// A released request may have held off a re-list, so a review still stale is followed again.
+	private static void EndListing(HostSession session, ReviewRequest request) {
+		session.Changes.EndReviewRequest(request);
+		if (session.ReviewListing.Stale) session.ReviewHead.RequestRefresh();
+	}
+
+	/// <summary>
+	/// Lists <paramref name="review"/> from git — the working tree's changed paths against its merge-base, each before at
+	/// that base, each current from disk — and replaces the session's review with it unless <paramref name="request"/>
+	/// was superseded or HEAD moved since <paramref name="start"/>, before the base was resolved. An empty listing closes
+	/// a review of the same source and toasts. Paths joined while git was read are joined again and published.
+	/// </summary>
+	private async Task<Listed> ListReviewAsync(
+		HostSession session, ReviewContext review, ReviewRequest request, ListingState start, CancellationToken ct) {
+		bool finished = false;
+		try {
+			var git = new GitService();
+			var changes = await git.DiffWorktreeAsync(review.Worktree, review.MergeBase, ct).ConfigureAwait(false);
+			var befores = await git
+				.ReadFilesAtRefsAsync(review.Worktree, [.. changes.Select(change => (review.MergeBase, change.Path))], ct)
+				.ConfigureAwait(false);
+			var seeds = new ReviewSeed[changes.Count];
+			for (int i = 0; i < seeds.Length; i++) {
+				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, changes[i].Path));
+				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
+				seeds[i] = new ReviewSeed(absolute, befores[i].Content, current.Content, befores[i].Exists, current.Exists);
+			}
+
+			bool moved = session.ReviewListing.HeadMovedSince(start);
+			// Finished before the replace announces the review, so following it never re-lists what was just read.
+			session.ReviewListing.Finish(start, !moved);
+			finished = true;
+			if (moved) return Listed.HeadMoved;
+
+			var joined = await _ui.InvokeAsync(() => Task.FromResult(ReplaceReviewOnUi(session, review, seeds, request)), ct)
+				.ConfigureAwait(false);
+			if (joined is null) return Listed.NotReplaced;
+			if (joined.Count > 0) {
+				_ = session.Background.Run(async stopping => {
+					foreach (string path in joined) await JoinAndRefreshReviewAsync(session, path, stopping).ConfigureAwait(false);
+				});
+			}
+			return Listed.Replaced;
+		} finally {
+			// A failed listing settles what it set out to cover, so a persistent failure isn't retried in a loop.
+			if (!finished) session.ReviewListing.Finish(start, true);
+		}
+	}
+
+	private IReadOnlyCollection<string>? ReplaceReviewOnUi(
+		HostSession session, ReviewContext review, ReviewSeed[] seeds, ReviewRequest request) {
+		string[] prior = [.. session.Changes.TurnChanges().Select(change => change.Path)];
+		// An empty listing closes a review of the same source, unless a file joined while git was read.
+		if (seeds.Length == 0 && !(session.Changes.Review is { } open && open.SameSource(review))) {
+			Notify(session, "info", $"No changes against '{review.Target}'.");
+			return null;
+		}
+
+		IReadOnlyCollection<string>? joined;
+		try {
+			joined = session.Changes.ReplaceReview(review, seeds, request);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			// Replacing may have changed what the page holds revisions of before it failed.
+			PushReviewStateToWeb(session, session.Bus.BroadcastTarget);
+			throw;
+		}
+		if (joined is null) return null;
+		if (seeds.Length == 0 && joined.Count == 0) {
+			session.Changes.CloseReview();
+			PushReviewActionToWeb(session, []);
+			Notify(session, "info", $"No changes against '{review.Target}'.");
+			return null;
+		}
+		PushTurnChangesToWeb(session);
+		PushReviewHistoryToWeb(session);
+		foreach (string path in prior.Union(session.Changes.TurnChanges().Select(change => change.Path), PathIdentity.Comparer))
+			PushTurnDiffToWeb(session, path);
+		return [.. joined];
+	}
+
+	/// <summary>
+	/// Brings one known path into the open git review: a held path refreshes from disk with no git call, and a new one
+	/// reads its before at the review's base. A review replaced meanwhile is joined instead.
+	/// </summary>
+	private static async Task JoinReviewAsync(HostSession session, string path, CancellationToken ct) {
+		var git = new GitService();
+		while (session.Changes.Review is { } review && PathBoundary.Contains(review.Worktree, path)) {
+			if (session.Changes.RefreshReviewPath(review, path)) return;
+			string relative = Path.GetRelativePath(review.Worktree, path).Replace(Path.DirectorySeparatorChar, '/');
+			var before = (await git.ReadFilesAtRefsAsync(review.Worktree, [(review.MergeBase, relative)], ct).ConfigureAwait(false))[0];
+			if (session.Changes.JoinReview(review, path, before.Content, before.Exists)) return;
+		}
+	}
 
 	/// <summary>Reads a worktree file's current content while preserving absence as review data.</summary>
 	private static async Task<WorktreeFileSnapshot> ReadWorktreeAsync(string absolutePath, CancellationToken ct) =>
@@ -238,12 +241,18 @@ public sealed partial class HostCore {
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
 }
 
-/// <summary>
-/// What a request did with its review <c>Label</c>; <c>Replaces</c> names the review it would close when it was
-/// refused for it.
-/// </summary>
-internal sealed record ReviewOpened(ReviewOutcome Outcome, string? Replaces, string Label) {
-	public static ReviewOpened No { get; } = new(ReviewOutcome.None, null, string.Empty);
+/// <summary>What one listing did with the session's review.</summary>
+internal enum Listed {
+	Replaced,
+	NotReplaced,
+
+	/// <summary>HEAD moved while git was read, so nothing was installed.</summary>
+	HeadMoved,
+}
+
+/// <summary>What a request did with its review <c>Label</c>.</summary>
+internal sealed record ReviewOpened(ReviewOutcome Outcome, string Label) {
+	public static ReviewOpened No { get; } = new(ReviewOutcome.None, string.Empty);
 }
 
 /// <summary>Whether a review request armed a new review, resumed the one already open, or showed nothing.</summary>

@@ -90,12 +90,11 @@ async function diffAgainst(page: Page, reference: string): Promise<void> {
   await input.press("Enter");
 }
 
-// Switches the open review to `reference`, confirming the switch, and checks what the redraw cost.
+// Switches the open review to `reference` and checks what the redraw cost.
 async function expectSwitchWithin(page: Page, reference: string, files: string[], budget: Budget) {
   texts.length = 0;
   const sample = await measureRender(page, 1, budget.reads, async () => {
     await diffAgainst(page, reference);
-    await page.getByRole("button", { name: "Switch" }).click();
     await awaitReviewSet(
       page,
       files.map((name) => name.split("/").pop()!),

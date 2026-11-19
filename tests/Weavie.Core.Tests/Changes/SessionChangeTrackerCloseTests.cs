@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
@@ -6,13 +7,19 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Finishing a review is durable and leaves the working tree intact.</summary>
+/// <summary>Closing or finishing a review scraps it durably and leaves the working tree intact.</summary>
 public sealed class SessionChangeTrackerCloseTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
-	private static readonly ReviewContext Review = new(0, "vs main", "", "base", "head", null, Root, "main", "topic");
+	private static readonly ReviewContext Review = ReviewTestChanges.GitReview(Root);
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
 		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
+
+	private static void AgentDelete(SessionChangeTracker tracker, InMemoryFileSystem files, string path) {
+		tracker.CaptureBaseline(path);
+		files.DeleteFile(path);
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.None()));
+	}
 
 	[Theory]
 	[InlineData("pending")]
@@ -20,19 +27,19 @@ public sealed class SessionChangeTrackerCloseTests {
 	[InlineData("file")]
 	[InlineData("rejected")]
 	[InlineData("undone")]
-	public void FinalAcceptanceOrClose_PreservesDiskAndClearsReviewAfterRestart(string decision) {
+	public void Close_PreservesDiskAndClearsReviewAfterRestart(string decision) {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "proposal\n");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true)]);
+		tracker.StartReview(Review, ReviewTestChanges.Seed(files, File, "old\n"));
 		if (decision == "hunk") Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "proposal"));
 		if (decision == "file") tracker.KeepFile(File);
 		if (decision is "rejected" or "undone") tracker.RevertFile(File);
 		if (decision == "undone") Assert.True(tracker.UndoLastRevert().Acted);
 		string disk = files.ReadAllText(File);
 
-		if (decision is not ("hunk" or "file")) tracker.CloseReview();
+		tracker.CloseReview();
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Null(tracker.Review);
 		Assert.Equal(disk, files.ReadAllText(File));
@@ -47,9 +54,7 @@ public sealed class SessionChangeTrackerCloseTests {
 		Assert.False(tracker.Redo().Acted);
 		Assert.Equal(disk, files.ReadAllText(File));
 
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "next proposal\n");
-		tracker.RecordChange(File);
+		ReviewTestChanges.AgentEdit(tracker, files, File, "next proposal\n");
 		var next = Assert.Single(tracker.TurnChanges());
 		Assert.Equal(disk, next.AcceptedBaselineText);
 		Assert.Equal(disk, next.BaselineText);
@@ -59,44 +64,41 @@ public sealed class SessionChangeTrackerCloseTests {
 	[Theory]
 	[InlineData("\r\n", "\n")]
 	[InlineData("\n", "\r\n")]
-	public void LastHunkAcceptance_ClosesAcrossLineEndingChanges(string baselineEol, string currentEol) {
+	public void LastHunkAcceptance_ScrapsTheDefaultReviewAcrossLineEndingChanges(string baselineEol, string currentEol) {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
-		string baseline = $"old{baselineEol}tail{baselineEol}";
 		string current = $"proposal{currentEol}new tail{currentEol}";
-		files.WriteAllText(File, current);
+		files.WriteAllText(File, $"old{baselineEol}tail{baselineEol}");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, baseline, current, true, true)]);
+		ReviewTestChanges.AgentEdit(tracker, files, File, current);
 		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "proposal"));
-		Assert.NotNull(tracker.Review);
 		Assert.True(tracker.CanUndoKeep);
 
 		Assert.True(tracker.KeepHunk(File, new(2, 3), new(2, 3), "new tail"));
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Null(tracker.Review);
+		Assert.Null(tracker.GetTurn(File));
 		Assert.False(tracker.CanUndoKeep);
 		tracker = Tracker(files, persistence);
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Null(tracker.Review);
-		Assert.Equal(current, tracker.GetTurn(File)!.BaselineText);
+		Assert.Null(tracker.GetTurn(File));
 		Assert.Equal(current, files.ReadAllText(File));
 	}
 
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public void LastFileAcceptance_WaitsForExistenceOnlyChangesAndPersistsClosure(bool currentExists) {
+	public void LastFileAcceptance_WaitsForExistenceOnlyChangesAndPersistsTheScrap(bool currentExists) {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		string empty = Path.Combine(Root, "empty.txt");
-		files.WriteAllText(File, "proposal\n");
-		if (currentExists) files.WriteAllText(empty, "");
+		files.WriteAllText(File, "old\n");
+		if (!currentExists) files.WriteAllText(empty, "");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true),
-			new(empty, "", "", !currentExists, currentExists)]);
+		ReviewTestChanges.AgentEdit(tracker, files, File, "proposal\n");
+		if (currentExists) ReviewTestChanges.AgentEdit(tracker, files, empty, "");
+		else AgentDelete(tracker, files, empty);
 		tracker.KeepFile(File);
 		Assert.True(tracker.CanUndoKeep);
-		Assert.NotNull(tracker.Review);
 		Assert.Equal(2, tracker.TurnChanges().Count);
 
 		tracker.KeepFile(empty);
@@ -105,75 +107,73 @@ public sealed class SessionChangeTrackerCloseTests {
 		Assert.Equal(currentExists, files.FileExists(empty));
 		tracker = Tracker(files, persistence);
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Null(tracker.Review);
-		Assert.Equal(currentExists, tracker.GetTurn(empty)!.BaselineExists);
+		Assert.Null(tracker.GetTurn(empty));
 	}
 
 	[Fact]
-	public void RedoLastAcceptance_ClosesWhenOtherPendingChangesWereRemoved() {
+	public void RedoLastAcceptance_ScrapsWhenOtherPendingChangesWereRemoved() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		string other = Path.Combine(Root, "other.txt");
-		files.WriteAllText(File, "proposal\n");
-		files.WriteAllText(other, "other proposal\n");
+		files.WriteAllText(File, "old\n");
+		files.WriteAllText(other, "other old\n");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true),
-			new(other, "other old\n", "other proposal\n", true, true)]);
+		ReviewTestChanges.AgentEdit(tracker, files, File, "proposal\n");
+		ReviewTestChanges.AgentEdit(tracker, files, other, "other proposal\n");
 		tracker.KeepFile(File);
 		Assert.True(tracker.UndoLastKeep().Acted);
 		files.WriteAllText(other, "other old\n");
+		tracker.RecordHandEdit(other, "other old\n");
 
 		Assert.True(tracker.Redo().Acted);
 		Assert.Empty(tracker.TurnChanges());
 		Assert.False(tracker.CanUndoKeep);
 		tracker = Tracker(files, persistence);
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Null(tracker.Review);
 		Assert.Equal("proposal\n", files.ReadAllText(File));
 	}
 
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public void Completion_InvalidatesInFlightSourceEvenAfterANewAgentEdit(bool explicitClose) {
+	public void Scrapping_LeavesAReviewTheUserStartedToOpen(bool explicitClose) {
 		var files = new InMemoryFileSystem();
 		var tracker = Tracker(files, new MemoryReviewPersistence());
-		files.WriteAllText(File, "proposal\n");
-		ReviewSeed[] seeds = [new(File, "old\n", "proposal\n", true, true)];
-		tracker.ArmReview(Review, seeds);
-		object oldRequest = tracker.BeginReviewRequest();
+		files.WriteAllText(File, "old\n");
+		ReviewTestChanges.AgentEdit(tracker, files, File, "proposal\n");
+		var request = tracker.BeginReviewRequest();
 		if (explicitClose) tracker.CloseReview();
 		else tracker.KeepFile(File);
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "next proposal\n");
-		tracker.RecordChange(File);
+		ReviewTestChanges.AgentEdit(tracker, files, File, "next proposal\n");
 
-		Assert.False(tracker.ArmReview(Review, seeds, oldRequest));
-		Assert.Null(tracker.Review);
+		Assert.NotNull(tracker.ReplaceReview(Review, [ReviewTestChanges.Seed(files, File, "old\n")], request));
+
+		Assert.Equal(Review, tracker.Review);
 		var next = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("proposal\n", next.BaselineText);
+		Assert.Equal("old\n", next.BaselineText);
 		Assert.Equal("next proposal\n", next.CurrentText);
 	}
 
 	[Fact]
-	public void SourceRequest_OnlyTheNewestRequestCanArm() {
+	public void Close_CancelsARelistOfTheReviewItClosed() {
 		var files = new InMemoryFileSystem();
 		var tracker = Tracker(files, new MemoryReviewPersistence());
 		files.WriteAllText(File, "proposal\n");
-		object oldRequest = tracker.BeginReviewRequest();
-		object newRequest = tracker.BeginReviewRequest();
-		ReviewSeed[] seeds = [new(File, "old\n", "proposal\n", true, true)];
-		Assert.False(tracker.ArmReview(Review, seeds, oldRequest));
-		Assert.True(tracker.ArmReview(Review, seeds, newRequest));
-		Assert.NotNull(tracker.Review);
+		ReviewTestChanges.StartReview(tracker, Review, ReviewTestChanges.Seed(files, File, "old\n"));
+		var relist = tracker.BeginRelist(Review)!;
+
+		tracker.CloseReview();
+
+		Assert.Null(tracker.ReplaceReview(Review, [ReviewTestChanges.Seed(files, File, "old\n")], relist));
+		Assert.Null(tracker.Review);
 	}
 
 	[Fact]
 	public void LateUnkeepRequest_CannotReopenACompletedInsertion() {
 		var files = new InMemoryFileSystem();
 		var tracker = Tracker(files, new MemoryReviewPersistence());
-		files.WriteAllText(File, "old\ninserted\n");
-		tracker.ArmReview(Review, [new(File, "old\n", "old\ninserted\n", true, true)]);
+		files.WriteAllText(File, "old\n");
+		ReviewTestChanges.AgentEdit(tracker, files, File, "old\ninserted\n");
 		Assert.True(tracker.KeepHunk(File, new(2, 2), new(2, 3), "inserted"));
 		Assert.False(tracker.UnkeepHunk(File, new(2, 2), new(2, 3), "", "inserted"));
 		Assert.Empty(tracker.TurnChanges());
@@ -186,7 +186,7 @@ public sealed class SessionChangeTrackerCloseTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "proposal\n");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true)]);
+		tracker.StartReview(Review, ReviewTestChanges.Seed(files, File, "old\n"));
 		Assert.False(tracker.KeepHunk(File, new(1, 2), new(1, 2), "stale"));
 		tracker = Tracker(files, persistence);
 		Assert.Single(tracker.TurnChanges());
@@ -202,12 +202,12 @@ public sealed class SessionChangeTrackerCloseTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "proposal\n");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true)]);
+		tracker.StartReview(Review, ReviewTestChanges.Seed(files, File, "old\n"));
 		tracker.CloseReview();
 		tracker = Tracker(files, persistence);
 		var source = differentSource ? Review with { Label = "vs other", MergeBase = "other-base" } : Review;
 		string baseline = differentSource ? "different base\n" : "old\n";
-		tracker.ArmReview(source, [new(File, baseline, "proposal\n", true, true)]);
+		tracker.StartReview(source, ReviewTestChanges.Seed(files, File, baseline));
 		var reopened = Assert.Single(tracker.TurnChanges());
 		Assert.Equal(baseline, reopened.AcceptedBaselineText);
 		Assert.Equal(baseline, reopened.BaselineText);
@@ -220,28 +220,14 @@ public sealed class SessionChangeTrackerCloseTests {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, []);
+		tracker.StartReview(Review);
 		tracker = Tracker(files, persistence);
 		Assert.NotNull(tracker.Review);
 		tracker.CloseReview();
 		tracker = Tracker(files, persistence);
 		Assert.Null(tracker.Review);
-		tracker.ArmReview(Review with { Label = "vs other", MergeBase = "other-base" }, []);
+		tracker.StartReview(Review with { Label = "vs other", MergeBase = "other-base" });
 		Assert.Equal("vs other", tracker.Review!.Label);
-	}
-
-	[Fact]
-	public void Reopen_IncludesHandEditsSavedAfterClosing() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "proposal\n");
-		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "old\n", "proposal\n", true, true)]);
-		tracker.CloseReview();
-		files.WriteAllText(File, "proposal\nuser addition\n");
-		tracker.RecordHandEdit(File, files.ReadAllText(File));
-		tracker.ArmReview(Review, [new(File, "old\n", files.ReadAllText(File), true, true)]);
-		Assert.Equal(files.ReadAllText(File), Assert.Single(tracker.TurnChanges()).CurrentText);
 	}
 
 	[Fact]
@@ -250,15 +236,13 @@ public sealed class SessionChangeTrackerCloseTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "created\n");
 		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "", "created\n", false, true)]);
+		tracker.StartReview(Review, ReviewTestChanges.Seed(files, File, "", false));
 		Assert.Equal(RevertHunkOutcome.Deleted, tracker.RevertFile(File));
 		tracker.CloseReview();
 		tracker = Tracker(files, persistence);
 		Assert.Empty(tracker.TurnChanges());
 		Assert.False(files.FileExists(File));
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "recreated\n");
-		tracker.RecordChange(File);
+		ReviewTestChanges.AgentEdit(tracker, files, File, "recreated\n");
 		var recreated = Assert.Single(tracker.TurnChanges());
 		Assert.False(recreated.AcceptedBaselineExists);
 		Assert.False(recreated.BaselineExists);

@@ -59,11 +59,14 @@ public sealed partial class GitService {
 		return reference != before;
 	}
 
-	/// <summary>Whether a rebase, <c>git am</c>, or bisect is under way, each of which detaches HEAD from its branch.</summary>
-	public async Task<bool> IsRebasingOrBisectingAsync(string directory, CancellationToken ct = default) {
+	/// <summary>
+	/// Whether a git operation is under way: a rebase, <c>git am</c>, or bisect (each detaches HEAD from its branch), a
+	/// stopped merge, or any command holding the index lock while it rewrites the working tree.
+	/// </summary>
+	public async Task<bool> IsOperationInProgressAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var paths = await RunCheckedAsync(
-			directory, ["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply", "--git-path", "BISECT_LOG"], ct)
+		var paths = await RunCheckedAsync(directory, ["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply",
+			"--git-path", "BISECT_LOG", "--git-path", "MERGE_HEAD", "--git-path", "index.lock"], ct)
 			.ConfigureAwait(false);
 		return Lines(paths.StdOut).Any(path => Path.Exists(Path.GetFullPath(path, directory)));
 	}

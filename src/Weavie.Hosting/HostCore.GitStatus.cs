@@ -16,7 +16,8 @@ public sealed partial class HostCore {
 		_ = new GitMetadataWatcher(
 			session.Background,
 			session.WorkspaceRoot,
-			() => {
+			headMoved => {
+				if (headMoved) session.ReviewListing.HeadMoved();
 				monitor.RequestRefresh();
 				commits.RequestRefresh();
 				reviewHead.RefreshNow();

@@ -22,7 +22,7 @@ public sealed class ChangeProjectionTests {
 
 		tracker.RecordChange("/w/a.txt");
 
-		Assert.Equal(expected, Assert.Single(tracker.Changes()).CurrentText);
+		Assert.Equal(expected, Assert.Single(tracker.TurnChanges()).CurrentText);
 		Assert.Equal(after, files.ReadAllText("/w/a.txt"));
 	}
 }

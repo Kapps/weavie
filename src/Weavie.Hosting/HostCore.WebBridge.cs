@@ -234,6 +234,12 @@ public sealed partial class HostCore {
 		PushReviewActionToWeb(session, []);
 	}
 
+	private void KeepAll(HostSession session) {
+		string[] paths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
+		session.Changes.KeepAll();
+		PushReviewActionToWeb(session, paths);
+	}
+
 	/// <summary>
 	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
 	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by

@@ -11,9 +11,9 @@ or leave a new comment without leaving Weavie.
 >   **forge-side search** (debounced; empty query = recent open) so it scales past any default cap, and accepts a
 >   **direct `#N` or pasted URL** that opens by number — the host resolves the branch refs via `GetAsync` (works
 >   for any PR, any state; a foreign-repo URL is refused).
-> - **Phase 2 — the PR diff in the review surface.** Opening a PR computes the `base…head` diff
->   (`IGitService.MergeBaseAsync`/`DiffRefsAsync`/`ReadFileAtRefAsync`) and **seeds the session's change
->   tracker** (`SeedRefBaseline`), so the PR reviews through the **same Keep/Revert engine as a turn** (walk
+> - **Phase 2 — the PR diff in the review surface.** Opening a PR lists the working tree against the merge-base
+>   with its fetched base branch and **replaces the session's review** with that listing
+>   ([review-state.md](review-state.md)), so the PR reviews through the **same Keep/Revert engine as a turn** (walk
 >   files ←/→, hunks ↑/↓; later Claude edits accumulate). See [diff-against.md](diff-against.md); the original
 >   read-only `pr` mode is superseded (Phase 2 section below).
 > - **Phase 3 — comments.** Superseded by [pr-comments.md](pr-comments.md): comments load for any session whose
@@ -272,7 +272,7 @@ menu — every action advertises its shortcut, per the keyboard-first rule.
 
 > **Superseded by [diff-against.md](diff-against.md).** The read-only `pr` mode + parallel `pr-changes` /
 > `pr-diff` / `get-pr-diff` message set described below was **replaced**: the PR diff now runs through the
-> **unified turn-review engine** (Keep/Revert via a ref-seeded baseline — `SeedRefBaseline`), with
+> **unified turn-review engine** (Keep/Revert against befores listed from git), with
 > Comment/Reply kept **alongside** Keep/Revert on the one applied toolbar. The `pr` render mode and its three
 > messages are gone; comments ride an additive `review-comments` message. The rest of this section is retained
 > as the record of the original (read-only) design.

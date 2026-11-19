@@ -19,27 +19,35 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	private const int UncommittedFiles = 20;
 
 	// PERFORMANCE CONTRACT: raising any budget below noticeably requires the user's explicit approval — never raise one
-	// just to make a failure pass. Measured 2026-11-08; lower a budget whenever a change makes the operation cheaper.
-	private const int OpenReviewGit = 17;
-	private const int ReopenReviewGit = 9;
-	private const int ChangeBaseGit = 19;
+	// just to make a failure pass. Measured 2026-11-19; lower a budget whenever a change makes the operation cheaper.
+	private const int OpenReviewGit = 16;
+	private const int ReopenReviewGit = 8;
+	private const int ChangeBaseGit = 18;
 	private const int PollGit = 12;
 	private const int ConnectGit = 4;
 	private const int FileEditGit = 0;
 	private const int CommitGit = 9;
+	// With a review open: a file it holds refreshes from disk, one joining reads its before, and a change no fact
+	// reported re-lists the review (resolve its base, then list and read).
+	private const int HeldEditGit = 0;
+	private const int JoiningEditGit = 1;
+	private const int RelistGit = 6;
 	// The review's file list, history, and commits, plus one hash-only diff message per file.
 	private const int ReviewMessages = CommittedFiles + 4;
 	private const int PollMessages = 1;
 	private const int ConnectMessages = 21;
 	private const int FileEditMessages = 1;
 	private const int CommitMessages = 2;
+	private const int ReviewEditMessages = 5;
+	// The re-listed review's files, history, and one hash-only diff message per file it lists.
+	private const int RelistMessages = UncommittedFiles + 6;
 
 	[Fact]
 	public async Task OpeningAReview() {
 		await using var host = await StartAsync();
 		using var budget = new OperationBudget(host, output);
 
-		await budget.WithinAsync("open review vs origin/main", () => DiffAgainstAsync(host, "origin/main", null),
+		await budget.WithinAsync("open review vs origin/main", () => DiffAgainstAsync(host, "origin/main"),
 			OpenReviewGit, ReviewMessages);
 	}
 
@@ -47,11 +55,11 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	public async Task ChangingTheReviewBase() {
 		await using var host = await StartAsync();
 		using var budget = new OperationBudget(host, output);
-		await DiffAgainstAsync(host, "origin/main", null);
+		await DiffAgainstAsync(host, "origin/main");
 
-		await budget.WithinAsync("change base origin/main -> HEAD", () => DiffAgainstAsync(host, "HEAD", "vs origin/main"),
+		await budget.WithinAsync("change base origin/main -> HEAD", () => DiffAgainstAsync(host, "HEAD"),
 			ChangeBaseGit, ReviewMessages);
-		await budget.WithinAsync("change base HEAD -> origin/main", () => DiffAgainstAsync(host, "origin/main", "vs HEAD"),
+		await budget.WithinAsync("change base HEAD -> origin/main", () => DiffAgainstAsync(host, "origin/main"),
 			ChangeBaseGit, ReviewMessages);
 	}
 
@@ -59,9 +67,9 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	public async Task ReopeningTheSameReview() {
 		await using var host = await StartAsync();
 		using var budget = new OperationBudget(host, output);
-		await DiffAgainstAsync(host, "origin/main", null);
+		await DiffAgainstAsync(host, "origin/main");
 
-		await budget.WithinAsync("reopen review vs origin/main", () => DiffAgainstAsync(host, "origin/main", null),
+		await budget.WithinAsync("reopen review vs origin/main", () => DiffAgainstAsync(host, "origin/main"),
 			ReopenReviewGit, ReviewMessages);
 	}
 
@@ -106,8 +114,37 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 		}, lastProcess: "log --format", CommitGit, CommitMessages);
 	}
 
-	private static Task<JsonElement> DiffAgainstAsync(TestHost host, string reference, string? replaces) =>
-		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "review", "diffAgainst", new { reference, replaces });
+	[Fact]
+	public async Task EditingWithAReviewOpen() {
+		await using var host = await StartAsync();
+		using var budget = new OperationBudget(host, output);
+		await DiffAgainstAsync(host, "HEAD");
+
+		await budget.WithinAsync("agent edit, file in the review", () => AgentEditAsync(host, 0), HeldEditGit, ReviewEditMessages);
+		await budget.WithinAsync("agent edit, file joining the review", () => AgentEditAsync(host, 50), JoiningEditGit, ReviewEditMessages);
+		await budget.WithinAsync("save, file in the review", () => SaveAsync(host, 1), HeldEditGit, ReviewEditMessages);
+		await budget.WithinAsync("save, file joining the review", () => SaveAsync(host, 51), JoiningEditGit, ReviewEditMessages);
+		await budget.WithinAsync("shell edit, re-listing the review", () => {
+			File.AppendAllText(Path.Combine(host.RepoRoot, FileName(60)), "shell\n");
+			return Task.CompletedTask;
+		}, lastProcess: "cat-file", RelistGit, RelistMessages);
+	}
+
+	private static Task AgentEditAsync(TestHost host, int index) {
+		string path = Path.Combine(host.RepoRoot, FileName(index));
+		host.SelectedSession.Changes.CaptureBaseline(path);
+		File.AppendAllText(path, "agent\n");
+		host.SelectedSession.Changes.RecordChange(path);
+		return Task.CompletedTask;
+	}
+
+	private static Task<JsonElement> SaveAsync(TestHost host, int index) {
+		string path = Path.Combine(host.RepoRoot, FileName(index));
+		return host.SessionRequestAsync<JsonElement>(host.SelectedSession, "files", "write", new { path, content = File.ReadAllText(path) + "saved\n" });
+	}
+
+	private static Task<JsonElement> DiffAgainstAsync(TestHost host, string reference) =>
+		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "review", "diffAgainst", new { reference });
 
 	// origin/main holds every file's first version, HEAD changes all of them, and the worktree changes a few more:
 	// a branch review spans every file, a HEAD review only the uncommitted ones.

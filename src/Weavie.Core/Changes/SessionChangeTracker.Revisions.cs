@@ -25,22 +25,21 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(originalText);
 		ArgumentNullException.ThrowIfNull(replacement);
 		lock (_gate) {
-			ReconcileReviewDisk();
-			// A revision is offered on any selection, so the file may be one the agent never touched. Seed its
-			// review state first, or the write would land with no baseline and no way to review or revert it.
-			if (!_reviewBaseline.ContainsKey(path)) {
-				CaptureBaseline(path);
-			}
-
+			// A revision is offered on any selection, so the file may be one the agent never touched. The default review
+			// holds it first so the write is reviewable; a git review joins it once the write is reported.
+			if (!_acceptedAnchor.ContainsKey(path) && _review is null) CaptureBaseline(path);
+			ReconcilePath(path);
 			if (TrySplice(path, range, originalText, SplitLines(replacement)) is not { } spliced) {
 				return ReviseApplyOutcome.GuardMismatch;
 			}
 
 			var before = Capture(path, withDisk: true);
 			_fileSystem.WriteAllText(path, ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent));
-			_current[path] = spliced.NewContent;
-			CommitReviewProvenance(path);
-			Record(ReviewActionKind.Revise, touchesDisk: true, range.Start, [before]);
+			if (before.Tracked) {
+				_current[path] = spliced.NewContent;
+				CommitReviewProvenance(path);
+				Record(ReviewActionKind.Revise, touchesDisk: true, range.Start, [before]);
+			}
 			ReportCurrentState(path);
 		}
 

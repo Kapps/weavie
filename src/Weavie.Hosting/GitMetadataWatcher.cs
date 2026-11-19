@@ -14,7 +14,7 @@ internal sealed class GitMetadataWatcher {
 	public GitMetadataWatcher(
 		SessionTaskScope background,
 		string worktree,
-		Action invalidate,
+		Action<bool> invalidate,
 		Action<Exception> onFailure) {
 		ArgumentNullException.ThrowIfNull(background);
 		ArgumentException.ThrowIfNullOrEmpty(worktree);
@@ -40,7 +40,8 @@ internal sealed class GitMetadataWatcher {
 		}
 	}
 
-	private IReadOnlyList<FileSystemWatcher> CreateWatchers(string worktree, Action invalidate) {
+	// invalidate(true) when HEAD or the branch it names may have moved; false for an index-only change.
+	private IReadOnlyList<FileSystemWatcher> CreateWatchers(string worktree, Action<bool> invalidate) {
 		string dotGit = Path.Combine(worktree, ".git");
 		if (!Directory.Exists(dotGit) && !File.Exists(dotGit)) {
 			return [];
@@ -62,17 +63,19 @@ internal sealed class GitMetadataWatcher {
 					_failures.Writer.TryWrite(error);
 					return;
 				}
-				invalidate();
+				invalidate(true);
 			}),
-			Create(gitDirectory, "index", includeSubdirectories: false, _ => invalidate()),
-			Create(commonDirectory, "packed-refs", includeSubdirectories: false, _ => invalidate()),
+			Create(gitDirectory, "index", includeSubdirectories: false, _ => invalidate(false)),
+			// A stopped merge ends without touching HEAD or the index when it is quit, and a review waits on it.
+			Create(gitDirectory, "MERGE_HEAD", includeSubdirectories: false, _ => invalidate(false)),
+			Create(commonDirectory, "packed-refs", includeSubdirectories: false, _ => invalidate(true)),
 		};
 
 		string refs = Path.Combine(commonDirectory, "refs");
 		if (Directory.Exists(refs)) {
 			watchers.Add(Create(refs, "*", includeSubdirectories: true, path => {
 				if (Volatile.Read(ref _currentRef) is { } current && PathIdentity.Equals(path, current)) {
-					invalidate();
+					invalidate(true);
 				}
 			}));
 		}

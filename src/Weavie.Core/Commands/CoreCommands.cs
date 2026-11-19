@@ -1838,8 +1838,8 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
 			When = "reviewClosable",
-			Description = "Accept the remaining changes and close the diff, clearing its review history.",
-			Aliases = ["close review", "finish review", "accept and close"],
+			Description = "Close the diff and discard its review state; opening it again starts over.",
+			Aliases = ["close review", "finish review"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+w", When = "!terminalFocused" }],
 		});
 
@@ -1927,7 +1927,7 @@ public static partial class CoreCommands {
 			Title = "Keep All Changes (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Accept all remaining changes and close the diff review.",
+			Description = "Keep all remaining changes; a branch or pull request review stays open.",
 			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
 		});
 

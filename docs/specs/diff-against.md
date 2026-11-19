@@ -1,14 +1,15 @@
 # Diff Against
 
 Status: implemented (comment authoring deferred — see [#218](https://github.com/Kapps/weavie/issues/218))
-Last updated: 2026-07-04
+Last updated: 2026-11-19
 
 Review the working tree against **any ref** — a branch, tag, commit, or expression like `HEAD~2` — through
 the **same accept/reject engine a turn uses** ([turn-review.md](turn-review.md)). No forge, no new session,
 no checkout: the review arms on the **current** session, and the diff is pure local git. It is **not**
 read-only — you **Keep** a hunk to drop it from the pending set and **Revert** one to back it out on disk,
 and later Claude edits **accumulate into the same set**. A pull request is the same surface with a forge
-attached (comments + a committed head instead of the working tree); see [open-pr.md](open-pr.md).
+attached (comments); see [open-pr.md](open-pr.md). Which files a review lists and what it compares them
+with is [review-state.md](review-state.md).
 
 ## Commands
 
@@ -21,17 +22,6 @@ attached (comments + a committed head instead of the working tree); see [open-pr
 All three are `RunsIn = Web` (the prompt is a web modal, mirroring `weavie.pr.open`) and funnel into one
 host message: `diff-against { ref }`.
 
-## Thesis: the review baseline is just a seed
-
-The turn-review engine (`SessionChangeTracker`) diffs each file's current disk content against a per-file
-**review baseline**, with an **accepted anchor** behind it for the faded band. The only thing that makes it
-"a turn" is where the baseline is **seeded**: normally from each file's disk content the moment Claude first
-edits it (`CaptureBaseline`, off the hook stream). **Seed the baseline from a git ref instead** — the ref's
-merge-base with HEAD — and the entire Keep / Revert / keep-all / undo / faded-band machinery works unchanged.
-Because later Claude edits merely extend `_current` through the same hook path, **new-turn changes accumulate
-into the same set for free**. `SeedRefBaseline(path, refContent, diskContent, existedAtRef, existsOnDisk)` is the one new
-Core capability (it **overwrites** every baseline, so it composes with a racing `CaptureBaseline`).
-
 ## Semantics
 
 - **Base = `merge-base(ref, HEAD)`** — so diffing against a branch shows only *this side's* changes since
@@ -39,17 +29,18 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   from itself. A ref *ahead* of HEAD therefore shows nothing of the other side — never a reversed diff.
 - **Current = the working tree** — the changed-file list is `git diff --numstat <base>` **plus
   untracked-but-not-ignored files** as all-added entries (`IGitService.DiffWorktreeAsync`); a brand-new file
-  is an uncommitted change, so it is never silently absent. Each file at the base (`ReadFileAtRefAsync`,
-  preserving absent versus empty) is seeded as its review baseline, its disk content as `current`.
-- **Keep / Revert act, exactly as a turn** — **Keep** advances the review baseline over the hunk (no disk
-  write; it slides to the faded band with an inline `↶ undo`); **Revert** writes the ref content back over
-  the hunk **on disk** (an uncommitted backout you then commit). Reverting the last hunk of a file added
-  since the ref **deletes** it. A current-side deletion stays in the unified review as a read-only Monaco
-  snapshot from the tracked current text, so a rename's delete side and a true deletion never depend on a
-  warm working copy. Keep-all / undo-all / the undo history are all the turn-review ones.
-- **Arming preserves decisions.** First attachment extends the existing baseline through disjoint regions; a
-  file whose new base overlaps its kept changes starts over against the new base, so those lines show as
-  pending again. Empty Git diffs do not erase rejected proposals or undo history.
+  is an uncommitted change, so it is never silently absent. Each file at the base (preserving absent versus
+  empty) is its before, its disk content its current.
+- **Starting replaces.** A new review, or the same one requested again, replaces the session's review with
+  git's answer; a file keeps its kept changes only when its before is unchanged
+  ([review-state.md](review-state.md)). There is no confirm: closing approves nothing, so nothing is lost
+  that reopening wouldn't show again.
+- **Keep / Revert act, exactly as a turn** — **Keep** advances the kept text over the hunk (no disk write;
+  it slides to the faded band with an inline `↶ undo`); **Revert** writes the kept content back over the
+  hunk **on disk** (an uncommitted backout you then commit). Reverting the last hunk of a file added since
+  the ref **deletes** it. A current-side deletion stays in the unified review as a read-only Monaco snapshot
+  from the tracked current text, so a rename's delete side and a true deletion never depend on a warm
+  working copy. Keep All leaves the review open with everything kept.
 - **A review belongs to its branch.** Its source is the branch, the target, and (for a PR) its number; the
   merge-base is derived, never part of its identity. Weavie re-derives it whenever Git metadata changes
   (`HostCore.ReviewHead.cs`):
@@ -57,21 +48,20 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   ```mermaid
   stateDiagram-v2
     Open --> Open: commit on the branch (merge-base unchanged)
-    Open --> Open: merge or rebase moves the merge-base (re-seed every tracked file there, decisions kept)
+    Open --> Open: merge or rebase moves the merge-base (re-list from git)
+    Open --> Open: a change git sees that the review can't account for (re-list from git)
     Open --> Closed: another branch, or detached HEAD, is checked out
   ```
 
-  Closing on a branch change finishes the review the way Close does and says so in a toast. A rebase, `git am`,
-  or bisect under way detaches HEAD, so the check waits until it finishes. Moving re-seeds every file the review holds inside the
-  worktree that Git doesn't ignore, and only while the review it was computed for is still open. A PR review
-  opens against a freshly fetched `origin/<base>` and follows it, so merging newer base work moves it too. A review against `HEAD` or `HEAD^` follows
-  HEAD, so committing reviewed work moves it out of that review. Files whose kept changes overlap the new base
-  are named in a toast.
+  A branch change closes the review and says so in a toast. A git operation under way (rebase, `git am`,
+  bisect, a stopped merge, or anything holding the index lock) makes it wait until it finishes. A PR review
+  opens against a freshly fetched `origin/<base>` and follows it, so merging newer base work moves it too. A
+  review against `HEAD` or `HEAD^` follows HEAD, so committing reviewed work moves it out of that review.
 
 ## The shared review-diff surface
 
 `SessionChangeTracker` owns the durable `ReviewContext` (merge-base, label, and forge identity); comments
-are refreshed independently by the host. Both producers **seed the session's change
+are refreshed independently by the host. Both producers **list the review into the session's change
 tracker** and then ride the shared turn-review messages; keep/revert need **no** review-specific host code
 (the existing `keep-hunk` / `reject-hunk` / … act on `session.Changes`):
 
@@ -79,7 +69,7 @@ tracker** and then ride the shared turn-review messages; keep/revert need **no**
 flowchart LR
   PR["open-pr flow<br/>(PrNumber > 0, forge comments)"] --> R[ReviewContext · per worktree]
   DA["diff-against &lt;ref&gt;<br/>(PrNumber 0, local only)"] --> R
-  R -->|ArmReview| T[SessionChangeTracker]
+  R -->|ReplaceReview| T[SessionChangeTracker]
   T -->|turn-changes · label + files| Web[inline-diff · applied mode]
   T -->|get-turn-diff → turn-diff · text + existence boundaries| Web
   R -->|review-comments · PR only| Web
@@ -95,16 +85,14 @@ flowchart LR
 - **Arming opens + renders the first changed file** (a review surfaces its code; post-turn review parks). A
   switch-in re-surfaces the active review from the **persisted tracker** (`SurfaceActiveReviewOnSwitch`) — no
   per-switch git diff, so the stale-diff race the old fire-and-forget `pr-changes` had is gone.
-- **Keep-all drops a local ref review** (its label would otherwise cling to the next plain turn); a PR review
-  persists (its identity + comments outlive an equal tree).
 
 ## Failure surfaces (all user-facing toasts)
 
 - Unknown ref → `'x' isn't a branch, tag, or commit here.` (`ResolveCommitAsync` also rejects option-shaped
   input at the trust boundary — a web-supplied ref can never be read as a git flag.)
 - No common history → `'x' shares no history with HEAD — there's no base to diff from.`
-- Nothing differs → `No changes against 'x'.` — and any prior review is **retracted** (the tracker's board is
-  committed and an empty review set pushed) instead of arming an unwalkable navigator.
+- Nothing differs → `No changes against 'x'.` — a review of the same source closes; one of another source
+  is left open.
 
 ## Deferred
 
@@ -118,9 +106,8 @@ composer is deferred until it moves to an app-level overlay outside the view-zon
 - `DiffAgainstTests` (Weavie.Hosting.Tests): the flow end-to-end over a real temp repo — HEAD/parent diffs,
   deleted and empty-file snapshots, **a `revert-file` restoring the ref content on disk** (the accept/reject
   unification), unknown ref, empty-diff retraction, merge-base semantics.
-- `SessionChangeTrackerTests` (Weavie.Core.Tests): `SeedRefBaseline` reviews as an applied triple; Keep
-  advances the baseline with no disk write; Revert writes the ref over the current lines (a created-vs-ref
-  file's revert deletes it); both `CaptureBaseline`↔`SeedRefBaseline` race orderings accumulate.
+- `SessionChangeTrackerReviewSourceTests` (Weavie.Core.Tests): replacing, carry-over, joins, close.
+- `ReviewPhantomReproTests` (Weavie.Hosting.Tests): a review lists only files git says changed.
 - `diff-against.spec.ts` / `open-pr.spec.ts` (Playwright): the user journeys — Diff Against HEAD with a Reject
   that backs the edit out, the ref prompt + multi-file walk, the no-changes toast, and a PR's Keep/Revert +
   Comment coexisting on the one toolbar (render + reply; authoring is `test.fixme`, #218).

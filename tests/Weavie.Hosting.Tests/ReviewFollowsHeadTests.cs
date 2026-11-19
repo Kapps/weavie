@@ -19,7 +19,7 @@ public sealed class ReviewFollowsHeadTests {
 		});
 		var session = host.SelectedSession;
 		var opened = await host.SessionRequestAsync<JsonElement>(
-			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+			session, "review", "diffAgainst", new { reference = "main" });
 		Assert.Equal("opened", opened.GetProperty("outcome").GetString());
 
 		TempGitRepo.Run(host.RepoRoot, "switch", "-q", "-c", "fresh", "main");
@@ -27,7 +27,7 @@ public sealed class ReviewFollowsHeadTests {
 		await Wait.UntilAsync(() => host.Bridge.PostedEvents("notifications", "show").Any(toast =>
 			toast.GetProperty("message").GetString()!.Contains("now on 'fresh'", StringComparison.Ordinal)));
 		var reopened = await host.SessionRequestAsync<JsonElement>(
-			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+			session, "review", "diffAgainst", new { reference = "main" });
 		Assert.Equal("none", reopened.GetProperty("outcome").GetString());
 		Assert.Contains(
 			host.Bridge.PostedEvents("notifications", "show"),
@@ -44,7 +44,7 @@ public sealed class ReviewFollowsHeadTests {
 		});
 		var session = host.SelectedSession;
 		await host.SessionRequestAsync<JsonElement>(
-			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+			session, "review", "diffAgainst", new { reference = "main" });
 
 		TempGitRepo.Run(host.RepoRoot, "merge", "-q", "--no-edit", "main");
 
@@ -65,7 +65,7 @@ public sealed class ReviewFollowsHeadTests {
 		});
 		var session = host.SelectedSession;
 		await host.SessionRequestAsync<JsonElement>(
-			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+			session, "review", "diffAgainst", new { reference = "main" });
 		await Wait.UntilAsync(() => session.ReviewHead.Latest?.Review is not null);
 
 		Assert.ThrowsAny<Exception>(() => TempGitRepo.Run(host.RepoRoot, "rebase", "main"));

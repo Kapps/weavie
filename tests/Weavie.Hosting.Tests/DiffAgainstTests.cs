@@ -286,34 +286,22 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
-	public async Task AnotherSource_IsRefusedUntilReplaced_ThenSwitchesTheReview() {
+	public async Task AnotherSource_ReplacesTheReview() {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\nagain\n");
 			Commit(repo, "second");
 		});
 		File.WriteAllText(Path.Combine(host.RepoRoot, "extra.txt"), "new\n");
 		var session = host.SelectedSession;
-
-		var head = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+		var head = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD" });
 		Assert.Equal("opened", head.GetProperty("outcome").GetString());
 
-		// A different source isn't opened over the current review without the user's say-so.
-		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = (string?)null });
-		Assert.Equal("none", refused.GetProperty("outcome").GetString());
-		Assert.Equal("vs HEAD", refused.GetProperty("replaces").GetString());
-		Assert.Equal("vs HEAD^", refused.GetProperty("label").GetString());
-		Assert.Equal("vs HEAD", host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("label").GetString());
+		var replaced = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^" });
 
-		// A confirm that names a different review than the one open is refused again, naming the open one.
-		var stale = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = "vs main" });
-		Assert.Equal("none", stale.GetProperty("outcome").GetString());
-		Assert.Equal("vs HEAD", stale.GetProperty("replaces").GetString());
-
-		var replaced = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = "vs HEAD" });
 		Assert.Equal("opened", replaced.GetProperty("outcome").GetString());
 		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes") is { } last
 			&& last.GetProperty("label").GetString() == "vs HEAD^" ? last : (JsonElement?)null);
-		Assert.Contains("readme.txt", changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+		Assert.Equal(["extra.txt", "readme.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()).Order());
 	}
 
 	[Fact]
@@ -321,12 +309,11 @@ public sealed class DiffAgainstTests {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
 		var session = host.SelectedSession;
-		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD" });
 
-		var again = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+		var again = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD" });
 
 		Assert.Equal("resumed", again.GetProperty("outcome").GetString());
-		Assert.Equal(JsonValueKind.Null, again.GetProperty("replaces").ValueKind);
 	}
 
 	[Fact]
@@ -334,13 +321,13 @@ public sealed class DiffAgainstTests {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
 		var session = host.SelectedSession;
-		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD" });
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\n");
 
-		var answer = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+		var answer = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "main" });
 
 		Assert.Equal("none", answer.GetProperty("outcome").GetString());
-		Assert.Equal(JsonValueKind.Null, answer.GetProperty("replaces").ValueKind);
+		Assert.Equal("vs HEAD", session.Changes.Review?.Label);
 	}
 
 	[Fact]
@@ -355,7 +342,7 @@ public sealed class DiffAgainstTests {
 		});
 		var session = host.SelectedSession;
 
-		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { });
 
 		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
 		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
@@ -372,7 +359,7 @@ public sealed class DiffAgainstTests {
 		var session = host.Session("feature-b");
 		File.WriteAllText(Path.Combine(session.WorkspaceRoot, "b.txt"), "own\n");
 
-		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { });
 
 		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
 		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
@@ -392,15 +379,12 @@ public sealed class DiffAgainstTests {
 		var session = host.SelectedSession;
 
 		File.WriteAllText(Path.Combine(host.RepoRoot, "b.txt"), "edited\n");
-		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD" });
 
-		// Refused while another review is open: declining to replace it changes nothing.
-		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = (string?)null });
-		Assert.Equal("none", refused.GetProperty("outcome").GetString());
 		Assert.Equal("main", await DefaultRefAsync(host, session));
 
 		host.Bridge.Clear();
-		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = "vs HEAD" });
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a" });
 		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "notifications", "show"));
 		Assert.Contains("Review Branch now compares with 'feature-a'", toast.GetProperty("message").GetString());
 		Assert.Equal("feature-a", await DefaultRefAsync(host, session));

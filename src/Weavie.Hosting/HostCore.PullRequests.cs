@@ -140,43 +140,32 @@ public sealed partial class HostCore {
 		string headRef,
 		string baseRef,
 		CancellationToken ct) {
-		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
-		string? mergeBase = null;
-		string reason = "its head shares no history with it";
-		try {
-			// The review follows the base branch from here on, so it opens against that same ref.
-			await git.FetchBranchAsync(worktree, "origin", baseRef, ct).ConfigureAwait(false);
-			mergeBase = await git.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, ct).ConfigureAwait(false);
-		} catch (GitException ex) {
-			reason = ex.Message;
-		}
-
-		if (mergeBase is null) {
-			return $"Opened PR #{number}, but couldn't compute its diff against its base: {reason}";
-		}
-
-		string headSha;
-		try {
-			headSha = await git.GetHeadCommitAsync(worktree, ct).ConfigureAwait(false);
-		} catch (GitException) {
-			headSha = headRef;
-		}
-
 		var repo = await ResolveOriginRepoAsync(session, ct).ConfigureAwait(false);
-		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, $"origin/{baseRef}", headRef);
+		string? failure = null;
 		try {
 			// The page activates this PR's session as this request's answer, landing on its overview.
-			await SeedAndArmReviewAsync(
-				review,
-				session,
-				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
-				seeds => session.Changes.ArmReview(review, seeds, request),
-				ct)
-				.ConfigureAwait(false);
-			return null;
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
+			await StartReviewAsync(session, async token => {
+				string reason = "its head shares no history with it";
+				string? mergeBase = null;
+				try {
+					// The review follows the base branch from here on, so it opens against that same ref.
+					await git.FetchBranchAsync(worktree, "origin", baseRef, token).ConfigureAwait(false);
+					mergeBase = await git.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, token).ConfigureAwait(false);
+				} catch (GitException ex) {
+					reason = ex.Message;
+				}
+
+				if (mergeBase is null) {
+					failure = $"Opened PR #{number}, but couldn't compute its diff against its base: {reason}";
+					return null;
+				}
+
+				return new ReviewContext(number, $"PR #{number}", mergeBase, repo, worktree, $"origin/{baseRef}", headRef);
+			}, ct).ConfigureAwait(false);
+			return failure;
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";
 		}
 	}

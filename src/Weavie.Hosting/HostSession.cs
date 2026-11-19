@@ -51,6 +51,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private CoalescedSnapshotMonitor<GitStatusSnapshot>? _gitStatus;
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot>? _reviewCommits;
 	private CoalescedSnapshotMonitor<ReviewHeadSnapshot>? _reviewHead;
+
+	/// <summary>Which watcher batches the open git review couldn't account for, and whether a listing covered them.</summary>
+	internal ReviewListing ReviewListing { get; } = new();
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
@@ -115,6 +118,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(paths.ScratchDir, path),
 				new IgnoredPathCache(FindIgnored, TimeProvider.System).IgnoredAmong,
 				reviewPersistence);
+			// Disk may have moved under a restored git review while nothing watched it, so it is listed before it is trusted.
+			if (Changes.Review is not null) ReviewListing.Invalidate();
 			ReviewHints = new ReviewHintStore(
 				fileSystem,
 				workspaceRoot,

@@ -37,7 +37,6 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 		tracker.Observe(NewPrompt);
 
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Single(tracker.Changes());
 	}
 
 	[Fact]

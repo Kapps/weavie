@@ -6,186 +6,251 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Attaching a forge review extends the current board instead of replacing its decisions.</summary>
+/// <summary>A git review's list and befores are git's answer; see docs/specs/review-state.md.</summary>
 public sealed class SessionChangeTrackerReviewSourceTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
-	private static readonly ReviewContext Review = new(101, "#101", "topic", "base", "head",
-		new("github.com", "test", "repo"), Root, "base", "topic");
-	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
-		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
+	private static readonly string Other = Path.Combine(Root, "other.txt");
+	private static readonly ReviewContext Review = new(101, "#101", "base", new("github.com", "test", "repo"), Root, "base", "topic");
+	private static readonly ReviewContext Moved = Review with { MergeBase = "moved" };
+	private readonly InMemoryFileSystem _files = new();
+	private readonly MemoryReviewPersistence _persistence = new();
 
-	[Fact]
-	public void FirstPrOpenAndReopen_PreserveKeptRejectedAndPendingChanges() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		const string baseline = "a\nspace1\nb\nspace2\nc\n";
-		files.WriteAllText(File, baseline);
-		var tracker = Tracker(files, persistence);
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "A\nspace1\nB\nspace2\nC\n");
-		tracker.RecordChange(File);
-		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
-		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertHunk(File, new(3, 4), new(3, 4), "B"));
-		var before = tracker.GetTurn(File)!;
-		ReviewSeed[] seeds = [new(File, baseline, files.ReadAllText(File), true, true)];
+	private SessionChangeTracker Tracker() =>
+		new(_files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, _persistence);
 
-		tracker.ArmReview(Review, seeds);
-		Assert.Equivalent(before, tracker.GetTurn(File), strict: true);
-		tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review with { HeadSha = "updated-head" }, seeds);
-		Assert.Equivalent(before, tracker.GetTurn(File), strict: true);
-		Assert.Equal("updated-head", tracker.Review!.HeadSha);
-		Assert.True(tracker.UndoLastRevert().Acted);
-		Assert.Equal("A\nspace1\nB\nspace2\nC\n", files.ReadAllText(File));
-		Assert.True(tracker.UndoLastKeep().Acted);
-		Assert.Equal(baseline, tracker.GetTurn(File)!.BaselineText);
-	}
+	private ReviewSeed Seed(string path, string before) => ReviewTestChanges.Seed(_files, path, before);
 
-	[Fact]
-	public void Reopen_DoesNotReseedARejectedCreation_AndDiscoversNewFiles() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "created in PR\n");
-		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, "", "created in PR\n", false, true)]);
-		Assert.Equal(RevertHunkOutcome.Deleted, tracker.RevertFile(File));
-		string added = Path.Combine(Root, "later.txt");
-		files.WriteAllText(added, "new head proposal\n");
-
-		tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review with { HeadSha = "new-head" }, [
-			new(File, "", "", false, false), new(added, "", "new head proposal\n", false, true),
-		]);
-		Assert.False(files.FileExists(File));
-		Assert.True(tracker.CanUndoRevert);
-		Assert.Equal("new head proposal\n", tracker.GetTurn(added)!.CurrentText);
-		Assert.True(tracker.UndoLastRevert().Acted);
-		Assert.Equal("created in PR\n", files.ReadAllText(File));
-	}
-
-	[Fact]
-	public void OverlappingBaseExtension_RestartsTheFileAgainstTheNewBase() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "a\nspace\nb\n");
-		var tracker = Tracker(files, persistence);
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "A\nspace\nB\n");
-		tracker.RecordChange(File);
-		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
-		string other = Path.Combine(Root, "other.txt");
-		files.WriteAllText(other, "new file\n");
-		IReadOnlyList<string>? restarted = null;
-		tracker.ReviewFilesRestarted += paths => restarted = paths;
-
-		tracker.ArmReview(Review, [
-			new(other, "", "new file\n", false, true), new(File, "x\nspace\nb\n", "A\nspace\nB\n", true, true),
-		]);
-
-		Assert.Equal([File], restarted);
-		Assert.Equal(Review, tracker.Review);
-		var change = tracker.GetTurn(File)!;
-		Assert.Equal("x\nspace\nb\n", change.BaselineText);
-		Assert.Equal("x\nspace\nb\n", change.AcceptedBaselineText);
-		Assert.NotNull(tracker.GetTurn(other));
-		Assert.Equal("A\nspace\nB\n", files.ReadAllText(File));
-	}
-
-	[Fact]
-	public void EarlierBaseExtension_AddsCommittedChangesAsPending_WithoutRependingKeptChanges() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "committed\nspace\nold\n");
-		var tracker = Tracker(files, persistence);
-		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
-		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "committed\nspace\nkept\n");
-		tracker.RecordChange(File);
-		Assert.True(tracker.KeepHunk(File, new(3, 4), new(3, 4), "kept"));
-
-		tracker.ArmReview(Review, [new(File, "original\nspace\nold\n", files.ReadAllText(File), true, true)]);
-		var change = Tracker(files, persistence).GetTurn(File)!;
-		Assert.Equal("original\nspace\nold\n", change.AcceptedBaselineText);
-		Assert.Equal("original\nspace\nkept\n", change.BaselineText);
-		Assert.Equal("committed\nspace\nkept\n", change.CurrentText);
-		Assert.True(tracker.UndoLastKeep().Acted);
-		Assert.Equal("original\nspace\nold\n", tracker.GetTurn(File)!.BaselineText);
-	}
-
-	[Fact]
-	public void ReopenAfterHeadUpdate_AddsNewEditsToAnExistingReviewedFile() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "kept\nspace\nold\n");
-		var tracker = Tracker(files, persistence);
-		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
-		tracker.ArmReview(Review, [new(File, "original\nspace\nold\n", files.ReadAllText(File), true, true)]);
-		tracker.KeepFile(File);
-		files.WriteAllText(File, "kept\nspace\nnew head edit\n");
-
-		tracker.ArmReview(Review with { HeadSha = "new-head" }, [new(File,
-			"original\nspace\nold\n", files.ReadAllText(File), true, true)]);
-		var change = tracker.GetTurn(File)!;
-		Assert.Equal("kept\nspace\nold\n", change.BaselineText);
-		Assert.Equal("kept\nspace\nnew head edit\n", change.CurrentText);
-		Assert.True(tracker.UndoLastKeep().Acted);
-		Assert.Equal("kept\nspace\nnew head edit\n", files.ReadAllText(File));
+	// One held file with two pending hunks: "A" (line 1) and "B" (line 3) over "a\nspace\nb\n".
+	private SessionChangeTracker Reviewing() {
+		_files.WriteAllText(File, "A\nspace\nB\n");
+		var tracker = Tracker();
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+		return tracker;
 	}
 
 	[Fact]
 	public void AReviewOnAnotherBranchIsAnotherSource() {
-		Assert.True(Review.SameSource(Review with { MergeBase = "moved", HeadSha = "newer" }));
+		Assert.True(Review.SameSource(Moved));
 		Assert.False(Review.SameSource(Review with { Branch = "other" }));
 	}
 
 	[Fact]
-	public void AMovedMergeBase_RebasesTheReview_KeepingDecisionsItDoesNotTouch() {
-		var files = new InMemoryFileSystem();
-		var persistence = new MemoryReviewPersistence();
-		const string original = "a\nspace1\nb\nspace2\nc\n";
-		files.WriteAllText(File, "A\nspace1\nb\nspace2\nc\n");
-		var tracker = Tracker(files, persistence);
-		tracker.ArmReview(Review, [new(File, original, files.ReadAllText(File), true, true)]);
-		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
-
-		// The target's merged change to the last line is now part of the base, not of this branch's review.
-		files.WriteAllText(File, "A\nspace1\nb\nspace2\nC\n");
-		tracker.RecordChange(File);
-		var before = tracker.GetTurn(File)!;
-		tracker.ArmReview(Review with { MergeBase = "merged" }, [new(File, "a\nspace1\nb\nspace2\nC\n", files.ReadAllText(File), true, true)]);
-
-		var change = tracker.GetTurn(File)!;
-		Assert.Equal("merged", tracker.Review!.MergeBase);
-		Assert.Equal(before.AcceptedBaselineText.Replace("c\n", "C\n"), change.AcceptedBaselineText);
-		Assert.Equal(before.BaselineText.Replace("c\n", "C\n"), change.BaselineText);
-		Assert.StartsWith("A\n", change.BaselineText);
-		Assert.Equal(change.CurrentText, change.BaselineText); // nothing left pending: the kept line and the merged base
-	}
-
-	[Fact]
-	public void RebaseReview_LeavesAClosedOrReplacedReviewAlone() {
-		var files = new InMemoryFileSystem();
-		var tracker = Tracker(files, new MemoryReviewPersistence());
-		files.WriteAllText(File, "changed\n");
-		ReviewSeed[] seeds = [new(File, "base\n", "changed\n", true, true)];
-		tracker.ArmReview(Review, seeds);
-		tracker.CloseReview();
-
-		Assert.False(tracker.RebaseReview(Review, Review with { MergeBase = "merged" }, seeds));
-		Assert.Null(tracker.Review);
-	}
-
-	[Fact]
 	public void RetireReview_ClosesOnlyTheReviewItExpects() {
-		var files = new InMemoryFileSystem();
-		var tracker = Tracker(files, new MemoryReviewPersistence());
-		files.WriteAllText(File, "changed\n");
-		tracker.ArmReview(Review, [new(File, "base\n", "changed\n", true, true)]);
+		var tracker = Reviewing();
 
-		Assert.False(tracker.RetireReview(Review with { MergeBase = "stale" }));
+		Assert.False(tracker.RetireReview(Moved));
 		Assert.NotNull(tracker.Review);
 		Assert.True(tracker.RetireReview(Review));
 		Assert.Null(tracker.Review);
+	}
+
+	[Fact]
+	public void Replace_ForgetsPathsMissingFromGitsListWithTheirUndo() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "other\n");
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"), Seed(Other, "old other\n"));
+		tracker.KeepFile(Other);
+
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+
+		Assert.Null(tracker.GetTurn(Other));
+		Assert.Equal(File, Assert.Single(tracker.TurnChanges()).Path);
+		Assert.False(tracker.CanUndoKeep);
+	}
+
+	[Fact]
+	public void Replace_IdenticalBefore_CarriesKeptTextRejectionsAndUndoAcrossARestart() {
+		var tracker = Reviewing();
+		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertHunk(File, new(3, 4), new(3, 4), "B"));
+		var decided = tracker.GetTurn(File);
+
+		tracker = Tracker();
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+
+		Assert.Equivalent(decided, tracker.GetTurn(File), strict: true);
+		Assert.True(tracker.UndoLastRevert().Acted);
+		Assert.Equal("A\nspace\nB\n", _files.ReadAllText(File));
+		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.Equal("a\nspace\nb\n", tracker.GetTurn(File)!.BaselineText);
+	}
+
+	[Fact]
+	public void Replace_IdenticalAbsentBefore_KeepsARejectedCreationUndoable() {
+		_files.WriteAllText(File, "created\n");
+		var tracker = Tracker();
+		tracker.StartReview(Review, ReviewTestChanges.Seed(_files, File, "", false));
+		Assert.Equal(RevertHunkOutcome.Deleted, tracker.RevertFile(File));
+		_files.WriteAllText(Other, "other\n");
+
+		tracker = Tracker();
+		tracker.StartReview(Review, ReviewTestChanges.Seed(_files, File, "", false), Seed(Other, ""));
+
+		Assert.False(_files.FileExists(File));
+		Assert.Equal("other\n", tracker.GetTurn(Other)!.CurrentText);
+		Assert.True(tracker.UndoLastRevert().Acted);
+		Assert.Equal("created\n", _files.ReadAllText(File));
+	}
+
+	[Fact]
+	public void RestoredGitReview_IsNotReconciledAgainstDisk() {
+		Reviewing();
+		_files.WriteAllText(File, "moved on\n");
+
+		Assert.Equal("A\nspace\nB\n", Tracker().GetTurn(File)!.CurrentText);
+	}
+
+	[Theory]
+	[InlineData("old\n", true, "older\n", true)]
+	[InlineData("", true, "", false)]
+	public void Replace_ChangedBefore_StartsThePathOverAtTheNewBefore(
+		string before, bool beforeExists, string newBefore, bool newBeforeExists) {
+		_files.WriteAllText(File, "new\n");
+		var tracker = Tracker();
+		tracker.StartReview(Review, ReviewTestChanges.Seed(_files, File, before, beforeExists));
+		tracker.KeepFile(File);
+
+		tracker.StartReview(Review, ReviewTestChanges.Seed(_files, File, newBefore, newBeforeExists));
+
+		var change = tracker.GetTurn(File)!;
+		Assert.Equal(newBefore, change.BaselineText);
+		Assert.Equal(newBeforeExists, change.BaselineExists);
+		Assert.False(tracker.CanUndoKeep);
+	}
+
+	[Fact]
+	public void SupersededRequest_ReturnsNullAndChangesNothing() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "other\n");
+		var stale = tracker.BeginReviewRequest();
+		var newest = tracker.BeginReviewRequest();
+
+		Assert.Null(tracker.ReplaceReview(Moved, [Seed(Other, "")], stale));
+		Assert.Equal(Review, tracker.Review);
+		Assert.Null(tracker.GetTurn(Other));
+		Assert.Equal(File, Assert.Single(tracker.TurnChanges()).Path);
+		Assert.NotNull(tracker.ReplaceReview(Moved, [Seed(Other, "")], newest));
+		Assert.Equal(Moved, tracker.Review);
+	}
+
+	[Fact]
+	public void BeginRelist_RefusesWhileAUserRequestIsPendingOrTheReviewChanged() {
+		var tracker = Reviewing();
+		Assert.NotNull(tracker.BeginRelist(Review));
+
+		var started = tracker.BeginReviewRequest();
+		Assert.Null(tracker.BeginRelist(Review));
+		tracker.EndReviewRequest(started);
+		Assert.NotNull(tracker.BeginRelist(Review));
+		Assert.Null(tracker.BeginRelist(Moved));
+	}
+
+	[Fact]
+	public void JoinsRecordedWhileARequestIsPending_AreReturnedByReplace() {
+		var tracker = Reviewing();
+		var relist = tracker.BeginRelist(Review)!;
+		_files.WriteAllText(File, "edited\n");
+		_files.WriteAllText(Other, "other\n");
+		Assert.True(tracker.RefreshReviewPath(Review, File));
+		Assert.True(tracker.JoinReview(Review, Other, "", false));
+
+		var joined = tracker.ReplaceReview(Review, [Seed(File, "a\nspace\nb\n")], relist);
+
+		Assert.Equivalent(new[] { File, Other }, joined);
+	}
+
+	[Fact]
+	public void JoinReview_RefusesAChangedReviewAndAddsANewPathWithTheGivenBefore() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "new\n");
+
+		Assert.False(tracker.JoinReview(Moved, Other, "old\n", true));
+		Assert.Null(tracker.GetTurn(Other));
+		Assert.True(tracker.JoinReview(Review, Other, "old\n", true));
+		var joined = tracker.GetTurn(Other)!;
+		Assert.Equal("old\n", joined.AcceptedBaselineText);
+		Assert.Equal("old\n", joined.BaselineText);
+		Assert.Equal("new\n", joined.CurrentText);
+	}
+
+	[Fact]
+	public void RefreshReviewPath_RefreshesAHeldPathFromDiskAndRefusesAnUnheldOne() {
+		var tracker = Reviewing();
+		_files.WriteAllText(File, "edited\n");
+		_files.WriteAllText(Other, "other\n");
+
+		Assert.False(tracker.RefreshReviewPath(Moved, File));
+		Assert.True(tracker.RefreshReviewPath(Review, File));
+		Assert.Equal("edited\n", tracker.GetTurn(File)!.CurrentText);
+		Assert.False(tracker.RefreshReviewPath(Review, Other));
+		Assert.Null(tracker.GetTurn(Other));
+	}
+
+	[Fact]
+	public void AccountsFor_OnlyWhenEveryPathIsHeldAndDiskEqualsCurrent() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "other\n");
+		Assert.True(tracker.AccountsFor([File]));
+		Assert.False(tracker.AccountsFor([File, Other]));
+
+		_files.WriteAllText(File, "edited\n");
+		Assert.False(tracker.AccountsFor([File]));
+		tracker.RefreshReviewPath(Review, File);
+		Assert.True(tracker.AccountsFor([File]));
+		_files.DeleteFile(File);
+		Assert.False(tracker.AccountsFor([File]));
+	}
+
+	[Fact]
+	public void Close_ScrapsAndReopeningShowsEverythingPendingAgain() {
+		var tracker = Reviewing();
+		tracker.KeepFile(File);
+
+		tracker.CloseReview();
+		Assert.Null(tracker.Review);
+		Assert.Null(tracker.GetTurn(File));
+		Assert.False(tracker.CanUndoKeep);
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"));
+
+		var reopened = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("a\nspace\nb\n", reopened.BaselineText);
+		Assert.Equal("A\nspace\nB\n", reopened.CurrentText);
+	}
+
+	[Fact]
+	public void KeepAll_InAGitReview_LeavesItOpenAndUndoable() {
+		var tracker = Reviewing();
+		_files.WriteAllText(Other, "other\n");
+		tracker.StartReview(Review, Seed(File, "a\nspace\nb\n"), Seed(Other, ""));
+
+		tracker.KeepAll();
+
+		Assert.Equal(Review, tracker.Review);
+		Assert.All(tracker.TurnChanges(), change => Assert.Equal(change.CurrentText, change.BaselineText));
+		Assert.Equal(2, tracker.TurnChanges().Count);
+		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.Equal("a\nspace\nb\n", tracker.GetTurn(File)!.BaselineText);
+		Assert.Equal("", tracker.GetTurn(Other)!.BaselineText);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void PendingAgentProvenance_SurvivesCloseSoALaterSaveIsACorrection(bool gitReview) {
+		_files.WriteAllText(File, "a\n");
+		var tracker = Tracker();
+		if (gitReview) tracker.StartReview(Review);
+		ReviewTestChanges.AgentEdit(tracker, _files, File, "agent\n");
+		if (gitReview) Assert.True(tracker.JoinReview(Review, File, "a\n", true));
+		IReadOnlyList<CorrectionEdit>? corrected = null;
+		tracker.Corrected += edits => corrected = edits;
+
+		tracker.CloseReview();
+		tracker.RecordHandEdit(File, "user\n");
+
+		var edit = Assert.Single(corrected!);
+		Assert.Equal("agent", edit.Before);
+		Assert.Equal("user", edit.After);
 	}
 }

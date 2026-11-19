@@ -35,7 +35,7 @@ test.describe("close diff", () => {
       await page.locator(".editor-review-open").click();
       await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
       const close = page.locator(".editor-review-close");
-      await expect(close).toHaveAttribute("title", /Accept remaining changes and close diff.*\(/);
+      await expect(close).toHaveAttribute("title", /Close diff.*\(/);
       if (action === "Close Diff") {
         await close.click();
       } else {

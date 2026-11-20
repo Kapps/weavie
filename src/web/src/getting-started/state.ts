@@ -6,20 +6,21 @@ import { openThemeRegistry, themePickerOpen } from "../theme/picker-state";
 
 export const COMPLETED_SETTING = "gettingStarted.completed";
 
+/** One opening of Getting Started: the step it opens on, and the backend whose machine its suggestions belong to. */
+export interface SetupRequest {
+  step: number;
+  machine: string;
+}
+
+/** The Getting Started modal showing over the workspace, or null; each opening is a new request. */
+export const [gettingStarted, setGettingStarted] = createSignal<SetupRequest | null>(null);
+
 /** Whether the Getting Started modal is showing over the workspace. */
-export const [gettingStartedOpen, setGettingStartedOpen] = createSignal(false);
-
-/** The step Getting Started opens on. */
-export const [gettingStartedStep, setGettingStartedStep] = createSignal(0);
-
-/** The backend whose machine the suggestion settings belong to. */
-export const [gettingStartedMachine, setGettingStartedMachine] = createSignal(LOCAL_BACKEND_ID);
+export const gettingStartedOpen = (): boolean => gettingStarted() !== null;
 
 /** Opens Getting Started on `step`, editing suggestions on `machine`'s backend. */
 export function openGettingStarted(step: number, machine: string): void {
-  setGettingStartedStep(step);
-  setGettingStartedMachine(machine);
-  setGettingStartedOpen(true);
+  setGettingStarted({ step, machine });
 }
 
 registerCommand(CommandIds.gettingStarted, () => openGettingStarted(0, LOCAL_BACKEND_ID));
@@ -32,12 +33,12 @@ registerHomeFeature((connection) =>
 );
 
 // Only one modal shows at a time, so the setup modal steps aside for the theme picker and returns after it.
-let resumeAfterThemes = false;
+let resumeAfterThemes: SetupRequest | null = null;
 
 /** Opens the theme picker on the Open VSX catalog, returning to setup when the picker closes. */
 export function browseThemes(): void {
-  resumeAfterThemes = gettingStartedOpen();
-  setGettingStartedOpen(false);
+  resumeAfterThemes = gettingStarted();
+  setGettingStarted(null);
   openThemeRegistry();
 }
 
@@ -46,9 +47,9 @@ createRoot(() =>
     on(
       themePickerOpen,
       (open) => {
-        if (!open && resumeAfterThemes) {
-          resumeAfterThemes = false;
-          openGettingStarted(0, gettingStartedMachine());
+        if (!open && resumeAfterThemes !== null) {
+          openGettingStarted(0, resumeAfterThemes.machine);
+          resumeAfterThemes = null;
         }
       },
       { defer: true },

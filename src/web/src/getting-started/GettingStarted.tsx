@@ -9,11 +9,10 @@ import { notify } from "../notify/notify";
 import { AgentStep } from "./AgentStep";
 import {
   COMPLETED_SETTING,
-  gettingStartedMachine,
-  gettingStartedOpen,
-  gettingStartedStep,
+  gettingStarted,
   openGettingStarted,
-  setGettingStartedOpen,
+  type SetupRequest,
+  setGettingStarted,
   writeSetting,
 } from "./state";
 import { FinishStep, InferenceStep, Keycaps, type SetupRun, ThemeStep } from "./steps";
@@ -53,8 +52,12 @@ registerCommand(CommandIds.configureSuggestions, (_args, context) =>
 const INTERACTIVE = "button, select, input, textarea, a";
 
 /** The setup steps; every choice saves immediately, and finishing (or skipping) marks setup done. */
-export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean }): JSX.Element {
-  const [index, setIndex] = createSignal(gettingStartedStep());
+export function GettingStarted(props: {
+  request: SetupRequest;
+  onDone: () => void;
+  escapeSkips: boolean;
+}): JSX.Element {
+  const [index, setIndex] = createSignal(props.request.step);
   const [error, setError] = createSignal<string | null>(null);
   let section: HTMLElement | undefined;
   const attempt: SetupRun["attempt"] = (action) => {
@@ -67,7 +70,7 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
     attempt,
     agentChoice: 0,
     suggestionsAgent: null,
-    machine: gettingStartedMachine(),
+    machine: props.request.machine,
   };
 
   const finish = () =>
@@ -149,7 +152,7 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
 
 /** Getting Started over the workspace; closing it by any route counts as done (it's re-runnable). */
 export function GettingStartedModal(): JSX.Element {
-  const close = () => setGettingStartedOpen(false);
+  const close = () => setGettingStarted(null);
   const dismiss = () => {
     close();
     writeSetting(LOCAL_BACKEND_ID, COMPLETED_SETTING, true).catch((caught: unknown) =>
@@ -157,20 +160,23 @@ export function GettingStartedModal(): JSX.Element {
     );
   };
   return (
-    <Show when={gettingStartedOpen()}>
-      <ModalShell
-        labelledBy="getting-started-title"
-        class="getting-started-dialog"
-        onDismiss={dismiss}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !controlMenuOpen()) {
-            event.preventDefault();
-            dismiss();
-          }
-        }}
-      >
-        <GettingStarted onDone={close} escapeSkips={true} />
-      </ModalShell>
+    // Keyed, so a new request, such as Configure Suggestions for another machine, starts a fresh run.
+    <Show when={gettingStarted()} keyed>
+      {(request) => (
+        <ModalShell
+          labelledBy="getting-started-title"
+          class="getting-started-dialog"
+          onDismiss={dismiss}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !controlMenuOpen()) {
+              event.preventDefault();
+              dismiss();
+            }
+          }}
+        >
+          <GettingStarted request={request} onDone={close} escapeSkips={true} />
+        </ModalShell>
+      )}
     </Show>
   );
 }

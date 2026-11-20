@@ -37,7 +37,11 @@ export function Welcome(): JSX.Element {
         </header>
 
         <Show when={settingUp()}>
-          <GettingStarted onDone={() => setSettingUp(false)} escapeSkips={false} />
+          <GettingStarted
+            request={{ step: 0, machine: LOCAL_BACKEND_ID }}
+            onDone={() => setSettingUp(false)}
+            escapeSkips={false}
+          />
         </Show>
         <Show when={!settingUp()}>
           <div class="welcome-actions">

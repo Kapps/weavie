@@ -18,9 +18,18 @@ export const [gettingStarted, setGettingStarted] = createSignal<SetupRequest | n
 /** Whether the Getting Started modal is showing over the workspace. */
 export const gettingStartedOpen = (): boolean => gettingStarted() !== null;
 
-/** Opens Getting Started on `step`, editing suggestions on `machine`'s backend. */
+// Only one modal shows at a time, so the setup modal steps aside for the theme picker and returns after it.
+let resumeAfterThemes: SetupRequest | null = null;
+
+/** Opens Getting Started on `step`, editing suggestions on `machine`'s backend; it replaces any earlier run. */
 export function openGettingStarted(step: number, machine: string): void {
+  resumeAfterThemes = null;
   setGettingStarted({ step, machine });
+}
+
+/** Closes the run `request` opened, unless a newer request replaced it. */
+export function closeGettingStarted(request: SetupRequest): void {
+  if (gettingStarted() === request) setGettingStarted(null);
 }
 
 registerCommand(CommandIds.gettingStarted, () => openGettingStarted(0, LOCAL_BACKEND_ID));
@@ -31,9 +40,6 @@ registerHomeFeature((connection) =>
     openGettingStarted(0, LOCAL_BACKEND_ID);
   }),
 );
-
-// Only one modal shows at a time, so the setup modal steps aside for the theme picker and returns after it.
-let resumeAfterThemes: SetupRequest | null = null;
 
 /** Opens the theme picker on the Open VSX catalog, returning to setup when the picker closes. */
 export function browseThemes(): void {
@@ -47,10 +53,7 @@ createRoot(() =>
     on(
       themePickerOpen,
       (open) => {
-        if (!open && resumeAfterThemes !== null) {
-          openGettingStarted(0, resumeAfterThemes.machine);
-          resumeAfterThemes = null;
-        }
+        if (!open && resumeAfterThemes !== null) openGettingStarted(0, resumeAfterThemes.machine);
       },
       { defer: true },
     ),

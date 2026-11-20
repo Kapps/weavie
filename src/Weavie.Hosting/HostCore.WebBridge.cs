@@ -512,8 +512,10 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	public void Notify(string level, string message) =>
-		_messages.Host.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain(level, message));
+	public void Notify(string level, string message) => Notify(ToastMessage.Plain(level, message));
+
+	private void Notify(ToastMessage toast) =>
+		_messages.Host.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, toast);
 
 	private static void Notify(HostSession session, string level, string message) =>
 		session.Bus.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain(level, message));
@@ -523,7 +525,7 @@ public sealed partial class HostCore {
 	/// same key replaces the live one in place (e.g. a "reloaded" info clearing a lingering "malformed" error).
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
-		_messages.Host.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Keyed(level, message, key));
+		Notify(ToastMessage.Keyed(level, message, key));
 
 	/// <summary>
 	/// As <see cref="Notify(string,string,string)"/>, with an action backed by a registered command. The page
@@ -536,10 +538,7 @@ public sealed partial class HostCore {
 		string actionLabel,
 		string commandId,
 		string? argsJson) =>
-		_messages.Host.Feature("notifications").Publish(
-			"show",
-			WireJson.Default.ToastMessage,
-			new(level, message, key, new ToastAction(actionLabel, commandId, argsJson)));
+		Notify(new ToastMessage(level, message, key, new ToastAction(actionLabel, commandId, argsJson)));
 
 	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
 	public void ClearNotify(string key) =>

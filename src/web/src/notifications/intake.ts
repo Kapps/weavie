@@ -1,7 +1,12 @@
 import { onBackendPhase, registerHostFeature, registerSessionFeature } from "../bridge";
 import { keyHintInCatalog } from "../commands/key-hint";
 import { runCommandFromCatalogWithFeedback } from "../commands/registry";
-import { clearNotification, notify } from "../notify/notify";
+import {
+  backendNotificationKey,
+  clearNotification,
+  notify,
+  sessionRestoreKey,
+} from "../notify/notify";
 import type { Toast, ToastAction } from "../notify/Toasts";
 
 interface NotificationAction {
@@ -18,10 +23,6 @@ interface Notification {
 }
 
 const busyKeys = new Map<string, Set<Set<string>>>();
-
-function scopedKey(backendId: string, key: string): string {
-  return `backend:${backendId}:${key}`;
-}
 
 function toastAction(backendId: string, action: NotificationAction): ToastAction {
   return {
@@ -50,7 +51,7 @@ function install(
   backendBusy.add(ownedBusy);
   busyKeys.set(backendId, backendBusy);
   const offShow = feature.on<Notification>("show", ({ level, message, key, action }) => {
-    const scoped = key === undefined ? undefined : scopedKey(backendId, key);
+    const scoped = key === undefined ? undefined : backendNotificationKey(backendId, key);
     if (scoped !== undefined) {
       if (level === "busy") {
         ownedBusy.add(scoped);
@@ -65,7 +66,7 @@ function install(
     }
   });
   const offClear = feature.on<{ key: string }>("clear", ({ key }) => {
-    const scoped = scopedKey(backendId, key);
+    const scoped = backendNotificationKey(backendId, key);
     ownedBusy.delete(scoped);
     clearNotification(scoped);
   });
@@ -97,6 +98,7 @@ onBackendPhase((backendId, phase) => {
 registerHostFeature((connection) =>
   install(connection.id, connection.host.feature("notifications")),
 );
-registerSessionFeature((session) =>
-  install(session.connection.id, session.feature("notifications")),
-);
+registerSessionFeature((session) => {
+  clearNotification(sessionRestoreKey(session.connection.id, session.address.slot));
+  return install(session.connection.id, session.feature("notifications"));
+});

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -361,7 +362,7 @@ public sealed partial class HostCore {
 		var replacement = _agentProviders.Providers.Select(provider => provider.Info).FirstOrDefault(info => info.Available)
 			?? throw new InvalidOperationException($"No agent provider is available to replace '{preferred}'.");
 		_sessionStartupNotices.Add(
-			("warn", $"Your default agent '{preferred}' isn't available — this session opened with {replacement.Name}."));
+			ToastMessage.Plain("warn", $"Your default agent '{preferred}' isn't available — this session opened with {replacement.Name}."));
 		return replacement.Id;
 	}
 
@@ -759,17 +760,17 @@ public sealed partial class HostCore {
 		}, ct);
 	}
 
-	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
+	private Task<CommandResult> LoadSessionAsync(string? sessionId, bool clearCorruptReview, CancellationToken ct) =>
 		string.IsNullOrWhiteSpace(sessionId)
 			? Task.FromResult(CommandResult.Failure("Load needs a session id."))
-			: RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => LoadSessionCoreAsync(target, ct), ct);
+			: RunSlotLifecycleAsync(sessionId, NoSuchSession(sessionId), target => LoadSessionCoreAsync(target, clearCorruptReview, ct), ct);
 
 	// A session git couldn't place has no repository to run in.
 	private CommandResult? LostRefusal(SessionSlot slot) => slot.Lost is { } lost
 		? CommandResult.Failure($"'{NameOf(slot)}' can't find its repository, so it can't be loaded: {lost.Reason}")
 		: null;
 
-	private Task<CommandResult> LoadSessionCoreAsync(SessionSlot target, CancellationToken ct) {
+	private Task<CommandResult> LoadSessionCoreAsync(SessionSlot target, bool clearCorruptReview, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		if (LostRefusal(target) is { } lost) {
 			return Task.FromResult(lost);
@@ -790,12 +791,23 @@ public sealed partial class HostCore {
 		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
-				LoadSlotInBackground(target);
+				try {
+					LoadSlotInBackground(target);
+				} catch (InvalidReviewCheckpointException) when (clearCorruptReview) {
+					ct.ThrowIfCancellationRequested();
+					new SavedReview(target.WorktreePath).Clear();
+					LoadSlotInBackground(target);
+				}
 				result.SetResult(CommandResult.Success(
 					$"Loaded session '{NameOf(target)}' in the background.",
 					SessionAddressJson(target)));
+			} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+				result.SetCanceled(ct);
 			} catch (Exception ex) {
-				result.SetException(ex);
+				string message = ReportSessionRestoreFailure(target, ex);
+				result.SetResult(ex is InvalidReviewCheckpointException invalid && !clearCorruptReview
+					? CommandResult.Failure(message, JsonSerializer.Serialize(new CorruptReviewRefusal(target.Id, NameOf(target), invalid.InnerException!.Message), WireJson.Default.CorruptReviewRefusal))
+					: CommandResult.Failure(message));
 			}
 		});
 		return result.Task;
@@ -1409,27 +1421,12 @@ public sealed partial class HostCore {
 		RunSlotLifecycleAsync(
 			existing.Id,
 			$"Session '{branch}' was deleted while opening it.",
-			slot => LoadExistingCoreAsync(slot, branch),
-			ct);
-
-	private Task<CommandResult> LoadExistingCoreAsync(SessionSlot slot, string branch) {
-		if (LostRefusal(slot) is { } lost) {
-			return Task.FromResult(lost);
-		}
-
-		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_ui.Post(() => {
-			try {
-				LoadSlotInBackground(slot);
-				result.SetResult(CommandResult.Success(
-					$"Loaded the existing session for '{branch}'.",
-					SessionActivationJson(slot)));
-			} catch (Exception ex) {
-				result.SetException(ex);
-			}
-		});
-		return result.Task;
-	}
+			async slot => {
+				var loaded = await LoadSessionCoreAsync(slot, clearCorruptReview: false, ct).ConfigureAwait(false);
+				return loaded.Ok
+					? CommandResult.Success($"Loaded the existing session for '{branch}'.", SessionActivationJson(slot))
+					: loaded;
+			}, ct);
 
 	private static string SessionAddressJson(SessionSlot slot) {
 		var address = slot.Session?.Address

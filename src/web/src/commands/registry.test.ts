@@ -5,7 +5,7 @@ import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybindi
 const env = vi.hoisted(() => ({
   invokedSessions: [] as ClientSession[],
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
-  notified: [] as Array<{ level: string; message: unknown }>,
+  notified: [] as Array<{ level: string; message: unknown; key: string | undefined }>,
   coreResult: { ok: true, data: "core-ran" } as CommandResult,
   catalogs: new Map<
     string,
@@ -138,9 +138,10 @@ vi.mock("../agent/agent-background-store", () => ({ runningBackgroundOf: () => n
 vi.mock("../chrome/session-store", () => ({
   trackSessionCommand: <T>(_b: string, _i: string, run: () => Promise<T>) => run(),
 }));
-vi.mock("../notify/notify", () => ({
-  notify: (level: string, message: unknown) => {
-    env.notified.push({ level, message });
+vi.mock(import("../notify/notify"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  notify: (level: string, message: unknown, key?: string) => {
+    env.notified.push({ level, message, key });
   },
 }));
 
@@ -290,6 +291,22 @@ describe("dispatchCommand — core commands", () => {
     setCatalog("local", [{ ...cmd("core.y", "core"), scope: "host" }]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
+  });
+
+  it("reports a failed load under the addressed backend and slot's restore notice", async () => {
+    setCatalog("local", [{ ...cmd(CommandIds.loadSession, "core"), scope: "host" }]);
+    env.coreResult = { ok: false, error: "Could not restore review" };
+    await reg.runCommandWithFeedback(CommandIds.loadSession, {
+      backendId: "remote:r",
+      id: "parked",
+    });
+    expect(env.notified).toEqual([
+      {
+        level: "error",
+        message: env.coreResult.error,
+        key: "backend:remote:r:session-restore:parked",
+      },
+    ]);
   });
 
   it("routes a session lifecycle command to the exact selected session", async () => {

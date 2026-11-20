@@ -9,10 +9,10 @@ import { notify } from "../notify/notify";
 import { AgentStep } from "./AgentStep";
 import {
   COMPLETED_SETTING,
+  closeGettingStarted,
   gettingStarted,
   openGettingStarted,
   type SetupRequest,
-  setGettingStarted,
   writeSetting,
 } from "./state";
 import { FinishStep, InferenceStep, Keycaps, type SetupRun, ThemeStep } from "./steps";
@@ -152,9 +152,8 @@ export function GettingStarted(props: {
 
 /** Getting Started over the workspace; closing it by any route counts as done (it's re-runnable). */
 export function GettingStartedModal(): JSX.Element {
-  const close = () => setGettingStarted(null);
-  const dismiss = () => {
-    close();
+  const dismiss = (request: SetupRequest) => {
+    closeGettingStarted(request);
     writeSetting(LOCAL_BACKEND_ID, COMPLETED_SETTING, true).catch((caught: unknown) =>
       notify("error", `Couldn't save that setup is done: ${String(caught)}`),
     );
@@ -166,15 +165,19 @@ export function GettingStartedModal(): JSX.Element {
         <ModalShell
           labelledBy="getting-started-title"
           class="getting-started-dialog"
-          onDismiss={dismiss}
+          onDismiss={() => dismiss(request)}
           onKeyDown={(event) => {
             if (event.key === "Escape" && !controlMenuOpen()) {
               event.preventDefault();
-              dismiss();
+              dismiss(request);
             }
           }}
         >
-          <GettingStarted request={request} onDone={close} escapeSkips={true} />
+          <GettingStarted
+            request={request}
+            onDone={() => closeGettingStarted(request)}
+            escapeSkips={true}
+          />
         </ModalShell>
       )}
     </Show>

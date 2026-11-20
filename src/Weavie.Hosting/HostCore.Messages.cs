@@ -227,7 +227,7 @@ public sealed partial class HostCore {
 			SessionCommands.ReloadSession => await ReloadSessionAsync(
 				null, id, SessionCommands.Flag(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
-			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.LoadSession => await LoadSessionAsync(id, SessionCommands.Flag(args, "clearCorruptReview"), ct).ConfigureAwait(false),
 			SessionCommands.OpenHomeSession => await OpenHomeSessionAsync(ct).ConfigureAwait(false),
 			SessionCommands.ForgetRepo => await ForgetRepoAsync(ReadString(args, "repo"), ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(

@@ -117,6 +117,11 @@ over a git review's list. The budgets are pinned in `GitOperationBudgetTests`.
 with pending agent lines. A restored git review is not reconciled against disk; it is re-listed, so keeps
 survive a restart where the before is unchanged. A restored default review reconciles its held paths.
 
+If the checkpoint is corrupt, the session stays parked. Loading it offers **Clear review and load** or
+**Cancel**. Confirmation revalidates the checkpoint under the session lifecycle lock. If it is still
+corrupt, Weavie resets that worktree’s review database and loads the session. Cancel preserves the checkpoint.
+Storage access failures offer an error with the reason.
+
 ## Not covered
 
 - Kept changes drawn as a normal diff with pending ones emphasised (follow-up; today kept ones fade).

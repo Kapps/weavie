@@ -927,6 +927,7 @@ test.describe("session-addressed WebSocket transport", () => {
       const clientResponse = remote.requestHost("device", "command", {
         id: fontCommand.id,
         args: null,
+        session: remoteSession.address,
       });
       expect((await relayedInvocation).payload).toMatchObject({ id: fontCommand.id });
       expect((await clientResponse).payload).toMatchObject({ ok: true });

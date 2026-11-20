@@ -295,7 +295,7 @@ public sealed class SessionCommandsTests {
 
 		public Task<CommandResult> CancelOperationAsync(string? operationId) => Task.FromResult(CommandResult.Success());
 
-		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default) {
+		public Task<CommandResult> LoadSessionAsync(string? sessionId, bool clearCorruptReview, CancellationToken ct = default) {
 			LoadCalled = true;
 			LastLoadedId = sessionId;
 			return Task.FromResult(CommandResult.Success("loaded"));

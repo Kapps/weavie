@@ -88,7 +88,7 @@ public interface ISessionHost {
 	Task<CommandResult> CancelOperationAsync(string? operationId);
 
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
-	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
+	Task<CommandResult> LoadSessionAsync(string? sessionId, bool clearCorruptReview, CancellationToken ct = default);
 
 	/// <summary>Opens the session on the workspace's home folder when there is none, and loads it.</summary>
 	Task<CommandResult> OpenHomeSessionAsync(CancellationToken ct = default);

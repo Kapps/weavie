@@ -10,7 +10,6 @@ import {
   hostInjected,
   invokeClientCommandOnHost,
   invokeCommandInSession,
-  invokeSessionCommandOnBackend,
   LOCAL_BACKEND_ID,
   log,
   onSelectedSession,
@@ -22,7 +21,8 @@ import {
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
 import { requireSessionAddress } from "../messaging/message-envelope";
-import { notify } from "../notify/notify";
+import { notify, sessionRestoreKey } from "../notify/notify";
+import { invokeHostSessionCommand } from "./session-recovery";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -34,7 +34,12 @@ const SELECTED_SESSION_TARGETS = new Set<string>([
   CommandIds.deleteSession,
   CommandIds.reloadSession,
 ]);
-const SESSION_LIFECYCLE = new Set([...SELECTED_SESSION_TARGETS, CommandIds.recreateSession]);
+// Loads track each host request inside recovery, releasing the spinner while the user decides.
+const TRACKED_LIFECYCLE = new Set(
+  [...SELECTED_SESSION_TARGETS, CommandIds.recreateSession].filter(
+    (id) => id !== CommandIds.loadSession,
+  ),
+);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -379,7 +384,7 @@ async function routeCoreCommand(
     const result = await (command.owner === "client"
       ? invokeClientCommandOnHost(command.id, routedArgs)
       : command.scope === "host"
-        ? invokeSessionCommandOnBackend(target, command.id, routedArgs)
+        ? invokeHostSessionCommand(target, command.id, routedArgs)
         : session !== null && session.connection.id === target
           ? invokeCommandInSession(session, command.id, routedArgs)
           : Promise.resolve({
@@ -389,11 +394,13 @@ async function routeCoreCommand(
     if (result.ok) {
       await applySessionActivation(target, result, commit);
       await applyTerminalActivation(target, result);
+    } else if (command.id === CommandIds.loadSession && trackedId !== undefined) {
+      return { ...result, errorToastKey: sessionRestoreKey(target, trackedId) };
     }
     return result;
   };
   // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
-  if (SESSION_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
+  if (TRACKED_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
     return trackSessionCommand(target, trackedId, run);
   }
   return run();
@@ -582,7 +589,8 @@ function reportCommandResult(result: CommandResult): void {
   // A Core command round-trips over JSON, so an absent message/error arrives as `null`, not `undefined` —
   // compare with `!= null` so a silent success (e.g. a normal font zoom) doesn't fire an empty toast.
   if (!result.ok && result.error != null) {
-    notify("warn", result.error);
+    if (result.errorToastKey !== undefined) notify("error", result.error, result.errorToastKey);
+    else notify("warn", result.error);
   } else if (result.ok && result.message != null) {
     notify("info", result.message);
   }

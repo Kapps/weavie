@@ -78,6 +78,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(ToastKey))]
 [JsonSerializable(typeof(OperationIdArgs))]
 [JsonSerializable(typeof(SessionSlotArgs))]
+[JsonSerializable(typeof(CorruptReviewRefusal))]
 [JsonSerializable(typeof(GlobalHostFeatures.InstallResult))]
 [JsonSerializable(typeof(AttentionRaised))]
 [JsonSerializable(typeof(NotificationActivated))]

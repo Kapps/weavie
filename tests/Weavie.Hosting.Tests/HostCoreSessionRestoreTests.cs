@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -93,6 +94,85 @@ public sealed class HostCoreSessionRestoreTests {
 		var a = host.CatalogEntry("branch-a");
 		Assert.False(a.GetProperty("loaded").GetBoolean());
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task CorruptReview_RefusesUntilConfirmed_ThenLoadsWithoutChangingWorktreeOrHints(bool corruptDatabase) {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		string id = host.SlotId("branch-a");
+		string root = host.Session("branch-a").WorkspaceRoot;
+		string review = new SavedReview(root).DirectoryPath;
+		string db = Path.Combine(review, "review.db");
+		string hints = Path.Combine(review, "hints.db");
+		string document = Path.Combine(root, "proposal.txt");
+		await File.WriteAllTextAsync(document, "reviewed text");
+		await host.RestartAsync(() => {
+			if (corruptDatabase) File.WriteAllText(db, "damaged SQLite header");
+			else new ReviewPersistence(db).Save(new Dictionary<string, string?> { ["metadata"] = "{}", ["text:orphan"] = "unused" });
+		});
+
+		var notice = Assert.Single(host.Bridge.PostedEvents("notifications", "show"),
+			message => message.TryGetProperty("key", out var key) && key.GetString() == $"session-restore:{id}");
+		Assert.Equal(SessionCommands.LoadSession, notice.GetProperty("action").GetProperty("commandId").GetString());
+		byte[] refused = await File.ReadAllBytesAsync(db);
+		byte[] savedHints = await File.ReadAllBytesAsync(hints);
+		var result = await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id });
+		Assert.False(result.Ok);
+		Assert.Equal(notice.GetProperty("message").GetString(), result.Error);
+		Assert.Contains("branch-a", result.Error);
+		using var detail = JsonDocument.Parse(Assert.IsType<string>(result.DataJson));
+		Assert.Equal(id, detail.RootElement.GetProperty("corruptReviewSlot").GetString());
+		Assert.False(host.CatalogEntry("branch-a").GetProperty("loaded").GetBoolean());
+		Assert.Equal(refused, await File.ReadAllBytesAsync(db));
+
+		var loaded = await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id, clearCorruptReview = true });
+		Assert.True(loaded.Ok, loaded.Error);
+		AssertAddress(loaded, host.Session("branch-a"));
+		Assert.Empty(host.Session("branch-a").Changes.TurnChanges());
+		Assert.Equal("reviewed text", await File.ReadAllTextAsync(document));
+		Assert.Equal(savedHints, await File.ReadAllBytesAsync(hints));
+	}
+
+	[Fact]
+	public async Task InaccessibleReviewStorage_DoesNotOfferAReset() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		var session = host.Session("branch-a");
+		string database = Path.Combine(new SavedReview(session.WorkspaceRoot).DirectoryPath, "review.db");
+		string id = session.SlotId;
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
+		File.Move(database, database + ".saved");
+		Directory.CreateDirectory(database);
+
+		var refused = await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id });
+		Assert.False(refused.Ok);
+		Assert.Null(refused.DataJson);
+		Assert.False((await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id, clearCorruptReview = true })).Ok);
+		Assert.True(Directory.Exists(database));
+	}
+
+	[Fact]
+	public async Task ConfirmedRetry_PreservesAReviewRepairedWhileTheQuestionWasOpen() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		var session = host.Session("branch-a");
+		string id = session.SlotId;
+		string file = Path.Combine(session.WorkspaceRoot, "proposal.txt");
+		session.Changes.CaptureBaseline(file);
+		await File.WriteAllTextAsync(file, "pending proposal");
+		session.Changes.RecordChange(file);
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
+		var db = new ReviewPersistence(Path.Combine(new SavedReview(session.WorkspaceRoot).DirectoryPath, "review.db"));
+		db.Save(new Dictionary<string, string?> { ["text:orphan"] = "unused" });
+		Assert.False((await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id })).Ok);
+		db.Save(new Dictionary<string, string?> { ["text:orphan"] = null });
+
+		var loaded = await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id, clearCorruptReview = true });
+		Assert.True(loaded.Ok, loaded.Error);
+		Assert.Equal("pending proposal", Assert.Single(host.Session("branch-a").Changes.TurnChanges()).CurrentText);
 	}
 
 	[Fact]

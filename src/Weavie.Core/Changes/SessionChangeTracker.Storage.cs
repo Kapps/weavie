@@ -31,7 +31,7 @@ public sealed partial class SessionChangeTracker {
 
 		public PathState Restore(IReadOnlyDictionary<string, string> texts) {
 			string Text(string hash) => hash is not null && texts.TryGetValue(hash, out string? text)
-				? text : throw new JsonException("Invalid review text reference.");
+				? text : throw new JsonException($"Stored file '{Path}' is missing its saved text.");
 			return new(Path, !ProvenanceOnly, Text(Current), CurrentExists,
 				Text(ReviewBaseline), ReviewBaselineExists, Text(AcceptedAnchor), AcceptedAnchorExists, Text(PreEdit),
 				Provenance is { } provenance ? new ProvenanceFile {

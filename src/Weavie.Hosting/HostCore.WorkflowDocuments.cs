@@ -1,6 +1,7 @@
 using Weavie.Core;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
+using Weavie.Hosting.Messaging;
 using Weavie.Workflows;
 
 namespace Weavie.Hosting;
@@ -15,7 +16,7 @@ public sealed partial class HostCore {
 			if (_sessionStore.LoadFailure is { } failure) throw new IOException(failure);
 			_workflowDocuments.Restore(WorkflowDocumentOwners());
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) {
-			_sessionStartupNotices.Add(("error", $"Could not restore workflow document ownership; automatic cleanup is stopped: {ex.Message}"));
+			_sessionStartupNotices.Add(ToastMessage.Plain("error", $"Could not restore workflow document ownership; automatic cleanup is stopped: {ex.Message}"));
 		}
 	}
 

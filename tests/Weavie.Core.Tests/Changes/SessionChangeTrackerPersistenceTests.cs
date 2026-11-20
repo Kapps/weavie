@@ -11,7 +11,7 @@ namespace Weavie.Core.Tests;
 public sealed class SessionChangeTrackerPersistenceTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
-	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
+	private static SessionChangeTracker Tracker(IFileSystem files, IReviewPersistence persistence) =>
 		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	private static void Edit(SessionChangeTracker tracker, InMemoryFileSystem files, string content) {
@@ -201,13 +201,53 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
+	public void ReconciliationFailure_PreservesTheValidReviewAndPropagatesTheOriginalError() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		Edit(Tracker(files, persistence), files, "proposal");
+		var saved = persistence.Read();
+		var failure = new ArgumentException("Could not inspect the working file");
+		Assert.Same(failure, Assert.Throws<ArgumentException>(() => Tracker(new UnreadableFileSystem(failure), persistence)));
+		Assert.Equal(saved, persistence.Read());
+	}
+
+	[Fact]
+	public void Restart_IdentifiesUnreferencedTextAndPreservesTheReview() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		files.WriteAllText(File, "original");
+		Edit(Tracker(files, persistence), files, "proposal");
+		persistence.Save(new Dictionary<string, string?> { ["text:unused"] = "unused baseline" });
+		var saved = persistence.Read();
+
+		Assert.Contains("unreferenced saved text", Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence)).Message);
+		Assert.Equal("proposal", files.ReadAllText(File));
+		Assert.Equal(saved, persistence.Read());
+	}
+
+	[Fact]
+	public void MissingReferencedText_ReportsTheFileAndPreservesEveryRecord() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		Edit(Tracker(files, persistence), files, "proposal");
+		var missing = persistence.Read().Single(row => row.Key.StartsWith("text:", StringComparison.Ordinal) && row.Value == "proposal");
+		persistence.Save(new Dictionary<string, string?> { [missing.Key] = null, ["text:unused"] = "unused baseline" });
+		var saved = persistence.Read();
+
+		var error = Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
+		Assert.Contains($"'{File}' is missing its saved text", error.Message);
+		Assert.Equal(saved, persistence.Read());
+		Assert.Equal("proposal", files.ReadAllText(File));
+	}
+
+	[Fact]
 	public void InvalidCheckpoint_FailsWithoutChangingItsDocumentOrFiles() {
 		var files = new InMemoryFileSystem();
 		files.WriteAllText(File, "user text\n");
 		var persistence = new MemoryReviewPersistence();
 		persistence.Save(new Dictionary<string, string?> { ["metadata"] = "{invalid" });
 
-		Assert.Throws<IOException>(() => Tracker(files, persistence));
+		Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
 		Assert.Equal("{invalid", persistence.Read()["metadata"]);
 		Assert.Equal("user text\n", files.ReadAllText(File));
 	}
@@ -268,7 +308,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		string corrupted = document.ToJsonString();
 		persistence.Save(new Dictionary<string, string?> { [key] = corrupted });
 
-		Assert.Throws<IOException>(() => Tracker(files, persistence));
+		Assert.Throws<InvalidReviewCheckpointException>(() => Tracker(files, persistence));
 		Assert.Equal(corrupted, persistence.Read()[key]);
 		Assert.Equal("old\n", files.ReadAllText(File));
 	}

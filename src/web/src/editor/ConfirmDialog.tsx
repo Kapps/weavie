@@ -7,13 +7,18 @@ import { ModalShell, modalSubmitKeys, PromptButton } from "../chrome/ModalShell"
  */
 export function ConfirmDialog(props: {
   title: string;
+  destructive?: boolean;
   body: JSX.Element;
   confirmLabel: string;
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
 }): JSX.Element {
-  const onKeyDown = modalSubmitKeys(props.onConfirm, props.onCancel);
+  const submitKeys = modalSubmitKeys(props.onConfirm, props.onCancel);
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (props.destructive && event.key === "Enter") event.stopPropagation();
+    else submitKeys(event);
+  };
   return (
     <ModalShell
       title={props.title}
@@ -25,18 +30,22 @@ export function ConfirmDialog(props: {
             label={props.cancelLabel}
             shortcut="Esc"
             title={`${props.cancelLabel} (Esc)`}
+            ref={(el) => {
+              if (props.destructive) queueMicrotask(() => el.focus());
+            }}
             onClick={props.onCancel}
           />
           <PromptButton
             label={props.confirmLabel}
-            shortcut="Enter"
-            title={`${props.confirmLabel} (Enter)`}
+            shortcut={props.destructive ? "" : "Enter"}
+            title={props.destructive ? props.confirmLabel : `${props.confirmLabel} (Enter)`}
             onClick={props.onConfirm}
-            primary
+            primary={!props.destructive}
+            danger={props.destructive === true}
             class="confirm-btn-primary"
             ref={(el) => {
               // Focus the primary action so Enter/Space act on it immediately.
-              queueMicrotask(() => el.focus());
+              if (!props.destructive) queueMicrotask(() => el.focus());
             }}
           />
         </>

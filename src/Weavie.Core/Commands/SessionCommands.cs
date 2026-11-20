@@ -333,7 +333,7 @@ public static class SessionCommands {
 			Aliases = ["load session", "start session", "wake session", "resume session in background"],
 			// id-targeted (a specific dormant chip); loading the selected session is meaningless, so not in the palette.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to load in the background\"}}",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to load in the background\"},\"clearCorruptReview\":{\"type\":\"boolean\",\"description\":\"Clear a corrupt saved review only with the user confirmation\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -523,7 +523,7 @@ public static class SessionCommands {
 			dispatcher.RegisterContextualHandler(ReloadSession, (argsJson, context, ct) => host.ReloadSessionAsync(
 				GetString(argsJson, "id"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
 			dispatcher.RegisterHandler(CancelOperation, (argsJson, _) => host.CancelOperationAsync(GetString(argsJson, "id"))),
-			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), GetBool(argsJson, "clearCorruptReview"), ct)),
 			dispatcher.RegisterHandler(OpenHomeSession, (_, ct) => host.OpenHomeSessionAsync(ct)),
 			dispatcher.RegisterHandler(ForgetRepo, (argsJson, ct) => host.ForgetRepoAsync(GetString(argsJson, "repo"), ct)),
 			dispatcher.RegisterContextualHandler(

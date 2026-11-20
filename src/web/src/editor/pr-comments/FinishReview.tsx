@@ -122,7 +122,7 @@ export function FinishReview(props: { session: ClientSession; iconOnly: boolean 
             </Show>
             <Show when={confirming()}>
               <ConfirmDialog
-                title="Discard your pending review?"
+                title="Discard pending review?"
                 body={`Your ${count()} pending comment${count() === 1 ? "" : "s"} on PR #${active().number} will be deleted.`}
                 confirmLabel="Discard"
                 cancelLabel="Keep"

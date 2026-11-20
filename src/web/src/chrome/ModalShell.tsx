@@ -1,4 +1,12 @@
-import { createSignal, createUniqueId, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  children,
+  createSignal,
+  createUniqueId,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { requestModal } from "./modal-state";
 import "../editor/confirm-dialog.css";
@@ -19,11 +27,12 @@ export function modalSubmitKeys(
 }
 
 // labelledBy: the surface draws its own display heading (Getting Started).
-type ModalHeading = { title: JSX.Element } | { labelledBy: string };
+type ModalHeading = { title: string } | { labelledBy: string };
 
 export function ModalShell(
   props: ModalHeading & {
-    children: JSX.Element;
+    description?: JSX.Element;
+    children?: JSX.Element;
     actions?: JSX.Element;
     onDismiss: () => void;
     class?: string;
@@ -32,6 +41,8 @@ export function ModalShell(
 ): JSX.Element {
   const onKeyDown = props.onKeyDown;
   const titleId = createUniqueId();
+  const descriptionId = createUniqueId();
+  const description = children(() => props.description);
   const [active, setActive] = createSignal(false);
   let cancelModal = (): void => {};
   onMount(() => {
@@ -58,6 +69,7 @@ export function ModalShell(
             role="dialog"
             aria-modal="true"
             aria-labelledby={"labelledBy" in props ? props.labelledBy : titleId}
+            aria-describedby={description() ? descriptionId : undefined}
             onPointerDown={(event) => event.stopPropagation()}
           >
             <Show when={"title" in props && props}>
@@ -65,6 +77,13 @@ export function ModalShell(
                 <h2 class="ui-section-label ui-card-tag" id={titleId}>
                   {heading().title}
                 </h2>
+              )}
+            </Show>
+            <Show when={description()}>
+              {(detail) => (
+                <div id={descriptionId} class="confirm-body">
+                  {detail()}
+                </div>
               )}
             </Show>
             {props.children}

@@ -123,7 +123,8 @@ A card is a square panel on the panel tone.
   A card sets its padding through `--card-pad`, which the tag reads to stay 16px in from the side.
 - **Exception.** Getting Started is a landing surface with its own rounded look, shown inline or in a
   dialog, so it sets `--control-radius` to 4px.
-- **Dialog.** `ModalShell` renders the tag from `title`, the body at a 16px inset, and
+- **Dialog.** Aim for two or three words in the title. Put names, scope and consequences in the optional
+  `description` below it. `ModalShell` renders the tag from `title`, the body at a 16px inset, and
   `footer.confirm-actions`, which bleeds through `--card-pad`. A surface that draws its own display heading
   passes `labelledBy` instead of `title`. Controls that belong beside the title (a host picker, a close
   button) are the body's first row.

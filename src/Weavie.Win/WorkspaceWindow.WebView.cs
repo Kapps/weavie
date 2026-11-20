@@ -22,7 +22,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		} catch (Exception ex) {
 			Console.Error.WriteLine($"[weavie] initialization failed: {ex}");
 			if (!_closing) {
-				MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				MessageBox.Show(this, ex.ToString(), "Weavie Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
 			}
 		}
 	}

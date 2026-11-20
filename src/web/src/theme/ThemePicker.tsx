@@ -20,8 +20,6 @@ export function ThemePicker() {
 function Picker(props: { opened: ThemePickerState }) {
   const m = createThemePicker(props.opened);
   const title = m.target === "editor" ? "Select Editor Theme" : "Select Color Theme";
-  // The editor theme is saved per polarity, so say which one Apply sets.
-  const mode = m.target === "editor" ? ` (${currentThemeType()} mode)` : "";
   const focusBefore = document.activeElement;
   let input!: HTMLInputElement;
   onCleanup(() => {
@@ -89,14 +87,8 @@ function Picker(props: { opened: ThemePickerState }) {
 
   return (
     <ModalShell
-      title={
-        <>
-          {title}
-          <Show when={mode}>
-            <small>{mode}</small>
-          </Show>
-        </>
-      }
+      title={title}
+      description={m.target === "editor" ? `Applies to ${currentThemeType()} mode.` : undefined}
       actions={
         <>
           <Show when={m.reset}>

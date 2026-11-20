@@ -29,7 +29,22 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
   const onKeyDown = modalSubmitKeys(() => void submit(), props.onClose);
   return (
     <ModalShell
-      title={`Connect ${props.prompt.displayName}`}
+      title="Connect service"
+      description={
+        <>
+          Create your {props.prompt.displayName} {props.prompt.keyNoun} at{" "}
+          <a
+            href={props.prompt.keyPageUrl}
+            onClick={(event) => {
+              event.preventDefault();
+              openUrlExternal(props.prompt.keyPageUrl);
+            }}
+          >
+            {props.prompt.keyPageUrl}
+          </a>
+          , then paste it here.
+        </>
+      }
       actions={
         <>
           <PromptButton
@@ -52,19 +67,6 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-body">
-        Create your {props.prompt.keyNoun} at{" "}
-        <a
-          href={props.prompt.keyPageUrl}
-          onClick={(event) => {
-            event.preventDefault();
-            openUrlExternal(props.prompt.keyPageUrl);
-          }}
-        >
-          {props.prompt.keyPageUrl}
-        </a>
-        , then paste it here.
-      </div>
       <input
         class="session-prompt-input ui-field ui-field-mono"
         type="password"

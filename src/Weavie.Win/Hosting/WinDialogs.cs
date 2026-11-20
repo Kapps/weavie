@@ -20,7 +20,7 @@ internal sealed class WinDialogs : IHostDialogs {
 		Run(() => {
 			try {
 				using var dialog = new OpenFileDialog {
-					Title = "Install Theme from .vsix",
+					Title = "Install VSIX Theme",
 					Filter = "VS Code extension (*.vsix)|*.vsix|All files (*.*)|*.*",
 					CheckFileExists = true,
 				};

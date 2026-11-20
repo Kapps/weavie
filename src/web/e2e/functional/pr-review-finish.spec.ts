@@ -93,7 +93,7 @@ test("discarding the pending review asks first and deletes every draft", async (
   await commentOnLine(page, 5, "A draft to throw away.", "Start review");
 
   await runCommand(page, "Discard Pending Review");
-  const dialog = page.getByRole("dialog").filter({ hasText: "Discard your pending review?" });
+  const dialog = page.getByRole("dialog", { name: "Discard pending review?", exact: true });
   await expect(dialog).toContainText("Your 1 pending comment on PR #101 will be deleted.");
   await dialog.getByRole("button", { name: "Discard" }).click();
 

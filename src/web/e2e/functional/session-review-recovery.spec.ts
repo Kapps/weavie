@@ -7,7 +7,7 @@ test("opening a parked branch confirms clearing its damaged review from the Sess
   page,
   weavie,
 }) => {
-  const branch = "feature/review-recovery";
+  const branch = "feature/workflow-notion-spec-brainstorm";
   await createSession(page, { branch, provider: "claude" });
   const slot = await activeSessionSlot(page);
   await runCommand(page, "Unload Session");
@@ -26,8 +26,10 @@ test("opening a parked branch confirms clearing its damaged review from the Sess
   await existing.fill(branch);
   await open.click();
   const confirmation = page.getByRole("dialog", {
-    name: `Clear the saved review for “${branch}”?`,
+    name: "Clear saved review?",
+    exact: true,
   });
+  await expect(confirmation).toHaveAccessibleDescription(new RegExp(branch));
   await expect(confirmation.getByRole("button", { name: /Cancel/ })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(confirmation).toBeHidden();

@@ -42,7 +42,7 @@ it.each([
   const address = { slot: "parked", incarnation: "new" };
   invoke.mockResolvedValueOnce({ ok: true, data: { address } });
   const load = invokeHostSessionCommand("remote", command, { id: "parked" });
-  await vi.waitFor(() => expect(confirmationRequest()?.title).toContain("design"));
+  await vi.waitFor(() => expect(confirmationRequest()?.body).toContain("design"));
   settleConfirmation(true);
   expect(await load).toEqual({
     ok: true,

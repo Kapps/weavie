@@ -31,7 +31,8 @@ const string missingAudioSink =
 	+ "Debian/Ubuntu: gstreamer1.0-plugins-good\nFedora: gstreamer1-plugins-good\nArch: gst-plugins-good";
 if (!GStreamer.HasAutoAudioSink()) {
 	IntPtr dialog = Gtk.gtk_alert_dialog_new(IntPtr.Zero);
-	Gtk.gtk_alert_dialog_set_message(dialog, missingAudioSink);
+	Gtk.gtk_alert_dialog_set_message(dialog, "Missing Audio Plugin");
+	Gtk.gtk_alert_dialog_set_detail(dialog, missingAudioSink);
 	Gtk.gtk_alert_dialog_set_modal(dialog, true);
 	_ = MainLoopWait.For(
 		callback => Gtk.gtk_alert_dialog_choose(dialog, IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero),

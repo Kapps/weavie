@@ -5,11 +5,6 @@ namespace Weavie.Core.Configuration;
 /// <c>theme.light</c> / <c>theme.dark</c> theme ids, and the optional per-polarity code-editor themes
 /// <c>theme.editorLight</c> / <c>theme.editorDark</c> (empty follows the app theme). Per-color OVERRIDES are deliberately not settings — they
 /// live in <c>~/.weavie/theme-overrides.json</c> (see <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>).
-/// <para>
-/// The web layer is authoritative for rendering: it resolves <c>system</c> against the live
-/// <c>prefers-color-scheme</c>. Core can't see the OS setting, so for override targeting it resolves
-/// <c>system</c> to the dark slot — Weavie's default polarity (see <see cref="ResolveActiveThemeId"/>).
-/// </para>
 /// </summary>
 public static class ThemeSettings {
 	/// <summary>The default dark theme id — the built-in "Weavie Dark" (must match the web's <c>WEAVIE_DARK_ID</c>).</summary>
@@ -20,9 +15,6 @@ public static class ThemeSettings {
 
 	/// <summary>The default appearance mode — follow the OS light/dark setting.</summary>
 	public const string DefaultMode = "system";
-
-	/// <summary>Default theme id (the dark slot), for callers that need a built-in fallback.</summary>
-	public const string DefaultThemeId = DefaultDarkThemeId;
 
 	/// <summary>Setting key: the appearance mode (<c>system</c>/<c>light</c>/<c>dark</c>).</summary>
 	public const string ModeKey = "theme.mode";
@@ -134,12 +126,16 @@ public static class ThemeSettings {
 	}
 
 	/// <summary>
-	/// The concrete theme id Core treats as "active" for per-theme overrides. Core can't see
-	/// <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's default polarity).
+	/// The theme on screen: the mode's theme, or in <c>system</c> mode the theme for the polarity a page reports
+	/// <paramref name="showing"/>. Null in <c>system</c> mode while no page reports one.
 	/// </summary>
-	public static string ResolveActiveThemeId(SettingsStore settings) {
+	public static string? ActiveThemeId(SettingsStore settings, string? showing) {
 		ArgumentNullException.ThrowIfNull(settings);
-		return Mode(settings) == "light" ? LightThemeId(settings) : DarkThemeId(settings);
+		return (Mode(settings) is "system" ? showing : Mode(settings)) switch {
+			"light" => LightThemeId(settings),
+			"dark" => DarkThemeId(settings),
+			_ => null,
+		};
 	}
 
 	/// <summary>True if <paramref name="themeId"/> is one of the selected app or editor theme ids — an

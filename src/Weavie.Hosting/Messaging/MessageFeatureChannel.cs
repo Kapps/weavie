@@ -183,6 +183,9 @@ internal sealed class MessagePeer {
 	/// <summary>The home the page named in its hello on the host bus; unset until that hello.</summary>
 	internal PageHome? Home { get; set; }
 
+	/// <summary>The polarity a page this host serves last reported showing, with the order it was reported in.</summary>
+	internal PageShowing? Showing { get; set; }
+
 	/// <summary>False from the moment the page disconnects, before any disconnect handler runs.</summary>
 	internal bool IsConnected => Volatile.Read(ref _connected);
 

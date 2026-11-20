@@ -14,13 +14,12 @@ import {
   log,
   onSelectedSession,
   registerHostFeature,
-  registerSessionFeature,
   registerViewFeature,
   selectedSession,
   waitForClientSession,
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
-import { requireSessionAddress } from "../messaging/message-envelope";
+import { requireSessionAddress, type SessionAddress } from "../messaging/message-envelope";
 import { notify, sessionRestoreKey } from "../notify/notify";
 import { invokeHostSessionCommand } from "./session-recovery";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
@@ -654,22 +653,32 @@ registerViewFeature((session) =>
     ),
 );
 
-registerSessionFeature((session) =>
-  session
-    .feature("commands")
-    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("runClient", ({ id, args }) => {
-      const command = findCommandInCatalog(LOCAL_BACKEND_ID, id);
-      if (command?.owner !== "client") {
-        return Promise.resolve({
-          ok: false,
-          error: `Command '${id}' is not owned by the local presentation client.`,
-        });
-      }
-      return dispatchFromCatalog(
-        LOCAL_BACKEND_ID,
-        id,
-        args,
-        captureScope(session, new Map(), args),
-      );
-    }),
+// A client-owned command an agent runs on this page's device, in the context of the agent's session.
+registerHostFeature((connection) =>
+  connection.host
+    .feature("device")
+    .handleConcurrent<{ id: string; args: unknown; session: SessionAddress }, CommandResult>(
+      "command",
+      ({ id, args, session: address }) => {
+        if (findCommandInCatalog(LOCAL_BACKEND_ID, id)?.owner !== "client") {
+          return Promise.resolve({
+            ok: false,
+            error: `Command '${id}' doesn't belong to the device.`,
+          });
+        }
+        const session = connection.session(address);
+        if (session === undefined) {
+          return Promise.resolve({
+            ok: false,
+            error: "This page doesn't have the agent's session.",
+          });
+        }
+        return dispatchFromCatalog(
+          LOCAL_BACKEND_ID,
+          id,
+          args,
+          captureScope(session, new Map(), args),
+        );
+      },
+    ),
 );

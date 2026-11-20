@@ -7,23 +7,11 @@ namespace Weavie.Core.Configuration;
 /// <summary>One settings tool call: <c>list</c>, <c>get</c>, <c>set</c> or <c>clear</c>.</summary>
 public sealed record SettingsRequest(string Operation, string? Key, JsonElement? Value);
 
-/// <summary>A settings tool's answer: the text for the agent, and whether it is an error.</summary>
-public sealed record SettingsReply(string Text, bool IsError);
-
-/// <summary>The device settings of the device a session belongs to. See <c>docs/specs/settings-ownership.md</c>.</summary>
-public interface IDeviceSettings {
-	/// <summary>Answers <paramref name="request"/> at the device's home, or throws <see cref="DeviceUnavailableException"/>.</summary>
-	Task<SettingsReply> RequestAsync(SettingsRequest request, CancellationToken ct);
-}
-
-/// <summary>A session's device has no page connected to carry a request to its home.</summary>
-public sealed class DeviceUnavailableException(string message) : Exception(message);
-
 /// <summary>
 /// The settings tools over one host's store, split by owner: the device keys this host is home to, and the
 /// machine and repo keys it runs sessions with. Neither side answers for the other's keys.
 /// </summary>
-public sealed class SettingsTools : IDeviceSettings {
+public sealed class SettingsTools {
 	private readonly SettingsStore _store;
 
 	/// <summary>Creates the tools over <paramref name="store"/> on the host named <paramref name="hostName"/>.</summary>
@@ -42,19 +30,16 @@ public sealed class SettingsTools : IDeviceSettings {
 		_store.Registry.TryGet(key, out var definition) && definition.Owner != SettingOwner.Device;
 
 	/// <summary>Answers for this host's device settings; a machine or repo key is refused.</summary>
-	public SettingsReply Device(SettingsRequest request) => Run(request, repoRoot: null);
+	public ToolReply Device(SettingsRequest request) => Run(request, repoRoot: null);
 
 	/// <summary>Answers for this host's machine settings and <paramref name="repoRoot"/>'s repo settings; a device key is refused.</summary>
-	public SettingsReply Machine(SettingsRequest request, string repoRoot) {
+	public ToolReply Machine(SettingsRequest request, string repoRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(repoRoot);
 		return Run(request, repoRoot);
 	}
 
-	/// <inheritdoc/>
-	public Task<SettingsReply> RequestAsync(SettingsRequest request, CancellationToken ct) => Task.FromResult(Device(request));
-
 	/// <summary>Joins a machine index with the device's, or with the reason the device's is missing.</summary>
-	public static string JoinIndexes(SettingsReply machine, SettingsReply device) {
+	public static string JoinIndexes(ToolReply machine, ToolReply device) {
 		ArgumentNullException.ThrowIfNull(machine);
 		ArgumentNullException.ThrowIfNull(device);
 		using var machineIndex = JsonDocument.Parse(machine.Text);
@@ -84,7 +69,7 @@ public sealed class SettingsTools : IDeviceSettings {
 	}
 
 	// repoRoot is null for the device side, which has no repo overlay.
-	private SettingsReply Run(SettingsRequest request, string? repoRoot) {
+	private ToolReply Run(SettingsRequest request, string? repoRoot) {
 		ArgumentNullException.ThrowIfNull(request);
 		bool device = repoRoot is null;
 		try {

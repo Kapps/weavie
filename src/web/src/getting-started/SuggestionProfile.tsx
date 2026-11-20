@@ -1,16 +1,12 @@
 import { AlertTriangle } from "lucide-solid";
 import { createSignal, type JSX, onMount, Show } from "solid-js";
 import type { InferenceChoices } from "../bridge";
-import { homeFeature } from "../bridge";
 import { ControlBar } from "../chrome/ControlBar";
-import { writeSetting } from "./state";
+import { setupFeature, writeSetting } from "./state";
 import type { SetupRun } from "./steps";
 
 /** What suggestions run on: agent, model, effort, and Fast Mode pickers whose options the agent itself reports. */
-export function SuggestionProfile(props: {
-  disabled: boolean;
-  attempt: SetupRun["attempt"];
-}): JSX.Element {
+export function SuggestionProfile(props: { disabled: boolean; run: SetupRun }): JSX.Element {
   const [choices, setChoices] = createSignal<InferenceChoices>();
   const [loading, setLoading] = createSignal(true);
   let asked = 0;
@@ -18,16 +14,19 @@ export function SuggestionProfile(props: {
     const turn = ++asked;
     setLoading(true);
     try {
-      const next = await homeFeature("inferenceControls").request<InferenceChoices>("get", {});
+      const next = await setupFeature(
+        props.run.machine,
+        "inferenceControls",
+      ).request<InferenceChoices>("get", {});
       if (turn === asked) setChoices(next);
     } finally {
       if (turn === asked) setLoading(false);
     }
   };
-  onMount(() => props.attempt(ask));
+  onMount(() => props.run.attempt(ask));
   const pick = (key: string, value: string) => {
-    props.attempt(async () => {
-      await writeSetting(key, value);
+    props.run.attempt(async () => {
+      await writeSetting(props.run.machine, key, value);
       await ask();
     });
   };
@@ -52,7 +51,7 @@ export function SuggestionProfile(props: {
             <AlertTriangle aria-hidden="true" />
             <span>{choices()?.error ? `Couldn't get the options: ${problem()}` : problem()}</span>
             <Show when={choices()?.error}>
-              <button type="button" class="gs-link" onClick={() => props.attempt(ask)}>
+              <button type="button" class="gs-link" onClick={() => props.run.attempt(ask)}>
                 Try again
               </button>
             </Show>

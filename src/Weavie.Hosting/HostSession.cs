@@ -37,8 +37,8 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession : IAsyncDisposable {
 	private readonly CapabilityRegistryHost _registry;
 
-	/// <summary>Test seam for the device settings of the device this session belongs to.</summary>
-	internal IDeviceSettings DeviceSettingsForTest { get; }
+	/// <summary>Test seam for the device this session belongs to.</summary>
+	internal IDevice DeviceForTest { get; }
 
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
@@ -86,7 +86,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(paths);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentNullException.ThrowIfNull(owner);
-		DeviceSettingsForTest = owner.DeviceSettings;
+		DeviceForTest = owner.Device;
 		var settings = services.Settings;
 		string workspaceRoot = paths.WorkspaceRoot;
 
@@ -217,15 +217,13 @@ public sealed partial class HostSession : IAsyncDisposable {
 			"weavie",
 			new McpCapabilities {
 				ExposeIdeTools = exposeRegistryIdeTools,
-				Settings = settings,
 				SettingsWorkspaceRoot = Repo.Root,
 				SettingsTools = services.SettingsTools,
-				DeviceSettings = owner.DeviceSettings,
+				Device = owner.Device,
 				Layout = services.Layout,
 				Editor = Editor,
 				Commands = Commands,
 				Keybindings = services.Keybindings,
-				ThemeOverrides = services.ThemeOverrides,
 				Sessions = owner.Peers,
 				Agents = services.AgentConsultation,
 				ReviewHints = ReviewHints,

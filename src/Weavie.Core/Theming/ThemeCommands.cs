@@ -21,15 +21,18 @@ public static class ThemeCommands {
 	/// Registers the theme verb command handlers onto <paramref name="dispatcher"/>.
 	/// <paramref name="pickVsixFile"/> supplies the native <c>.vsix</c> picker for install-from-file with no
 	/// <c>path</c> argument; pass null on a host without one (the command then requires an explicit <c>path</c>).
+	/// Undo and reset edit the theme <paramref name="themes"/> targets.
 	/// </summary>
 	public static void RegisterHandlers(
 		CommandDispatcher dispatcher,
 		SettingsStore settings,
 		ThemeOverridesStore overrides,
+		ThemeTools themes,
 		VsixFilePicker? pickVsixFile) {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(overrides);
+		ArgumentNullException.ThrowIfNull(themes);
 
 		dispatcher.RegisterHandler(CoreCommands.InstallTheme, (argsJson, ct) =>
 			InstallFromOpenVsxAsync(argsJson, settings, ct));
@@ -38,9 +41,13 @@ public static class ThemeCommands {
 		dispatcher.RegisterHandler(CoreCommands.CycleThemeMode, (_, _) =>
 			Task.FromResult(CycleMode(settings)));
 		dispatcher.RegisterHandler(CoreCommands.UndoThemeOverride, (argsJson, _) =>
-			Task.FromResult(UndoOverride(argsJson, settings, overrides)));
+			Task.FromResult(OnTarget(argsJson, themes, theme => overrides.UndoLast(theme)
+				? $"Undid the last override on theme '{theme}'."
+				: $"Theme '{theme}' has no overrides to undo.")));
 		dispatcher.RegisterHandler(CoreCommands.ResetTheme, (argsJson, _) =>
-			Task.FromResult(Reset(argsJson, settings, overrides)));
+			Task.FromResult(OnTarget(argsJson, themes, theme => overrides.Clear(theme)
+				? $"Cleared all overrides on theme '{theme}'."
+				: $"Theme '{theme}' had no overrides.")));
 	}
 
 	/// <summary>Installs a theme extension from Open VSX; args carry its <c>namespace</c>, <c>name</c>, and optional <c>version</c>.</summary>
@@ -171,35 +178,17 @@ public static class ThemeCommands {
 		}
 	}
 
-	// The polarity ("light"/"dark") of a theme id: a built-in's declared type, or an installed theme's VS Code
-	// uiTheme ("vs"/"hc-light" → light; otherwise dark). Null when the id is unknown.
-	private static string? ThemePolarity(string id) {
-		foreach (var (builtInId, _, type) in BuiltInThemes.All) {
-			if (builtInId == id) {
-				return type == "light" ? "light" : "dark";
-			}
+	// The polarity ("light"/"dark") of a built-in or installed theme id; null when the id is unknown.
+	private static string? ThemePolarity(string id) => ThemeCatalog.List().FirstOrDefault(theme => theme.Id == id)?.Type;
+
+	// Runs an override edit on the theme the args name, else the theme on screen.
+	private static CommandResult OnTarget(string? argsJson, ThemeTools themes, Func<string, string> edit) {
+		using var args = ParseArgs(argsJson);
+		try {
+			return CommandResult.Success(edit(themes.Target(args?.RootElement ?? default)));
+		} catch (DeviceUnavailableException ex) {
+			return CommandResult.Failure(ex.Message);
 		}
-
-		var installed = OpenVsxThemeInstaller.ListInstalled().FirstOrDefault(theme => theme.Id == id);
-		if (installed is null) {
-			return null;
-		}
-
-		return installed.UiTheme is "vs" or "hc-light" ? "light" : "dark";
-	}
-
-	private static CommandResult UndoOverride(string? argsJson, SettingsStore settings, ThemeOverridesStore overrides) {
-		string active = TargetThemeId(argsJson, settings);
-		return CommandResult.Success(overrides.UndoLast(active)
-			? $"Undid the last override on theme '{active}'."
-			: $"Theme '{active}' has no overrides to undo.");
-	}
-
-	private static CommandResult Reset(string? argsJson, SettingsStore settings, ThemeOverridesStore overrides) {
-		string active = TargetThemeId(argsJson, settings);
-		return CommandResult.Success(overrides.Clear(active)
-			? $"Cleared all overrides on theme '{active}'."
-			: $"Theme '{active}' had no overrides.");
 	}
 
 	// Shared install reporting: report what was added, and for the interactive picker flow with a single
@@ -222,15 +211,6 @@ public static class ThemeCommands {
 		return CommandResult.Success(
 			$"Installed {installed.Count} theme(s) from {source}: {ids}. Run weavie.theme.select to switch.");
 	}
-
-	// The theme an override command edits: the explicit 'theme' arg (e.g. the editor theme), else the active app theme.
-	private static string TargetThemeId(string? argsJson, SettingsStore settings) {
-		using var args = ParseArgs(argsJson);
-		return GetString(args, "theme") is { Length: > 0 } id ? id : ActiveThemeId(settings);
-	}
-
-	private static string ActiveThemeId(SettingsStore settings) =>
-		ThemeSettings.ResolveActiveThemeId(settings);
 
 	private static void SetString(SettingsStore settings, string key, string value) =>
 		settings.Set(key, JsonSerializer.SerializeToElement(value, CoreJson.Default.String));

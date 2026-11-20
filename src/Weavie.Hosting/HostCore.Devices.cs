@@ -1,16 +1,30 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// Device settings: this host answers for the pages it serves, and relays a session's device requests to a page
+// Devices: this host answers device tools for the pages it serves, and relays a session's device requests to a page
 // from that device's home. See docs/specs/settings-ownership.md.
 public sealed partial class HostCore {
-	private void WireDeviceMessages() =>
-		_messages.Host.Feature("device").Handle(
-			"settings", MessageActivity.ActionFailed("Reaching device settings"), WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply,
-			(request, _) => Task.FromResult(_settingsTools.Device(request)));
+	private void WireDeviceMessages() {
+		var device = _messages.Host.Feature("device");
+		device.Handle(
+			"settings", MessageActivity.ActionFailed("Reaching device settings"), WireJson.Default.SettingsRequest, WireJson.Default.ToolReply,
+			(request, ct) => _homeDevice.SettingsAsync(request, ct));
+		device.Handle(
+			"themes", MessageActivity.ActionFailed("Reaching device themes"), WireJson.Default.ThemeRequest, WireJson.Default.ToolReply,
+			(request, ct) => _homeDevice.ThemesAsync(request, ct));
+		device.Handle(
+			"keybindings", MessageActivity.ActionFailed("Reading device key bindings"), WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding,
+			(_, ct) => _homeDevice.KeybindingsAsync(ct));
+		device.HandleOwned("showing", MessageActivity.Droppable("Noting the theme on screen"), WireJson.Default.ThemeShowing, (message, page, _) => {
+			_messages.Show(page, message.Polarity);
+			return Task.CompletedTask;
+		});
+	}
 
 	private SessionDevice NewDevice(DeviceIdentity? home) {
 		var device = new SessionDevice();
@@ -38,23 +52,67 @@ public sealed partial class HostCore {
 			&& userInitiated.ValueKind == JsonValueKind.True,
 	};
 
-	private sealed class BoundDeviceSettings(HostCore core, SessionDevice device) : IDeviceSettings {
-		public async Task<SettingsReply> RequestAsync(SettingsRequest request, CancellationToken ct) {
+	/// <summary>The polarity a page reports it is showing: <c>light</c> or <c>dark</c>.</summary>
+	internal sealed record ThemeShowing(string Polarity);
+
+	/// <summary>A client-owned command for a device's page to run in the context of <paramref name="Session"/>.</summary>
+	internal sealed record DeviceCommandRequest(string Id, JsonElement? Args, SessionAddress Session);
+
+	// The device of the session at `session`: its home answers device tools, and one of its pages runs commands.
+	private sealed class BoundDevice(HostCore core, SessionDevice device, SessionAddress session) : IDevice {
+		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.SettingsAsync(request, ct), "settings", WireJson.Default.SettingsRequest, WireJson.Default.ToolReply, request, ct);
+
+		public Task<ToolReply> ThemesAsync(ThemeRequest request, CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.ThemesAsync(request, ct), "themes", WireJson.Default.ThemeRequest, WireJson.Default.ToolReply, request, ct);
+
+		public Task<IReadOnlyList<ResolvedKeybinding>> KeybindingsAsync(CancellationToken ct) => AtHomeAsync(
+			() => core._homeDevice.KeybindingsAsync(ct), "keybindings", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListResolvedKeybinding, EmptyPayload.Value, ct);
+
+		// A client-owned command an agent runs: a page of the device runs it, as that page's own palette would.
+		public async Task<CommandResult> CommandAsync(string id, string? argsJson, CancellationToken ct) {
+			bool deadline = core._commandRegistry.Require(id).OnTimeout != OperationSeverity.NoDeadline;
+			var request = CommandRequest.Of(id, argsJson);
+			try {
+				return FromWireResult(await PageAsync(
+					device.Current, "command", WireJson.Default.DeviceCommandRequest, WireJson.Default.CommandWireResult,
+					new DeviceCommandRequest(id, request.Args, session), deadline, ct).ConfigureAwait(false));
+			} catch (DeviceUnavailableException unavailable) {
+				return CommandResult.Failure(unavailable.Message);
+			}
+		}
+
+		// Opens a URL on a page of the device, as that page's own click would; with none open there's nobody to show it to.
+		public void OpenUrl(string url) {
 			var (home, claimant) = device.Current;
-			if (home is null) {
-				return core._settingsTools.Device(request);
+			if (core._messages.PageFrom(home, claimant) is { } page && core._messages.Host.TryGetPeer(page, out var peer)) {
+				core._messages.Host.Feature("device").Target(peer).Publish("openUrl", WireJson.Default.OpenUrlMessage, new(url));
 			}
+		}
 
+		// This host answers for its own device; any other device's home answers through one of its pages.
+		private Task<TResponse> AtHomeAsync<TRequest, TResponse>(
+			Func<Task<TResponse>> here, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, CancellationToken ct) {
+			var claim = device.Current;
+			return claim.Home is null ? here() : PageAsync(claim, name, requestType, responseType, request, deadline: true, ct);
+		}
+
+		private async Task<TResponse> PageAsync<TRequest, TResponse>(
+			(DeviceIdentity? Home, WebPeer? Page) claim, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType,
+			TRequest request, bool deadline, CancellationToken ct) {
+			var (home, claimant) = claim;
+			string here = core._settingsTools.HostName;
+			string there = home?.Name ?? here;
 			if (core._messages.PageFrom(home, claimant) is not { } page) {
-				throw new DeviceUnavailableException(
-					$"{home.Name} isn't connected to {core._settingsTools.HostName}, so its device settings can't be read or changed from this session.");
+				throw new DeviceUnavailableException(home is null
+					? $"No page from {here} is open, so its device can't be reached from this session."
+					: $"{there} isn't connected to {here}, so its device can't be reached from this session.");
 			}
 
-			using var timeout = new CancellationTokenSource(core._operationDeadline, core._time);
+			using var timeout = deadline ? new CancellationTokenSource(core._operationDeadline, core._time) : new CancellationTokenSource();
 			using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
 			try {
-				var answer = core._messages.Host.RequestAsync(
-					page, "device", "settings", WireJson.Default.SettingsRequest, WireJson.Default.SettingsReply, request, either.Token);
+				var answer = core._messages.Host.RequestAsync(page, "device", name, requestType, responseType, request, either.Token);
 				// A page that left before the request was registered would never settle it.
 				if (!core._messages.TryGetHome(page, out _)) {
 					await either.CancelAsync().ConfigureAwait(false);
@@ -62,11 +120,11 @@ public sealed partial class HostCore {
 
 				return await answer.ConfigureAwait(false);
 			} catch (InvalidOperationException failure) when (core._messages.TryGetHome(page, out _)) {
-				throw new DeviceUnavailableException($"{home.Name} couldn't answer: {failure.Message}");
+				throw new DeviceUnavailableException($"{there} couldn't answer: {failure.Message}");
 			} catch (Exception gone) when (gone is InvalidOperationException or OperationCanceledException && !ct.IsCancellationRequested) {
 				throw new DeviceUnavailableException(timeout.IsCancellationRequested
-					? $"{home.Name} didn't answer within {core._operationDeadline.TotalSeconds:0} seconds; the setting may or may not have changed."
-					: $"{home.Name} disconnected before it answered; the setting may or may not have changed.");
+					? $"{there} didn't answer within {core._operationDeadline.TotalSeconds:0} seconds; it may or may not have taken effect."
+					: $"{there} disconnected before it answered; it may or may not have taken effect.");
 			}
 		}
 	}

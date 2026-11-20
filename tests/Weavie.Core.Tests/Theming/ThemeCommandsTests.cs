@@ -16,12 +16,14 @@ public sealed class ThemeCommandsTests : IDisposable {
 	private readonly SettingsStore _settings;
 	private readonly ThemeOverridesStore _overrides;
 	private readonly CommandDispatcher _dispatcher;
+	private readonly TestScreen _screen = new() { Showing = "dark" };
 
 	public ThemeCommandsTests() {
 		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		_overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		_dispatcher = new CommandDispatcher(CoreCommands.CreateRegistry());
-		ThemeCommands.RegisterHandlers(_dispatcher, _settings, _overrides, pickVsixFile: null);
+		ThemeCommands.RegisterHandlers(
+			_dispatcher, _settings, _overrides, new ThemeTools(_settings, _overrides, _screen, "laptop"), pickVsixFile: null);
 	}
 
 	public void Dispose() {
@@ -149,6 +151,30 @@ public sealed class ThemeCommandsTests : IDisposable {
 		Assert.Contains("'weavie-light'", undone.Message, StringComparison.Ordinal);
 		Assert.Empty(_overrides.Get("weavie-light"));
 		Assert.Single(_overrides.Get("weavie-dark")); // the dark slot is untouched in light mode
+	}
+
+	[Fact]
+	public async Task Undo_InSystemMode_TargetsThePolarityOnScreen() {
+		_screen.Showing = "light";
+		_overrides.Append("weavie-light", new ThemeOverrideSet { Key = "editor.background", Value = "#ffffff" });
+		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
+
+		var undone = await Run(CoreCommands.UndoThemeOverride);
+
+		Assert.Contains("'weavie-light'", undone.Message, StringComparison.Ordinal);
+		Assert.Single(_overrides.Get("weavie-dark"));
+	}
+
+	[Fact]
+	public async Task Reset_InSystemMode_FailsWithNoPageOpen() {
+		_screen.Showing = null;
+		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
+
+		var reset = await Run(CoreCommands.ResetTheme);
+
+		Assert.False(reset.Ok);
+		Assert.StartsWith("No page from laptop is open", reset.Error, StringComparison.Ordinal);
+		Assert.Single(_overrides.Get("weavie-dark"));
 	}
 
 	[Fact]

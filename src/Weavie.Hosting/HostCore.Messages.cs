@@ -27,13 +27,13 @@ public sealed partial class HostCore {
 				return Task.FromResult(new ResponseWithCompletion<HostHello>(
 					BuildHello(home),
 					_ => {
-						// Getting Started covers inference, so the tip and inference offer wait until setup is done.
-						// Setup and the tip are a device's own, so only a page this host serves is offered them.
-						if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
-							if (home) OfferStartupTip();
-							OfferAutomaticInference();
-						} else if (home) {
+						// Setup and the tip are a device's own, so only a page this host serves is offered them. Setup
+						// covers this machine's inference, so a page from here gets the inference offer once set up.
+						if (home && !_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
 							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
+						} else {
+							if (home) OfferStartupTip();
+							OfferAutomaticInference(home ? null : page);
 						}
 
 						return Task.CompletedTask;

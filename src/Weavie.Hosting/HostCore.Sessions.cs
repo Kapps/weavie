@@ -42,7 +42,6 @@ public sealed partial class HostCore {
 		};
 		session.Editor.Changed += editor => RecordRecentFile(session, editor);
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
-		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		RegisterShellTerminalHandlers(session);
 		// Succeeds only once the restart has happened, so the caller never acts on the agent it replaced.
 		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, ct) =>
@@ -534,7 +533,6 @@ public sealed partial class HostCore {
 		Layout = _layout,
 		CommandRegistry = _commandRegistry,
 		Keybindings = _keybindings,
-		ThemeOverrides = _themeOverrides,
 		Inference = _inference,
 		AgentConsultation = _agentConsultation,
 		PtyLauncher = _platform.PtyLauncher,
@@ -558,6 +556,7 @@ public sealed partial class HostCore {
 		var endpoint = _messages.OpenSession(address);
 		endpoint.Bus.ReloadRequiredChanged += () => _ui.Post(PushSessionList);
 		HostSession? session = null;
+		var device = new BoundDevice(this, slot.Device, address);
 		try {
 			session = new HostSession(
 				endpoint,
@@ -567,7 +566,7 @@ public sealed partial class HostCore {
 				_sessionServices,
 				new SessionOwner {
 					Peers = new BoundSessionPeers(this, address, side: null),
-					DeviceSettings = new BoundDeviceSettings(this, slot.Device),
+					Device = device,
 					InputFrozen = () => _drainInputFrozen,
 					AcceptTerminalInput = (userInitiated, accept) => TryAcceptInput(slotId, userInitiated, accept),
 					ShellResized = _sessionStore.RecordShellSize,
@@ -581,6 +580,7 @@ public sealed partial class HostCore {
 
 			session.DisplayLabel = label;
 			TrackDevice(session, slot.Device);
+			session.Commands.ClientInvoker = device.CommandAsync;
 			WireSession(session);
 			_fileRoutes.Register(session.Incarnation, session.WorkspaceRoot);
 			LogStartup($"session {slotId}: constructed");

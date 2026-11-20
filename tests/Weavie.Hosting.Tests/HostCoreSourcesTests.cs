@@ -86,7 +86,7 @@ public sealed class HostCoreSourcesTests {
 		// Not connected: instead of a blank tab or an easy-to-miss error toast, the user is sent to connect.
 		var prompt = await Wait.ForAsync(() => host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt"));
 		Assert.Equal("notion", prompt.GetProperty("id").GetString());
-		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
+		Assert.Equal("https://app.notion.com/developers/tokens", HostCoreCredentialsTests.OpenedOnDevice(host));
 		Assert.Null(SourceEvent(host, "document"));
 	}
 

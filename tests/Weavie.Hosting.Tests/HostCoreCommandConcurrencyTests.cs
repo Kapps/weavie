@@ -11,6 +11,8 @@ public sealed class HostCoreCommandConcurrencyTests {
 	public async Task ThemePickerDoesNotBlockAnotherHostCommand() {
 		var dialogs = new BlockingDialogs();
 		await using var host = await TestHost.StartWithDialogsAsync(dialogs);
+		host.Bridge.Receive(new WebPeer(TestHost.TestPageId), MessageEnvelope.Event(
+			MessageScope.Host, null, "device", "showing", JsonSerializer.SerializeToElement(new { polarity = "dark" })).ToJson());
 		try {
 			host.Bridge.Receive(
 				new WebPeer(TestHost.TestPageId),

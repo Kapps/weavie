@@ -49,12 +49,12 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SettingsStore _settings;
 	private readonly DeviceIdentity _device;
 	private readonly SettingsTools _settingsTools;
+	private readonly HomeDevice _homeDevice;
 	private readonly TimeSpan _operationDeadline;
 	private readonly CommandRegistry _commandRegistry;
 	private readonly CommandDispatcher _clientCommands;
 	private readonly SuggestionRegistry _suggestionRegistry;
 	private readonly KeybindingStore _keybindings;
-	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
 	private readonly AcpSessionStore _acpSessions;
 	private readonly AgentProviderRegistry _agentProviders;
@@ -188,14 +188,15 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
-		ThemeCommands.RegisterHandlers(_clientCommands, _settings, services.ThemeOverrides, VsixPicker);
+		var themeTools = new ThemeTools(_settings, services.ThemeOverrides, _messages, _device.Name);
+		_homeDevice = new HomeDevice(_settingsTools, themeTools, services.Keybindings);
+		ThemeCommands.RegisterHandlers(_clientCommands, _settings, services.ThemeOverrides, themeTools, VsixPicker);
 		FontCommands.RegisterHandlers(_clientCommands, _settings);
 		GitBlameCommands.RegisterHandlers(_clientCommands, _settings);
 		ReviewItemCommands.RegisterHandlers(_clientCommands, _settings);
 		_clientCommands.RegisterHandler(CoreCommands.SpellSetLocale, (args, ct) => _spellLanguages.SetLocaleAsync(_settings, args, ct));
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
-		_themeOverrides = services.ThemeOverrides;
 		_acpSessions = services.AcpSessions;
 		_agentProviders = services.AgentProviders;
 		_acpAgents = services.AcpAgents;

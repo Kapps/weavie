@@ -924,9 +924,10 @@ test.describe("session-addressed WebSocket transport", () => {
       await page.locator(".session-chip:not(.remote)").click();
       const localCheckpoint = host.checkpoint();
       const relayedInvocation = host.waitForHost("request", "commands", "invoke", localCheckpoint);
-      const clientResponse = remote.requestSession(remoteSession.address, "commands", "runClient", {
+      const clientResponse = remote.requestHost("device", "command", {
         id: fontCommand.id,
         args: null,
+        session: remoteSession.address,
       });
       expect((await relayedInvocation).payload).toMatchObject({ id: fontCommand.id });
       expect((await clientResponse).payload).toMatchObject({ ok: true });

@@ -96,11 +96,9 @@ plus a theme **per polarity**. Three live settings drive it:
 authoritative for *rendering*: the theme controller resolves `system` against the live
 `matchMedia('(prefers-color-scheme: dark)')` and renders the matching slot, re-theming all three
 surfaces in place on an OS flip with no host round-trip (both palettes are already resolved). It also
-mirrors the active polarity onto the document's `color-scheme`. **Core** can't see
-`prefers-color-scheme`, so for per-theme *override targeting* (`describe/set/transform/remove/undo/reset`
-all act on the "active theme") it resolves `system` to the **dark** slot — Weavie's default polarity
-(`ThemeSettings.ResolveActiveThemeId`). After any `select` the mode is concrete, so this is exact; the
-only soft spot is editing overrides while in `system` mode under a light OS, which targets the dark theme.
+mirrors the active polarity onto the document's `color-scheme`. Each page reports the polarity it shows
+to its home, so override targeting (`describe/set/transform/remove/undo/reset`) in `system` mode edits the
+theme on screen; with no page from the home connected it fails unless the call names a `theme`.
 
 **Known bug to fix when this lands:** `editor/monaco-setup.ts` currently hardcodes a macOS-only stack
 (`ui-monospace, "SF Mono", Menlo, monospace`) which silently falls back to generic `monospace`

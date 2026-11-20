@@ -69,7 +69,7 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public async Task PrepareModelInvocation_ClientCoreCommand_RelaysToPresentationClient() {
+	public async Task PrepareModelInvocation_ClientCoreCommand_RelaysToTheDevice() {
 		var dispatcher = new CommandDispatcher(RegistryWith(ClientCore("weavie.font.increase")));
 		bool localHandlerRan = false;
 		dispatcher.RegisterHandler("weavie.font.increase", (_, _) => {
@@ -90,7 +90,7 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public async Task PrepareModelInvocation_ClientCoreCommandWithoutClient_FailsLoudly() {
+	public async Task PrepareModelInvocation_ClientCommandWithoutADevice_FailsLoudly() {
 		var dispatcher = new CommandDispatcher(RegistryWith(ClientCore("weavie.font.increase")));
 		dispatcher.RegisterHandler(
 			"weavie.font.increase",
@@ -102,7 +102,18 @@ public sealed class CommandTests {
 			CancellationToken.None);
 
 		Assert.False(execution.Result.Ok);
-		Assert.Contains("presentation client", execution.Result.Error, StringComparison.OrdinalIgnoreCase);
+		Assert.Contains("user's device", execution.Result.Error, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task PrepareModelInvocation_ClientWebCommand_GoesToTheDevice_NotTheSessionView() {
+		var dispatcher = new CommandDispatcher(RegistryWith(Web("weavie.theme.select") with { Owner = CommandOwner.Client }));
+		dispatcher.WebInvoker = (_, _, _) => throw new InvalidOperationException("Reached the session's view.");
+		dispatcher.ClientInvoker = (id, _, _) => Task.FromResult(CommandResult.Success($"{id} on the device"));
+
+		var execution = await dispatcher.PrepareModelInvocationAsync("weavie.theme.select", null, CancellationToken.None);
+
+		Assert.Equal("weavie.theme.select on the device", execution.Result.Message);
 	}
 
 	[Fact]

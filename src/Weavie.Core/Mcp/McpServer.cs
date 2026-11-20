@@ -31,14 +31,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly IDiffPresenter _presenter;
 	private readonly IReadOnlyList<string> _workspaceFolders;
 	private readonly string _settingsWorkspaceRoot;
-	private readonly SettingsStore? _settings;
 	private readonly SettingsTools? _settingsTools;
-	private readonly IDeviceSettings? _deviceSettings;
+	private readonly IDevice? _device;
 	private readonly LayoutStore? _layout;
 	private readonly EditorStore _editor;
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
-	private readonly ThemeOverridesStore? _themeOverrides;
 	private readonly ISessionPeers _sessions;
 	private readonly AgentConsultation _agents;
 	private readonly IReviewHintSink _reviewHints;
@@ -87,14 +85,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_presenter = presenter;
 		_workspaceFolders = workspaceFolders;
 		_editor = editor;
-		_settings = registry?.Settings;
 		_settingsWorkspaceRoot = registry?.SettingsWorkspaceRoot ?? "";
 		_settingsTools = registry?.SettingsTools;
-		_deviceSettings = registry?.DeviceSettings;
+		_device = registry?.Device;
 		_layout = registry?.Layout;
 		_commands = registry?.Commands;
 		_keybindings = registry?.Keybindings;
-		_themeOverrides = registry?.ThemeOverrides;
 		_sessions = registry?.Sessions ?? NoSessionPeers.Instance;
 		_agents = registry?.Agents ?? AgentConsultation.None;
 		_reviewHints = registry?.ReviewHints ?? ReviewHintSink.None;
@@ -492,20 +488,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "runPrompt":
 				await HandleRunPromptAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "listThemes":
-				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "describeTheme":
-				await HandleDescribeThemeAsync(responder, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "setThemeOverride":
-				await HandleSetThemeOverrideAsync(responder, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "applyThemeTransform":
-				await HandleApplyThemeTransformAsync(responder, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "removeThemeOverride":
-				await HandleRemoveThemeOverrideAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+			case "listThemes" or "describeTheme" or "setThemeOverride" or "applyThemeTransform" or "removeThemeOverride":
+				await HandleThemeToolAsync(responder, name, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			default:
 				await responder.SendErrorAsync(idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
@@ -551,14 +535,27 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private IReadOnlyList<ResolvedKeybinding> Keybindings => _keybindings?.Resolved ?? [];
+	// The keys the user's page uses: client-owned commands' from the session's device, every other's from this host.
+	private async Task<(IReadOnlyList<ResolvedKeybinding> Bindings, string? DeviceUnavailable)> KeybindingsAsync(CancellationToken ct) {
+		var registry = Require(_commands, "Commands").Registry;
+		bool ClientOwned(ResolvedKeybinding binding) => registry.TryGet(binding.Command, out var definition) && definition.Owner == CommandOwner.Client;
+		var here = (_keybindings?.Resolved ?? []).Where(binding => !ClientOwned(binding));
+		try {
+			var device = await Require(_device, "Commands").KeybindingsAsync(ct).ConfigureAwait(false);
+			return ([.. here, .. device.Where(ClientOwned)], null);
+		} catch (DeviceUnavailableException ex) {
+			return ([.. here], ex.Message);
+		}
+	}
 
-	private Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) =>
-		SendToolTextAsync(
+	private async Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
+		var (bindings, unavailable) = await KeybindingsAsync(ct).ConfigureAwait(false);
+		await SendToolTextAsync(
 			responder,
 			idRaw,
-			CommandCatalog.BuildCommandIndexJson(Require(_commands, "Commands").Registry.Definitions, Keybindings),
-			ct);
+			CommandCatalog.BuildCommandIndexJson(Require(_commands, "Commands").Registry.Definitions, bindings, unavailable),
+			ct).ConfigureAwait(false);
+	}
 
 	private async Task HandleDescribeCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
@@ -569,7 +566,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			string json = CommandCatalog.BuildCommandJson(commands.Registry.Require(id), Keybindings);
+			var definition = commands.Registry.Require(id);
+			var (bindings, unavailable) = definition.Owner == CommandOwner.Client
+				? await KeybindingsAsync(ct).ConfigureAwait(false)
+				: (_keybindings?.Resolved ?? [], null);
+			string json = CommandCatalog.BuildCommandJson(definition, bindings, unavailable);
 			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownCommandException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);

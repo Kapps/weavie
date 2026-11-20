@@ -22,7 +22,7 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var reply = await host.WorkspaceSession.Device.ThemesAsync(Darken, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceForTest.ThemesAsync(Darken, CancellationToken.None);
 
 		Assert.Equal("Set on laptop.", reply.Text);
 		var (page, request) = Assert.Single(Asked(host, "themes"));
@@ -37,7 +37,7 @@ public sealed partial class HostCoreDeviceTests {
 		var page = new WebPeer(TestHost.TestPageId);
 		Show(host, page, "light");
 
-		var reply = await host.WorkspaceSession.Device.ThemesAsync(Darken, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceForTest.ThemesAsync(Darken, CancellationToken.None);
 
 		Assert.Contains($"to theme '{ThemeSettings.DefaultLightThemeId}' on this device (", reply.Text, StringComparison.Ordinal);
 		Assert.Single(host.ThemeOverrides.Get(ThemeSettings.DefaultLightThemeId));
@@ -45,7 +45,7 @@ public sealed partial class HostCoreDeviceTests {
 
 		host.Bridge.Disconnect(page);
 		host.DrainMessages();
-		var unknown = await host.WorkspaceSession.Device.ThemesAsync(Darken, CancellationToken.None);
+		var unknown = await host.WorkspaceSession.DeviceForTest.ThemesAsync(Darken, CancellationToken.None);
 		Assert.True(unknown.IsError);
 		Assert.Matches("^No page from .+ is open", unknown.Text);
 	}
@@ -59,10 +59,22 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var bindings = await host.WorkspaceSession.Device.KeybindingsAsync(CancellationToken.None);
+		var bindings = await host.WorkspaceSession.DeviceForTest.KeybindingsAsync(CancellationToken.None);
 
 		Assert.Equal(("ctrl+9", CoreCommands.IncreaseFontSize), (Assert.Single(bindings).Key, bindings[0].Command));
 		Assert.Equal(Visitor, Assert.Single(Asked(host, "keybindings")).Page);
+	}
+
+	[Fact]
+	public async Task OnlyAPageThisHostServes_SaysWhichThemeIsOnScreen() {
+		await using var host = await TestHost.StartAsync();
+		ConnectFromLaptop(host, Visitor);
+		Show(host, new WebPeer(TestHost.TestPageId), "dark");
+
+		Show(host, Visitor, "light");
+
+		var reply = await host.WorkspaceSession.DeviceForTest.ThemesAsync(Darken, CancellationToken.None);
+		Assert.Contains($"'{ThemeSettings.DefaultDarkThemeId}'", reply.Text, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -77,7 +89,8 @@ public sealed partial class HostCoreDeviceTests {
 
 		Assert.Equal("Ran on laptop.", execution.Result.Message);
 		var (page, request) = Assert.Single(Asked(host, "command"));
-		Assert.Equal((Visitor, CoreCommands.IncreaseFontSize), (page, request.GetProperty("id").GetString()));
+		Assert.Equal((Visitor, CoreCommands.IncreaseFontSize, host.WorkspaceSession.Address.Slot), (
+			page, request.GetProperty("id").GetString(), request.GetProperty("session").GetProperty("slot").GetString()));
 		Assert.Equal(fontSize, host.Settings.RequireInt("font.size"));
 	}
 

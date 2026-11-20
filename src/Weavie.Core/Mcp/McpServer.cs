@@ -567,7 +567,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		try {
 			var definition = commands.Registry.Require(id);
-			var (bindings, unavailable) = await KeybindingsAsync(ct).ConfigureAwait(false);
+			var (bindings, unavailable) = definition.Owner == CommandOwner.Client
+				? await KeybindingsAsync(ct).ConfigureAwait(false)
+				: (_keybindings?.Resolved ?? [], null);
 			string json = CommandCatalog.BuildCommandJson(definition, bindings, unavailable);
 			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownCommandException ex) {

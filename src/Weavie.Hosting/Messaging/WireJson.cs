@@ -201,6 +201,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(ThemeRequest))]
 [JsonSerializable(typeof(IReadOnlyList<ResolvedKeybinding>))]
 [JsonSerializable(typeof(HostCore.ThemeShowing))]
+[JsonSerializable(typeof(HostCore.DeviceCommandRequest))]
 [JsonSerializable(typeof(IReadOnlyList<AcpRegistryAgent>))]
 [JsonSerializable(typeof(IReadOnlyList<ThemeChoice>))]
 [JsonSerializable(typeof(IReadOnlyList<ThemePreview>))]

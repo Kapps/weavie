@@ -33,7 +33,7 @@ public sealed partial class HostCore {
 							_messages.Host.Feature("gettingStarted").Target(page).Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 						} else {
 							if (home) OfferStartupTip();
-							OfferAutomaticInference();
+							OfferAutomaticInference(home ? null : page);
 						}
 
 						return Task.CompletedTask;

@@ -38,7 +38,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private readonly CapabilityRegistryHost _registry;
 
 	/// <summary>Test seam for the device this session belongs to.</summary>
-	internal IDevice Device { get; }
+	internal IDevice DeviceForTest { get; }
 
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
@@ -86,7 +86,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(paths);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentNullException.ThrowIfNull(owner);
-		Device = owner.Device;
+		DeviceForTest = owner.Device;
 		var settings = services.Settings;
 		string workspaceRoot = paths.WorkspaceRoot;
 

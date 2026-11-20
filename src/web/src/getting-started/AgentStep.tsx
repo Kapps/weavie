@@ -1,6 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
-import { LOCAL_BACKEND_ID } from "../bridge";
 import {
   type AcpRegistryAgent,
   AcpRegistryList,
@@ -34,9 +33,9 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
   const [browsing, setBrowsing] = createSignal(false);
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [registry] = createResource(() =>
-    acpRegistryFeature(LOCAL_BACKEND_ID).request<AcpRegistryAgent[]>("list", {}),
+    acpRegistryFeature(props.run.machine).request<AcpRegistryAgent[]>("list", {}),
   );
-  const installed = () => new Set(agentProviders(LOCAL_BACKEND_ID).map((provider) => provider.id));
+  const installed = () => new Set(agentProviders(props.run.machine).map((provider) => provider.id));
   // An unreachable registry is reported below; reading a failed resource would throw mid-render.
   const suggested = () =>
     (registry.error ? [] : (registry() ?? [])).filter(
@@ -45,7 +44,7 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
   const use = (id: string) =>
     props.run.attempt(() => {
       props.run.agentChoice += 1;
-      return setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
+      return setDefaultAgentProvider(props.run.machine, id);
     });
   // A slow install only becomes the default if no other agent was chosen while it ran, even from a later view.
   const installAndUse = (agent: AcpRegistryAgent, distribution: string) =>
@@ -53,12 +52,12 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
       const choice = ++props.run.agentChoice;
       setInstalling(agent.id);
       try {
-        await installAcpAgent(LOCAL_BACKEND_ID, agent.id, distribution);
+        await installAcpAgent(props.run.machine, agent.id, distribution);
       } finally {
         setInstalling(null);
       }
       if (props.run.agentChoice === choice) {
-        await setDefaultAgentProvider(LOCAL_BACKEND_ID, agent.id);
+        await setDefaultAgentProvider(props.run.machine, agent.id);
       }
     });
 
@@ -72,18 +71,18 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
             Back to your agents
           </button>
           <div class="gs-registry">
-            <AcpRegistryList backendId={LOCAL_BACKEND_ID} removable={false} />
+            <AcpRegistryList backendId={props.run.machine} removable={false} />
           </div>
         </>
       }
     >
       <fieldset class="gs-choices" aria-label="Agent">
-        <For each={agentProviders(LOCAL_BACKEND_ID)}>
+        <For each={agentProviders(props.run.machine)}>
           {(provider) => (
             <button
               type="button"
               class="gs-choice ui-row ui-row-stack"
-              aria-pressed={defaultAgentProvider(LOCAL_BACKEND_ID) === provider.id}
+              aria-pressed={defaultAgentProvider(props.run.machine) === provider.id}
               disabled={!provider.available || installing() !== null}
               onClick={() => use(provider.id)}
             >
@@ -148,11 +147,13 @@ export function AgentStep(props: { run: SetupRun }): JSX.Element {
           Browse more agents
           <ChevronRight aria-hidden="true" />
         </button>
-        <Show when={agentProviders(LOCAL_BACKEND_ID).some((provider) => provider.warning !== null)}>
+        <Show
+          when={agentProviders(props.run.machine).some((provider) => provider.warning !== null)}
+        >
           <button
             type="button"
             class="gs-link"
-            onClick={() => props.run.attempt(() => refreshAgentProviders(LOCAL_BACKEND_ID))}
+            onClick={() => props.run.attempt(() => refreshAgentProviders(props.run.machine))}
           >
             Installed it? Check again
           </button>

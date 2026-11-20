@@ -92,13 +92,21 @@ test("a remote session's device state lands on the page's home and its machine s
     ]);
     expect(await themeOverridesFile(runner.home)).not.toContain("#102030");
 
-    // Suggestions run on the session's machine, so configuring them from its session edits the runner.
-    await runCommand(page, "Configure Suggestions…");
+    // Suggestions run on the session's machine, so configuring them from its session, by its agent or from the
+    // palette, edits the runner.
+    await submitAcpDraft(surface, 'mcp:runCommand:{"id":"weavie.inference.configure"}');
     const setup = page.locator(".getting-started-dialog");
     const suggestions = setup.getByRole("switch", { name: /Allow suggestions/ });
     await expect(suggestions).toBeChecked();
     await suggestions.click();
     await expect.poll(() => settingsFile(runner.home)).toContain("inference.enabled = false");
+    await page.keyboard.press("Escape");
+    await expect(setup).toHaveCount(0);
+
+    await runCommand(page, "Configure Suggestions…");
+    await expect(suggestions).not.toBeChecked();
+    await suggestions.click();
+    await expect.poll(() => settingsFile(runner.home)).toContain("inference.enabled = true");
     expect(await settingsFile(home.home)).not.toContain("inference.enabled");
   } finally {
     await page.close();

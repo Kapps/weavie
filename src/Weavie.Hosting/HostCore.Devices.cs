@@ -55,7 +55,11 @@ public sealed partial class HostCore {
 	/// <summary>The polarity a page reports it is showing: <c>light</c> or <c>dark</c>.</summary>
 	internal sealed record ThemeShowing(string Polarity);
 
-	private sealed class BoundDevice(HostCore core, SessionDevice device) : IDevice {
+	/// <summary>A client-owned command for a device's page to run in the context of <paramref name="Session"/>.</summary>
+	internal sealed record DeviceCommandRequest(string Id, JsonElement? Args, SessionAddress Session);
+
+	// The device of the session at `session`: its home answers device tools, and one of its pages runs commands.
+	private sealed class BoundDevice(HostCore core, SessionDevice device, SessionAddress session) : IDevice {
 		public Task<ToolReply> SettingsAsync(SettingsRequest request, CancellationToken ct) => AtHomeAsync(
 			() => core._homeDevice.SettingsAsync(request, ct), "settings", WireJson.Default.SettingsRequest, WireJson.Default.ToolReply, request, ct);
 
@@ -68,23 +72,35 @@ public sealed partial class HostCore {
 		// A client-owned command an agent runs: a page of the device runs it, as that page's own palette would.
 		public async Task<CommandResult> CommandAsync(string id, string? argsJson, CancellationToken ct) {
 			bool deadline = core._commandRegistry.Require(id).OnTimeout != OperationSeverity.NoDeadline;
+			var request = CommandRequest.Of(id, argsJson);
 			try {
 				return FromWireResult(await PageAsync(
-					"command", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult, CommandRequest.Of(id, argsJson), deadline, ct)
-					.ConfigureAwait(false));
+					device.Current, "command", WireJson.Default.DeviceCommandRequest, WireJson.Default.CommandWireResult,
+					new DeviceCommandRequest(id, request.Args, session), deadline, ct).ConfigureAwait(false));
 			} catch (DeviceUnavailableException unavailable) {
 				return CommandResult.Failure(unavailable.Message);
 			}
 		}
 
+		// Opens a URL on a page of the device, as that page's own click would; with none open there's nobody to show it to.
+		public void OpenUrl(string url) {
+			var (home, claimant) = device.Current;
+			if (core._messages.PageFrom(home, claimant) is { } page && core._messages.Host.TryGetPeer(page, out var peer)) {
+				core._messages.Host.Feature("device").Target(peer).Publish("openUrl", WireJson.Default.OpenUrlMessage, new(url));
+			}
+		}
+
 		// This host answers for its own device; any other device's home answers through one of its pages.
 		private Task<TResponse> AtHomeAsync<TRequest, TResponse>(
-			Func<Task<TResponse>> here, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, CancellationToken ct) =>
-			device.Current.Home is null ? here() : PageAsync(name, requestType, responseType, request, deadline: true, ct);
+			Func<Task<TResponse>> here, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, CancellationToken ct) {
+			var claim = device.Current;
+			return claim.Home is null ? here() : PageAsync(claim, name, requestType, responseType, request, deadline: true, ct);
+		}
 
 		private async Task<TResponse> PageAsync<TRequest, TResponse>(
-			string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType, TRequest request, bool deadline, CancellationToken ct) {
-			var (home, claimant) = device.Current;
+			(DeviceIdentity? Home, WebPeer? Page) claim, string name, JsonTypeInfo<TRequest> requestType, JsonTypeInfo<TResponse> responseType,
+			TRequest request, bool deadline, CancellationToken ct) {
+			var (home, claimant) = claim;
 			string here = core._settingsTools.HostName;
 			string there = home?.Name ?? here;
 			if (core._messages.PageFrom(home, claimant) is not { } page) {

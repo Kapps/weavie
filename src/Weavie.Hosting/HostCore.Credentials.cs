@@ -62,9 +62,8 @@ public sealed partial class HostCore {
 	private void PromptConnect(HostSession session, string id, Action<HostSession> then) {
 		var definition = _credentials.Require(id);
 		session.ConnectPrompt.Set(new PendingConnect(definition.Id, then));
-		var (home, claimant) = SlotFor(session)?.Device.Current ?? default;
-		if (_messages.PageFrom(home, claimant) is { } page && _messages.Host.TryGetPeer(page, out var peer)) {
-			_messages.Host.Feature("device").Target(peer).Publish("openUrl", WireJson.Default.OpenUrlMessage, new(definition.KeyPageUrl));
+		if (SlotFor(session) is { } slot) {
+			new BoundDevice(this, slot.Device, session.Address).OpenUrl(definition.KeyPageUrl);
 		}
 
 		session.State.Set("credentials", "prompt", "prompt", WireJson.Default.CredentialPrompt, new(

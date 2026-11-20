@@ -164,14 +164,9 @@ public sealed class ThemeTools {
 		}
 
 		string target = Target(args);
-		var ops = _overrides.Get(target);
-		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
-		if (kept.Count == ops.Count) {
-			return Ok($"No 'set' override for {key} on theme '{target}' {_where}.");
-		}
-
-		_overrides.SetOps(target, kept);
-		return Ok($"Removed override(s) for {key} on theme '{target}' {_where}.");
+		return Ok(_overrides.RemoveSets(target, key)
+			? $"Removed override(s) for {key} on theme '{target}' {_where}."
+			: $"No 'set' override for {key} on theme '{target}' {_where}.");
 	}
 
 	// The embedded claude routinely stringifies scalars ("0.2"); coerce them.

@@ -49,7 +49,7 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var reply = await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Equal("Set on laptop.", reply.Text);
 		var (page, request) = Assert.Single(Asked(host));
@@ -62,7 +62,7 @@ public sealed partial class HostCoreDeviceTests {
 	public async Task ASessionNoPageHasClaimed_ChangesThisHostsOwnFile() {
 		await using var host = await TestHost.StartAsync();
 
-		var reply = await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		var reply = await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 
 		Assert.False(reply.IsError);
 		Assert.Equal(15L, host.Settings.Resolve("editor.font.size").Value);
@@ -76,7 +76,7 @@ public sealed partial class HostCoreDeviceTests {
 		Type(host, Visitor, host.WorkspaceSession);
 		Type(host, new WebPeer(TestHost.TestPageId), host.WorkspaceSession);
 
-		await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Empty(Asked(host));
 		Assert.Equal(15L, host.Settings.Resolve("editor.font.size").Value);
@@ -92,13 +92,13 @@ public sealed partial class HostCoreDeviceTests {
 		host.DrainMessages();
 
 		var gone = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None));
 		Assert.StartsWith("laptop isn't connected", gone.Message, StringComparison.Ordinal);
 		Assert.Equal(SettingSource.Default, host.Settings.Resolve("editor.font.size").Source);
 
 		var returned = new WebPeer("visitor-reconnected");
 		ConnectFromLaptop(host, returned);
-		await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 		Assert.Equal(returned, Assert.Single(Asked(host)).Page);
 	}
 
@@ -110,7 +110,7 @@ public sealed partial class HostCoreDeviceTests {
 		Type(host, Visitor, host.WorkspaceSession);
 		Type(host, new WebPeer("reconnecting"), host.WorkspaceSession);
 
-		await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Equal(Visitor, Assert.Single(Asked(host)).Page);
 	}
@@ -125,7 +125,7 @@ public sealed partial class HostCoreDeviceTests {
 		Type(host, Visitor, host.WorkspaceSession);
 
 		var failed = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None));
 
 		Assert.Equal("laptop couldn't answer: The Weavie host is not connected.", failed.Message);
 	}
@@ -150,7 +150,10 @@ public sealed partial class HostCoreDeviceTests {
 
 		ConnectFromLaptop(host, Visitor);
 
-		Assert.Contains(host.Bridge.PostedEvents("notifications", "show"), offer => offer.GetProperty("key").GetString() == "inference-automatic-opt-in");
+		var offeredTo = host.Bridge.Sent.Where(sent => MessageEnvelope.TryParse(sent.Json, out var envelope)
+			&& envelope is { Feature: "notifications", Name: "show" }
+			&& envelope.Payload.GetProperty("key").GetString() == "inference-automatic-opt-in").Select(sent => sent.Peer);
+		Assert.Equal(Visitor, Assert.Single(offeredTo));
 	}
 
 	[Fact]
@@ -159,7 +162,7 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var pending = host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		var pending = host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 		host.Bridge.Disconnect(Visitor);
 		host.DrainMessages();
 
@@ -176,7 +179,7 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, second);
 		Type(host, second, host.WorkspaceSession);
 
-		await host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		await host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 
 		Assert.Equal(second, Assert.Single(Asked(host)).Page);
 	}
@@ -187,7 +190,7 @@ public sealed partial class HostCoreDeviceTests {
 		ConnectFromLaptop(host, Visitor);
 		Type(host, Visitor, host.WorkspaceSession);
 
-		var pending = host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None);
+		var pending = host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None);
 		host.Time.Advance(TimeSpan.FromSeconds(MessageSettings.DefaultOperationDeadlineSeconds));
 
 		var silent = await Assert.ThrowsAsync<DeviceUnavailableException>(() => pending);
@@ -203,7 +206,7 @@ public sealed partial class HostCoreDeviceTests {
 		await host.RestartAsync();
 
 		var gone = await Assert.ThrowsAsync<DeviceUnavailableException>(
-			() => host.WorkspaceSession.Device.SettingsAsync(SetFontSize, CancellationToken.None));
+			() => host.WorkspaceSession.DeviceForTest.SettingsAsync(SetFontSize, CancellationToken.None));
 		Assert.StartsWith("laptop isn't connected", gone.Message, StringComparison.Ordinal);
 	}
 

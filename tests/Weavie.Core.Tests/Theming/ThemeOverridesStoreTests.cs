@@ -108,19 +108,19 @@ public sealed class ThemeOverridesStoreTests {
 	}
 
 	[Fact]
-	public void SetOps_ReplacesWholesale_AndEmptyClears() {
+	public void RemoveSets_RemovesOnlyThatKeysSets_AndClearsAnEmptiedTheme() {
 		var fs = new InMemoryFileSystem();
 		string path = TempPath();
 		var store = new ThemeOverridesStore(fs, path);
 		store.Append("t", new ThemeOverrideSet { Key = "a", Value = "#111111" });
+		store.Append("t", new ThemeOverrideSet { Key = "b", Value = "#222222" });
+		store.Append("t", new ThemeOverrideSet { Key = "a", Value = "#333333" });
 
-		// A non-empty list replaces the theme's ops wholesale and round-trips.
-		store.SetOps("t", [new ThemeOverrideSet { Key = "b", Value = "#222222" }]);
-		Assert.Equal("b", Assert.IsType<ThemeOverrideSet>(Assert.Single(store.Get("t"))).Key);
+		Assert.True(store.RemoveSets("t", "a"));
 		Assert.Equal("b", Assert.IsType<ThemeOverrideSet>(Assert.Single(new ThemeOverridesStore(fs, path).Get("t"))).Key);
+		Assert.False(store.RemoveSets("t", "a"));
 
-		// An empty list clears the theme entirely.
-		store.SetOps("t", []);
+		Assert.True(store.RemoveSets("t", "b"));
 		Assert.Empty(store.Get("t"));
 	}
 

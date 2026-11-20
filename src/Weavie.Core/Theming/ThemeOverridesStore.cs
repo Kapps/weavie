@@ -48,21 +48,24 @@ public sealed partial class ThemeOverridesStore : JsonDocumentStore {
 		Changed?.Invoke(themeId);
 	}
 
-	/// <summary>Replaces <paramref name="themeId"/>'s ops wholesale (e.g. after removing one by key); empty clears it.</summary>
-	public void SetOps(string themeId, IReadOnlyList<ThemeOverrideOp> ops) {
+	/// <summary>Removes <paramref name="themeId"/>'s <c>set</c> ops for <paramref name="key"/>; returns false if it had none.</summary>
+	public bool RemoveSets(string themeId, string key) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
-		ArgumentNullException.ThrowIfNull(ops);
+		ArgumentException.ThrowIfNullOrEmpty(key);
 		lock (Gate) {
+			if (!_overrides.TryGetValue(themeId, out var ops) || ops.RemoveAll(op => op is ThemeOverrideSet set && set.Key == key) == 0) {
+				return false;
+			}
+
 			if (ops.Count == 0) {
 				_overrides.Remove(themeId);
-			} else {
-				_overrides[themeId] = [.. ops];
 			}
 
 			PersistLocked();
 		}
 
 		Changed?.Invoke(themeId);
+		return true;
 	}
 
 	/// <summary>Removes the last op for <paramref name="themeId"/> (the spec's undo); returns false if there were none.</summary>

@@ -20,7 +20,7 @@ import {
   waitForClientSession,
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
-import { requireSessionAddress } from "../messaging/message-envelope";
+import { requireSessionAddress, type SessionAddress } from "../messaging/message-envelope";
 import { notify } from "../notify/notify";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
@@ -645,17 +645,32 @@ registerViewFeature((session) =>
     ),
 );
 
-// A client-owned command an agent runs on this page's device, from any session of any host.
+// A client-owned command an agent runs on this page's device, in the context of the agent's session.
 registerHostFeature((connection) =>
   connection.host
     .feature("device")
-    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("command", ({ id, args }) => {
-      if (findCommandInCatalog(LOCAL_BACKEND_ID, id)?.owner !== "client") {
-        return Promise.resolve({
-          ok: false,
-          error: `Command '${id}' doesn't belong to the device.`,
-        });
-      }
-      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args, captureScope(null, new Map(), args));
-    }),
+    .handleConcurrent<{ id: string; args: unknown; session: SessionAddress }, CommandResult>(
+      "command",
+      ({ id, args, session: address }) => {
+        if (findCommandInCatalog(LOCAL_BACKEND_ID, id)?.owner !== "client") {
+          return Promise.resolve({
+            ok: false,
+            error: `Command '${id}' doesn't belong to the device.`,
+          });
+        }
+        const session = connection.session(address);
+        if (session === undefined) {
+          return Promise.resolve({
+            ok: false,
+            error: "This page doesn't have the agent's session.",
+          });
+        }
+        return dispatchFromCatalog(
+          LOCAL_BACKEND_ID,
+          id,
+          args,
+          captureScope(session, new Map(), args),
+        );
+      },
+    ),
 );

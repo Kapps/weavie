@@ -555,7 +555,7 @@ public sealed partial class HostCore {
 		var endpoint = _messages.OpenSession(address);
 		endpoint.Bus.ReloadRequiredChanged += () => _ui.Post(PushSessionList);
 		HostSession? session = null;
-		var device = new BoundDevice(this, slot.Device);
+		var device = new BoundDevice(this, slot.Device, address);
 		try {
 			session = new HostSession(
 				endpoint,

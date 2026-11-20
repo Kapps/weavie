@@ -6,21 +6,28 @@ namespace Weavie.Hosting.Messaging;
 /// <summary>The home a page named in its hello: no device for a page this host serves.</summary>
 internal sealed record PageHome(DeviceIdentity? Device);
 
+/// <summary>The polarity a page this host serves reported showing, and the order it was reported in.</summary>
+internal sealed record PageShowing(string Polarity, long Order);
+
 // Which home each connected page is served by, read from the host bus's own peers so a page that left has none.
 internal sealed partial class HostMessageRouter : IThemeScreen {
 	private long _showings;
 
 	/// <inheritdoc/>
-	public string? Showing => Host.Peers.Where(peer => peer.IsConnected && peer.Showing is not null)
-		.MaxBy(peer => peer.Showing!.Value.Order)?.Showing!.Value.Polarity;
+	public string? Showing => Host.Peers.Where(peer => peer.IsConnected).Select(peer => peer.Showing).OfType<PageShowing>()
+		.MaxBy(showing => showing.Order)?.Polarity;
 
-	/// <summary>Records the polarity <paramref name="page"/>, one this host serves, is showing.</summary>
+	/// <summary>Records the polarity <paramref name="page"/> is showing; only a page this host serves may say.</summary>
 	internal void Show(MessagePeer page, string polarity) {
+		if (page.Home is not { Device: null }) {
+			throw new InvalidOperationException("Only a page this host serves reports the theme it shows here.");
+		}
+
 		if (polarity is not ("light" or "dark")) {
 			throw new ArgumentException($"A page can't be showing the '{polarity}' polarity.", nameof(polarity));
 		}
 
-		page.Showing = (polarity, Interlocked.Increment(ref _showings));
+		page.Showing = new(polarity, Interlocked.Increment(ref _showings));
 	}
 
 	/// <summary>The home of <paramref name="page"/>, once it has said hello and while it stays connected.</summary>

@@ -18,7 +18,11 @@ const env = vi.hoisted(() => ({
     | ((request: { id: string; args: unknown }) => Promise<CommandResult>)
     | undefined,
   clientRun: undefined as
-    | ((request: { id: string; args: unknown }) => Promise<CommandResult>)
+    | ((request: {
+        id: string;
+        args: unknown;
+        session: { slot: string; incarnation: string };
+      }) => Promise<CommandResult>)
     | undefined,
   selected: null as ClientSession | null,
   selectedAddresses: [] as Array<{
@@ -77,6 +81,8 @@ vi.mock("../bridge", () => ({
       installer({
         id: backendId,
         onHello: () => () => {},
+        session: ({ slot }: { slot: string }) =>
+          slot === env.selected?.address.slot ? env.selected : undefined,
         host: {
           feature: () => ({
             on: (
@@ -86,10 +92,7 @@ vi.mock("../bridge", () => ({
               env.catalogs.set(backendId, handler);
               return () => {};
             },
-            handleConcurrent: (
-              _name: string,
-              handler: (request: { id: string; args: unknown }) => Promise<CommandResult>,
-            ) => {
+            handleConcurrent: (_name: string, handler: NonNullable<typeof env.clientRun>) => {
               env.clientRun = handler;
               return () => {};
             },
@@ -597,10 +600,29 @@ describe("session-bound web command requests", () => {
 });
 
 describe("device command requests", () => {
+  const deviceCommand = (id: string, args: unknown) => ({
+    id,
+    args,
+    session: env.selected?.address ?? { slot: "", incarnation: "" },
+  });
+
+  it("refuses a command for a session this page doesn't have", async () => {
+    setCatalog("local", [{ ...cmd("core.client", "core"), owner: "client" }]);
+
+    expect(
+      await env.clientRun?.({
+        id: "core.client",
+        args: undefined,
+        session: { slot: "elsewhere", incarnation: "x" },
+      }),
+    ).toMatchObject({ ok: false, error: "This page doesn't have the agent's session." });
+    expect(env.invokeCalls).toEqual([]);
+  });
+
   it("relays a client-owned Core command to the local host", async () => {
     setCatalog("local", [{ ...cmd("core.client", "core"), owner: "client" }]);
 
-    expect(await env.clientRun?.({ id: "core.client", args: { value: 1 } })).toMatchObject({
+    expect(await env.clientRun?.(deviceCommand("core.client", { value: 1 }))).toMatchObject({
       ok: true,
     });
     expect(env.invokeCalls).toEqual([
@@ -608,24 +630,24 @@ describe("device command requests", () => {
     ]);
   });
 
-  it("runs a client-owned web command on this page, whatever session is selected", async () => {
+  it("runs a client-owned web command on this page in the agent's session", async () => {
     setCatalog("local", [{ ...cmd("web.device", "web"), owner: "client" }]);
     const ran: unknown[] = [];
     const off = reg.registerCommand("web.device", (args, context) => {
       ran.push([args, context.session]);
     });
 
-    expect(await env.clientRun?.({ id: "web.device", args: { id: "x" } })).toMatchObject({
+    expect(await env.clientRun?.(deviceCommand("web.device", { id: "x" }))).toMatchObject({
       ok: true,
     });
-    expect(ran).toEqual([[{ id: "x" }, null]]);
+    expect(ran).toEqual([[{ id: "x" }, env.selected]]);
     off();
   });
 
   it("rejects a backend-owned command on the client relay", async () => {
     setCatalog("local", [cmd("core.backend", "core")]);
 
-    expect(await env.clientRun?.({ id: "core.backend", args: undefined })).toMatchObject({
+    expect(await env.clientRun?.(deviceCommand("core.backend", undefined))).toMatchObject({
       ok: false,
       error: expect.stringContaining("doesn't belong to the device"),
     });

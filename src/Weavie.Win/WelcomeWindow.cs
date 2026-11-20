@@ -86,7 +86,7 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		} catch (Exception ex) {
 			Console.Error.WriteLine($"[weavie] welcome initialization failed: {ex}");
 			if (!_closing) {
-				MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				MessageBox.Show(this, ex.ToString(), "Weavie Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
 			}
 		}
 	}

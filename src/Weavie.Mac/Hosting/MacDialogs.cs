@@ -15,7 +15,7 @@ internal sealed class MacDialogs : IHostDialogs {
 		var completion = new TaskCompletionSource<string?>();
 		RunOnMain(() => {
 			var panel = NSOpenPanel.OpenPanel;
-			panel.Title = "Install Theme from .vsix";
+			panel.Title = "Install VSIX Theme";
 			panel.CanChooseFiles = true;
 			panel.CanChooseDirectories = false;
 			panel.AllowsMultipleSelection = false;

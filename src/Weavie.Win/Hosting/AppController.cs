@@ -99,7 +99,7 @@ internal sealed class AppController : ApplicationContext {
 	public void OpenFolderInteractive(IWin32Window owner) {
 		ArgumentNullException.ThrowIfNull(owner);
 		using var dialog = new FolderBrowserDialog {
-			Description = "Open Folder as Workspace",
+			Description = "Open Workspace Folder",
 			UseDescriptionForTitle = true,
 			ShowNewFolderButton = false,
 		};

@@ -16,17 +16,28 @@ export function UpdateOverlay(): JSX.Element {
 
   return (
     <Portal>
-      <div class="update-overlay" role="alertdialog" aria-modal="true" aria-label="Updating Weavie">
+      <div class="update-overlay ui-scrim">
         <div
-          class="update-overlay-card"
+          class="confirm-dialog ui-card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="update-title"
+          aria-describedby="update-description"
           tabindex="-1"
           ref={(el) => {
             // Pull focus off the terminal so its hidden textarea stops receiving input events.
             queueMicrotask(() => el.focus());
           }}
         >
-          <span class="connection-spinner" aria-hidden="true" />
-          <span>Updating Weavie — your sessions will reload…</span>
+          <h2 class="ui-section-label ui-card-tag" id="update-title">
+            Updating Weavie
+          </h2>
+          <div class="update-description" id="update-description">
+            <span class="ui-icon" aria-hidden="true">
+              <span class="connection-spinner" />
+            </span>
+            Your sessions will reload.
+          </div>
         </div>
       </div>
     </Portal>

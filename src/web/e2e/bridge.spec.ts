@@ -277,7 +277,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(activeChip).toHaveCount(1);
 
     host.publishSession(session.address, "credentials", "prompt", NOTION_PROMPT);
-    const sourceModal = page.getByRole("dialog", { name: "Connect Notion" });
+    const sourceModal = page.getByRole("dialog", { name: "Connect service", exact: true });
     await expect(sourceModal).toBeVisible();
     await add.evaluate((button) => button.click());
     await expect(sourceModal).toBeVisible();
@@ -630,14 +630,14 @@ test.describe("session-addressed WebSocket transport", () => {
 
     host.publishSession(feature.address, "credentials", "prompt", {
       id: "acme",
-      displayName: "Acme",
+      displayName: "Acme Cloud Platform",
       keyNoun: "API key",
       keyPageUrl: "https://acme.example/keys",
     });
-    const prompt = page.getByRole("dialog", { name: "Connect Acme" });
+    const prompt = page.getByRole("dialog", { name: "Connect service", exact: true });
     await expect(prompt.getByRole("link", { name: "https://acme.example/keys" })).toBeVisible();
-    await expect(prompt.locator(".confirm-body")).toHaveText(
-      "Create your API key at https://acme.example/keys, then paste it here.",
+    await expect(prompt).toHaveAccessibleDescription(
+      "Create your Acme Cloud Platform API key at https://acme.example/keys, then paste it here.",
     );
     await expect(prompt.locator(".session-prompt-input")).toBeFocused();
     await page.keyboard.type("acme-key");

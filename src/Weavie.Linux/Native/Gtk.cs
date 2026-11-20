@@ -117,6 +117,9 @@ internal static partial class Gtk {
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial void gtk_alert_dialog_set_message(IntPtr dialog, string message);
 
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void gtk_alert_dialog_set_detail(IntPtr dialog, string detail);
+
 	[LibraryImport(Lib)]
 	internal static partial void gtk_alert_dialog_set_modal(IntPtr dialog, [MarshalAs(UnmanagedType.Bool)] bool modal);
 

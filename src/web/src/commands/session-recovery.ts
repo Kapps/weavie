@@ -25,8 +25,8 @@ export async function invokeHostSessionCommand(
     return result;
 
   const approved = await confirm({
-    title: `Clear the saved review for “${refusal.sessionName}”?`,
-    body: `${refusal.reason} Clearing the review discards its file list and decision history. Your files and conversation are kept.`,
+    title: "Clear saved review?",
+    body: `${refusal.reason} Clearing the saved review for “${refusal.sessionName}” discards its file list and decision history. Your files and conversation are kept.`,
     confirmLabel: "Clear review and load",
     destructive: true,
   });

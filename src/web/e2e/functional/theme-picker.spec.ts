@@ -86,7 +86,8 @@ test("editor theme picker previews, applies, reopens on, and resets only the edi
   const appBg = await bg("html");
   await expect.poll(() => bg(".editor")).toBe(appBg);
   await runCommand(page, "Select Editor Theme…");
-  const picker = page.getByRole("dialog", { name: /Select Editor Theme \(dark mode\)/ });
+  const picker = page.getByRole("dialog", { name: "Select Editor Theme", exact: true });
+  await expect(picker).toHaveAccessibleDescription("Applies to dark mode.");
   const reset = picker.getByRole("button", { name: "Reset", exact: true });
   await expect(reset).toHaveCount(0);
   await expect(picker.getByLabel("Theme appearance")).toHaveValue("dark");

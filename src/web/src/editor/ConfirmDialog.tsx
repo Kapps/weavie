@@ -8,7 +8,7 @@ import { ModalShell, modalSubmitKeys, PromptButton } from "../chrome/ModalShell"
 export function ConfirmDialog(props: {
   title: string;
   destructive?: boolean;
-  body: JSX.Element;
+  body: string;
   confirmLabel: string;
   cancelLabel: string;
   onConfirm: () => void;
@@ -22,6 +22,7 @@ export function ConfirmDialog(props: {
   return (
     <ModalShell
       title={props.title}
+      description={props.body}
       onDismiss={props.onCancel}
       onKeyDown={onKeyDown}
       actions={
@@ -50,8 +51,6 @@ export function ConfirmDialog(props: {
           />
         </>
       }
-    >
-      <div class="confirm-body">{props.body}</div>
-    </ModalShell>
+    />
   );
 }

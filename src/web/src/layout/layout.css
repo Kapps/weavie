@@ -138,20 +138,11 @@
   z-index: 90;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--bg) 60%, transparent);
-  backdrop-filter: blur(3px);
 }
-.update-overlay-card {
+.update-description {
   display: flex;
-  align-items: center;
-  gap: 0.65em;
-  padding: 0.9em 1.4em;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bar);
-  color: var(--fg);
-  outline: none;
-  box-shadow: 0 8px 30px rgb(0 0 0 / 55%);
+  align-items: baseline;
+  gap: 8px;
 }
 
 /* Right-hand editor column (and the diff overlay host). */

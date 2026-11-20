@@ -46,10 +46,10 @@ As someone investigating token use, I want reported usage attributed to the visi
 
 1. WHEN a provider reports tokens for work belonging to a visit, Weavie SHALL attribute that usage to the originating visit even if the report arrives after the run advances. A stage's entry and outgoing decisions SHALL belong to that stage's visit, including a decision taken once for an entire list.
 2. WHEN Weavie shows stage or run totals, it SHALL count each attributed token once, including across repeated reports and nested stages. Activity from unrelated work in the same session SHALL be excluded.
-3. IF some work has no attributable usage report, Weavie SHALL mark the known subtotal as partial. IF no usage is known for work performed, Weavie SHALL show usage as unavailable. A reported zero SHALL remain distinguishable from either case.
+3. WHILE a usage report is outstanding, Weavie SHALL mark that work pending. WHEN work settles with some of its usage missing, Weavie SHALL show the known subtotal as partial and identify the gap. IF settled work has no covered usage, Weavie SHALL show usage as unavailable. A reported zero SHALL remain distinguishable from each case.
 4. WHEN two visits report 800 and 200 tokens, Weavie SHALL show 1,000 tokens for the stage. IF a third visit performs work with no usage report, Weavie SHALL show 1,000 known tokens with partial coverage.
 5. WHEN I open or revisit insights, Weavie SHALL display the recorded evidence without invoking a model to reconstruct the route, estimate tokens or explain the results.
-6. WHERE the provider supplies a total for an operation, Weavie SHALL use that total. WHERE the provider supplies token components, Weavie SHALL count non-overlapping input and output tokens once, including any cached or reasoning tokens already included in those counts. A context-window reading alone SHALL leave usage unavailable.
+6. WHERE the provider supplies a total for an operation, Weavie SHALL use it for the scope it covers. WHERE it supplies only components, Weavie SHALL add cache reads, cache writes or reasoning tokens only to the extent the other counts exclude them. For 800 input tokens including 300 cached, plus 200 output tokens, the total SHALL be 1,000. A context-window reading alone SHALL leave usage unavailable.
 
 ## R6. Trace a long review or heavy model usage to its source
 
@@ -59,3 +59,24 @@ As someone whose Fable allowance ran out during a day of reviews, I want to see 
 2. WHEN I inspect a run's token usage, Weavie SHALL show the recorded tokens for each provider and model and the contributing stages and visits. IF the model is unknown, Weavie SHALL identify that usage as unattributed to a model.
 3. WHEN a review stage uses 1,200 reported Fable tokens and its routing decision uses 80 reported tokens on another model, inspecting Fable's usage in this run SHALL identify the review visit and show 1,200 tokens. The stage total SHALL show 1,280 tokens.
 4. IF a provider reports a usage limit as the reason a review stopped, Weavie SHALL show that reason on the affected visit. Run-scoped token totals SHALL be labeled with their scope so a user can distinguish this run's contribution from account-wide usage.
+
+## R7. Follow the work a stage starts
+
+As someone investigating an expensive review, I want to see what the reviewer spent directly and what it asked other agents to do.
+
+1. WHEN a visit starts model work, directly or through a tool, Weavie SHALL attribute reported usage to the originating visit across conversations, sessions and providers. This applies to task forks, nested subagents, model-backed background work, workflow decisions and checks, and Weavie inference calls such as `consultAgent`.
+2. WHEN I inspect a visit that delegated work, Weavie SHALL show the reported contribution of each distinguishable operation, its provider and model where known, and whether it is included in the visit total. A consultation SHALL appear under the calling visit with the consulted model. Any subsequent model work to read its answer belongs to the turn that reads it.
+3. WHEN delegated work or a follow-up it triggers reports after a retry, jump, cancellation or run completion, Weavie SHALL update its originating visit, including in saved history. A genuinely repeated request that used tokens SHALL count even if it failed or its result was discarded. Redelivery of the same usage SHALL preserve the total.
+4. WHEN a fork or resumed conversation inherits history, Weavie SHALL exclude the inherited usage balance and count newly reported work, including cache reads or compaction attributable to that work.
+5. IF unrelated work overlaps a visit in the same session, such as a user's independent `/btw` conversation, Weavie SHALL exclude it. IF work is known to belong to the run but its visit is uncertain, Weavie SHALL show it as unattributed within that run. An ordinary shell command, tool call or wait SHALL contribute model tokens only when there is evidence of model usage.
+6. IF a tool invokes an external model whose usage Weavie cannot observe, but the invocation is known, Weavie SHALL identify the coverage gap unless a provider report explicitly covers it.
+
+## R8. Reconcile overlapping and incomplete reports
+
+As someone relying on the run total, I want to know which work it covers even when providers report parent and child usage differently.
+
+1. WHEN the reviewer reports 1,000 tokens for its own work, a subagent reports 400, and a separate consultation reports 250, the visit SHALL show 1,650 tokens. WHEN the reviewer instead reports 1,400 explicitly including that same subagent, the visit SHALL still show 1,650. Its containing task group SHALL count the visit once.
+2. IF the provider confirms the 1,400 includes all reviewer and subagent work but supplies no subagent breakdown, Weavie SHALL preserve the complete 1,650 visit total and mark the subagent detail unavailable. IF the separate consultation ends without usage, Weavie SHALL show 1,400 known tokens and identify the consultation as the missing contribution.
+3. IF two reports might overlap and their relationship cannot be established, Weavie SHALL show the source figures with their known scopes and mark the combined coverage unresolved. IF the total is known but the model split is ambiguous, Weavie SHALL preserve the total and identify the unallocated portion where its size is known.
+4. WHEN captured provider reports are replayed through workflow accounting, every visit, model, group and run value labeled complete SHALL match the non-overlapping reports for that same scope exactly. Acceptance cases SHALL cover concurrent sibling forks, a nested subagent, a cross-provider consultation, cumulative and repeated reports, a late result after a revisit, cancellation without a final report, and a fork or resume with prior usage.
+5. IF a background task reports 400 tokens in progress and is then cancelled without final usage, its visit SHALL retain 400 known tokens with partial coverage. IF a late final total of 600 arrives, Weavie SHALL replace the interim count with 600 on that same visit.

@@ -1,6 +1,7 @@
 ---
 name: weavie-tester
 description: Proves a change actually works by running the real Weavie app, exercising the scenarios a PR should cover, and recording a .webm as evidence — of it working or of it failing. Built for a Claude Code remote (Linux) sandbox where it can build the C# host and drive the full stack. Use to validate a PR end to end, beyond static review.
+model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write
 ---
 

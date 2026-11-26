@@ -32,7 +32,7 @@ import type { SessionsOpening } from "./sessions-opening";
 export type { NewSessionSeed } from "./NewSessionComposer";
 export type { NewSessionSeedAttachment } from "./new-session-attachments";
 
-// No backend id: those are "local" or "remote:<name>".
+// Never a backend id (`local` / `remote:<name>`).
 const ADD_REMOTE = "add-remote";
 
 /** The shared Sessions surface for starting, opening, and resuming sessions. */

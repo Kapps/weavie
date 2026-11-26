@@ -499,8 +499,8 @@ public static class SessionCommands {
 			Description = "Register a remote agent (a machine running the Weavie runner) on the user's device and connect "
 				+ "to it, so it becomes a New Session location. Pass 'name', 'url' and 'token' together to add it directly: "
 				+ "the runner is contacted first and nothing is saved when it can't be reached or rejects the token. A "
-				+ "same-named agent is replaced. With no arguments it opens the form for the user to fill in. The runner "
-				+ "prints its URL and token at startup.",
+				+ "same-named agent is replaced. With no arguments it opens the form for the user to fill in, which keeps the "
+				+ "token out of this conversation. The runner prints its URL and token at startup.",
 			Aliases = ["add remote agent", "add remote backend", "connect remote", "connect runner", "add runner", "register remote agent", "new remote"],
 			ArgsSchemaJson = "{\"name\":{\"type\":\"string\",\"description\":\"Display name for the agent, e.g. devbox\"},"
 				+ "\"url\":{\"type\":\"string\",\"description\":\"Runner control-plane base URL, e.g. http://host:8800\"},"
@@ -516,7 +516,7 @@ public static class SessionCommands {
 			Description = "Disconnect a registered remote agent by 'agent' (its name): close its bridge, drop its "
 				+ "sessions from the rail, and forget it from the device's saved agents. Local sessions are unaffected.",
 			Aliases = ["disconnect remote agent", "remove remote agent", "forget remote agent", "disconnect agent", "remove agent"],
-			// Target-specific (which agent) with no meaningful no-arg palette row, like the id-targeted session ops.
+			// Names its agent, so it has no palette row.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"agent\":{\"type\":\"string\",\"description\":\"Name of the registered remote agent to disconnect\"}}",
 		});

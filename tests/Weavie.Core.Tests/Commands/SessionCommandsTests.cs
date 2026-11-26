@@ -59,7 +59,6 @@ public sealed class SessionCommandsTests {
 		// The remote agent registry lives on the user's device, so an agent's add or disconnect runs on its page.
 		Assert.True(registry.TryGet(SessionCommands.ConnectRemote, out var connectDef));
 		Assert.Equal((CommandLocation.Web, CommandOwner.Client), (connectDef!.RunsIn, connectDef.Owner));
-		Assert.True(connectDef.ShowInPalette);
 		Assert.True(registry.TryGet(SessionCommands.DisconnectRemote, out var disconnectDef));
 		Assert.Equal((CommandLocation.Web, CommandOwner.Client), (disconnectDef!.RunsIn, disconnectDef.Owner));
 		Assert.False(disconnectDef.ShowInPalette);

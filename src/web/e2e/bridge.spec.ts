@@ -480,8 +480,14 @@ test.describe("session-addressed WebSocket transport", () => {
 
       await page.locator(".session-rail-add").click();
       const location = page.getByRole("combobox", { name: "Session location" });
+      const name = page.getByPlaceholder("name (e.g. devbox)");
       await location.selectOption({ label: "Add remote agent…" });
-      await page.getByPlaceholder("name (e.g. devbox)").fill("devbox");
+      await expect(name).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(location).toHaveValue("local");
+
+      await location.selectOption({ label: "Add remote agent…" });
+      await name.fill("devbox");
       await page.getByPlaceholder("runner URL (http://host:8800)").fill(remote.url);
       await page.getByPlaceholder("runner token").fill("runner-token");
       await page.keyboard.press("Enter");

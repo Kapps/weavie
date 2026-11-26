@@ -586,7 +586,8 @@ export default function App(): JSX.Element {
       ? null
       : backendBuildMismatch(activeBackendId()),
   );
-  const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
+  // The Add Remote Agent form, and whether cancelling it returns to the Sessions dialog it was opened from.
+  const [registerAgent, setRegisterAgent] = createSignal<{ fromSessions: boolean } | null>(null);
   const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
@@ -619,9 +620,16 @@ export default function App(): JSX.Element {
     setAcpRegistryOpen(true);
   };
   const openRegisterAgent = (): void => {
+    setRegisterAgent({ fromSessions: sessionsModalActive() });
     closeSessions();
     setRemotePanelAnchor(null);
-    setRegisterAgentOpen(true);
+  };
+  const closeRegisterAgent = (): void => {
+    const form = registerAgent();
+    setRegisterAgent(null);
+    if (form?.fromSessions) {
+      openSessions();
+    }
   };
   const sessionsModalActive = (): boolean => !compact() && sessionsModalOpen();
   createEffect(() => {
@@ -1925,8 +1933,7 @@ export default function App(): JSX.Element {
           await addAgent(agent);
         }
       }),
-      // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
-      // client-side). Declines a missing/blank name.
+      // Disconnect a remote agent: close its bridge and forget it. Declines a missing or blank name.
       registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
         const name = (args as { agent?: unknown } | undefined)?.agent;
         if (typeof name !== "string" || name.length === 0) {
@@ -2223,11 +2230,11 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={registerAgentOpen()}>
+      <Show when={registerAgent()}>
         <RegisterAgentModal
-          onClose={() => setRegisterAgentOpen(false)}
+          onClose={closeRegisterAgent}
           onAdded={(name) => {
-            setRegisterAgentOpen(false);
+            setRegisterAgent(null);
             // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
             setLastLocation(agentBackendId(name));
             openSessions();

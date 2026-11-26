@@ -26,6 +26,7 @@ describe("application menu", () => {
         CommandIds.runTestsInFile,
         CommandIds.newTerminal,
         CommandIds.showSessions,
+        CommandIds.connectRemoteAgent,
         CommandIds.openPr,
         CommandIds.openCurrentPr,
         CommandIds.reopenClosed,

@@ -7,7 +7,7 @@ import type { HostHello } from "../src/messaging/host-connection";
 import { test } from "./harness/network-fixtures";
 import { frames } from "./harness/render-budget";
 import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "./harness/websocket-codec";
-import { type MessageEnvelope, MockHost, mockSession } from "./mock-host";
+import { type MessageEnvelope, MockHost, mockCommand, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 test.beforeAll(() => {
@@ -27,6 +27,16 @@ const NOTION_PROMPT = {
 
 const BRANCH_INFERENCE_DRAFT =
   "branch inference fails for this desktop draft and the composer has to ask the user to name it";
+
+const ADD_REMOTE_COMMAND = mockCommand({
+  id: CommandIds.connectRemoteAgent,
+  title: "Add Remote Agent…",
+  runsIn: "web",
+  owner: "client",
+  executionLane: CommandIds.connectRemoteAgent,
+  scope: "session",
+  keys: [],
+});
 
 test.describe("session-addressed WebSocket transport", () => {
   let host: MockHost;
@@ -451,6 +461,68 @@ test.describe("session-addressed WebSocket transport", () => {
       await inbox.getByRole("combobox", { name: "Session location" }).selectOption("remote:devbox");
 
       await expect(provider).toHaveValue("claude");
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("the first remote agent is added from the location list", async ({ page }) => {
+    host.onHost("request", "git", "branches", (request) => host.respond(request, ["main"]));
+    host.onHost("event", "remoteAgents", "add", (message) =>
+      host.publishHost("remoteAgents", "changed", { agents: [message.payload] }),
+    );
+    const remote = await MockHost.start({ distDir });
+    try {
+      await page.setViewportSize({ width: 1200, height: 800 });
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("commands", "catalog", { commands: [ADD_REMOTE_COMMAND], keybindings: [] });
+
+      await page.locator(".session-rail-add").click();
+      const location = page.getByRole("combobox", { name: "Session location" });
+      await location.selectOption({ label: "Add remote agent…" });
+      await page.getByPlaceholder("name (e.g. devbox)").fill("devbox");
+      await page.getByPlaceholder("runner URL (http://host:8800)").fill(remote.url);
+      await page.getByPlaceholder("runner token").fill("runner-token");
+      await page.keyboard.press("Enter");
+
+      await remote.waitUntilConnected();
+      await expect(location).toHaveValue("remote:devbox");
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("an agent adds a remote agent by command, and hears why one can't be reached", async ({
+    page,
+  }) => {
+    const local = mockSession("local", "local", "acp");
+    host.setSessions([local]);
+    const remote = await MockHost.start({ distDir });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("commands", "catalog", { commands: [ADD_REMOTE_COMMAND], keybindings: [] });
+      const run = (url: string) =>
+        host.requestHost("device", "command", {
+          id: ADD_REMOTE_COMMAND.id,
+          args: { name: "devbox", url, token: "runner-token" },
+          session: local.address,
+        });
+
+      expect((await run("http://127.0.0.1:1")).payload).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("runner unreachable"),
+      });
+
+      const saved = host.waitForHost("event", "remoteAgents", "add", host.checkpoint());
+      expect((await run(remote.url)).payload).toEqual({ ok: true });
+      expect((await saved).payload).toEqual({
+        name: "devbox",
+        url: remote.url,
+        token: "runner-token",
+      });
+      await remote.waitUntilConnected();
     } finally {
       await remote.close();
     }

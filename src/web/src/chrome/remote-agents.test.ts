@@ -57,6 +57,25 @@ describe("agentHue", () => {
   });
 });
 
+describe("agentFromArgs", () => {
+  it("names no agent without arguments", () => {
+    expect(agents.agentFromArgs(undefined)).toBeNull();
+    expect(agents.agentFromArgs({})).toBeNull();
+  });
+
+  it("trims a complete agent", () => {
+    expect(agents.agentFromArgs({ name: " bob ", url: "http://r:8800", token: "t" })).toEqual({
+      name: "bob",
+      url: "http://r:8800",
+      token: "t",
+    });
+  });
+
+  it("rejects a partial agent", () => {
+    expect(() => agents.agentFromArgs({ name: "bob", url: "http://r:8800" })).toThrow(/token/);
+  });
+});
+
 describe("addAgent", () => {
   it("connects the worker bridge and persists the agent on success", async () => {
     vi.stubGlobal(

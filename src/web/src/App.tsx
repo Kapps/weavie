@@ -84,7 +84,7 @@ import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { lastLocation, panelPinned, setLastLocation } from "./chrome/rail-state";
-import { agentBackendId, removeAgent } from "./chrome/remote-agents";
+import { addAgent, agentBackendId, agentFromArgs, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionReloadBar } from "./chrome/SessionReloadBar";
 import {
@@ -617,6 +617,11 @@ export default function App(): JSX.Element {
     closeSessions();
     setAcpRegistryBackendId(backendId);
     setAcpRegistryOpen(true);
+  };
+  const openRegisterAgent = (): void => {
+    closeSessions();
+    setRemotePanelAnchor(null);
+    setRegisterAgentOpen(true);
   };
   const sessionsModalActive = (): boolean => !compact() && sessionsModalOpen();
   createEffect(() => {
@@ -1911,6 +1916,15 @@ export default function App(): JSX.Element {
       // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
       registerCommand(CommandIds.reloadSessionPrompt, promptReloadSession),
+      // Add a remote agent: an agent names it in the arguments, the palette and menus open the form.
+      registerCommand(CommandIds.connectRemoteAgent, async (args) => {
+        const agent = agentFromArgs(args);
+        if (agent === null) {
+          openRegisterAgent();
+        } else {
+          await addAgent(agent);
+        }
+      }),
       // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
       // client-side). Declines a missing/blank name.
       registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
@@ -2232,10 +2246,7 @@ export default function App(): JSX.Element {
             agents={remoteAgentRows()}
             anchor={anchor()}
             onDisconnect={(name) => removeAgent(name)}
-            onAddRemote={() => {
-              setRemotePanelAnchor(null);
-              setRegisterAgentOpen(true);
-            }}
+            onAddRemote={openRegisterAgent}
             onClose={() => setRemotePanelAnchor(null)}
           />
         )}

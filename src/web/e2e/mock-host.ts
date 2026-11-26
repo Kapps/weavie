@@ -404,7 +404,10 @@ export class MockHost {
     payload: unknown,
   ): Promise<MessageEnvelope> {
     const requestId = `mock-${++this.requestSequence}`;
-    const response = this.waitFor({ scope, session, kind: "response", feature, name });
+    const response = this.waitFor(
+      { scope, session, kind: "response", feature, name },
+      this.checkpoint(),
+    );
     this.send({
       scope,
       session,

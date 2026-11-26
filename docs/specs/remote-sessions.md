@@ -93,6 +93,11 @@ credentials. Secured modes also pin the worker port, preserving the PWA's origin
 Worktree sessions are created inside the worker through the same shared `HostCore` flow used locally. The
 runner does not create one process per session and does not relay the message stream.
 
+An agent is added with **Add Remote Agent…** (`weavie.session.connectRemote`): the last entry of the New
+Session location list, the File menu, the palette, and the cloud panel that appears once one is registered. The
+same command adds one directly when an agent passes `name`, `url` and `token`; it runs on the user's device and
+saves nothing unless the runner answers. `weavie.session.disconnectRemote` forgets one by name.
+
 Registered agents are persisted by the local host as `{name, url, token}`. The page resolves `GET /backend`
 on every connection attempt, so a restarted runner may advertise a new worker port without leaving a stale
 endpoint cached in the client. Changing the runner token or workspace identity rotates the worker token too.

@@ -257,6 +257,7 @@ export const CommandIds = {
   unloadSession: "weavie.session.unload",
   deleteSession: "weavie.session.delete",
   deleteSessionPrompt: "weavie.session.deletePrompt",
+  connectRemoteAgent: "weavie.session.connectRemote",
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   restartForUpdate: "weavie.update.restartNow",
   sourceOpenInBrowser: "weavie.source.openInBrowser",

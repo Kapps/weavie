@@ -1369,15 +1369,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         continue;
       }
       const entry = openTabsFor(session).find((tab) => samePath(tab.path, change.path));
-      if (entry === undefined) {
-        continue;
+      if (entry !== undefined) {
+        const wasActive = activePathFor(session) === entry.path;
+        const result = closeTabFor(session, entry.path);
+        if (result !== null && wasActive) {
+          applyOrClear(session, result.next);
+        }
       }
-      const wasActive = activePathFor(session) === entry.path;
-      const result = closeTabFor(session, entry.path);
-      if (result !== null && wasActive) {
-        applyOrClear(session, result.next);
-      }
-      host?.closeFile(session, entry.path, true);
+      host?.closeFile(session, entry?.path ?? change.path, true);
     }
     renderReviewState(session);
   };

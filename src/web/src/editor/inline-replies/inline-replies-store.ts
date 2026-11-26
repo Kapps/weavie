@@ -194,6 +194,11 @@ export function dismissInlineReply(session: ClientSession, id: string): void {
   owned.get(session)?.remove((reply) => reply.id === id);
 }
 
+/** Ends the replies on a file that is gone, which nothing can show again. */
+export function dismissInlineRepliesOn(session: ClientSession, uri: string): void {
+  owned.get(session)?.remove((reply) => reply.model.uri.toString() === uri);
+}
+
 /** The composer of `reply`'s follow-up box, whose prompts join the card. */
 export const inlineFollowUp = (session: ClientSession, reply: InlineReply): ReplyComposer =>
   followUpComposer(

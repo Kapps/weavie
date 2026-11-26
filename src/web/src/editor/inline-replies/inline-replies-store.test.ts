@@ -71,6 +71,7 @@ import { CommandIds } from "../../commands/types";
 import type { monaco } from "../monaco-setup";
 import {
   addInlineReply,
+  dismissInlineRepliesOn,
   dismissInlineReply,
   inlineFollowUp,
   inlineReplies,
@@ -134,7 +135,7 @@ function openModel(scheme = "weavie-file") {
     return { dispose: () => listeners.delete(name) };
   };
   const model = {
-    uri: { scheme, path: "/notes.txt" },
+    uri: { scheme, path: "/notes.txt", toString: () => `${scheme}:/notes.txt` },
     // Each mark stays on the code it was made for.
     getDecorationRange: (mark: string) => lines.get(mark) ?? null,
     deltaDecorations: (old: string[], added: { range: ReturnType<typeof onLine> }[]) => {
@@ -173,7 +174,7 @@ describe("inline replies", () => {
     host.select(null);
   });
 
-  it("holds a file open while it has a reply, and never a model that is not a file", async () => {
+  it("holds a file open until its replies end or it is gone, and never a model that is not a file", async () => {
     const { session } = openSession();
     const settled = () => new Promise((resolve) => setTimeout(resolve));
     addInlineReply(session, openModel("weavie-review").model, onLine(1), "proposed", "why?");
@@ -181,7 +182,10 @@ describe("inline replies", () => {
     await settled();
     expect(host.held).toEqual(["/notes.txt"]);
 
-    dismissInlineReply(session, "ask");
+    dismissInlineRepliesOn(session, "weavie-file:/other.txt");
+    expect(inlineReplies(session)).toHaveLength(2);
+    dismissInlineRepliesOn(session, "weavie-file:/notes.txt");
+    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["proposed"]);
     await settled();
     expect(host.held).toEqual([]);
   });

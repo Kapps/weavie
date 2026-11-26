@@ -89,6 +89,7 @@ code it is about, which follows that code through edits; the card sits under its
 
 - the user dismisses it (the card's ✕ or a Dismiss command),
 - its whole text is replaced, which discards the mark,
+- its file is deleted, or is a scratch buffer that is discarded,
 - its model is disposed, for a model that is not a file (a proposed diff),
 - its first prompt leaves the loaded transcript (`/clear`, Rewind); a follow-up that leaves only drops out
   of the card,
@@ -96,7 +97,8 @@ code it is about, which follows that code through edits; the card sits under its
 - the page reloads.
 
 A reply holds a reference to its file's working copy, so the card is there when the file is shown again
-after its last tab closes or the review showing it is left. Every editor showing the model shows its cards. The card layer exists only while a model has a reply.
+after its last tab closes or the review showing it is left. Every editor showing the model shows its cards.
+The card layer exists only while a model has a reply.
 
 ## Setting
 

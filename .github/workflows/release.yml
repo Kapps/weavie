@@ -47,6 +47,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      runner_matrix: ${{ steps.plan.outputs.runner_matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,12 +76,16 @@ jobs:
       full: ${{ needs.prepare.outputs.channel == 'stable' }}
 
   runner:
-    name: runner bundle
+    name: runner bundle (${{ matrix.platform.rid }})
     needs: prepare
-    runs-on: ubuntu-latest
+    # Native AOT links with the host toolchain, so each architecture publishes on its own runner.
+    runs-on: ${{ matrix.platform.os }}
     env:
       PublicVersion: ${{ needs.prepare.outputs.version }}
       BuildNumber: ${{ needs.prepare.outputs.build }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.runner_matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,16 +107,16 @@ jobs:
       - uses: ./temp/workflow/.github/actions/publish-setup
       - name: Publish runner and worker
         run: >-
-          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r ${{ matrix.platform.rid }}
           --self-contained -o layout/versions/$BuildNumber
       - name: Package managed layout
         run: |
           ln -s "versions/$BuildNumber" layout/current
-          tar -C layout -czf weavie-runner-linux-x64.tar.gz versions current
+          tar -C layout -czf weavie-runner-${{ matrix.platform.rid }}.tar.gz versions current
       - uses: actions/upload-artifact@v4
         with:
-          name: weavie-runner-linux-x64
-          path: weavie-runner-linux-x64.tar.gz
+          name: weavie-runner-${{ matrix.platform.rid }}
+          path: weavie-runner-${{ matrix.platform.rid }}.tar.gz
           if-no-files-found: error
 
   publish:

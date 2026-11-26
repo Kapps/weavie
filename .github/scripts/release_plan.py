@@ -90,9 +90,10 @@ def main():
                      os.environ["RELEASE_BUMP"], os.environ["RELEASE_SOURCE"],
                      int(os.environ["GITHUB_RUN_NUMBER"]), baseline)
     Path("release-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
-    matrix = {"platform": json.loads(Path(".github/platforms.json").read_text())}
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"matrix={json.dumps(matrix)}\n")
+        for name, source in (("matrix", "platforms"), ("runner_matrix", "runner-platforms")):
+            matrix = {"platform": json.loads(Path(f".github/{source}.json").read_text())}
+            output.write(f"{name}={json.dumps(matrix)}\n")
         for key in ("commit", "build", "version", "channel"):
             output.write(f"{key}={plan[key]}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:

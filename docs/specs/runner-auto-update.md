@@ -303,4 +303,7 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
 - **Multi-workspace rolling updates** — the runner manages a single `WorkspaceBackend` today
   (`src/Weavie.Runner/BackendManager.cs:16`); per-workspace drain becomes relevant only if that
   changes.
-- **Non-Linux runners** — the release pipeline ships `runner-linux-x64` only.
+- **Non-Linux runners** — the release pipeline ships `runner-linux-x64` and `runner-linux-arm64` only
+  (`.github/runner-platforms.json`); a runner updates from the bundle matching its own runtime identifier.
+  A manually selected source whose updater downloads only the x64 bundle yields an arm64 bundle that cannot
+  update itself.

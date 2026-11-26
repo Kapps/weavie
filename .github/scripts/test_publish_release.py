@@ -1,10 +1,12 @@
 import io
 import json
 import tarfile
+import tempfile
 from pathlib import Path
 import unittest
 
-from publish_release import ensure_latest_advances, immutable_tag, publish_stable
+from publish_release import (ensure_latest_advances, immutable_tag, publish_stable, release_assets,
+                             runner_assets)
 
 PLAN = {"commit": "a" * 40, "build": 1507, "version": "0.2.1", "channel": "stable", "automatic": False}
 ASSETS = [Path("runner.tar.gz"), Path("windows.zip"), Path("macos.zip"), Path("release-plan.json")]
@@ -120,7 +122,7 @@ class PublicationTests(unittest.TestCase):
 
         def download(command):
             assert command[:4] == ["gh", "release", "download", "main-latest"]
-            with tarfile.open(Path(command[-1]) / "weavie-runner-linux-x64.tar.gz", "w:gz") as archive:
+            with tarfile.open(Path(command[-1]) / command[-3], "w:gz") as archive:
                 payload = json.dumps({"buildNumber": 1508, "spawnContract": 2}).encode()
                 info = tarfile.TarInfo("versions/1508/manifest.json")
                 info.size = len(payload)
@@ -130,6 +132,19 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(number=number), self.assertRaisesRegex(ValueError, "supersedes"):
                 ensure_latest_advances(LatestApi(), {**PLAN, "build": number}, download)
         ensure_latest_advances(LatestApi(), {**PLAN, "build": 1509, "commit": "old-source"}, download)
+
+    def test_release_requires_every_runner_bundle(self):
+        self.assertEqual(["weavie-runner-linux-x64.tar.gz", "weavie-runner-linux-arm64.tar.gz"], runner_assets())
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "Missing release asset"):
+                release_assets(directory)
+            for name in ("weavie-runner-linux-x64.tar.gz", "weavie-linux-x64.tar.gz", "weavie-osx-arm64.zip",
+                         "weavie-win-x64.zip", "release-plan.json"):
+                (Path(directory) / name).touch()
+            with self.assertRaisesRegex(ValueError, "weavie-runner-linux-arm64.tar.gz"):
+                release_assets(directory)
+            (Path(directory) / "weavie-runner-linux-arm64.tar.gz").touch()
+            self.assertEqual(6, len(release_assets(directory)))
 
     def test_version_and_build_tags_cannot_be_reassigned(self):
         api = FakeGitHub()

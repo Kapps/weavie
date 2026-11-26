@@ -75,14 +75,30 @@ def publish_stable(api, plan, assets, run_command):
     run_command(["gh", "release", "edit", tag, "--latest"])
 
 
+def runner_assets():
+    runners = json.loads((Path(__file__).parents[1] / "runner-platforms.json").read_text())
+    return [f"weavie-runner-{runner['rid']}.tar.gz" for runner in runners]
+
+
+def release_assets(directory):
+    platforms = json.loads((Path(__file__).parents[1] / "platforms.json").read_text())
+    names = [*runner_assets(), *[p["asset"] for p in platforms], "release-plan.json"]
+    assets = [Path(directory) / name for name in names]
+    for asset in assets:
+        if not asset.is_file():
+            raise ValueError(f"Missing release asset: {asset}")
+    return assets
+
+
 def ensure_latest_advances(api, plan, run_command):
     if api.optional("releases/tags/main-latest") is None:
         return
-    # The published runner manifest is the authoritative build identity used by the updater itself.
+    # The published runner manifest is the authoritative build identity used by the updater itself;
+    # every runner bundle of a release carries the same one.
+    bundle = runner_assets()[0]
     with tempfile.TemporaryDirectory() as scratch:
-        run_command(["gh", "release", "download", "main-latest", "--pattern",
-                     "weavie-runner-linux-x64.tar.gz", "--dir", scratch])
-        with tarfile.open(Path(scratch) / "weavie-runner-linux-x64.tar.gz") as archive:
+        run_command(["gh", "release", "download", "main-latest", "--pattern", bundle, "--dir", scratch])
+        with tarfile.open(Path(scratch) / bundle) as archive:
             manifests = [member for member in archive.getmembers()
                          if len(Path(member.name).parts) == 3 and Path(member.name).parts[0] == "versions"
                          and Path(member.name).name == "manifest.json" and member.isfile()]
@@ -96,12 +112,7 @@ def ensure_latest_advances(api, plan, run_command):
 def main():
     plan = json.loads(Path("release-assets/release-plan.json").read_text())
     api = GitHub()
-    platforms = json.loads(Path(".github/platforms.json").read_text())
-    names = ["weavie-runner-linux-x64.tar.gz", *[p["asset"] for p in platforms]]
-    assets = [Path("release-assets") / name for name in (*names, "release-plan.json")]
-    for asset in assets:
-        if not asset.is_file():
-            raise ValueError(f"Missing release asset: {asset}")
+    assets = release_assets("release-assets")
     if plan["channel"] == "latest":
         ensure_latest_advances(api, plan, lambda command: subprocess.run(command, check=True))
     immutable_tag(api, f"build-{plan['build']}", plan)

@@ -116,7 +116,7 @@ publish_main_latest() {
   gh release create "$staging" --draft --prerelease \
     --target "$built" \
     --title "main latest (build $run_number)" \
-    --notes "Rolling prerelease of green main: build $run_number from commit $built. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update latest (see docs/specs/runner-auto-update.md); the other archives are the desktop apps." \
+    --notes "Rolling prerelease of green main: build $run_number from commit $built. The weavie-runner-<rid>.tar.gz archives are the runner+worker bundles consumed by weavie-runner --auto-update latest (see docs/specs/runner-auto-update.md); the others are the desktop apps." \
     "${assets[@]}"
 
   local main

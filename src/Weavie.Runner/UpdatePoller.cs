@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Weavie.Core;
@@ -14,7 +15,7 @@ namespace Weavie.Runner;
 public sealed class UpdatePoller : IDisposable {
 	private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(15);
 	private readonly UpdateChannel _channel;
-	private const string AssetName = "weavie-runner-linux-x64.tar.gz";
+	private static readonly string AssetName = $"weavie-runner-{RuntimeInformation.RuntimeIdentifier}.tar.gz";
 
 	private readonly VersionStore _store;
 	private readonly BackendManager _backends;

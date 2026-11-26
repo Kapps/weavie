@@ -1,0 +1,29 @@
+name: tmp arm64 runner proof
+on:
+  push:
+    branches: [chore/release-linux-arm64-runner]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-24.04-arm
+    env:
+      PublicVersion: 0.0.1
+      BuildNumber: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/publish-setup
+      - run: >-
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-arm64
+          --self-contained -o layout/versions/$BuildNumber
+      - run: |
+          ln -s "versions/$BuildNumber" layout/current
+          tar -C layout -czf weavie-runner-linux-arm64.tar.gz versions current
+          ls -la layout/current/ layout/current/worker | head -80
+          file layout/current/Weavie.Runner layout/current/worker/Weavie.Headless layout/current/worker/weavie-hook-relay layout/current/worker/weavie-mcp-proxy
+          cat layout/current/manifest.json
+          test -f layout/current/worker/wwwroot/index.html
+          layout/current/Weavie.Runner --help || true

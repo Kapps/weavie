@@ -126,12 +126,15 @@ describe("semantic request ownership", () => {
     expect(full).toHaveBeenCalledTimes(2);
   });
 
+  // 2026-10-12 flake (https://github.com/Kapps/weavie/actions/runs/38289112149): toEqual walked 250k elements one
+  // by one (~1s locally, >5s on a loaded runner). Fixed by comparing the buffers natively.
   it("applies large delta payloads without spreading them onto the call stack", async () => {
     const { cache, document, edits } = fixture();
     await cache.read(document, CancellationToken.None);
     const data = new Uint32Array(250_000).fill(7);
     edits.mockResolvedValue({ edits: [{ start: 0, deleteCount: 5, data }], resultId: "large" });
     cache.refresh();
-    expect((await cache.read(document, CancellationToken.None))!.data).toEqual(data);
+    const applied = (await cache.read(document, CancellationToken.None))!.data;
+    expect(Buffer.from(applied.buffer).equals(Buffer.from(data.buffer))).toBe(true);
   });
 });

@@ -97,7 +97,8 @@ def main():
     plan = json.loads(Path("release-assets/release-plan.json").read_text())
     api = GitHub()
     platforms = json.loads(Path(".github/platforms.json").read_text())
-    names = ["weavie-runner-linux-x64.tar.gz", *[p["asset"] for p in platforms]]
+    runners = json.loads(Path(".github/runner-platforms.json").read_text())
+    names = [*[f"weavie-runner-{r['rid']}.tar.gz" for r in runners], *[p["asset"] for p in platforms]]
     assets = [Path("release-assets") / name for name in (*names, "release-plan.json")]
     for asset in assets:
         if not asset.is_file():

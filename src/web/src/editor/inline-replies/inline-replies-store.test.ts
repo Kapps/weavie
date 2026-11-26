@@ -10,6 +10,16 @@ const host = vi.hoisted(() => ({
   connection: undefined as unknown,
   owned: undefined as string | undefined,
   select: (_session: unknown): void => {},
+  held: [] as string[],
+}));
+vi.mock("@codingame/monaco-vscode-api/services", () => ({
+  ITextModelService: {},
+  getService: async () => ({
+    createModelReference: async (uri: { path: string }) => {
+      host.held.push(uri.path);
+      return { dispose: () => host.held.splice(host.held.indexOf(uri.path), 1) };
+    },
+  }),
 }));
 vi.mock("../../bridge", () => {
   let leave = (): void => {};
@@ -114,7 +124,7 @@ function openSession() {
   };
 }
 
-function openModel() {
+function openModel(scheme = "weavie-file") {
   const marks = new Set<string>();
   const lines = new Map<string, ReturnType<typeof onLine> & { isEmpty(): boolean }>();
   let disposed = false;
@@ -124,6 +134,7 @@ function openModel() {
     return { dispose: () => listeners.delete(name) };
   };
   const model = {
+    uri: { scheme, path: "/notes.txt" },
     // Each mark stays on the code it was made for.
     getDecorationRange: (mark: string) => lines.get(mark) ?? null,
     deltaDecorations: (old: string[], added: { range: ReturnType<typeof onLine> }[]) => {
@@ -158,7 +169,21 @@ describe("inline replies", () => {
     host.cleared.length = 0;
     host.connection = undefined;
     host.owned = undefined;
+    host.held.length = 0;
     host.select(null);
+  });
+
+  it("holds a file open while it has a reply, and never a model that is not a file", async () => {
+    const { session } = openSession();
+    const settled = () => new Promise((resolve) => setTimeout(resolve));
+    addInlineReply(session, openModel("weavie-review").model, onLine(1), "proposed", "why?");
+    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
+    await settled();
+    expect(host.held).toEqual(["/notes.txt"]);
+
+    dismissInlineReply(session, "ask");
+    await settled();
+    expect(host.held).toEqual([]);
   });
 
   it("keeps a reply under its line until it is dismissed", () => {

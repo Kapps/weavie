@@ -57,6 +57,7 @@ interface MessageSelector {
   kind: MessageEnvelope["kind"];
   feature: string;
   name: string;
+  requestId?: string;
 }
 
 interface MessageWaiter {
@@ -404,7 +405,7 @@ export class MockHost {
     payload: unknown,
   ): Promise<MessageEnvelope> {
     const requestId = `mock-${++this.requestSequence}`;
-    const response = this.waitFor({ scope, session, kind: "response", feature, name });
+    const response = this.waitFor({ scope, session, kind: "response", feature, name, requestId });
     this.send({
       scope,
       session,
@@ -966,6 +967,7 @@ function matches(message: MessageEnvelope, selector: MessageSelector): boolean {
     message.kind === selector.kind &&
     message.feature === selector.feature &&
     message.name === selector.name &&
+    (selector.requestId === undefined || message.requestId === selector.requestId) &&
     sameAddress(message.session, selector.session)
   );
 }

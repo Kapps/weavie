@@ -163,8 +163,8 @@ owns the action. A `Web` command with no web handler registered at invoke time i
 
 `Owner` is a separate addressing decision. Backend-owned commands follow the selected or explicitly
 addressed backend. Client-owned commands use the local presentation host's definition, keybinding, and Core
-handler even while a remote session is selected. Font, theme, and native-window commands are client-owned;
-their visible state belongs to the machine rendering the page. Model invocations of client-owned Core
+handler even while a remote session is selected. Font, theme, native-window, and remote-agent registry commands are
+client-owned; their state belongs to the machine rendering the page. Model invocations of client-owned Core
 commands relay through the attached page to that local host instead of running an invisible remote handler.
 
 `Scope` is the authoritative transport owner for backend Core commands. Host-scoped commands enter through

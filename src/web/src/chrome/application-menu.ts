@@ -63,6 +63,7 @@ export const APPLICATION_MENUS: ApplicationMenuDefinition[] = [
       command(CommandIds.openUrl),
       separator(),
       command(CommandIds.showSessions),
+      command(CommandIds.connectRemoteAgent),
       command(CommandIds.openPr),
       command(CommandIds.openCurrentPr),
       separator(),

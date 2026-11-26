@@ -39,19 +39,39 @@ export function agentHue(name: string): number {
   return hash % 360;
 }
 
+/** The agent a command's arguments name, or null when they name none; a partial agent throws. */
+export function agentFromArgs(args: unknown): RemoteAgent | null {
+  const given = (args ?? {}) as Record<string, unknown>;
+  const text = (key: string): string => (typeof given[key] === "string" ? given[key].trim() : "");
+  const [name, url, token] = [text("name"), text("url"), text("token")];
+  if (name === "" && url === "" && token === "") {
+    return null;
+  }
+  if (name === "" || url === "" || token === "") {
+    throw new Error("Adding a remote agent needs its name, url and token together.");
+  }
+  return { name, url, token };
+}
+
 /**
  * Connect + register a new agent. Validates the handshake up front (throws on failure, so a bad agent is never
  * persisted or connected), then wires the live connection and asks the host to persist it; the host echoes the
- * registry back. Replaces a same-named agent.
+ * registry back. Replaces a same-named agent, connection included.
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
+  if (!/^https?:\/\//i.test(agent.url)) {
+    throw new Error("The runner URL must start with http:// or https://");
+  }
   await resolveWorkerBridge(agent);
+  // A same-named agent's live connection still resolves through the runner it was added with.
+  disconnectBackend(agentBackendId(agent.name));
   connectAgent(agent);
   hostConnection(LOCAL_BACKEND_ID)?.host.feature("remoteAgents").publish("add", {
     name: agent.name,
     url: agent.url,
     token: agent.token,
   });
+  notify("info", `Connected remote agent "${agent.name}" at ${agent.url}.`);
 }
 
 /**

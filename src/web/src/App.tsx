@@ -84,7 +84,7 @@ import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { lastLocation, panelPinned, setLastLocation } from "./chrome/rail-state";
-import { agentBackendId, removeAgent } from "./chrome/remote-agents";
+import { addAgent, agentBackendId, agentFromArgs, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionReloadBar } from "./chrome/SessionReloadBar";
 import {
@@ -586,7 +586,8 @@ export default function App(): JSX.Element {
       ? null
       : backendBuildMismatch(activeBackendId()),
   );
-  const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
+  // The Add Remote Agent form, and whether cancelling it returns to the Sessions dialog it was opened from.
+  const [registerAgent, setRegisterAgent] = createSignal<{ fromSessions: boolean } | null>(null);
   const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
@@ -617,6 +618,18 @@ export default function App(): JSX.Element {
     closeSessions();
     setAcpRegistryBackendId(backendId);
     setAcpRegistryOpen(true);
+  };
+  const openRegisterAgent = (): void => {
+    setRegisterAgent({ fromSessions: sessionsModalActive() });
+    closeSessions();
+    setRemotePanelAnchor(null);
+  };
+  const closeRegisterAgent = (): void => {
+    const form = registerAgent();
+    setRegisterAgent(null);
+    if (form?.fromSessions) {
+      openSessions();
+    }
   };
   const sessionsModalActive = (): boolean => !compact() && sessionsModalOpen();
   createEffect(() => {
@@ -1911,8 +1924,16 @@ export default function App(): JSX.Element {
       // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
       registerCommand(CommandIds.reloadSessionPrompt, promptReloadSession),
-      // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
-      // client-side). Declines a missing/blank name.
+      // Add a remote agent: an agent names it in the arguments, the palette and menus open the form.
+      registerCommand(CommandIds.connectRemoteAgent, async (args) => {
+        const agent = agentFromArgs(args);
+        if (agent === null) {
+          openRegisterAgent();
+        } else {
+          await addAgent(agent);
+        }
+      }),
+      // Disconnect a remote agent: close its bridge and forget it. Declines a missing or blank name.
       registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
         const name = (args as { agent?: unknown } | undefined)?.agent;
         if (typeof name !== "string" || name.length === 0) {
@@ -2209,11 +2230,11 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={registerAgentOpen()}>
+      <Show when={registerAgent()}>
         <RegisterAgentModal
-          onClose={() => setRegisterAgentOpen(false)}
+          onClose={closeRegisterAgent}
           onAdded={(name) => {
-            setRegisterAgentOpen(false);
+            setRegisterAgent(null);
             // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
             setLastLocation(agentBackendId(name));
             openSessions();
@@ -2232,10 +2253,7 @@ export default function App(): JSX.Element {
             agents={remoteAgentRows()}
             anchor={anchor()}
             onDisconnect={(name) => removeAgent(name)}
-            onAddRemote={() => {
-              setRemotePanelAnchor(null);
-              setRegisterAgentOpen(true);
-            }}
+            onAddRemote={openRegisterAgent}
             onClose={() => setRemotePanelAnchor(null)}
           />
         )}

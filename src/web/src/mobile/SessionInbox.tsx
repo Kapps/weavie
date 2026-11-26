@@ -18,6 +18,7 @@ import {
 import { chosenRepo, OTHER_REPO, sentRepo } from "../chrome/new-session-repo";
 import type { RailSession } from "../chrome/session-store";
 import { keyHint } from "../commands/key-hint";
+import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { KnownRepo } from "../messaging/protocol-types";
 import { notify } from "../notify/notify";
@@ -30,6 +31,9 @@ import type { SessionsOpening } from "./sessions-opening";
 
 export type { NewSessionSeed } from "./NewSessionComposer";
 export type { NewSessionSeedAttachment } from "./new-session-attachments";
+
+// Never a backend id (`local` / `remote:<name>`).
+const ADD_REMOTE = "add-remote";
 
 /** The shared Sessions surface for starting, opening, and resuming sessions. */
 export function SessionInbox(props: {
@@ -89,6 +93,15 @@ export function SessionInbox(props: {
     clearTimeout(repoTyped);
     setRepoPick(null);
     setRepoPath("");
+  };
+  // "Add remote agent…" is an action, not a location: the list keeps the location it had.
+  const pickBackend = (select: HTMLSelectElement): void => {
+    if (select.value === ADD_REMOTE) {
+      select.value = backendId();
+      void runCommandWithFeedback(CommandIds.connectRemoteAgent);
+    } else {
+      selectBackend(select.value);
+    }
   };
   // Picking "Other…" moves to the path it asks for, in the form it was picked in.
   const pickRepo = (select: HTMLSelectElement): void => {
@@ -249,13 +262,14 @@ export function SessionInbox(props: {
           aria-label={locationLabel}
           disabled={submitting() !== null}
           value={backendId()}
-          onChange={(event) => selectBackend(event.currentTarget.value)}
+          onChange={(event) => pickBackend(event.currentTarget)}
         >
           <For each={connectedBackends()}>
             {(backend) => (
               <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
             )}
           </For>
+          <option value={ADD_REMOTE}>Add remote agent…</option>
         </select>
       </NewSessionControl>
       <NewSessionControl icon={<Bot />}>

@@ -56,9 +56,11 @@ public sealed class SessionCommandsTests {
 		Assert.Equal(CommandLocation.Web, pinDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.ToggleParkedSessions, out var parkedDef));
 		Assert.Equal(CommandLocation.Web, parkedDef!.RunsIn);
-		// Disconnecting a remote agent is web-handled (the agent registry is client-side); no Core handler.
+		// The remote agent registry lives on the user's device, so an agent's add or disconnect runs on its page.
+		Assert.True(registry.TryGet(SessionCommands.ConnectRemote, out var connectDef));
+		Assert.Equal((CommandLocation.Web, CommandOwner.Client), (connectDef!.RunsIn, connectDef.Owner));
 		Assert.True(registry.TryGet(SessionCommands.DisconnectRemote, out var disconnectDef));
-		Assert.Equal(CommandLocation.Web, disconnectDef!.RunsIn);
+		Assert.Equal((CommandLocation.Web, CommandOwner.Client), (disconnectDef!.RunsIn, disconnectDef.Owner));
 		Assert.False(disconnectDef.ShowInPalette);
 	}
 

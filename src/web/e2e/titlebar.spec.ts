@@ -203,7 +203,10 @@ test("the welcome screen draws a caption strip only when its window has no title
       await page.addInitScript((injected) => {
         window.__WEAVIE_WELCOME__ = { recents: [], setupCompleted: true, chrome: injected };
       }, chrome);
+      const loading = host.checkpoint();
       await page.goto(host.pageUrl("/welcome.html"), { waitUntil: "domcontentloaded" });
+      // A press before the page reaches its host has nowhere to go.
+      await host.waitUntilConnected(loading);
       await expect(page.locator(".welcome")).toBeVisible();
       if (chrome.caption !== "press") {
         await expect(page.locator(".welcome-bar")).toHaveCount(0);

@@ -57,6 +57,25 @@ describe("agentHue", () => {
   });
 });
 
+describe("agentFromArgs", () => {
+  it("names no agent without arguments", () => {
+    expect(agents.agentFromArgs(undefined)).toBeNull();
+    expect(agents.agentFromArgs({})).toBeNull();
+  });
+
+  it("trims a complete agent", () => {
+    expect(agents.agentFromArgs({ name: " bob ", url: "http://r:8800", token: "t" })).toEqual({
+      name: "bob",
+      url: "http://r:8800",
+      token: "t",
+    });
+  });
+
+  it("rejects a partial agent", () => {
+    expect(() => agents.agentFromArgs({ name: "bob", url: "http://r:8800" })).toThrow(/token/);
+  });
+});
+
 describe("addAgent", () => {
   it("connects the worker bridge and persists the agent on success", async () => {
     vi.stubGlobal(
@@ -69,6 +88,8 @@ describe("addAgent", () => {
     await agents.addAgent({ name: "bob", url: "https://runner:8800/", token: "t" });
     expect(calls.connect).toHaveLength(1);
     expect(calls.connect[0]?.[0]).toBe("remote:bob");
+    // A same-named agent's connection is dropped first, so the new runner is the one connected.
+    expect(calls.disconnect).toEqual(["remote:bob"]);
     // The transport gets a resolver, not a fixed URL, so a reconnect re-runs the runner handshake. It derives
     // the bridge and media URLs from the clean worker page URL plus its separate token.
     expect(await calls.connect[0]?.[2]()).toEqual({
@@ -107,6 +128,16 @@ describe("addAgent", () => {
       bridgeUrl: "wss://host:10/weavie-bridge?token=new",
       resourceBase: "https://host:10/weavie-media?token=new",
     });
+  });
+
+  it("rejects a runner URL with no http scheme before contacting anything", async () => {
+    const fetched = vi.fn();
+    vi.stubGlobal("fetch", fetched);
+    await expect(agents.addAgent({ name: "bob", url: "runner:8800", token: "t" })).rejects.toThrow(
+      /http/,
+    );
+    expect(fetched).not.toHaveBeenCalled();
+    expect(calls.posted).toEqual([]);
   });
 
   it("rejects and never persists when the runner is unreachable", async () => {

@@ -1,11 +1,10 @@
-import { onCleanup } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
 import { runCommandInSessionWithFeedback, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { ownsCommand, ownTarget } from "./agent-command-owner";
+import { ownOnFocus } from "./agent-command-owner";
 
 /** A card with a collapsed state, kept in its conversation's history. */
 export type CollapsibleCard = Extract<
@@ -102,15 +101,11 @@ const claimed = new WeakSet<Event>();
 
 /** Makes the card the user presses or focuses the one the card commands act on, until they move on. */
 export function ownCardOnFocus(target: () => OwnedCard | null): (event: Event) => void {
-  let release: (() => void) | null = null;
-  onCleanup(() => release?.());
+  const own = ownOnFocus(cardFocusContext, target);
   return (event) => {
-    if (claimed.has(event)) return;
-    const owned = target();
-    if (owned === null) return;
+    if (claimed.has(event) || target() === null) return;
     claimed.add(event);
-    if (ownsCommand(cardFocusContext, release)) return;
-    release = ownTarget(cardFocusContext, event.currentTarget as Element, owned);
+    own(event);
   };
 }
 

@@ -2,10 +2,9 @@
 
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import type { ClientSession, WalkthroughCode } from "../../bridge";
-import { CommandIds } from "../../commands/types";
 import type { FileModelScope } from "../../editor/editor-host";
-import { monaco } from "../../editor/monaco-setup";
-import { ownCommand, ownsCommand } from "../agent-command-owner";
+import { createRequestCache } from "../../messaging/request-cache";
+import { agentPaneModel } from "../pane-store";
 import type { BlockModel } from "./walkthrough-code";
 import type { PlacedQuestion } from "./walkthrough-questions";
 
@@ -15,57 +14,44 @@ export function createSources(
   conversationId: string | null,
   blockId: string,
 ) {
-  const sources = new Map<string, Promise<string>>();
-  return (hash: string): Promise<string> => {
-    let text = sources.get(hash);
-    if (text === undefined) {
-      text = session
+  const sources = createRequestCache<string>(() => true);
+  return (hash: string): Promise<string> =>
+    sources.get(hash, () =>
+      session
         .feature("agent")
         .request<{ text: string }, unknown>("walkthroughSource", { conversationId, blockId, hash })
         .then(
           (reply) => reply.text,
           () => {
-            sources.delete(hash);
             throw new Error("This code is no longer stored");
           },
-        );
-      sources.set(hash, text);
-    }
-    return text;
-  };
+        ),
+    );
 }
 
-/** A block's model: the live file while it exists; once it is gone, one shared copy per recorded text. */
+/** The questions asked from walkthrough `blockId` of conversation `conversationId`, tracked reactively. */
+export const walkthroughQuestions = (
+  session: ClientSession,
+  conversationId: string | null,
+  blockId: string,
+) =>
+  (agentPaneModel(session)?.questions() ?? []).filter(
+    ({ anchor }) =>
+      anchor.blockId === blockId && (anchor.conversationId ?? null) === conversationId,
+  );
+
+/** A block's model: the live file while it exists; once it is gone, a copy of the text it recorded. */
 export function createBlockModels(
   session: ClientSession,
   scope: FileModelScope,
   root: () => string,
 ) {
-  const copies = new Map<string, monaco.editor.ITextModel>();
-  onCleanup(() => {
-    for (const model of copies.values()) model.dispose();
-  });
   return async (code: WalkthroughCode, copy: string): Promise<BlockModel> => {
     const path = `${root()}/${code.path}`;
-    const stat = await session
+    const { exists } = await session
       .feature("files")
       .request<{ exists: boolean }, { path: string }>("stat", { path });
-    if (stat.exists) return { model: (await scope.open(path, true)).model, deleted: false };
-    const key = `${code.path}@${code.source}`;
-    let model = copies.get(key);
-    if (model === undefined) {
-      model = monaco.editor.createModel(
-        copy,
-        undefined,
-        monaco.Uri.from({
-          scheme: "weavie-walkthrough",
-          path: `/${code.path}`,
-          query: code.source,
-        }),
-      );
-      copies.set(key, model);
-    }
-    return { model, deleted: true };
+    return { model: (await scope.open(path, exists ? null : copy)).model, deleted: !exists };
   };
 }
 
@@ -111,40 +97,8 @@ export function trackCurrentStop(
   return current;
 }
 
-/** Gives the stop commands to the walkthrough the user last pressed or focused. */
-export function ownStopCommands(
-  root: () => HTMLElement,
-  go: (index: number) => void,
-  current: () => number,
-): void {
-  let releases: (() => void)[] = [];
-  const own = (event: Event): void => {
-    if (ownsCommand(CommandIds.nextWalkthroughStop, releases[0] ?? null)) return;
-    const element = event.currentTarget as Element;
-    const step = (delta: number) => (): boolean => {
-      go(current() + delta);
-      return true;
-    };
-    releases = [
-      ownCommand(CommandIds.nextWalkthroughStop, "walkthroughFocused", element, step(1), false),
-      ownCommand(
-        CommandIds.previousWalkthroughStop,
-        "walkthroughFocused",
-        element,
-        step(-1),
-        false,
-      ),
-    ];
-  };
-  onMount(() => {
-    const element = root();
-    for (const type of ["focusin", "pointerdown"]) element.addEventListener(type, own);
-    onCleanup(() => {
-      for (const type of ["focusin", "pointerdown"]) element.removeEventListener(type, own);
-      for (const release of releases) release();
-    });
-  });
-}
+/** The context held while a walkthrough owns the stop commands; its target steps that walkthrough's stops. */
+export const walkthroughFocusContext = "walkthroughFocused";
 
 /** Keeps the text each question was asked about lit in the prose while its card is drawn. */
 export function highlightQuotes(root: () => HTMLElement, placed: () => readonly PlacedQuestion[]) {

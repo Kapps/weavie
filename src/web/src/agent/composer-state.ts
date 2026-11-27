@@ -112,7 +112,8 @@ export function clearReplyComposer(session: ClientSession, key: string): void {
   });
 }
 
-const nextId = (prefix: string): string =>
+/** A fresh submission or attachment id under `prefix`. */
+export const nextId = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
 
 export function composerState(owner: ComposerOwner | null): AgentComposerState {

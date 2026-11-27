@@ -12,7 +12,12 @@ import {
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, embeddedEditorChrome, monaco } from "../monaco-setup";
+import {
+  createEmbeddedEditor,
+  createOverflowWidgets,
+  embeddedEditorChrome,
+  monaco,
+} from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
@@ -74,9 +79,7 @@ export function createReviewEditor(options: {
   mount.style.visibility = "hidden";
   container.append(loading, mount);
   // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
-  const widgets = document.createElement("div");
-  widgets.className = "monaco-editor embedded-editor-overflow-widgets";
-  options.scroller.element.append(widgets);
+  const widgets = createOverflowWidgets(options.scroller.element);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const viewport = createReviewEditorViewport(

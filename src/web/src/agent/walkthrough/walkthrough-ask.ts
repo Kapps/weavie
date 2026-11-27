@@ -1,5 +1,6 @@
 import { runCommandInSessionWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { nextId } from "../composer-state";
 import type { SelectionSend } from "../selection-actions";
 import { quoteOf } from "./walkthrough-questions";
 
@@ -14,13 +15,11 @@ export interface AskPlace {
   quote: string | null;
 }
 
-let sequence = 0;
-
 /** Send for a selection in a walkthrough: a side conversation forked from the working agent, anchored there. */
 export const askFrom =
   (at: AskPlace): SelectionSend =>
   (session, selection, comment) => {
-    const id = `walkthrough-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
+    const id = nextId("walkthrough");
     void runCommandInSessionWithFeedback(session, CommandIds.askAgentAside, {
       question: comment,
       submissionId: id,

@@ -1,4 +1,5 @@
 import type { ClientSession } from "../../bridge";
+import { createRequestCache, type RequestCache } from "../../messaging/request-cache";
 import type { ReviewFileDiff } from "./review-store";
 
 /** The baseline texts a file's review renders against its live model. */
@@ -23,30 +24,16 @@ export interface ReviewTexts {
 
 /** Content-addressed per-session cache of review baseline texts, sharing in-flight requests. */
 export function createReviewTexts(fetch: FetchReviewText): ReviewTexts {
-  const sessions = new WeakMap<ClientSession, Map<string, Promise<string | null>>>();
-  const cacheFor = (session: ClientSession): Map<string, Promise<string | null>> => {
-    const cache = sessions.get(session) ?? new Map<string, Promise<string | null>>();
+  const sessions = new WeakMap<ClientSession, RequestCache<string | null>>();
+  const cacheFor = (session: ClientSession): RequestCache<string | null> => {
+    const cache =
+      sessions.get(session) ?? createRequestCache<string | null>((text) => text !== null);
     sessions.set(session, cache);
     return cache;
   };
 
-  const request = (session: ClientSession, path: string, revision: string) => {
-    const cache = cacheFor(session);
-    const cached = cache.get(revision);
-    if (cached !== undefined) return cached;
-    const fetched = fetch(session, path, revision).then(
-      (text) => {
-        if (text === null && cache.get(revision) === fetched) cache.delete(revision);
-        return text;
-      },
-      (error: unknown) => {
-        if (cache.get(revision) === fetched) cache.delete(revision);
-        throw error;
-      },
-    );
-    cache.set(revision, fetched);
-    return fetched;
-  };
+  const request = (session: ClientSession, path: string, revision: string) =>
+    cacheFor(session).get(revision, () => fetch(session, path, revision));
 
   // An absent file reads as empty text. A shared request may predate this diff, so its null proves nothing
   // about this diff: ask once more.
@@ -72,8 +59,7 @@ export function createReviewTexts(fetch: FetchReviewText): ReviewTexts {
       const live = new Set(
         diffs.flatMap((diff) => [diff.baselineRevision, diff.acceptedBaselineRevision]),
       );
-      const cache = cacheFor(session);
-      for (const revision of cache.keys()) if (!live.has(revision)) cache.delete(revision);
+      cacheFor(session).retain(live);
     },
   };
 }

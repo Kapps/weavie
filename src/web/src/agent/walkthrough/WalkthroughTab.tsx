@@ -3,18 +3,19 @@ import type { AgentWalkthrough, ClientSession, WalkthroughCode } from "../../bri
 import type { FileModelScope } from "../../editor/editor-host";
 import { AgentCardTabFrame } from "../AgentCardTabFrame";
 import type { AgentBlockTranscriptEntry } from "../AgentPaneTranscriptTypes";
+import { ownOnFocus } from "../agent-command-owner";
 import { agentBlock } from "../block-store";
-import { agentPaneModel } from "../pane-store";
 import { WalkthroughQuestion } from "./WalkthroughQuestion";
-import { EffectTag, Prose, type StopContext, WalkthroughStop } from "./WalkthroughStop";
+import { Prose, type StopContext, StopRow, WalkthroughStop } from "./WalkthroughStop";
 import { WalkthroughStrip } from "./WalkthroughStrip";
 import type { QuestionCard } from "./walkthrough-code";
 import {
   createBlockModels,
   createSources,
   highlightQuotes,
-  ownStopCommands,
   trackCurrentStop,
+  walkthroughFocusContext,
+  walkthroughQuestions,
 } from "./walkthrough-page";
 import { codeLine, placeQuestions } from "./walkthrough-questions";
 import { createWalkthroughSelection } from "./walkthrough-selection";
@@ -86,11 +87,7 @@ function Page(props: {
 
   const placed = createMemo(() =>
     placeQuestions(
-      (agentPaneModel(props.session)?.questions() ?? []).filter(
-        ({ anchor }) =>
-          anchor.blockId === props.blockId &&
-          (anchor.conversationId ?? null) === props.conversationId,
-      ),
+      walkthroughQuestions(props.session, props.conversationId, props.blockId),
       props.walkthrough,
     ),
   );
@@ -129,6 +126,9 @@ function Page(props: {
 
   const context: StopContext = {
     session: props.session,
+    get root() {
+      return props.walkthrough.root;
+    },
     get files() {
       return props.walkthrough.files;
     },
@@ -152,12 +152,8 @@ function Page(props: {
   // A stop or card scrolled to stays at the top while the blocks above it mount and grow, until the reader
   // scrolls themselves.
   let pinned: Element | null = null;
-  const place = (element: Element, behavior: ScrollBehavior): void => {
-    const area = scroller();
-    const top =
-      area.scrollTop + element.getBoundingClientRect().top - area.getBoundingClientRect().top;
-    area.scrollTo({ top: top - 8, behavior });
-  };
+  const place = (element: Element, behavior: ScrollBehavior): void =>
+    element.scrollIntoView({ block: "start", behavior });
   const reveal = (element: Element | null | undefined): void => {
     if (element == null) return;
     pinned = element;
@@ -191,7 +187,7 @@ function Page(props: {
       }
     },
   );
-  ownStopCommands(() => root, go, current);
+  const own = ownOnFocus(walkthroughFocusContext, () => (delta: number) => go(current() + delta));
   highlightQuotes(() => root, placed);
 
   onMount(() => {
@@ -222,7 +218,7 @@ function Page(props: {
   });
 
   return (
-    <div class="walkthrough-page" ref={root}>
+    <div class="walkthrough-page" ref={root} onFocusIn={own} onPointerDown={own}>
       <div class="walkthrough-column">
         <h1 class="walkthrough-title">{props.title}</h1>
         <Prose
@@ -247,8 +243,8 @@ function Page(props: {
         </Show>
         <Show when={props.walkthrough.change}>
           {(change) => (
-            <div class="walkthrough-update">
-              <div class="ui-section-label">Updated after the change</div>
+            <div class="ui-card walkthrough-update">
+              <div class="ui-section-label ui-card-tag">Updated after the change</div>
               <p>{change()}</p>
               <For
                 each={stops()
@@ -256,11 +252,7 @@ function Page(props: {
                   .filter(({ stop }) => stop.effect)}
               >
                 {({ stop, index }) => (
-                  <button type="button" class="ui-row" onClick={() => go(index)}>
-                    <span class="walkthrough-number">{index + 1}</span>
-                    <span class="ui-row-name">{stop.title}</span>
-                    <EffectTag effect={stop.effect ?? null} />
-                  </button>
+                  <StopRow stop={stop} index={index} title={undefined} onClick={() => go(index)} />
                 )}
               </For>
             </div>

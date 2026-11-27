@@ -46,14 +46,12 @@
 
 .walkthrough-update {
   display: grid;
-  margin-top: 14px;
-  padding: 10px 0 6px;
-  border: 1px solid var(--hairline);
+  margin-top: 20px;
+  padding-bottom: 6px;
 }
 
-.walkthrough-update > .ui-section-label,
 .walkthrough-update > p {
-  margin: 0 14px 6px;
+  margin: 6px 14px;
 }
 
 .walkthrough-stop {
@@ -116,19 +114,16 @@
 
 .walkthrough-file {
   display: flex;
-  gap: 0;
+  gap: 12px;
   padding: 3px 10px;
   border-bottom: 1px solid var(--border);
   font: var(--font-chrome-badge);
 }
 
-.walkthrough-file-dir,
 .walkthrough-file-lines {
-  color: var(--dim);
-}
-
-.walkthrough-file-lines {
+  flex: none;
   margin-left: auto;
+  color: var(--dim);
 }
 
 .walkthrough-notice {
@@ -176,11 +171,9 @@
 
 /* The followed example, under the code as a notebook shows a cell's output. */
 .walkthrough-state {
-  margin-top: 10px;
-  padding: 8px 12px 10px;
-  border: 1px solid var(--hairline);
+  --card-pad: 12px;
+  margin-top: 18px;
   border-left: 2px solid var(--busy);
-  background: var(--bar);
 }
 
 .walkthrough-state-cells {
@@ -205,10 +198,9 @@
 
 .walkthrough-why,
 .walkthrough-predict {
+  --card-pad: 12px;
   max-width: 80ch;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--hairline);
+  margin-top: 18px;
 }
 
 .walkthrough-why-title {

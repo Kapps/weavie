@@ -1,27 +1,25 @@
 // A walkthrough code block: a read-only editor on the live file, its recorded lines mapped onto the file now and the
 // diff from the first copy painted in. Notes, fold rows and questions are cards between lines, as inline replies are.
 
-import {
-  type Accessor,
-  createMemo,
-  createRoot,
-  createSignal,
-  type JSX,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+import { type Accessor, createMemo, createRoot, type JSX, Match, Show, Switch } from "solid-js";
 import type { WalkthroughCode, WalkthroughFile } from "../../bridge";
+import { settledContentVersion } from "../../editor/content-version";
 import { hiddenAreas } from "../../editor/hidden-areas";
 import { diffLines, type LineChanges, mapLine } from "../../editor/line-anchor";
-import { createEmbeddedEditor, embeddedEditorChrome, monaco } from "../../editor/monaco-setup";
+import {
+  createEmbeddedEditor,
+  createOverflowWidgets,
+  embeddedEditorChrome,
+  monaco,
+} from "../../editor/monaco-setup";
 import { computeTextDiffLines } from "../../editor/review/diff-computation";
 import { computeDiffMarkers } from "../../editor/review/diff-markers";
-import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "../../editor/review/diff-zones";
+import { addDiffZones } from "../../editor/review/diff-zones";
 import { lastLineOf, selectionExcerpt } from "../../editor/selection-excerpt";
 import { watchSelectionGestures } from "../../editor/selection-gestures";
 import { createZoneCards, type ZoneCard } from "../../editor/zone-cards";
 import type { SelectionActions } from "../selection-actions";
+import { quoteOf } from "./walkthrough-questions";
 
 const HIDDEN_AREAS_SOURCE = "weavie.walkthrough";
 
@@ -80,9 +78,7 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     file.after ? options.source(file.after) : null,
   ]);
   const { model, deleted } = await options.open(code, copy);
-  const widgets = document.createElement("div");
-  widgets.className = "monaco-editor embedded-editor-overflow-widgets";
-  document.body.append(widgets);
+  const widgets = createOverflowWidgets(document.body);
   const editor = createEmbeddedEditor(
     mount,
     model,
@@ -103,11 +99,10 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     },
   );
   return createRoot((dispose) => {
-    const [live, setLive] = createSignal(model.getValue());
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const changed = model.onDidChangeContent(() => {
-      clearTimeout(timer);
-      timer = setTimeout(() => setLive(model.getValue()), DIFF_RECOMPUTE_DEBOUNCE_MS);
+    const settled = settledContentVersion(model);
+    const live = createMemo(() => {
+      settled.version();
+      return model.getValue();
     });
     const openFolds = createMemo(() => options.openFolds(), new Set<number>(), {
       equals: sameSet,
@@ -131,12 +126,6 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         .map((fold) => [at(fold.from).afterLine, at(fold.to).afterLine] as const);
       return { first, last, folded };
     });
-    const isShown = (line: number): boolean => {
-      const { first, last, folded } = shown();
-      return (
-        line >= first && line <= last && !folded.some(([from, to]) => line >= from && line <= to)
-      );
-    };
     const copyLines = copy.split(/\r?\n/);
     const decorations = editor.createDecorationsCollection();
     let diffZones: string[] = [];
@@ -199,19 +188,6 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
       options.onNotices(notices.filter((notice): notice is string => notice !== false));
     });
 
-    // Monaco draws a zone only when the position after it is visible. Under a line whose next ones are hidden, a
-    // card goes after the hidden lines, which take no room, when a shown line follows them; under the block's last
-    // shown lines it hangs after the last character of the nearest line above that has one.
-    const hang = (line: number): { afterLine: number; afterColumn?: number } => {
-      let next = line + 1;
-      while (next <= model.getLineCount() && !isShown(next)) next++;
-      if (next <= model.getLineCount()) return { afterLine: next - 1 };
-      for (let above = line; above >= shown().first; above--) {
-        const column = model.getLineMaxColumn(above) - 1;
-        if (isShown(above) && column >= 1) return { afterLine: above, afterColumn: column };
-      }
-      return { afterLine: line };
-    };
     const cards = createMemo((): ZoneCard<LineCard>[] => {
       map();
       const list: LineCard[] = [
@@ -243,13 +219,18 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         ),
         ...questions().map((question): LineCard => ({ kind: "question", ...question })),
       ];
-      return list.map((card) => ({ key: card.key, ...hang(at(card.line).afterLine), data: card }));
+      return list.map((card) => ({
+        key: card.key,
+        afterLine: at(card.line).afterLine,
+        data: card,
+      }));
     });
     const removeCards = createZoneCards(
       editor,
       cards,
       (card) => <Card card={card()} toggleFold={options.toggleFold} />,
       0,
+      true,
     );
 
     const measure = (): void => {
@@ -260,18 +241,17 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     // Asking is from a selection, once its gesture completes; the copy's line keeps the question in place.
     const unwatch = watchSelectionGestures(editor, options.actions, (selection, point) => {
       // The card and its mark sit under the selection's last line with text, so the quote is that line's text.
-      const quoteOf = (line: number): string =>
-        model
-          .getValueInRange(
+      const quoteAt = (line: number): string =>
+        quoteOf(
+          model.getValueInRange(
             selection.intersectRanges(
               new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
             )!,
-          )
-          .trim()
-          .slice(0, 200);
+          ),
+        );
       let last = lastLineOf(selection);
-      while (last > selection.startLineNumber && quoteOf(last) === "") last--;
-      const quote = quoteOf(last);
+      while (last > selection.startLineNumber && quoteAt(last) === "") last--;
+      const quote = quoteAt(last);
       if (map() === null || quote === "") {
         options.actions.clear();
         return;
@@ -281,8 +261,7 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     });
 
     return () => {
-      clearTimeout(timer);
-      changed.dispose();
+      settled.dispose();
       sized.dispose();
       unwatch();
       removeCards();

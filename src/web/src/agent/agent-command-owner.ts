@@ -1,3 +1,4 @@
+import { onCleanup } from "solid-js";
 import { insideOmnibar } from "../chrome/omnibar-controller";
 import { setContext } from "../commands/context";
 import { registerCommand } from "../commands/registry";
@@ -29,6 +30,19 @@ export function ownTarget<T>(context: string, element: Element, target: T): () =
   const release = own(context, context, element, false, () => targets.delete(context));
   targets.set(context, target);
   return release;
+}
+
+/**
+ * A press and focus handler that makes `target()` what context `context`'s commands act on, released with the
+ * reactive owner it is created in.
+ */
+export function ownOnFocus<T>(context: string, target: () => T): (event: Event) => void {
+  let release: (() => void) | null = null;
+  onCleanup(() => release?.());
+  return (event) => {
+    if (!ownsCommand(context, release))
+      release = ownTarget(context, event.currentTarget as Element, target());
+  };
 }
 
 /** The target that owns context `context`, if one does. */

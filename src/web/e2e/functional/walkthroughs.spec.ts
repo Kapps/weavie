@@ -92,12 +92,12 @@ test("a published walkthrough reads as stops through real code, with its stops a
   weavie,
 }) => {
   const { card } = await publish(page, weavie, "walkthrough-read");
-  await expect(card.locator(".walkthrough-card-stop")).toHaveText([
+  await expect(card.locator(".walkthrough-stop-row")).toHaveText([
     /1The waiting room/,
     /2A row comes back/,
   ]);
 
-  await card.locator(".walkthrough-card-stop").nth(1).click();
+  await card.locator(".walkthrough-stop-row").nth(1).click();
   const page_ = tab(page);
   // The tab opens at the stop picked, and the strip follows the reader.
   await expect(page_.locator(".walkthrough-strip-stop").nth(1)).toHaveClass(/is-current/);

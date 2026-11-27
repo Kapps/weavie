@@ -35,6 +35,7 @@ export function createInlineReplies(
           cards,
           (reply) => <InlineReplyCard reply={reply()} session={session} />,
           0,
+          false,
         ),
       );
     });

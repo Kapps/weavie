@@ -1,6 +1,7 @@
 import { onCleanup } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { CommandIds } from "../../commands/types";
+import { watchDomSelectionGestures } from "../../editor/selection-gestures";
 import { agentControlState } from "../agent-controls-store";
 import { createSelectionActions, type SelectionActions } from "../selection-actions";
 import { type AskPlace, askFrom } from "./walkthrough-ask";
@@ -41,24 +42,18 @@ export function createWalkthroughSelection(
     at = placed(place, quote);
     actions.show({ label: at.label, text }, point, () => {});
   };
-  // Prose selections complete on pointer-up, or key-up with Shift; code blocks offer their own.
-  const onProse = (event: Event): void => {
-    if (event instanceof KeyboardEvent && !event.shiftKey) return;
-    const selection = document.getSelection();
-    const text = selection?.toString().trim() ?? "";
-    if (selection === null || selection.isCollapsed || text === "") return;
-    const range = selection.getRangeAt(0);
-    const element = (node: Node) => (node instanceof Element ? node : node.parentElement);
-    const host = element(range.endContainer)?.closest<HTMLElement>("[data-place]");
-    if (host == null) return;
-    const box = [...range.getClientRects()].at(-1) ?? range.getBoundingClientRect();
-    offer(host.dataset.place!, text, null, { x: box.right, y: box.bottom });
-  };
-  const listen = (root: HTMLElement): (() => void) => {
-    for (const type of ["pointerup", "keyup"]) root.addEventListener(type, onProse);
-    return () => {
-      for (const type of ["pointerup", "keyup"]) root.removeEventListener(type, onProse);
-    };
-  };
+  // Prose selections are offered here; code blocks, whose editors keep their own selection, offer theirs.
+  const listen = (root: HTMLElement): (() => void) =>
+    watchDomSelectionGestures(
+      root,
+      (range, text) => {
+        const element = (node: Node) => (node instanceof Element ? node : node.parentElement);
+        const host = element(range.endContainer)?.closest<HTMLElement>("[data-place]");
+        if (host == null) return;
+        const box = [...range.getClientRects()].at(-1) ?? range.getBoundingClientRect();
+        offer(host.dataset.place!, text, null, { x: box.right, y: box.bottom });
+      },
+      () => {},
+    );
   return { actions, offer, listen };
 }

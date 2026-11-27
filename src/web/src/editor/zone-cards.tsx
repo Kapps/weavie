@@ -12,11 +12,6 @@ const CARD_MAX_WIDTH = 760;
 export interface ZoneCard<T> {
   key: string;
   afterLine: number;
-  /**
-   * A column on `afterLine` the card hangs after, for a line whose next one is hidden: Monaco draws a zone only when
-   * the position after it is visible. Absent hangs it after the whole line.
-   */
-  afterColumn?: number;
   data: T;
 }
 
@@ -35,6 +30,8 @@ export function createZoneCards<T>(
   renderCard: (data: Accessor<T>) => JSX.Element,
   /** How far in from the code's left edge the cards start, kept clear on the right too. */
   inset: number,
+  /** Whether a card under a hidden line still shows, after the nearest shown line above it. */
+  showInHiddenAreas: boolean,
 ): () => void {
   const slots = new Map<string, Slot<T>>();
   const [list, setList] = createSignal<Slot<T>[]>([]);
@@ -53,13 +50,8 @@ export function createZoneCards<T>(
         const existing = slots.get(key);
         if (existing !== undefined) {
           existing.setData(card.data);
-          if (
-            existing.zone.afterLineNumber !== card.afterLine ||
-            existing.zone.afterColumn !== card.afterColumn
-          ) {
+          if (existing.zone.afterLineNumber !== card.afterLine) {
             existing.zone.afterLineNumber = card.afterLine;
-            if (card.afterColumn === undefined) delete existing.zone.afterColumn;
-            else existing.zone.afterColumn = card.afterColumn;
             accessor.layoutZone(existing.zoneId);
           }
           continue;
@@ -68,8 +60,8 @@ export function createZoneCards<T>(
         const [data, setData] = createSignal(card.data);
         const zone = {
           afterLineNumber: card.afterLine,
-          ...(card.afterColumn === undefined ? {} : { afterColumn: card.afterColumn }),
           heightInPx: 0,
+          showInHiddenAreas,
           domNode: document.createElement("div"),
           onDomNodeTop: setTop,
         };

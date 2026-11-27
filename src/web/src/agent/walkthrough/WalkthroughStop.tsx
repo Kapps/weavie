@@ -6,6 +6,7 @@ import type {
   WalkthroughFile,
 } from "../../bridge";
 import { AgentMarkdown } from "../AgentMarkdown";
+import { AgentPathLink } from "../AgentPaneLinks";
 import type { SelectionActions } from "../selection-actions";
 import { type BlockModel, createWalkthroughCode, type QuestionCard } from "./walkthrough-code";
 import { codePlace } from "./walkthrough-questions";
@@ -13,11 +14,32 @@ import { codePlace } from "./walkthrough-questions";
 const EFFECTS = { changed: "changed", affected: "plays out differently", added: "new" } as const;
 
 /** What an update did to a stop, as a tag; nothing for a stop no update touched. */
-export function EffectTag(props: { effect: Stop["effect"] }): JSX.Element {
+function EffectTag(props: { effect: Stop["effect"] }): JSX.Element {
   return (
     <Show when={props.effect}>
       {(effect) => <span class={`walkthrough-tag is-${effect()}`}>{EFFECTS[effect()]}</span>}
     </Show>
+  );
+}
+
+/** A stop in a list of stops: its number, title and what an update did to it. */
+export function StopRow(props: {
+  stop: Stop;
+  index: number;
+  title: string | undefined;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      class="ui-row walkthrough-stop-row"
+      title={props.title}
+      onClick={props.onClick}
+    >
+      <span class="walkthrough-number">{props.index + 1}</span>
+      <span class="ui-row-name">{props.stop.title}</span>
+      <EffectTag effect={props.stop.effect ?? null} />
+    </button>
   );
 }
 
@@ -50,6 +72,8 @@ export function Prose(props: {
 
 export interface StopContext {
   session: ClientSession;
+  /** The worktree the cited paths are relative to. */
+  root: string;
   files: readonly WalkthroughFile[];
   source: (hash: string) => Promise<string>;
   open: (code: WalkthroughCode, copy: string) => Promise<BlockModel>;
@@ -108,8 +132,8 @@ export function WalkthroughStop(props: {
       <Show when={props.stop.state}>
         {(state) => (
           <>
-            <div class="walkthrough-state" data-place={place("state")}>
-              <div class="ui-section-label">After this stop</div>
+            <div class="ui-card walkthrough-state" data-place={place("state")}>
+              <div class="ui-section-label ui-card-tag">After this stop</div>
               <div class="walkthrough-state-cells">
                 <For each={state().cells}>
                   {(cell) => (
@@ -132,7 +156,7 @@ export function WalkthroughStop(props: {
       </Show>
       <Show when={props.stop.why}>
         {(why) => (
-          <aside class="walkthrough-why">
+          <aside class="ui-card walkthrough-why">
             <div class="walkthrough-why-title">{why().title}</div>
             {prose("why", why().text, "")}
             <div class="walkthrough-source">
@@ -145,8 +169,8 @@ export function WalkthroughStop(props: {
       </Show>
       <Show when={props.stop.predict}>
         {(predict) => (
-          <div class="walkthrough-predict" data-place={place("predict")}>
-            <div class="ui-section-label">Before you read on</div>
+          <div class="ui-card walkthrough-predict" data-place={place("predict")}>
+            <div class="ui-section-label ui-card-tag">Before you read on</div>
             <p>{predict().question}</p>
             <Show
               when={props.context.revealed(props.stop.id)}
@@ -233,12 +257,14 @@ function CodeBlock(props: {
       dispose?.();
     });
   });
-  const parts = () => props.code.path.split("/");
   return (
     <div class="walkthrough-code" ref={frame}>
-      <div class="walkthrough-file" title={props.code.path}>
-        <span class="walkthrough-file-dir">{parts().slice(0, -1).join("/")}/</span>
-        {parts().at(-1)}
+      <div class="walkthrough-file">
+        <AgentPathLink
+          session={props.context.session}
+          path={`${props.context.root}/${props.code.path}`}
+          text={props.code.path}
+        />
         <span class="walkthrough-file-lines">
           {props.code.from}–{props.code.to}
         </span>

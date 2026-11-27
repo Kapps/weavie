@@ -29,6 +29,7 @@ import {
   agentPaneModel,
 } from "./agent/pane-store";
 import { WorkflowRunStatus } from "./agent/WorkflowRunStatus";
+import { walkthroughFocusContext } from "./agent/walkthrough/walkthrough-page";
 import {
   activeBackendId,
   activeBackendOffline,
@@ -1651,6 +1652,18 @@ export default function App(): JSX.Element {
         setCardCollapsed(liveCard(context.session, named), named, collapsed);
         return true;
       }),
+      ...(
+        [
+          [CommandIds.nextWalkthroughStop, 1],
+          [CommandIds.previousWalkthroughStop, -1],
+        ] as const
+      ).map(([id, delta]) =>
+        registerCommand(id, () => {
+          const step = ownedTarget<(delta: number) => void>(walkthroughFocusContext);
+          step?.(delta);
+          return step !== undefined;
+        }),
+      ),
       registerCommand(CommandIds.stopAgentAside, (args, context) => {
         const named = (args as { conversationId?: unknown } | undefined)?.conversationId;
         const owned = named === undefined ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;

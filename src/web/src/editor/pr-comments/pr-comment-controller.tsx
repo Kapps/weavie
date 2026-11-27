@@ -239,6 +239,7 @@ export function createPrComments(
         );
       },
       12,
+      false,
     );
 
     const fixItem = (placement: ThreadPlacement): FixItem | null =>

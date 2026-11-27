@@ -582,7 +582,9 @@ export function UnifiedReview(props: {
                               fail,
                             )
                           }
-                          openCopy={(diff) => copies.open(diff.path, diff.revision !== null)}
+                          openCopy={(diff) =>
+                            copies.open(diff.path, diff.revision === null ? "" : null)
+                          }
                           revealContext={(span) =>
                             props.onRevealContext(props.session, view().summary().path, span)
                           }

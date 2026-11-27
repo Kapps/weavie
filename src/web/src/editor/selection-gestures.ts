@@ -49,3 +49,32 @@ export function watchSelectionGestures(
     for (const disposable of disposables) disposable.dispose();
   };
 }
+
+/**
+ * Calls `show` with the page selection once a pointer-up or key-up in `host` completes one wholly inside it, and
+ * `clear` when that leaves none there.
+ */
+export function watchDomSelectionGestures(
+  host: HTMLElement,
+  show: (range: Range, text: string) => void,
+  clear: () => void,
+): () => void {
+  const completed = (): void => {
+    const selection = document.getSelection();
+    if (
+      selection === null ||
+      selection.isCollapsed ||
+      !host.contains(selection.anchorNode) ||
+      !host.contains(selection.focusNode)
+    ) {
+      clear();
+      return;
+    }
+    const text = selection.toString().trim();
+    if (text.length > 0) show(selection.getRangeAt(0), text);
+  };
+  for (const type of ["pointerup", "keyup"]) host.addEventListener(type, completed);
+  return () => {
+    for (const type of ["pointerup", "keyup"]) host.removeEventListener(type, completed);
+  };
+}

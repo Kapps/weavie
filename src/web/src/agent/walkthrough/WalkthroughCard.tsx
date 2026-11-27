@@ -10,8 +10,8 @@ import type { AgentBlockTranscriptEntry } from "../AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "../AgentPendingRequests";
 import { openCard, ownCardOnFocus, setCardCollapsed } from "../agent-cards";
 import { agentBlock } from "../block-store";
-import { agentPaneModel } from "../pane-store";
-import { EffectTag } from "./WalkthroughStop";
+import { StopRow } from "./WalkthroughStop";
+import { walkthroughQuestions } from "./walkthrough-page";
 import { requestTarget, type WalkthroughTarget } from "./walkthrough-view";
 import "./walkthrough.css";
 
@@ -32,11 +32,8 @@ export function WalkthroughCard(props: {
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
   // A question asked here that waits on the user, for the row that opens the tab at its card.
   const waiting = () =>
-    (agentPaneModel(props.session)?.questions() ?? []).find(
-      ({ anchor, entry }) =>
-        anchor.blockId === blockId &&
-        (anchor.conversationId ?? null) === card.conversationId &&
-        (entry.asideEntries ?? []).some(hasPendingRequest),
+    walkthroughQuestions(props.session, card.conversationId, blockId).find(({ entry }) =>
+      (entry.asideEntries ?? []).some(hasPendingRequest),
     );
   const open = (target: WalkthroughTarget): void => {
     requestTarget(props.session, cardTabPath(card), target);
@@ -70,16 +67,12 @@ export function WalkthroughCard(props: {
               />
               <For each={read().stops}>
                 {(stop, index) => (
-                  <button
-                    type="button"
-                    class="ui-row walkthrough-card-stop"
+                  <StopRow
+                    stop={stop}
+                    index={index()}
                     title={`Open at Stop ${index() + 1}`}
                     onClick={() => open({ stopId: stop.id })}
-                  >
-                    <span class="walkthrough-number">{index() + 1}</span>
-                    <span class="ui-row-name">{stop.title}</span>
-                    <EffectTag effect={stop.effect ?? null} />
-                  </button>
+                  />
                 )}
               </For>
             </Show>

@@ -25,6 +25,12 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="content">The file's complete saved content.</param>
 	public void RecordHandEdit(string path, string content) => CaptureHandEdit(path, content).Complete();
 
+	/// <summary>Whether <paramref name="path"/> (absolute) holds lines an agent wrote that the user has not kept.</summary>
+	public bool HasPendingAgentLines(string path) {
+		path = NormalizePath(path);
+		lock (_gate) return _provenance.TryGetValue(path, out var provenance) && provenance.HasPending;
+	}
+
 	/// <summary>
 	/// Rebases correction state at the save boundary and returns an idempotent completion that publishes the
 	/// captured corrections later, allowing persistence and other consumers to run after the save response.

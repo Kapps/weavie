@@ -49,10 +49,17 @@ internal sealed partial class AcpConversation {
 	private void NoticeUnclaimedBlocks() {
 		if (!_ownsBinding) return;
 		foreach (var operation in _binding.Tools.Blocks.Drain()) {
-			Notice($"{Definition.Name} did not report the result of {(operation is AgentBlockOperation.Show ? "showBlock" : "updateBlock")}, "
+			Notice($"{Definition.Name} did not report the result of {ToolOf(operation)}, "
 				+ $"so block '{operation.Id}' was not {Verb(operation)}.");
 		}
 	}
 
 	private static string Verb(AgentBlockOperation operation) => operation is AgentBlockOperation.Show ? "shown" : "updated";
+
+	private static string ToolOf(AgentBlockOperation operation) => operation switch {
+		AgentBlockOperation.Show { Block.Walkthrough: not null } => AgentWalkthroughRules.PublishTool,
+		AgentBlockOperation.Show => "showBlock",
+		AgentBlockOperation.Walkthrough => AgentBlockRules.UpdateWalkthroughTool,
+		_ => AgentBlockRules.UpdateTool,
+	};
 }

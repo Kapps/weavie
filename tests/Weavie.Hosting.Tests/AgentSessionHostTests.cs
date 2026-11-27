@@ -525,6 +525,7 @@ public sealed partial class AgentSessionHostTests {
 				Sessions = NoSessionPeers.Instance,
 				Agents = AgentConsultation.None,
 				ReviewHints = ReviewHintSink.None,
+				Walkthroughs = new WalkthroughCapture(fileSystem, dir.Path, _ => false),
 				Workflows = WorkflowRegistry.None,
 			});
 		var session = new FakeStructuredSession { Saved = saved };

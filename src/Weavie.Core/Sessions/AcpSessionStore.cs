@@ -113,7 +113,7 @@ public sealed partial class AcpSessionStore(string path) {
 		using var command = connection.CreateCommand();
 		command.Transaction = transaction;
 		command.CommandText = "DELETE FROM conversations WHERE json_extract(owner, '$[1]') = $cwd; DELETE FROM pane_events WHERE json_extract(owner, '$[1]') = $cwd; "
-			+ "DELETE FROM blocks WHERE json_extract(owner, '$[1]') = $cwd";
+			+ "DELETE FROM blocks WHERE json_extract(owner, '$[1]') = $cwd; DELETE FROM block_sources WHERE json_extract(owner, '$[1]') = $cwd";
 		command.Parameters.AddWithValue("$cwd", NormalizeWorkspace(workspace));
 		command.ExecuteNonQuery();
 		transaction.Commit();
@@ -165,6 +165,7 @@ public sealed partial class AcpSessionStore(string path) {
 						CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
 						CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
 						CREATE TABLE IF NOT EXISTS blocks (owner TEXT NOT NULL, conversation TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, conversation, id));
+						CREATE TABLE IF NOT EXISTS block_sources (owner TEXT NOT NULL, conversation TEXT NOT NULL, block TEXT NOT NULL, hash TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY(owner, conversation, block, hash));
 						""";
 					schema.ExecuteNonQuery();
 					_schemaReady = true;

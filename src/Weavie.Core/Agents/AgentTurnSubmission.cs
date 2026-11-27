@@ -73,6 +73,9 @@ public sealed record AgentTurnSubmission {
 	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
 	public AgentMessageSender? Sender { get; init; }
 
+	/// <summary>Where in a walkthrough a side question was asked, when it was asked from one.</summary>
+	public AgentAsideAnchor? Anchor { get; init; }
+
 	/// <summary>Whether a provider command also carries the session's per-turn context, as a workflow stage's opening
 	/// turn does; ordinary prompts always carry it.</summary>
 	public bool CarriesTurnContext { get; init; }
@@ -86,3 +89,9 @@ public sealed record AgentTurnSubmission {
 		return Kind == AgentTurnSubmissionKind.ProviderCommand ? [Text, .. paths] : [.. paths, Text];
 	}
 }
+
+/// <summary>
+/// Where a side question was asked: a place in walkthrough <paramref name="BlockId"/>, which the page reads, and the
+/// text the user selected there.
+/// </summary>
+public sealed record AgentAsideAnchor(string BlockId, string Place, string Quote);

@@ -15,7 +15,7 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		var row = Message("item-completed", "") with { Text = null, TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "a" };
 		var side = row with { ConversationId = "btw-1" };
 		foreach (var (conversation, id) in new[] { ((string?)null, "a"), ("btw-1", "a"), (null, "gone") }) {
-			store.SaveBlock("/workspace", new AgentBlockState("provider", conversation, new AgentBlock { Id = id, Title = id }));
+			store.SaveBlock("/workspace", new AgentBlockState("provider", conversation, new AgentBlock { Id = id, Title = id }), new Dictionary<string, string>());
 		}
 
 		var kept = store.ReadBlocks("provider", "/workspace", [row, side]);

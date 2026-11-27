@@ -29,6 +29,9 @@ public static class AgentSettings {
 	/// <summary>Whether earlier agent updates are folded behind a disclosure.</summary>
 	public const string ProgressDisplay = "agent.progressDisplay";
 
+	/// <summary>Asks the agent to publish a walkthrough of the code it is about to change, before editing it.</summary>
+	public const string WalkthroughBeforeEditing = "agent.walkthrough.beforeEditing";
+
 	/// <summary>The keys the host subscribes to, to re-push the agent defaults on change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath];
 

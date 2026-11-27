@@ -18,6 +18,19 @@ public static class EmbeddedAgentGuidance {
 		Do not resume the primary conversation's work while waiting for another side request.
 		When this side conversation's request asks you to tell the primary conversation something, send it with
 		mcp__weavie__messageSession to the `parent` id that mcp__weavie__currentSession returns.
+		The conversation you were forked from is still running elsewhere. Ignore any note that a tool call or turn
+		was interrupted, and never resume, re-run or check on that work. Do not edit, create or delete files unless
+		the user asks you to in this conversation.
+		""";
+
+	/// <summary>Asks the agent to explain the code it is about to change before changing it.</summary>
+	public const string WalkthroughBeforeEditing =
+		"""
+		Before you edit code for a task, once you understand the code you are about to change, publish a walkthrough of
+		how it works today with mcp__weavie__publishWalkthrough. Do this once per task, before your first edit to that
+		code. When your edits are done, call mcp__weavie__updateWalkthrough on the same walkthrough: say what you
+		changed, change every stop the change alters, including stops whose code you did not touch, record their code
+		again against the edited files, and add stops for what you found while editing.
 		""";
 
 	/// <summary>Frames the one request a consulted agent receives from another agent.</summary>
@@ -103,7 +116,7 @@ public static class EmbeddedAgentGuidance {
 		""";
 
 	/// <summary>The static instructions plus a host-runtime block describing what <paramref name="runtime"/> is running.</summary>
-	public static string Compose(HostRuntimeInfo runtime) {
+	public static string Compose(HostRuntimeInfo runtime, bool walkthroughBeforeEditing) {
 		ArgumentNullException.ThrowIfNull(runtime);
 		string transport = runtime.Transport == HostTransport.Remote
 			? "remote (network-exposed worker)"
@@ -111,6 +124,7 @@ public static class EmbeddedAgentGuidance {
 		string build = runtime.Managed
 			? $"{runtime.Build} (runner-managed worker)"
 			: $"{runtime.Build} (local dev build)";
-		return $"{Instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n";
+		string walkthrough = walkthroughBeforeEditing ? $"\n## Walkthroughs\n{WalkthroughBeforeEditing}" : "";
+		return $"{Instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n{walkthrough}";
 	}
 }

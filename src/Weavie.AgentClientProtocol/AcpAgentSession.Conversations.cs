@@ -117,8 +117,11 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 			var handle = new AcpConversationHandle(this, _runtime, conversation, Output.View(_definition.Id, side.ConversationId));
 			if (spec.Role == AcpConversationRole.Side) _sides.Add(side.ConversationId, handle);
 			try {
+				var anchor = spec.Seed.Pending.FirstOrDefault()?.Anchor;
 				if (spec.Seed.Continuation.SessionId is null) conversation.Publish(SideMarker(side, "forking") with {
-					Summary = conversation.Independent ? binding.Title : null,
+					Summary = conversation.Independent ? binding.Title : anchor?.Quote,
+					BlockId = anchor?.BlockId,
+					Anchor = anchor?.Place,
 				});
 				_runtime.Open(conversation, _runtime.Process!);
 			} catch (Exception error) {

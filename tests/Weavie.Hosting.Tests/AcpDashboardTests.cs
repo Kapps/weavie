@@ -108,7 +108,7 @@ public sealed class AcpDashboardTests {
 		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
 		await fixture.TurnAsync("alpha", 1);
 		await fixture.TurnAsync($"block:claude:showBlock:{Chart("p95")}", 2);
-		fixture.Session.SetCardCollapsed(new(null, "rollout"), collapsed: true);
+		fixture.Session.SetCardCollapsed(new(null, "rollout", null), collapsed: true);
 		await fixture.WaitForControlsAsync(state => state.Rewindable);
 
 		await fixture.Session.RewindBeforeAsync("2");

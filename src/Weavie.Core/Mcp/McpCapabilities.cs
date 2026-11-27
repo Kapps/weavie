@@ -47,6 +47,9 @@ public sealed record McpCapabilities {
 	/// <summary>Where review hints are reported.</summary>
 	public required IReviewHintSink ReviewHints { get; init; }
 
+	/// <summary>Reads the files walkthroughs cite.</summary>
+	public required WalkthroughCapture Walkthroughs { get; init; }
+
 	/// <summary>The session's workflows and run.</summary>
 	public required IWorkflowRegistry Workflows { get; init; }
 }

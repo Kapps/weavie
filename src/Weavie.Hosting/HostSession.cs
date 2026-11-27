@@ -227,6 +227,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Sessions = owner.Peers,
 				Agents = services.AgentConsultation,
 				ReviewHints = ReviewHints,
+				Walkthroughs = new WalkthroughCapture(fileSystem, workspaceRoot, Changes.HasPendingAgentLines),
 				Workflows = new SessionWorkflowRegistry(WorkflowCatalog, Workflow, services.Workflow.Roles),
 			});
 

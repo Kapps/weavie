@@ -91,6 +91,15 @@ public interface IStructuredAgentSideConversations {
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, AgentTurnSubmission submission);
+
+	/// <summary>Stops the turn side conversation <paramref name="conversationId"/> is working on; one not working is left alone.</summary>
+	void StopAside(string conversationId);
+}
+
+/// <summary>The code a structured agent session's walkthroughs recorded.</summary>
+public interface IStructuredAgentWalkthroughs {
+	/// <summary>The copy <paramref name="hash"/> names, as walkthrough <paramref name="blockId"/> recorded it.</summary>
+	string Source(string? conversationId, string blockId, string hash);
 }
 
 /// <summary>The cards of one structured agent session's transcript: side conversations and dashboards.</summary>

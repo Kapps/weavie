@@ -55,5 +55,8 @@ public static class AgentDashboards {
 	public static string TabPath(string? conversationId, string dashboardId) => $"{ItemPrefix}{dashboardId}@{conversationId}";
 }
 
-/// <summary>A card in a conversation: a side conversation by its id, or a dashboard within its conversation.</summary>
-public sealed record AgentCardRef(string? ConversationId, string? DashboardId);
+/// <summary>
+/// A card in a conversation: a side conversation by its id, or a dashboard or a walkthrough block within its
+/// conversation.
+/// </summary>
+public sealed record AgentCardRef(string? ConversationId, string? DashboardId, string? BlockId);

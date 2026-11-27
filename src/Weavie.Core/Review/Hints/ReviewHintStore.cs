@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileSystem;
@@ -127,23 +125,12 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 	private string? Capture(ReviewFinding finding, string? cwd, out string relative, out string text) {
 		relative = text = string.Empty;
 		if (finding.Title.Length == 0) return $"A review finding on {finding.Path}:{finding.Line} has no summary.";
-		string absolute;
-		try {
-			absolute = AgentPath.Resolve(finding.Path, cwd, _root);
-		} catch (ArgumentException) {
-			return $"'{finding.Path}' is not a valid path.";
-		}
-		relative = Path.GetRelativePath(_root, absolute).Replace('\\', '/');
-		if (!PathBoundary.Contains(_root, absolute) || relative == ".") {
-			return $"'{finding.Path}' isn't a file inside {_root}.";
-		}
-		if (!_fileSystem.FileExists(absolute)) return $"'{relative}' doesn't exist.";
-		if (!_fileSystem.TryReadAllText(absolute, out text)) return $"'{relative}' isn't a text file.";
-		int lines = LineDiff.SplitLines(text).Length;
-		return finding.Line < 1 || finding.Line > lines
-			? $"Line {finding.Line} is outside '{relative}', which has {lines} line(s)."
+		if (WorktreeTextFile.TryRead(_fileSystem, _root, finding.Path, cwd, out var file) is { } error) return error;
+		(relative, text) = (file.Path, file.Text);
+		return finding.Line < 1 || finding.Line > file.Lines.Length
+			? $"Line {finding.Line} is outside '{relative}', which has {file.Lines.Length} line(s)."
 			: null;
 	}
 
-	private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+	private static string Hash(string text) => WorktreeTextFile.HashOf(text);
 }

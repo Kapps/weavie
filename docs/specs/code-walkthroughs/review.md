@@ -11,7 +11,7 @@ Review of [PR #1302](https://github.com/Kapps/weavie/pull/1302) against [design.
 - **Result:** the host side (rules, capture, storage, tools, path containment) holds. The reading tab has eight
   bugs, most in code no test reaches.
 - **Rechecked:** `1c165c9d`, the fixes in `ec955b85..1c165c9d` (see Recheck). 27 of the 30 findings are fixed, one
-  is reopened, two are fixed in part, and the fixes added two bugs and six nits. Open now: 3 bugs and 7 nits.
+  is reopened, two are fixed in part, and the fixes added two bugs and six nits. All of those were fixed in `a85e255c` (see Second fixes); none is open.
 
 Severity: a **bug** is wrong behaviour a user or another feature would hit; a **warn** is a standards or
 maintainability problem; a **nit** is anything smaller.

@@ -15,6 +15,8 @@ Review of [PR #1302](https://github.com/Kapps/weavie/pull/1302) against [design.
   `a85e255c` (see Second fixes).
 - **Rechecked again:** `be2e000f`, the fixes in `d63a73d4..be2e000f` (see Second recheck). All ten hold. Open now:
   one small bug the fixes added (39) and one nit (40). Both fixed (see Third fixes).
+- **Rechecked a third time:** `572a0bfe`, the fix in `b38a1172..572a0bfe` (see Third recheck). Both hold. Open now:
+  one nit in the design's wording (41).
 
 Severity: a **bug** is wrong behaviour a user or another feature would hit; a **warn** is a standards or
 maintainability problem; a **nit** is anything smaller.
@@ -61,6 +63,7 @@ maintainability problem; a **nit** is anything smaller.
 | 38 | nit | fixed | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
 | 39 | bug | fixed | A code selection that ends on a blank line offers no actions (from fixes 34 and 35) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:273` |
 | 40 | nit | fixed | A failed request for a file's `after` copy is an unhandled rejection | `src/web/src/agent/walkthrough/walkthrough-code.tsx:143` |
+| 41 | nit | open | The design describes asking from a code selection as first built | `docs/specs/code-walkthroughs/design.md:574` |
 
 ## Bugs
 
@@ -403,6 +406,34 @@ about. It is small, and the last line with text in the selection would serve as 
   fix, at the missing Comment button.
 - **40.** The `after` copy is fetched with the block's other two copies, so a failed request fails the block with
   its notice, as theirs do.
+
+## Third recheck
+
+Rechecked at `572a0bfe` (PR #1302, open): the one commit after `b38a1172`, web only, read in full. The design did
+not change, so the review was not restarted. Both fixes were confirmed against the code; the branches the e2e case
+does not reach were run with a temporary Playwright probe on the headless project, removed afterwards. Nothing was
+fixed here.
+
+**Confirmed fixed:** 39 and 40.
+
+- **39.** The quote's line steps back from the selection's last line to the nearest one with selected text, and
+  the card's place uses the same line. The e2e case selects `class Fields {` and the empty line under it and checks
+  the quote. Probed beyond it:
+  - Two blank lines alone offer nothing, as finding 34 wanted; extending that selection onto text offers Comment.
+  - A line and the two blank lines under it quote the line, and the card sits directly under it.
+  - A selection through a closed fold onto a blank line quotes the fold's last line, and the card is in view under
+    the fold's row. A selection ending at the start of the line after a closed fold already did this, so the fix
+    adds no new behaviour here.
+- **40.** The `after` copy is awaited with the block's other two, so a failed request fails the block with "This
+  code is no longer stored", through the handler `WalkthroughStop.tsx` already has. Read, not run: nothing makes the
+  `after` request alone fail.
+
+### New nit
+
+- **41.** `design.md:574` says a block's editor reports its selection with `onDidChangeCursorSelection`, and that a
+  question's place is the selection's last line. The code asks once a selection gesture completes
+  (`watchSelectionGestures`), and since fix 39 the place and quote are the selection's last line with text. The
+  first half dates from the first fixes and was missed in both earlier rechecks.
 
 ## Rejected
 

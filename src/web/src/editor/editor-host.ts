@@ -22,6 +22,7 @@ import { installTestLenses } from "../tests/test-lens";
 import { setDirtyPath } from "./dirty-store";
 import { editorContexts } from "./editor-context";
 import { connectTextEditor } from "./editor-contributions";
+import { dismissInlineRepliesOn } from "./inline-replies/inline-replies-store";
 import { createEditor, monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import { activeTabFor, type Placement, promoteFor, tabOwnerFor } from "./session-store";
@@ -486,6 +487,7 @@ export async function createEditorHost(
       // Discarded/converted scratch: drop the pending save instead of flushing — its temp file is being
       // deleted host-side, so a flush would be wasted or re-create the file.
       cancelPendingSave(key);
+      dismissInlineRepliesOn(session, key);
     } else {
       flushSave(key);
     }

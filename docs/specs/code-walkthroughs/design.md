@@ -569,11 +569,11 @@ Guidance is sent once per conversation, so a change applies from the next conver
   today's `sendAgentSelection`; nothing changes for them.
 - The walkthrough's target runs `weavie.agent.askAside` with the comment as the question, the selection, and
   `Anchor: { blockId, place }`. Add to context still attaches the selection to the main composer.
-- **Prose**: one `selectionchange` listener on the page, as `installReplySelection` has. The place is the nearest
-  ancestor's `data-place` (`problem`, `gist`, `<stop>/lead`, …).
-- **Code**: each block's editor reports its selection (`onDidChangeCursorSelection`) with
-  `selectionExcerpt(model, selection)`. The place is `<stop>/code/<index>/<line>`, the selection's last line mapped
-  back to the block's recorded copy.
+- **Prose**: the page offers the actions once a selection completes, on pointer-up or on key-up with Shift. The
+  place is the nearest ancestor's `data-place` (`problem`, `gist`, `<stop>/lead`, …).
+- **Code**: each block's editor reports a selection once its gesture completes (`watchSelectionGestures`), with
+  `selectionExcerpt(model, selection)`. The place is `<stop>/code/<index>/<line>`, the selection's last line with
+  text mapped back to the block's recorded copy, and that line's selected text is the quote.
 - **Cards**: `walkthroughQuestions` groups the questions by place. Under prose a card is a DOM sibling of its
   paragraph. Under code it is a zone card (`createZoneCards`, as inline replies use) below its line. The card is
   `AsideEntry`'s body: `AgentCardShell` with the question as its head, the quote on one line, `NestedTranscript`,

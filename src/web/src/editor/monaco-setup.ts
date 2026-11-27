@@ -40,6 +40,17 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   return editor;
 }
 
+/** The chrome an editor embedded in another surface leaves out: rulers, minimap, folding, sticky scroll. */
+export const embeddedEditorChrome: monaco.editor.IEditorOptions = {
+  scrollBeyondLastLine: false,
+  overviewRulerLanes: 0,
+  overviewRulerBorder: false,
+  hideCursorInOverviewRuler: true,
+  minimap: { enabled: false },
+  folding: false,
+  stickyScroll: { enabled: false },
+};
+
 /**
  * A secondary editor embedded in another surface (the unified review's per-file diffs). Same settings, fonts and
  * language services as the main pane — `overrides` win over the user's editor settings and stay applied when

@@ -104,7 +104,7 @@
 }
 
 .walkthrough-number {
-  min-width: 1.4em;
+  min-width: 18px;
   color: var(--dim);
 }
 
@@ -160,19 +160,18 @@
 }
 
 .walkthrough-fold {
-  display: block;
   width: 100%;
-  padding: 2px 10px;
-  border: 0;
   background: color-mix(in srgb, var(--fg) 5%, transparent);
   color: var(--dim);
-  font: var(--font-chrome-badge);
-  text-align: left;
 }
 
-.walkthrough-fold:hover {
-  background: var(--list-active-bg);
-  color: var(--fg);
+.walkthrough-asked {
+  border-bottom: 2px solid var(--busy);
+  background: color-mix(in srgb, var(--busy) 20%, transparent);
+}
+
+::highlight(walkthrough-asked) {
+  background-color: color-mix(in srgb, var(--busy) 25%, transparent);
 }
 
 /* The followed example, under the code as a notebook shows a cell's output. */
@@ -255,25 +254,10 @@
 }
 
 .walkthrough-strip-stop {
-  display: flex;
   flex: 1;
-  gap: 6px;
-  align-items: baseline;
   min-width: 0;
-  padding: 3px 6px 2px;
-  overflow: hidden;
-  border: 0;
   border-top: 2px solid var(--hairline);
-  background: none;
   color: var(--dim);
-  font: var(--font-chrome-badge);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.walkthrough-strip-stop:hover {
-  background: var(--list-hover-bg);
-  color: var(--fg);
 }
 
 .walkthrough-strip-stop.is-read {

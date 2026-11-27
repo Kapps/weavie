@@ -192,9 +192,12 @@ describe("walkthroughs", () => {
           conversationId: "q1",
           status: "forking",
           text: "Why a ticket?",
-          summary: "weavie-block:",
-          blockId: "claims",
-          anchor: "stage/code/0/4",
+          anchor: {
+            conversationId: null,
+            blockId: "claims",
+            place: "stage/code/0/4",
+            quote: "random",
+          },
         }),
         row({ type: "agent-message-delta", conversationId: "q1", itemId: "a", text: "Because…" }),
       ],
@@ -202,11 +205,7 @@ describe("walkthroughs", () => {
         expect(model.transcript().entries.map((entry) => entry.kind)).toEqual(["walkthrough"]);
         expect(model.cards().map((card) => card.kind)).toEqual(["walkthrough"]);
         const [question] = model.questions();
-        expect(question).toMatchObject({
-          blockId: "claims",
-          place: "stage/code/0/4",
-          quote: "weavie-block:",
-        });
+        expect(question!.anchor).toMatchObject({ blockId: "claims", place: "stage/code/0/4" });
         expect(question!.entry.summary).toBe("Why a ticket?");
         expect(model.conversation("q1")).toBe(question!.entry);
       },

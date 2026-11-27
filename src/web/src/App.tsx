@@ -1651,6 +1651,23 @@ export default function App(): JSX.Element {
         setCardCollapsed(liveCard(context.session, named), named, collapsed);
         return true;
       }),
+      registerCommand(CommandIds.stopAgentAside, (args, context) => {
+        const named = (args as { conversationId?: unknown } | undefined)?.conversationId;
+        const owned = named === undefined ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;
+        const conversationId =
+          typeof named === "string"
+            ? named
+            : owned?.card.kind === "aside"
+              ? owned.card.conversationId
+              : undefined;
+        if (conversationId === undefined) return false;
+        const session = liveCard(owned?.session ?? context.session, {
+          kind: "aside",
+          conversationId,
+        });
+        session.feature("agent").publish("stopAside", { conversationId });
+        return true;
+      }),
       registerCommand(CommandIds.openAgentCard, (args, context) => {
         const named = namedCard(args);
         const owned = named === null ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;

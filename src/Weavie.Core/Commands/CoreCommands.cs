@@ -202,6 +202,9 @@ public static partial class CoreCommands {
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
 	public const string AttachAgentBlock = "weavie.agent.attachBlock";
 
+	/// <summary>Stops the turn the focused or named side conversation is working on.</summary>
+	public const string StopAgentAside = "weavie.agent.stopAside";
+
 	/// <summary>Moves the focused walkthrough to its next stop.</summary>
 	public const string NextWalkthroughStop = "weavie.walkthrough.nextStop";
 
@@ -1352,6 +1355,16 @@ public static partial class CoreCommands {
 			Description = "Attach all of the focused agent chart or table to the next prompt.",
 			Aliases = ["attach chart", "attach table", "attach block"],
 			When = "agentBlockFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = StopAgentAside,
+			Title = "Stop BTW",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Stop the turn the focused BTW, or the one 'conversationId' names, is working on. The main conversation keeps working.",
+			Aliases = ["stop btw", "stop side conversation", "stop question"],
+			ArgsSchemaJson = """{"conversationId":{"type":"string","description":"The side conversation; omit for the focused BTW card"}}""",
 		});
 
 		registry.Register(new CommandDefinition {

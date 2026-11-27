@@ -94,6 +94,7 @@ internal static class AgentPaneProtocol {
 			message.ResourceUri,
 			message.PlanPath,
 			message.BlockId,
+			message.Anchor,
 			message.Sender);
 	}
 }
@@ -137,6 +138,7 @@ internal sealed record AgentPaneWire(
 	string? ResourceUri,
 	string? PlanPath,
 	string? BlockId,
+	AgentAsideAnchor? Anchor,
 	AgentMessageSender? Sender);
 
 /// <summary>A block's latest state; the pane draws it in the row whose <c>blockId</c> names it.</summary>

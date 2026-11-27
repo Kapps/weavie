@@ -30,6 +30,9 @@ export const sendToConversation: SelectionSend = (session, selection, comment) =
   sendAgentSelection(session, selection, comment);
 
 /** A captured excerpt belongs to its source and exact session, even while a command takes focus. */
+/** The selection toolbar of one surface. */
+export type SelectionActions = ReturnType<typeof createSelectionActions>;
+
 export function createSelectionActions(
   host: HTMLElement,
   session: ClientSession,

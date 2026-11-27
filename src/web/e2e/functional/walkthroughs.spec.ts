@@ -1,9 +1,15 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
+import { deferredPhase, describeSample, frames, measureRender } from "../harness/render-budget";
+
+// Scrolling a twelve-block walkthrough top to bottom: layout is read to mount blocks and find the current stop.
+const NOTCHES = 60;
+const READS_PER_NOTCH = 1;
 
 const claims = [
   "export class Claims {",
@@ -39,6 +45,7 @@ const published = {
           folds: [{ from: 3, to: 4, label: "lookups the conversation supplies" }],
           notes: [
             { line: 6, token: "Math.random()", text: "Nothing else in a result looks like it" },
+            { line: 10, token: "}", text: "The class ends here" },
           ],
         },
       ],
@@ -92,18 +99,29 @@ test("a published walkthrough reads as stops through real code, with its stops a
 
   await card.locator(".walkthrough-card-stop").nth(1).click();
   const page_ = tab(page);
+  // The tab opens at the stop picked, and the strip follows the reader.
+  await expect(page_.locator(".walkthrough-strip-stop").nth(1)).toHaveClass(/is-current/);
   await expect(page_.locator(".walkthrough-title")).toHaveText("How a chart lands on its own row");
   await expect(page.locator(".editor-tab.active")).toContainText(
     "How a chart lands on its own row",
   );
-  await expect(page_.locator(".walkthrough-strip-stop")).toHaveText([/1Waiting room/, /2Take/]);
+  await expect(page_.locator(".walkthrough-strip-stop")).toHaveText([
+    /1\s*Waiting room/,
+    /2\s*Take/,
+  ]);
 
   const block = page_.locator(".walkthrough-code").first();
   await expect(block.locator(".walkthrough-file")).toContainText("claims.ts");
-  await expect(block.locator(".walkthrough-note")).toHaveText(
+  await expect(block.locator(".walkthrough-note")).toHaveText([
     "Nothing else in a result looks like it",
-  );
-  await expect.poll(() => marked(block)).toBe("Math.random()");
+    "The class ends here",
+  ]);
+  await expect.poll(() => marked(block)).toBe("Math.random()}");
+  // A note under the block's last line is drawn, though the line after it is hidden.
+  await block.scrollIntoViewIfNeeded();
+  await expect(
+    block.locator(".walkthrough-note", { hasText: "The class ends here" }),
+  ).toBeInViewport();
   await expect(block.locator(".view-lines")).not.toContainText("private bound");
   await block.getByRole("button", { name: /2 lines · lookups the conversation supplies/ }).click();
   await expect(block.locator(".view-lines")).toContainText("private bound");
@@ -113,8 +131,8 @@ test("a published walkthrough reads as stops through real code, with its stops a
   await page_.getByRole("button", { name: "Show the Answer" }).click();
   await expect(page_.locator(".walkthrough-answer")).toHaveText("No: each has its own ticket.");
 
-  await page_.locator(".walkthrough-strip-stop").nth(1).click();
-  await expect(page_.locator(".walkthrough-strip-stop").nth(1)).toHaveClass(/is-current/);
+  await page_.locator(".walkthrough-strip-stop").first().click();
+  await expect(page_.locator(".walkthrough-strip-stop").first()).toHaveClass(/is-current/);
 });
 
 test("an update marks the stops the change altered and paints the diff", async ({
@@ -191,6 +209,120 @@ test("selecting text in a walkthrough asks a side question answered under it", a
   await expect(question.getByRole("button", { name: "Reply" })).toBeVisible();
   await expect(surface.locator(".agent-entry-aside, [data-agent-aside]")).toHaveCount(0);
 
-  await question.getByRole("button", { name: "Dismiss" }).click();
-  await expect(question).toHaveCount(0);
+  await question.getByRole("button", { name: "Collapse Why random?" }).click();
+  await expect(question.locator(".walkthrough-quote")).toBeHidden();
+  await expect(question.locator(".agent-aside-head")).toContainText("Why random?");
+});
+
+test("a question about code sits under the line it was asked about", async ({ page, weavie }) => {
+  const { card } = await publish(page, weavie, "walkthrough-ask-code");
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  const block = tab(page).locator(".walkthrough-code").first();
+  await expect.poll(() => marked(block)).toBe("Math.random()}");
+
+  await block.locator(".view-line", { hasText: "this.staged.set" }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.getByRole("button", { name: "Comment on Selection" }).click();
+  await page.getByRole("textbox", { name: "Comment" }).fill("Why a map?");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+
+  const question = block.locator("[data-walkthrough-question]");
+  await expect(question.locator(".agent-aside-head")).toContainText("Why a map?");
+  await expect(question.locator(".walkthrough-quote")).toHaveText(
+    "this.staged.set(token, operation);",
+  );
+  await expect(question).toContainText("echo: Why a map?");
+  // Under line 7, the one selected, and above line 8.
+  const top = async (locator: Locator) => (await locator.boundingBox())!.y;
+  const asked = block.locator(".view-line", { hasText: "this.staged.set" });
+  const next = block.locator(".view-line", { hasText: "return token" });
+  expect(await top(question)).toBeGreaterThan(await top(asked));
+  expect(await top(question)).toBeLessThan(await top(next));
+});
+
+test("a BTW card's Stop ends its turn and leaves the main conversation alone", async ({ page }) => {
+  const surface = await createAcpSession(page, "walkthrough-stop-btw");
+  await submitAcpDraft(surface, "/btw hold");
+  const aside = surface.locator("[data-agent-aside]");
+  const stop = aside.getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(stop).toHaveCount(0);
+  await expect(aside.getByRole("button", { name: "Reply" })).toBeVisible();
+});
+
+test("a deleted file shows the code the walkthrough recorded", async ({ page, weavie }) => {
+  const { card, worktree } = await publish(page, weavie, "walkthrough-deleted");
+  await rm(join(worktree, "claims.ts"));
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  const blocks = tab(page).locator(".walkthrough-code");
+  await expect(blocks.first().locator(".walkthrough-notice")).toHaveText(
+    "Deleted since this walkthrough recorded it",
+  );
+  await expect(blocks.first().locator(".view-lines")).toContainText("export class Claims");
+  await blocks.nth(1).scrollIntoViewIfNeeded();
+  await expect(blocks.nth(1).locator(".view-lines")).toContainText("stage(operation");
+  await expect(blocks.nth(1).locator(".walkthrough-notice")).toHaveText(
+    "Deleted since this walkthrough recorded it",
+  );
+});
+
+test("the review bar stays with its file, not over a walkthrough tab", async ({ page, weavie }) => {
+  const { surface, card, worktree } = await publish(page, weavie, "walkthrough-review-bar");
+  await submitAcpDraft(surface, `fs:${join(worktree, "notes.txt")}`);
+  await expect(surface).toContainText("fs: written through ACP");
+  await openFile(page, "notes.txt");
+  const bar = page.locator(".weavie-inline-toolbar");
+  await expect(bar).toBeVisible();
+
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(tab(page)).toBeVisible();
+  await expect(bar).toHaveCount(0);
+});
+
+test.describe("render budget", () => {
+  test.use({ preNavigate: deferredPhase });
+
+  test("scrolling a walkthrough of twelve blocks rebuilds nothing it already drew @perf", async ({
+    page,
+    weavie,
+  }) => {
+    const surface = await createAcpSession(page, "walkthrough-budget");
+    const worktree = sessionWorktrees(weavie.workspace)[0]!;
+    await writeFile(join(worktree, "claims.ts"), claims);
+    const stops = Array.from({ length: 12 }, (_, index) => ({
+      id: `s${index}`,
+      name: `Stop ${index}`,
+      title: `Stop ${index}`,
+      lead: "Read it.",
+      code: [
+        {
+          path: "claims.ts",
+          from: 1,
+          to: 10,
+          notes: [{ line: 6, token: "Math.random()", text: "A note" }],
+        },
+      ],
+    }));
+    await submitAcpDraft(
+      surface,
+      `block:claude:publishWalkthrough:${JSON.stringify({ ...published, stops })}`,
+    );
+    await surface
+      .locator('[data-agent-walkthrough="claims"]')
+      .getByRole("button", { name: "Open", exact: true })
+      .click();
+    const page_ = tab(page);
+    await expect(page_.locator(".walkthrough-note").first()).toBeVisible();
+    await page_.hover();
+    const sample = await measureRender(page, NOTCHES, NOTCHES * READS_PER_NOTCH, async () => {
+      await page.mouse.wheel(0, 120);
+      await frames(page, 1);
+    });
+    const report = describeSample(sample);
+    expect(sample.removed, report).toBe(0);
+    expect(sample.reads, report).toBeLessThanOrEqual(NOTCHES * READS_PER_NOTCH);
+    await expect(page_.locator(".walkthrough-strip-stop").last()).toHaveClass(/is-current/);
+  });
 });

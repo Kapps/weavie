@@ -7,7 +7,7 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import type { AgentPaneUpdate, ClientSession, WalkthroughAnchor } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import { dashboardEntryId } from "./AgentPaneBlocks";
@@ -69,9 +69,7 @@ export interface AgentPaneModel {
 
 /** A side conversation asked from a place in a walkthrough, about the text selected there. */
 export interface WalkthroughQuestion {
-  blockId: string;
-  place: string;
-  quote: string;
+  anchor: WalkthroughAnchor;
   entry: AgentTranscriptEntry;
 }
 
@@ -158,7 +156,7 @@ export function createAgentPaneModel(
     const indexes = [...scope.indexes];
     for (const child of scope.cards) {
       // A question asked from a walkthrough is drawn there, never in its container's transcript.
-      if (child.marker?.blockId) continue;
+      if (child.marker?.anchor) continue;
       cards.set(child.marker!, viewFor(child).linked);
       indexes.push(child.markerIndex);
     }
@@ -277,15 +275,8 @@ export function createAgentPaneModel(
       source.placements.clear();
       setQuestions(
         [...source.get("").cards].flatMap((scope) =>
-          scope.marker?.blockId
-            ? [
-                {
-                  blockId: scope.marker.blockId,
-                  place: scope.marker.anchor ?? "",
-                  quote: scope.marker.summary ?? "",
-                  entry: viewFor(scope).linked,
-                },
-              ]
+          scope.marker?.anchor
+            ? [{ anchor: scope.marker.anchor, entry: viewFor(scope).linked }]
             : [],
         ),
       );

@@ -1,7 +1,7 @@
 import { onCleanup } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
-import { runCommandWithFeedback } from "../commands/registry";
+import { runCommandInSessionWithFeedback, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -52,6 +52,10 @@ export function namedCard(args: unknown): AgentCardRef | null {
     "Name a card by kind: subagent or aside with its conversationId, dashboard with its dashboardId, block or walkthrough with its blockId.",
   );
 }
+
+/** Stops the turn side conversation `conversationId` is working on, as Stop on its card does. */
+export const stopAside = (session: ClientSession, conversationId: string): Promise<unknown> =>
+  runCommandInSessionWithFeedback(session, CommandIds.stopAgentAside, { conversationId });
 
 /** Opens `card` in an editor tab of its session. */
 export const openCard = (card: AgentCardRef): Promise<unknown> =>

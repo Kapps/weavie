@@ -5,9 +5,10 @@ import type {
   WalkthroughCode,
   WalkthroughFile,
 } from "../../bridge";
-import type { FileModelScope } from "../../editor/editor-host";
 import { AgentMarkdown } from "../AgentMarkdown";
-import { createWalkthroughCode, type WalkthroughLineCard } from "./walkthrough-code";
+import type { SelectionActions } from "../selection-actions";
+import { type BlockModel, createWalkthroughCode, type QuestionCard } from "./walkthrough-code";
+import { codePlace } from "./walkthrough-questions";
 
 const EFFECTS = { changed: "changed", affected: "plays out differently", added: "new" } as const;
 
@@ -28,14 +29,14 @@ export function Prose(props: {
   class: string;
   after: JSX.Element;
 }): JSX.Element {
-  // A fresh key per text, so a changed text renders again.
-  const key = () => ({ content: props.content });
+  // One key for the prose's life; the render cache compares content itself.
+  const key = {};
   return (
     <>
       <div class={`walkthrough-prose ${props.class}`} data-place={props.place}>
         <AgentMarkdown
           attachable={false}
-          cacheKey={key()}
+          cacheKey={key}
           content={props.content}
           flavor="agent"
           renderMermaid={true}
@@ -49,22 +50,24 @@ export function Prose(props: {
 
 export interface StopContext {
   session: ClientSession;
-  root: string;
-  scope: FileModelScope;
   files: readonly WalkthroughFile[];
   source: (hash: string) => Promise<string>;
+  open: (code: WalkthroughCode, copy: string) => Promise<BlockModel>;
   /** The questions asked at `place`, as cards. */
   questionsAt: (place: string) => JSX.Element;
   /** The question cards for code block `index` of stop `stopId`, by the copy's line. */
-  codeQuestions: (
-    stopId: string,
-    index: number,
-  ) => Extract<WalkthroughLineCard, { kind: "question" }>[];
+  codeQuestions: (stopId: string, index: number, code: WalkthroughCode) => QuestionCard[];
   openFolds: () => ReadonlySet<string>;
   toggleFold: (key: string) => void;
   revealed: (stopId: string) => boolean;
   reveal: (stopId: string) => void;
-  onCodeSelect: (place: string, text: string, point: { x: number; y: number }) => void;
+  actions: Pick<SelectionActions, "clear" | "moved">;
+  onCodeSelect: (
+    place: string,
+    text: string,
+    quote: string,
+    point: { x: number; y: number },
+  ) => void;
 }
 
 /** One stop: its heading, lead, code, the example after it, why, and a prediction. */
@@ -175,8 +178,7 @@ function CodeBlock(props: {
 }): JSX.Element {
   let mount!: HTMLDivElement;
   let frame!: HTMLDivElement;
-  const [notice, setNotice] = createSignal<string | null>(null);
-  const file = () => props.context.files.find((candidate) => candidate.path === props.code.path);
+  const [notices, setNotices] = createSignal<readonly string[]>([]);
   const foldKey = (from: number) => `${props.stopId}/${props.index}/${from}`;
   onMount(() => {
     let dispose: (() => void) | null = null;
@@ -185,15 +187,14 @@ function CodeBlock(props: {
       (records) => {
         if (!records.some((record) => record.isIntersecting) || dispose !== null) return;
         observer.disconnect();
-        const cited = file();
+        const cited = props.context.files.find((file) => file.path === props.code.path);
         if (cited === undefined) return;
         void createWalkthroughCode({
-          scope: props.context.scope,
           mount,
-          root: props.context.root,
           code: props.code,
           file: cited,
           source: props.context.source,
+          open: props.context.open,
           openFolds: () =>
             new Set(
               (props.code.folds ?? [])
@@ -201,19 +202,26 @@ function CodeBlock(props: {
                 .map((fold) => fold.from),
             ),
           toggleFold: (from) => props.context.toggleFold(foldKey(from)),
-          questions: () => props.context.codeQuestions(props.stopId, props.index),
-          onSelect: (text, line, point) =>
-            props.context.onCodeSelect(`${props.stopId}/code/${props.index}/${line}`, text, point),
-          onNotice: setNotice,
+          questions: () => props.context.codeQuestions(props.stopId, props.index, props.code),
+          actions: props.context.actions,
+          onSelect: (text, quote, line, point) =>
+            props.context.onCodeSelect(
+              codePlace(props.stopId, props.index, props.code, line),
+              text,
+              quote,
+              point,
+            ),
+          onNotices: setNotices,
         }).then(
           (release) => {
             if (disposed) release();
             else dispose = release;
           },
-          (error: unknown) => setNotice(error instanceof Error ? error.message : String(error)),
+          () => setNotices(["This code is no longer stored"]),
         );
       },
-      { rootMargin: "100% 0px" },
+      // The tab scrolls, not the window, so a block out of its view is clipped from the window's.
+      { root: frame.closest(".editor-agent-view"), rootMargin: "100% 0px" },
     );
     observer.observe(frame);
     onCleanup(() => {
@@ -232,7 +240,7 @@ function CodeBlock(props: {
           {props.code.from}–{props.code.to}
         </span>
       </div>
-      <Show when={notice()}>{(text) => <div class="walkthrough-notice">{text()}</div>}</Show>
+      <For each={notices()}>{(notice) => <div class="walkthrough-notice">{notice}</div>}</For>
       <div
         class="walkthrough-editor"
         ref={mount}

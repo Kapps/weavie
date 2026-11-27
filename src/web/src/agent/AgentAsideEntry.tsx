@@ -10,12 +10,16 @@ import { AgentCardShell } from "./AgentCardShell";
 import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { hasPendingRequest } from "./AgentPendingRequests";
-import { ownCardOnFocus, setCardCollapsed } from "./agent-cards";
+import { ownCardOnFocus, setCardCollapsed, stopAside } from "./agent-cards";
 import { CollapsibleCardContent } from "./CollapsibleCardContent";
 import { replyComposer } from "./composer-store";
 
+/** A BTW's card: its transcript and reply box, with Stop while it works. A walkthrough question sets `label` and
+ * `before`, the quote it was asked about. */
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
+  label?: string;
+  before?: JSX.Element;
   expandedDetails: ReadonlySet<string>;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   onUpdatesToggle: (entryId: string, open: boolean) => void;
@@ -34,7 +38,7 @@ export function AsideEntry(props: {
 
   return (
     <AgentCardShell
-      label={props.entry.label}
+      label={props.label ?? props.entry.label}
       collapsed={collapsed()}
       headOnly={collapsed() && !(props.entry.asideEntries ?? []).some(hasPendingRequest)}
       meta={
@@ -45,10 +49,25 @@ export function AsideEntry(props: {
       wrapLabel={false}
       onToggle={toggle}
       toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
-      actions={<AgentCardOpenButton card={card} />}
+      actions={
+        <>
+          <Show when={props.entry.asideActive === true}>
+            <button
+              type="button"
+              class="agent-entry-rewind"
+              title={`Stop${liveKeyHint(CommandIds.stopAgentAside)}`}
+              onClick={() => void stopAside(props.session, conversationId)}
+            >
+              Stop
+            </button>
+          </Show>
+          <AgentCardOpenButton card={card} />
+        </>
+      }
       onOwn={own}
       data={{ "data-agent-aside": conversationId }}
     >
+      <Show when={!collapsed()}>{props.before}</Show>
       <NestedTranscript
         entries={props.entry.asideEntries ?? []}
         pendingOnly={collapsed()}

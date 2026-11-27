@@ -12,7 +12,7 @@ import { openCard, ownCardOnFocus, setCardCollapsed } from "../agent-cards";
 import { agentBlock } from "../block-store";
 import { agentPaneModel } from "../pane-store";
 import { EffectTag } from "./WalkthroughStop";
-import { requestStop } from "./walkthrough-view";
+import { requestTarget, type WalkthroughTarget } from "./walkthrough-view";
 import "./walkthrough.css";
 
 /** A walkthrough's card in the pane: the short version and its stops; a stop opens the tab there. */
@@ -30,13 +30,16 @@ export function WalkthroughCard(props: {
   const collapsed = () => props.entry.asideCollapsed === true;
   const toggle = () => setCardCollapsed(props.session, card, !collapsed());
   const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
+  // A question asked here that waits on the user, for the row that opens the tab at its card.
   const waiting = () =>
-    (agentPaneModel(props.session)?.questions() ?? []).some(
-      (question) =>
-        question.blockId === blockId && (question.entry.asideEntries ?? []).some(hasPendingRequest),
+    (agentPaneModel(props.session)?.questions() ?? []).find(
+      ({ anchor, entry }) =>
+        anchor.blockId === blockId &&
+        (anchor.conversationId ?? null) === card.conversationId &&
+        (entry.asideEntries ?? []).some(hasPendingRequest),
     );
-  const open = (stopId: string | null): void => {
-    if (stopId !== null) requestStop(cardTabPath(card), stopId);
+  const open = (target: WalkthroughTarget): void => {
+    requestTarget(props.session, cardTabPath(card), target);
     void openCard(card);
   };
 
@@ -44,7 +47,7 @@ export function WalkthroughCard(props: {
     <AgentCardShell
       label={`Walkthrough · ${props.entry.summary ?? blockId}`}
       collapsed={collapsed()}
-      headOnly={collapsed() && !waiting()}
+      headOnly={collapsed() && waiting() === undefined}
       meta={null}
       wrapLabel={false}
       onToggle={toggle}
@@ -71,7 +74,7 @@ export function WalkthroughCard(props: {
                     type="button"
                     class="ui-row walkthrough-card-stop"
                     title={`Open at Stop ${index() + 1}`}
-                    onClick={() => open(stop.id)}
+                    onClick={() => open({ stopId: stop.id })}
                   >
                     <span class="walkthrough-number">{index() + 1}</span>
                     <span class="ui-row-name">{stop.title}</span>
@@ -81,9 +84,15 @@ export function WalkthroughCard(props: {
               </For>
             </Show>
             <Show when={waiting()}>
-              <button type="button" class="ui-row" onClick={() => open(null)}>
-                <span class="ui-row-name">A question is waiting for you</span>
-              </button>
+              {(question) => (
+                <button
+                  type="button"
+                  class="ui-row"
+                  onClick={() => open({ question: question().entry.conversationId! })}
+                >
+                  <span class="ui-row-name">A question is waiting for you</span>
+                </button>
+              )}
             </Show>
           </div>
         )}

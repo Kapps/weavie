@@ -294,7 +294,7 @@
 }
 
 /* Monaco positions overflowing widgets against the viewport, outside the transformed scroll content. */
-.unified-review-overflow-widgets {
+.embedded-editor-overflow-widgets {
   position: absolute;
   top: 0;
   left: 0;

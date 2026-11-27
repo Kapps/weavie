@@ -12,7 +12,7 @@ import {
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, monaco } from "../monaco-setup";
+import { createEmbeddedEditor, embeddedEditorChrome, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
@@ -75,7 +75,7 @@ export function createReviewEditor(options: {
   container.append(loading, mount);
   // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
   const widgets = document.createElement("div");
-  widgets.className = "monaco-editor unified-review-overflow-widgets";
+  widgets.className = "monaco-editor embedded-editor-overflow-widgets";
   options.scroller.element.append(widgets);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
@@ -90,16 +90,10 @@ export function createReviewEditor(options: {
         model,
         { dimension, overflowWidgetsDomNode: widgets },
         {
+          ...embeddedEditorChrome,
           readOnly: !options.editable,
-          scrollBeyondLastLine: false,
           automaticLayout: false,
           smoothScrolling: false,
-          overviewRulerLanes: 0,
-          overviewRulerBorder: false,
-          hideCursorInOverviewRuler: true,
-          minimap: { enabled: false },
-          folding: false,
-          stickyScroll: { enabled: false },
           renderLineHighlightOnlyWhenFocus: true,
           // Visible-line width changes must not change the section's height.
           scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },

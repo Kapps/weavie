@@ -15,6 +15,37 @@ const newFileBadgeHeight = (): number => interfaceLine() + 8;
  */
 export const DIFF_RECOMPUTE_DEBOUNCE_MS = 120;
 
+/** Paints diff markers into an editor: their decorations and zones, each paint replacing the last. */
+export function createDiffPaint(
+  editor: monaco.editor.ICodeEditor,
+  changeViewZones: (change: (accessor: monaco.editor.IViewZoneChangeAccessor) => void) => void,
+) {
+  let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
+  let zoneIds: string[] = [];
+  return {
+    paint(markers: DiffMarkers): void {
+      if (decorations === undefined)
+        decorations = editor.createDecorationsCollection(markers.decorations);
+      else decorations.set(markers.decorations);
+      const previous = zoneIds;
+      changeViewZones((accessor) => {
+        for (const id of previous) accessor.removeZone(id);
+        zoneIds = addDiffZones(editor, accessor, markers);
+      });
+    },
+    clear(): void {
+      decorations?.clear();
+      decorations = undefined;
+      if (zoneIds.length === 0) return;
+      const previous = zoneIds;
+      zoneIds = [];
+      changeViewZones((accessor) => {
+        for (const id of previous) accessor.removeZone(id);
+      });
+    },
+  };
+}
+
 /** Adds the new-file band and every removed-lines ghost for `markers`, returning the zone ids to hold. */
 export function addDiffZones(
   editor: monaco.editor.ICodeEditor,

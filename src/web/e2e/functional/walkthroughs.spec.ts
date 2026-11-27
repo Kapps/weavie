@@ -83,6 +83,13 @@ async function publish(page: Page, weavie: { workspace: string }, branch: string
 }
 
 const tab = (page: Page): Locator => page.locator(".walkthrough-page");
+
+// Monaco's text layer covers view zones, so a band is clicked at its point, the way a user does.
+async function clickPoint(page: Page, target: Locator): Promise<void> {
+  await expect(target).toBeInViewport();
+  const box = (await target.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
 // Monaco splits a marked token across its highlighting spans.
 const marked = async (block: Locator): Promise<string> =>
   (await block.locator(".walkthrough-mark").allTextContents()).join("");
@@ -123,7 +130,10 @@ test("a published walkthrough reads as stops through real code, with its stops a
     block.locator(".walkthrough-note", { hasText: "The class ends here" }),
   ).toBeInViewport();
   await expect(block.locator(".view-lines")).not.toContainText("private bound");
-  await block.getByRole("button", { name: /2 lines · lookups the conversation supplies/ }).click();
+  await clickPoint(
+    page,
+    block.locator(".code-band", { hasText: "2 lines · lookups the conversation supplies" }),
+  );
   await expect(block.locator(".view-lines")).toContainText("private bound");
 
   await expect(page_.locator(".walkthrough-state")).toContainText("Waiting for a row");
@@ -380,10 +390,10 @@ test("an empty line still has a fold's row under it and can end a question's sel
     .getByRole("button", { name: "Open", exact: true })
     .click();
   const block = tab(page).locator(".walkthrough-code").first();
-  const fold = block.getByRole("button", { name: /2 lines · two fields/ });
+  const fold = block.locator(".code-band", { hasText: "2 lines · two fields" });
   await expect(fold).toBeInViewport();
   await expect(block.locator(".view-lines")).not.toContainText("a = 1");
-  await fold.click();
+  await clickPoint(page, fold);
   await expect(block.locator(".view-lines")).toContainText("a = 1");
 
   // A selection running onto the empty line is asked about from the last line with text.

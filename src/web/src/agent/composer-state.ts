@@ -1,4 +1,4 @@
-import { type ClientSession, registerSessionFeature } from "../bridge";
+import { type AgentAnchor, type ClientSession, registerSessionFeature } from "../bridge";
 import { captureCommandUsage, slashUsageId } from "../commands/usage-store";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import {
@@ -190,22 +190,28 @@ const sentSelections = createSessionOwnedMap<
 >();
 
 /**
- * Sends `selection` under `comment` as its own prompt and returns its submission id, or null when the session
- * is gone; a refusal attaches both to `owner` beside the reason.
+ * Sends `selection` under `comment` as its own prompt, placed by `anchor` when given, as the first prompt of its
+ * card. Returns its submission id and the anchor it was sent with, or null when the session is gone; a refusal
+ * attaches both to `owner` beside the reason.
  */
 export function sendSelection(
   owner: ComposerOwner,
   selection: AgentSelection,
   comment: string,
-): string | null {
+  place: Omit<AgentAnchor, "card"> | null,
+): { id: string; anchor: AgentAnchor | null } | null {
   if (!isLive(owner)) return null;
   const id = nextId("submission");
   sentSelections.set(owner.session, id, {
     owner,
     selection: commentedSelection(selection, comment),
   });
-  publishAgent(owner, "submit", submission(id, comment, null, [selectionAttachment(selection)]));
-  return id;
+  const anchor = place === null ? null : { ...place, card: id };
+  publishAgent(owner, "submit", {
+    ...submission(id, comment, null, [selectionAttachment(selection)]),
+    anchor,
+  });
+  return { id, anchor };
 }
 
 export interface AgentInvocation {

@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -41,5 +42,20 @@ public sealed class AcpSideCollapseTests {
 		Assert.Equal([(null, "collapsed"), (side.ConversationId, "expanded")], rows.Select(row => (row.ConversationId, row.Status)));
 		Assert.All(rows, row => Assert.Equal(("dashboard:rollout", (string?)null), (row.ItemId, row.Summary)));
 		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetCardCollapsed(new(null, "missing", null), collapsed: true));
+	}
+
+	[Fact]
+	public async Task APromptKeepsItsAnchorAndItsReplyCardsStateIsJournalled() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		var anchor = new AgentAnchor("/w/a.cs", null, null, "3.1-4.9", "int b;", "ask-1");
+		fixture.Session.Submit(AgentTurnSubmission.Prompt("Why?") with { Id = "ask-1", Anchor = anchor });
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		fixture.Session.SetReplyCard("ask-1", AgentReplyCardState.Collapsed);
+		fixture.Session.SetReplyCard("ask-1", AgentReplyCardState.Dismissed);
+
+		var rows = fixture.Sessions.ReadMessages("fake", fixture.Workspace);
+		Assert.Equal(anchor, Assert.Single(rows, row => row.Type == "user-message").Anchor);
+		Assert.Equal(["collapsed", "dismissed"], rows.Where(row => row.Type == "reply-card" && row.ItemId == "ask-1").Select(row => row.Status));
 	}
 }

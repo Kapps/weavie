@@ -1360,3 +1360,10 @@ a:has(> .agent-path-dir) {
 .agent-code-copy.copied {
   color: var(--accent);
 }
+
+/* A card asked about text that has since changed, drawn where that text was. */
+.anchor-moved {
+  margin: 0;
+  color: var(--dim);
+  font: var(--font-chrome-badge);
+}

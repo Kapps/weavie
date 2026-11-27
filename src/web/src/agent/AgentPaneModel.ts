@@ -7,7 +7,7 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import type { AgentPaneUpdate, ClientSession, WalkthroughAnchor } from "../bridge";
+import type { AgentAnchor, AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentConversationProjection } from "./AgentConversationProjection";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import { dashboardEntryId } from "./AgentPaneBlocks";
@@ -69,7 +69,7 @@ export interface AgentPaneModel {
 
 /** A side conversation asked from a place in a walkthrough, about the text selected there. */
 export interface WalkthroughQuestion {
-  anchor: WalkthroughAnchor;
+  anchor: AgentAnchor;
   entry: AgentTranscriptEntry;
 }
 

@@ -598,27 +598,26 @@ createWalkthroughCode(session, mount, code, file, view) → { dispose }
   before  = source(file.before), copy = source(code.source), after = file.after && source(file.after)
   refresh (on the model's settled content, debounced like the inline diff):
     markers = computeDiffMarkers(DiffComputer.compute(uri, { original: before }, model))
-    paint markers' decorations, addDiffZones(editor, accessor, markers)            // red ghosts, green lines
+    createDiffPaint(editor).paint(markers)                                          // red ghosts, green lines
     map     = diffLines(copy, model text); line(n) = mapLine(map, n)
     shown   = line(from)..line(to), minus each fold the reader has not opened
-    hiddenAreas(editor).setHiddenAreas(everything else, "weavie.walkthrough")
-    cards   → one createZoneCards layer (as inline replies use) holds every row between lines; under a line whose
-              next one is hidden, a card hangs after the line's last character (`afterColumn`), since Monaco
-              draws a zone only when the position after it is visible:
-              a closed fold's "<N> lines · <label>", an open fold's "Hide", each note (and "Was: …"), and each
-              question asked about a line.
+    view.setHidden(everything else, bands)        // the code view's bands: a closed fold's "<N> lines · <label>",
+                                                  // an open fold's "Hide · <label>"
+    cards   → one createZoneCards layer (as inline replies use), drawn in hidden areas too (`showInHiddenAreas`),
+              holds each note (and "Was: …") and each question asked about a line.
     notes   → for each note whose line maps exactly and still contains its token:
                 inlineClassName "walkthrough-mark" on the token, and its card under the line
               any other note is not drawn and the block says "A noted line changed"
     notices: file.late → "Recorded after edits to this file began"
              after && model text !== after → "Changed since this walkthrough was updated"
              diffLines throws → no diff or notes; the copy's lines are shown with "Too large to compare"
-  height = editor.getContentHeight() on onDidContentSizeChange
+  height = the code view's content height
 ```
 
-- Shared with the review: `EditorHost.createReviewCopyScope` is renamed `createFileModelScope`, and the diff paint
-  is the review's own `computeDiffMarkers` and `addDiffZones`. Fold rows are zone cards, so the review's gap rows
-  stay where they are.
+- Shared with the review: the block is a code view (`createCodeView`: the embedded editor, its overflow layer, its
+  content height, and hidden lines with the bands that stand for them), as each review file is; the review's
+  "Show N unchanged lines" and a fold are the same band. `EditorHost.createReviewCopyScope` is renamed
+  `createFileModelScope`, and the diff paint is the review's own (`computeDiffMarkers`, `createDiffPaint`).
 - Sources are fetched once per hash through `walkthroughSource` and cached per session.
 - Hover and go to definition come from the model's `weavie-file` scheme. The block does not call
   `connectTextEditor`, so it gets no blame, hints, spell check or review actions.

@@ -18,28 +18,27 @@ import "./selection-actions.css";
 
 let releaseCurrent: (() => void) | null = null;
 
-/** Where Send takes a selection and its comment; returns the submission id, or null when nothing was sent. */
+/** Where Send takes a selection and its comment. */
 export type SelectionSend = (
   session: ClientSession,
   selection: AgentSelection,
   comment: string,
-) => string | null;
+) => void;
 
 /** Send to the session's main conversation, as a prompt of its own. */
 export const sendToConversation: SelectionSend = (session, selection, comment) =>
-  sendAgentSelection(session, selection, comment);
+  void sendAgentSelection(session, selection, comment, null);
 
 /** The selection toolbar of one surface. */
 export type SelectionActions = ReturnType<typeof createSelectionActions>;
 
 /**
  * A captured excerpt belongs to its source and exact session, even while a command takes focus. `blocked` says why
- * Send can't go where `deliver` takes it, or null when it can.
+ * Send can't go where the surface sends, or null when it can.
  */
 export function createSelectionActions(
   host: HTMLElement,
   session: ClientSession,
-  deliver: SelectionSend,
   blocked: () => string | null,
 ) {
   let release: (() => void) | null = null;
@@ -49,11 +48,11 @@ export function createSelectionActions(
   const moved = (): void => {
     if (!commentOpen()) clear();
   };
-  /** `sent` receives the submission id and comment of a selection sent as its own prompt. */
+  /** `deliver` sends the selection and its comment, as Send asks. */
   const show = (
     selection: AgentSelection,
     point: { x: number; y: number },
-    sent: (submissionId: string, comment: string) => void,
+    deliver: SelectionSend,
   ): void => {
     releaseCurrent?.();
     if (session.closed || modalActive()) return;
@@ -76,8 +75,7 @@ export function createSelectionActions(
     };
     const send = (): boolean => {
       if (blocked() !== null) return true;
-      const id = deliver(session, selection, note());
-      if (id !== null) sent(id, note());
+      deliver(session, selection, note());
       clear();
       return true;
     };

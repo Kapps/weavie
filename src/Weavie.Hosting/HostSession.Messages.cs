@@ -209,6 +209,16 @@ public sealed partial class HostSession {
 			cards.SetCardCollapsed(new(message.ConversationId, message.DashboardId, message.BlockId), message.Collapsed);
 			return Task.CompletedTask;
 		});
+		messages.Handle("setReplyCard", MessageActivity.ActionFailed("Changing a reply card"), WireJson.Default.AgentReplyCardMessage, (message, _) => {
+			var cards = Agent.Cards ?? throw new InvalidOperationException("This agent has no cards.");
+			cards.SetReplyCard(message.SubmissionId, message.State switch {
+				"expanded" => AgentReplyCardState.Expanded,
+				"collapsed" => AgentReplyCardState.Collapsed,
+				"dismissed" => AgentReplyCardState.Dismissed,
+				_ => throw new InvalidOperationException($"'{message.State}' isn't a reply card state."),
+			});
+			return Task.CompletedTask;
+		});
 		messages.Handle("stopAside", MessageActivity.ActionFailed("Stopping the side conversation"), WireJson.Default.AgentStopAsideMessage, (message, _) => {
 			(Agent.SideConversations ?? throw new InvalidOperationException("This agent does not support side conversations.")).StopAside(message.ConversationId);
 			return Task.CompletedTask;
@@ -290,12 +300,14 @@ public sealed partial class HostSession {
 		if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length + selections.Length != 0) {
 			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
+		if (message.Anchor?.Problem() is { } problem) throw new InvalidOperationException(problem);
 		return [.. AgentAttachments.Submit(message.Id, attachmentIds, images => submit(new AgentTurnSubmission {
 			Id = message.Id,
 			Text = message.Prompt,
 			Kind = kind,
 			CommandName = message.CommandName ?? string.Empty,
 			Attachments = [.. images, .. selections],
+			Anchor = message.Anchor,
 		})), .. selections.Select(selection => selection.Id)];
 	}
 
@@ -380,7 +392,8 @@ public sealed partial class HostSession {
 		string? Kind,
 		string? CommandName,
 		string[]? AttachmentIds,
-		AgentSelectionWire[]? Selections);
+		AgentSelectionWire[]? Selections,
+		AgentAnchor? Anchor);
 
 	/// <summary>Values the user selected in the pane, attached to a prompt as text.</summary>
 	internal sealed record AgentSelectionWire(string Id, string Label, string Text);
@@ -390,6 +403,8 @@ public sealed partial class HostSession {
 	internal sealed record AgentCardCollapsedMessage(string? ConversationId, string? DashboardId, string? BlockId, bool Collapsed);
 
 	internal sealed record AgentStopAsideMessage(string ConversationId);
+
+	internal sealed record AgentReplyCardMessage(string SubmissionId, string State);
 
 	internal sealed record WalkthroughSourceRequest(string? ConversationId, string BlockId, string Hash);
 }

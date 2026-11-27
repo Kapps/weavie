@@ -197,6 +197,7 @@ describe("walkthroughs", () => {
             blockId: "claims",
             place: "stage/code/0/4",
             quote: "random",
+            card: "ask",
           },
         }),
         row({ type: "agent-message-delta", conversationId: "q1", itemId: "a", text: "Because…" }),

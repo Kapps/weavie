@@ -200,7 +200,7 @@ describe("agent composer attachments", () => {
     const session = owner("selection-send", "slot");
     store.setComposerDraft(session, "unrelated draft");
     store.attachAgentSelection(session, { label: "collected", text: "kept" });
-    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?", null);
     const submission = bridge.posted.find(({ name }) => name === "submit")!;
     expect(submission.payload).toMatchObject({
       prompt: "why?",
@@ -224,7 +224,7 @@ describe("agent composer attachments", () => {
 
   it("returns a refused selection send to the composer with its comment and the reason", () => {
     const session = owner("selection-refused", "slot");
-    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?");
+    store.sendAgentSelection(session, { label: "notes.txt:1:1-1:6", text: "plain" }, "why?", null);
     deliver("selection-refused", "slot", "submissionState", {
       id: bridge.posted.find(({ name }) => name === "submit")!.payload.id,
       attachmentIds: [],

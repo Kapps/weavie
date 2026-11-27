@@ -26,6 +26,8 @@ import {
 /** One prompt sent from a selection, in the pane's card with the pane's rows for what the agent did about it. */
 export function InlineReplyCard(props: {
   reply: InlineReply;
+  /** The code it was asked about is gone, so it sits where that code was. */
+  moved: boolean;
   session: ClientSession;
 }): JSX.Element {
   const pane = () => agentPaneModel(props.session);
@@ -120,6 +122,9 @@ export function InlineReplyCard(props: {
       data={{ "data-inline-reply": props.reply.id, "data-comment-box": "" }}
     >
       <div class="inline-reply-body agent-body">
+        <Show when={props.moved}>
+          <p class="anchor-moved">Asked about code that has since changed</p>
+        </Show>
         <Show when={props.reply.error}>
           {(error) => (
             <p class="inline-reply-error" role="alert">

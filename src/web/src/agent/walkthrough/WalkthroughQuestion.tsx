@@ -19,7 +19,7 @@ export function WalkthroughQuestion(props: {
         before={
           <>
             <Show when={props.placed.moved}>
-              <p class="walkthrough-moved">Asked about text that has since changed</p>
+              <p class="anchor-moved">Asked about text that has since changed</p>
             </Show>
             <blockquote class="walkthrough-quote">{props.placed.question.anchor.quote}</blockquote>
           </>

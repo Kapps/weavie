@@ -23,6 +23,17 @@ public sealed class AcpRewindPlanTests {
 	}
 
 	[Fact]
+	public void KeepsTheStateOfAReplyCardWhosePromptIsKept() {
+		var asked = User("1", "why?") with { ItemId = "ask", Anchor = new("/w/a.cs", null, null, "1.1-1.4", "a()", "ask") };
+		static AgentPaneMessage State(string id) => new() { Type = "reply-card", ProviderId = "fake", ItemId = id, Status = "dismissed" };
+		var journal = new[] { Turn("1"), asked, Answer("1", "msg-1"), Turn("2"), User("2", "bravo") with { ItemId = "later" }, State("ask"), State("later") };
+
+		var plan = AcpRewindPlan.Create(journal, "2");
+
+		Assert.Equal([.. journal[..3], journal[5]], plan.Kept);
+	}
+
+	[Fact]
 	public void RewindingTheFirstPromptKeepsNothingAndNeedsNoFork() {
 		var plan = AcpRewindPlan.Create([Turn("1"), User("1", "alpha"), Answer("1", "msg-1")], "1");
 

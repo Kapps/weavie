@@ -143,8 +143,8 @@ export interface AgentPaneUpdate {
   planPath?: string | null;
   /** The block a block row shows; its data arrives separately as an `AgentBlockRecord`. */
   blockId?: string | null;
-  /** Where in a walkthrough a side conversation was asked. */
-  anchor?: WalkthroughAnchor | null;
+  /** Where a prompt or side conversation was asked from. */
+  anchor?: AgentAnchor | null;
   /** The session that sent a submitted prompt, when another session's agent sent it. */
   sender?: AgentMessageSender | null;
 }
@@ -198,13 +198,19 @@ export interface AgentBlock {
   walkthrough?: AgentWalkthrough | null;
 }
 
-/** A place in walkthrough `blockId` of conversation `conversationId`, and the text selected there. */
-export interface WalkthroughAnchor {
+/**
+ * Where a prompt was asked from and the text selected there: lines of the file `path`, or a place in walkthrough
+ * `blockId` of conversation `conversationId`. `place` is the asking surface's own; `card` is the card's first prompt,
+ * which its follow-ups repeat.
+ */
+export interface AgentAnchor {
+  path?: string | null;
   /** Absent for the primary conversation. */
   conversationId?: string | null;
-  blockId: string;
+  blockId?: string | null;
   place: string;
   quote: string;
+  card: string;
 }
 
 /** A guided read of how some code works; its code is anchors into copies the host keeps. */

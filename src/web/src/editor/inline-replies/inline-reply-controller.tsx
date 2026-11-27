@@ -1,11 +1,18 @@
-// Shows the replies to prompts sent from this model's selections, each a card under the line it was sent from.
+// Shows the replies to prompts sent from selections in this model's file, each a card under the code it was asked
+// about.
 
 import type * as monaco from "monaco-editor";
 import { type Accessor, createEffect, createMemo, createRoot, onCleanup } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { InlineReplyCard } from "./InlineReplyCard";
-import { type InlineReply, inlineReplies, inlineReplyLine } from "./inline-replies-store";
+import {
+  type InlineReply,
+  inlineReplies,
+  placeReply,
+  type ReplyPlace,
+  replyIn,
+} from "./inline-replies-store";
 import "./inline-replies.css";
 
 export function createInlineReplies(
@@ -16,24 +23,28 @@ export function createInlineReplies(
 ): () => void {
   return createRoot((dispose) => {
     const replies = createMemo(() =>
-      inlineReplies(session).filter((reply) => reply.model === model),
+      inlineReplies(session).filter((reply) => replyIn(reply, model)),
     );
     const any = createMemo(() => replies().length > 0);
     // Few editors ever hold a reply, so the card layer exists only while one does.
     createEffect(() => {
       if (!any()) return;
-      const cards = createMemo((): ZoneCard<InlineReply>[] => {
+      const cards = createMemo((): ZoneCard<{ reply: InlineReply; place: ReplyPlace }>[] => {
         version();
         return replies().flatMap((reply) => {
-          const line = inlineReplyLine(reply);
-          return line === undefined ? [] : [{ key: reply.id, afterLine: line, data: reply }];
+          const place = placeReply(session, reply, model);
+          return place === null
+            ? []
+            : [{ key: reply.id, afterLine: place.line, data: { reply, place } }];
         });
       });
       onCleanup(
         createZoneCards(
           editor,
           cards,
-          (reply) => <InlineReplyCard reply={reply()} session={session} />,
+          (card) => (
+            <InlineReplyCard reply={card().reply} moved={card().place.moved} session={session} />
+          ),
           0,
           false,
         ),

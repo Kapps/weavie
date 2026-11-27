@@ -54,7 +54,7 @@ test("a huge file shows only its change in context and warns about tokenization 
     has: page.locator(".unified-review-file-name", { hasText: largeName }),
   });
   const expectCollapsed = async (): Promise<void> => {
-    await expect(section.locator(".unified-review-gap")).toHaveText([
+    await expect(section.locator(".code-band")).toHaveText([
       "Show 149997 unchanged lines",
       "Show 149997 unchanged lines",
     ]);

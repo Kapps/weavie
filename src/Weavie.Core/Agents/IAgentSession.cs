@@ -102,10 +102,27 @@ public interface IStructuredAgentWalkthroughs {
 	string Source(string? conversationId, string blockId, string hash);
 }
 
-/// <summary>The cards of one structured agent session's transcript: side conversations and dashboards.</summary>
+/// <summary>The cards of one structured agent session's transcript: side conversations, dashboards and the replies to
+/// prompts asked from a selection.</summary>
 public interface IStructuredAgentCards {
 	/// <summary>Records whether <paramref name="card"/> is collapsed, so it stays that way across restarts.</summary>
 	void SetCardCollapsed(AgentCardRef card, bool collapsed);
+
+	/// <summary>Records the state of the reply card whose first prompt is <paramref name="submissionId"/>, so it stays
+	/// that way across restarts.</summary>
+	void SetReplyCard(string submissionId, AgentReplyCardState state);
+}
+
+/// <summary>What the user made of a reply card, which its surface draws under the selection it was asked about.</summary>
+public enum AgentReplyCardState {
+	/// <summary>Shown whole.</summary>
+	Expanded,
+
+	/// <summary>Shown as its heading.</summary>
+	Collapsed,
+
+	/// <summary>Not shown.</summary>
+	Dismissed,
 }
 
 /// <summary>Rewinds one structured agent's primary conversation to just before an earlier prompt.</summary>

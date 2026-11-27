@@ -1,25 +1,19 @@
 // A walkthrough code block: a read-only editor on the live file, its recorded lines mapped onto the file now and the
-// diff from the first copy painted in. Notes, fold rows and questions are cards between lines, as inline replies are.
+// diff from the first copy painted in. Folds are the code view's bands; notes and questions are cards between lines.
 
 import { type Accessor, createMemo, createRoot, type JSX, Match, Show, Switch } from "solid-js";
 import type { WalkthroughCode, WalkthroughFile } from "../../bridge";
+import { type CodeBand, createCodeView } from "../../editor/code-view";
 import { settledContentVersion } from "../../editor/content-version";
-import { hiddenAreas } from "../../editor/hidden-areas";
 import { diffLines, type LineChanges, mapLine } from "../../editor/line-anchor";
-import {
-  createEmbeddedEditor,
-  createOverflowWidgets,
-  embeddedEditorChrome,
-  monaco,
-} from "../../editor/monaco-setup";
+import { monaco } from "../../editor/monaco-setup";
 import { computeTextDiffLines } from "../../editor/review/diff-computation";
 import { computeDiffMarkers } from "../../editor/review/diff-markers";
-import { addDiffZones } from "../../editor/review/diff-zones";
-import { lastLineOf, selectionExcerpt } from "../../editor/selection-excerpt";
+import { createDiffPaint } from "../../editor/review/diff-zones";
+import { selectionExcerpt, selectionQuote } from "../../editor/selection-excerpt";
 import { watchSelectionGestures } from "../../editor/selection-gestures";
 import { createZoneCards, type ZoneCard } from "../../editor/zone-cards";
 import type { SelectionActions } from "../selection-actions";
-import { quoteOf } from "./walkthrough-questions";
 
 const HIDDEN_AREAS_SOURCE = "weavie.walkthrough";
 
@@ -33,15 +27,6 @@ export interface QuestionCard {
 
 type LineCard =
   | { kind: "note"; key: string; line: number; text: string; was: string | null; indent: number }
-  | {
-      kind: "fold";
-      key: string;
-      line: number;
-      from: number;
-      to: number;
-      label: string;
-      open: boolean;
-    }
   | ({ kind: "question" } & QuestionCard);
 
 /** The model a block shows: the live file, or, once the file is gone, a copy of what it recorded. */
@@ -78,16 +63,12 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     file.after ? options.source(file.after) : null,
   ]);
   const { model, deleted } = await options.open(code, copy);
-  const widgets = createOverflowWidgets(document.body);
-  const editor = createEmbeddedEditor(
+  const view = createCodeView({
     mount,
+    widgetsParent: document.body,
     model,
-    {
-      dimension: { width: mount.clientWidth, height: mount.clientHeight },
-      overflowWidgetsDomNode: widgets,
-    },
-    {
-      ...embeddedEditorChrome,
+    dimension: { width: mount.clientWidth, height: mount.clientHeight },
+    overrides: {
       readOnly: true,
       domReadOnly: true,
       glyphMargin: false,
@@ -97,7 +78,13 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
       scrollbar: { vertical: "hidden", handleMouseWheel: false, alwaysConsumeMouseWheel: false },
       padding: { top: 4, bottom: 4 },
     },
-  );
+    hiddenSource: HIDDEN_AREAS_SOURCE,
+    onHeight: (height) => {
+      mount.style.height = `${height}px`;
+    },
+    onClick: () => {},
+  });
+  const { editor } = view;
   return createRoot((dispose) => {
     const settled = settledContentVersion(model);
     const live = createMemo(() => {
@@ -121,14 +108,17 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     const shown = createMemo(() => {
       const first = at(code.from).afterLine;
       const last = Math.max(first, at(code.to).afterLine);
-      const folded = (code.folds ?? [])
-        .filter((fold) => !openFolds().has(fold.from))
-        .map((fold) => [at(fold.from).afterLine, at(fold.to).afterLine] as const);
-      return { first, last, folded };
+      const folds = (code.folds ?? []).map((fold) => ({
+        fold,
+        open: openFolds().has(fold.from),
+        from: at(fold.from).afterLine,
+        to: at(fold.to).afterLine,
+      }));
+      return { first, last, folds };
     });
     const copyLines = copy.split(/\r?\n/);
     const decorations = editor.createDecorationsCollection();
-    let diffZones: string[] = [];
+    const diffPaint = createDiffPaint(editor, (change) => editor.changeViewZones(change));
     const questions = createMemo(() => options.questions(), [], {
       equals: (a, b) =>
         a.length === b.length &&
@@ -139,11 +129,21 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     createMemo(() => {
       const changes = map();
       const lineCount = model.getLineCount();
-      const { first, last, folded } = shown();
-      const hidden: monaco.IRange[] = folded.map(([from, to]) => new monaco.Range(from, 1, to, 1));
+      const { first, last, folds } = shown();
+      const hidden = folds
+        .filter((fold) => !fold.open)
+        .map(({ from, to }) => new monaco.Range(from, 1, to, 1));
       if (first > 1) hidden.push(new monaco.Range(1, 1, first - 1, 1));
       if (last < lineCount) hidden.push(new monaco.Range(last + 1, 1, lineCount, 1));
-      hiddenAreas(editor).setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
+      const bands = folds.map(
+        ({ fold, open, from }): CodeBand => ({
+          beforeLine: from,
+          label: open ? `Hide · ${fold.label}` : `${fold.to - fold.from + 1} lines · ${fold.label}`,
+          title: open ? "Hide These Lines" : "Show These Lines",
+          open: () => options.toggleFold(fold.from),
+        }),
+      );
+      view.setHidden(hidden, bands);
       const marks: monaco.editor.IModelDeltaDecoration[] = [];
       const mark = (line: number, token: string, className: string): boolean => {
         const anchor = at(line);
@@ -173,11 +173,9 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
               { original: before, acceptedBaseline: undefined, claudeVersion: undefined },
               { changes: [...diff], userChanges: [], fadedChanges: [] },
             );
-      decorations.set([...(markers?.decorations ?? []), ...marks]);
-      editor.changeViewZones((accessor) => {
-        for (const id of diffZones) accessor.removeZone(id);
-        diffZones = markers === null ? [] : addDiffZones(editor, accessor, markers);
-      });
+      decorations.set(marks);
+      if (markers === null) diffPaint.clear();
+      else diffPaint.paint(markers);
       const notices: (string | false)[] = [
         deleted && "Deleted since this walkthrough recorded it",
         changes === null && "Too large to compare",
@@ -206,17 +204,6 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
               ]
             : [],
         ),
-        ...(code.folds ?? []).map(
-          (fold): LineCard => ({
-            kind: "fold",
-            key: `fold:${fold.from}`,
-            line: fold.from - 1,
-            from: fold.from,
-            to: fold.to,
-            label: fold.label,
-            open: openFolds().has(fold.from),
-          }),
-        ),
         ...questions().map((question): LineCard => ({ kind: "question", ...question })),
       ];
       return list.map((card) => ({
@@ -225,71 +212,34 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         data: card,
       }));
     });
-    const removeCards = createZoneCards(
-      editor,
-      cards,
-      (card) => <Card card={card()} toggleFold={options.toggleFold} />,
-      0,
-      true,
-    );
+    const removeCards = createZoneCards(editor, cards, (card) => <Card card={card()} />, 0, true);
 
-    const measure = (): void => {
-      mount.style.height = `${editor.getContentHeight()}px`;
-    };
-    const sized = editor.onDidContentSizeChange(measure);
-    measure();
     // Asking is from a selection, once its gesture completes; the copy's line keeps the question in place.
     const unwatch = watchSelectionGestures(editor, options.actions, (selection, point) => {
-      // The card and its mark sit under the selection's last line with text, so the quote is that line's text.
-      const quoteAt = (line: number): string =>
-        quoteOf(
-          model.getValueInRange(
-            selection.intersectRanges(
-              new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
-            )!,
-          ),
-        );
-      let last = lastLineOf(selection);
-      while (last > selection.startLineNumber && quoteAt(last) === "") last--;
-      const quote = quoteAt(last);
-      if (map() === null || quote === "") {
+      const quoted = selectionQuote(model, selection);
+      if (map() === null || quoted === null) {
         options.actions.clear();
         return;
       }
+      const last = quoted.range.endLineNumber;
       const line = deleted ? last : mapLine(diffLines(live(), copy), last).afterLine;
-      options.onSelect(selectionExcerpt(model, selection).text, quote, line, point);
+      options.onSelect(selectionExcerpt(model, selection).text, quoted.quote, line, point);
     });
 
     return () => {
       settled.dispose();
-      sized.dispose();
       unwatch();
       removeCards();
       dispose();
-      editor.dispose();
-      widgets.remove();
+      view.dispose();
     };
   });
 }
 
-function Card(props: { card: LineCard; toggleFold: (from: number) => void }): JSX.Element {
+function Card(props: { card: LineCard }): JSX.Element {
   return (
     <Switch>
       <Match when={props.card.kind === "question" && props.card}>{(card) => card().render()}</Match>
-      <Match when={props.card.kind === "fold" && props.card}>
-        {(fold) => (
-          <button
-            type="button"
-            class="ui-row walkthrough-fold"
-            title={fold().open ? "Hide These Lines" : "Show These Lines"}
-            onClick={() => props.toggleFold(fold().from)}
-          >
-            <span class="ui-row-name">
-              {fold().open ? "Hide" : `${fold().to - fold().from + 1} lines`} · {fold().label}
-            </span>
-          </button>
-        )}
-      </Match>
       <Match when={props.card.kind === "note" && props.card}>
         {(note) => (
           <div class="walkthrough-note" style={{ "padding-left": `${note().indent}ch` }}>

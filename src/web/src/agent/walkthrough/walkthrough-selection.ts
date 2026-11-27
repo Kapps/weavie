@@ -21,16 +21,11 @@ export function createWalkthroughSelection(
   /** Offers prose selections inside `root`; the returned function stops. */
   listen: (root: HTMLElement) => () => void;
 } {
-  let at: AskPlace | null = null;
   // A question is a /btw, so an agent without one can't take it.
-  const actions = createSelectionActions(
-    document.body,
-    session,
-    (owner, selection, comment) => (at === null ? null : askFrom(at)(owner, selection, comment)),
-    () =>
-      agentControlState(session).slash.some((entry) => entry.commandId === CommandIds.askAgentAside)
-        ? null
-        : "This agent can't answer side questions",
+  const actions = createSelectionActions(document.body, session, () =>
+    agentControlState(session).slash.some((entry) => entry.commandId === CommandIds.askAgentAside)
+      ? null
+      : "This agent can't answer side questions",
   );
   onCleanup(actions.dispose);
   const offer = (
@@ -39,8 +34,8 @@ export function createWalkthroughSelection(
     quote: string | null,
     point: { x: number; y: number },
   ): void => {
-    at = placed(place, quote);
-    actions.show({ label: at.label, text }, point, () => {});
+    const at = placed(place, quote);
+    actions.show({ label: at.label, text }, point, askFrom(at));
   };
   // Prose selections are offered here; code blocks, whose editors keep their own selection, offer theirs.
   const listen = (root: HTMLElement): (() => void) =>

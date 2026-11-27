@@ -2,22 +2,16 @@ import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
-import { interfaceLine } from "../../fonts";
+import { type CodeBand, type CodeView, createCodeView } from "../code-view";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
-import { hiddenAreas } from "../hidden-areas";
 import {
   createInlineDiff,
   type InlineDiff,
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import {
-  createEmbeddedEditor,
-  createOverflowWidgets,
-  embeddedEditorChrome,
-  monaco,
-} from "../monaco-setup";
+import { monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
@@ -27,11 +21,6 @@ import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
-// A line of interface text inside the band's borders and padding.
-const gapHeight = (): number => interfaceLine() + 8;
-// Lucide's chevrons-up-down.
-const EXPAND_ICON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>';
 
 export interface ReviewEditor {
   capture(): TextLocation;
@@ -78,22 +67,25 @@ export function createReviewEditor(options: {
   mount.className = "unified-review-editor-viewport";
   mount.style.visibility = "hidden";
   container.append(loading, mount);
-  // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
-  const widgets = createOverflowWidgets(options.scroller.element);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
+  let view!: CodeView;
+  // The height is the section's once the first diff has laid out its collapsed context.
+  let geometryReady = false;
+  let height = 0;
   const viewport = createReviewEditorViewport(
     container,
     mount,
     options.scroller,
     options.header,
-    (dimension) =>
-      createEmbeddedEditor(
+    (dimension) => {
+      view = createCodeView({
         mount,
+        // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
+        widgetsParent: options.scroller.element,
         model,
-        { dimension, overflowWidgetsDomNode: widgets },
-        {
-          ...embeddedEditorChrome,
+        dimension,
+        overrides: {
           readOnly: !options.editable,
           automaticLayout: false,
           smoothScrolling: false,
@@ -102,36 +94,31 @@ export function createReviewEditor(options: {
           scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
           padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
         },
-      ),
+        hiddenSource: HIDDEN_AREAS_SOURCE,
+        onHeight: measure,
+        onClick: (event) => {
+          if (options.diff.revision !== null && isLineNumber(event.target))
+            void runCommandWithFeedback(CommandIds.reviewOpen, {
+              path: options.diff.path,
+              line: event.target.position!.lineNumber,
+            });
+        },
+      });
+      return view.editor;
+    },
   );
-  const editor = viewport.editor;
+  const { editor } = viewport;
+  const { widgets } = view;
   // Undefined until InlineDiff first lays out the diff; null for a failed diff.
   let markers: DiffMarkers | null | undefined;
   let hidden: monaco.IRange[] = [];
-  // Each band's zone id → the stretch it reveals; Monaco's text layer owns clicks on zones.
-  interface Gap {
-    span: LineSpan;
-    zone: monaco.editor.IViewZone & { marginDomNode: HTMLElement };
-  }
-  let gaps = new Map<string, Gap>();
-  let hovered: Gap | undefined;
-  const hover = (gap: Gap | undefined): void => {
-    if (hovered === gap) return;
-    for (const node of [hovered?.zone.domNode, hovered?.zone.marginDomNode])
-      node?.classList.remove("hover");
-    for (const node of [gap?.zone.domNode, gap?.zone.marginDomNode]) node?.classList.add("hover");
-    hovered = gap;
-    mount.classList.toggle("gap-hover", gap !== undefined);
-    mount.title = gap?.zone.domNode.title ?? "";
-  };
+  let bandAnchor: number | undefined;
   let constructing = true;
   let disposed = false;
   const publish = (): void => {
     if (!disposed) options.onPainted();
   };
-  let geometryReady = false;
-  let height = 0;
-  const measure = (): void => {
+  function measure(): void {
     if (!geometryReady) return;
     const next = editor.getContentHeight();
     if (height === next) return;
@@ -139,48 +126,33 @@ export function createReviewEditor(options: {
     container.style.height = `${next}px`;
     viewport.layout();
     options.onHeight(height);
-  };
+  }
   const revealLine = (line: number): void => {
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
     viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
   };
-  const gapZone = (span: LineSpan): Gap["zone"] => {
+  const band = (span: LineSpan): CodeBand => {
     const count = span.end - span.start + 1;
-    // Monaco forces zone nodes to display:block, so each half lays out through an inner row.
-    const band = document.createElement("div");
-    band.className = "unified-review-gap";
-    const label = document.createElement("span");
-    label.textContent = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
-    band.append(label);
-    band.title = `${label.textContent} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`;
-    // The gutter half carries the band across the line numbers, with its expand glyph under them.
-    const margin = document.createElement("div");
-    margin.className = "unified-review-gap-margin";
-    margin.innerHTML = `<span>${EXPAND_ICON}</span>`;
-    // The band sits just above the hidden stretch it stands for.
+    const label = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
     return {
-      afterLineNumber: span.start - 1,
-      heightInPx: gapHeight(),
-      domNode: band,
-      marginDomNode: margin,
-      showInHiddenAreas: true,
+      beforeLine: span.start,
+      label,
+      title: `${label} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`,
+      open: () => {
+        // Hold the line beside the band still so the stretch opens in place.
+        bandAnchor = span.start === 1 ? span.end + 1 : span.start - 1;
+        options.revealContext(span);
+        bandAnchor = undefined;
+      },
     };
   };
   const applyContext = (): void => {
     if (markers === undefined) return;
     hidden = collapseUnchanged(markers, model.getLineCount(), options.context());
-    hiddenAreas(editor).setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
-    editor.changeViewZones((accessor) => {
-      for (const id of gaps.keys()) accessor.removeZone(id);
-      hover(undefined);
-      gaps = new Map(
-        hidden.map((range) => {
-          const span = { start: range.startLineNumber, end: range.endLineNumber };
-          const zone = gapZone(span);
-          return [accessor.addZone(zone), { span, zone }];
-        }),
-      );
-    });
+    view.setHidden(
+      hidden,
+      hidden.map((range) => band({ start: range.startLineNumber, end: range.endLineNumber })),
+    );
     geometryReady = true;
     measure();
   };
@@ -264,53 +236,15 @@ export function createReviewEditor(options: {
     options.onCursor(editor.getPosition()?.lineNumber ?? 1);
   });
   const inline = createInlineDiff(editor, presentation);
-  const contentSize = editor.onDidContentSizeChange(measure);
   options.configure(inline, model.uri.toString(), options.diff);
   measure();
   constructing = false;
   container.classList.toggle("navigable", options.diff.revision !== null);
-  let pressed = "";
-  let bandAnchor: number | undefined;
-  const clickTarget = (event: monaco.editor.IEditorMouseEvent): string => {
-    const { target } = event;
-    if (
-      target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE ||
-      target.type === monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE
-    )
-      return gaps.has(target.detail.viewZoneId) ? target.detail.viewZoneId : "";
-    return isLineNumber(target) ? `line:${target.position!.lineNumber}` : "";
-  };
   const subscriptions = [
-    contentSize,
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
-    editor.onMouseLeave(() => hover(undefined)),
     editor.onMouseMove((event) => {
-      hover(gaps.get(clickTarget(event)));
       if (options.diff.revision !== null && isLineNumber(event.target))
         event.target.element!.title = "Open file at this line";
-    }),
-    // A plain click on a band or line number acts; a drag or modified click keeps Monaco's selection.
-    editor.onMouseDown((event) => {
-      const { leftButton, shiftKey, ctrlKey, metaKey, altKey } = event.event;
-      pressed =
-        leftButton && !shiftKey && !ctrlKey && !metaKey && !altKey ? clickTarget(event) : "";
-    }),
-    editor.onMouseUp((event) => {
-      const target = clickTarget(event);
-      if (target === "" || target !== pressed) return;
-      pressed = "";
-      const gap = gaps.get(target);
-      if (gap !== undefined) {
-        // Hold the line beside the band still so the stretch opens in place.
-        const { start, end } = gap.span;
-        bandAnchor = start === 1 ? end + 1 : start - 1;
-        options.revealContext(gap.span);
-        bandAnchor = undefined;
-      } else if (options.diff.revision !== null)
-        void runCommandWithFeedback(CommandIds.reviewOpen, {
-          path: options.diff.path,
-          line: event.target.position!.lineNumber,
-        });
     }),
   ];
   return {
@@ -357,8 +291,7 @@ export function createReviewEditor(options: {
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();
       inline.dispose();
-      editor.dispose();
-      widgets.remove();
+      view.dispose();
       loading.remove();
       mount.remove();
     },

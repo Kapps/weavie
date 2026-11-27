@@ -1,8 +1,8 @@
 import { runCommandInSessionWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { quoteOf } from "../../editor/selection-excerpt";
 import { nextId } from "../composer-state";
 import type { SelectionSend } from "../selection-actions";
-import { quoteOf } from "./walkthrough-questions";
 
 /** Where in a walkthrough a question is asked: the walkthrough, a place the page finds again, and what the
  * agent is told the selection is, e.g. `Walkthrough "Claims" · stop 2, Waiting room`. */
@@ -28,11 +28,12 @@ export const askFrom =
       attachmentIds: [],
       selections: [{ id: `${id}-selection`, label: at.label, text: selection.text }],
       anchor: {
+        path: null,
         conversationId: at.conversationId,
         blockId: at.blockId,
         place: at.place,
         quote: at.quote ?? quoteOf(selection.text),
+        card: id,
       },
     });
-    return id;
   };

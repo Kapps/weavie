@@ -154,12 +154,6 @@
   color: var(--dim);
 }
 
-.walkthrough-fold {
-  width: 100%;
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-  color: var(--dim);
-}
-
 .walkthrough-asked {
   border-bottom: 2px solid var(--busy);
   background: color-mix(in srgb, var(--busy) 20%, transparent);
@@ -185,8 +179,7 @@
 
 .walkthrough-state-label,
 .walkthrough-state-note,
-.walkthrough-source,
-.walkthrough-moved {
+.walkthrough-source {
   color: var(--dim);
   font: var(--font-chrome-badge);
 }

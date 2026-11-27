@@ -488,7 +488,7 @@ export async function createEditorHost(
       // Discarded/converted scratch: drop the pending save instead of flushing — its temp file is being
       // deleted host-side, so a flush would be wasted or re-create the file.
       cancelPendingSave(key);
-      dismissInlineRepliesOn(session, key);
+      dismissInlineRepliesOn(session, sessionFileUri(session, path));
     } else {
       flushSave(key);
     }

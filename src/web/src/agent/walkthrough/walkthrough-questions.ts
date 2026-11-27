@@ -55,7 +55,3 @@ export function placeQuestions(
     };
   });
 }
-
-/** The quote an anchor keeps: the selection's first line, as long as an anchor allows. */
-export const quoteOf = (text: string): string =>
-  (text.split("\n").find((line) => line.trim() !== "") ?? text).trim().slice(0, 200);

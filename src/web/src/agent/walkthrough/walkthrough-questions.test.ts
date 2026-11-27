@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentWalkthrough, WalkthroughCode } from "../../bridge";
 import type { AgentTranscriptEntry } from "../AgentPaneTranscriptTypes";
-import { codeLine, codePlace, placeQuestions, quoteOf } from "./walkthrough-questions";
+import { codeLine, codePlace, placeQuestions } from "./walkthrough-questions";
 
 const code: WalkthroughCode = { path: "a.ts", from: 3, to: 9, source: "aaaaaaaaaaaaaaaaaaaa" };
 const walkthrough: AgentWalkthrough = {
@@ -12,7 +12,7 @@ const walkthrough: AgentWalkthrough = {
   stops: [{ id: "stage", name: "Stage", title: "Stage", lead: "l", code: [code] }],
 };
 const asked = (place: string) => ({
-  anchor: { conversationId: null, blockId: "w", place, quote: "q" },
+  anchor: { conversationId: null, blockId: "w", place, quote: "q", card: "ask" },
   entry: {} as AgentTranscriptEntry,
 });
 
@@ -42,10 +42,8 @@ describe("walkthrough questions", () => {
     ]);
   });
 
-  it("read a code place's line back, and quote a selection's first line", () => {
+  it("reads a code place's line back", () => {
     expect(codeLine(codePlace("stage", 0, code, 7), "stage", 0)).toBe(7);
     expect(codeLine(codePlace("stage", 0, code, 7), "stage", 1)).toBeNull();
-    expect(quoteOf("\n  first line  \nsecond")).toBe("first line");
-    expect(quoteOf("x".repeat(300))).toHaveLength(200);
   });
 });

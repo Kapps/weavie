@@ -50,16 +50,14 @@ public sealed class AcpWalkthroughTests {
 		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
 		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
 
-		var anchor = new AgentAsideAnchor(null, "a", "one/code/0/2", "int b");
+		var anchor = new AgentAnchor(null, null, "a", "one/code/0/2", "int b", "ask-1");
 		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why a field?") with { Anchor = anchor });
 
 		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		Assert.Equal((anchor, "Why a field?"), (started.Anchor, started.Text));
 		Assert.Contains(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.Type == "side-conversation-started" && message.Anchor == anchor);
 		Assert.Equal("That walkthrough is no longer shown.", Assert.Throws<InvalidOperationException>(() =>
-			fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "gone", "problem", "x") })).Message);
-		Assert.Throws<ArgumentException>(() => fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "a", "not a place", "x") }));
-		Assert.Throws<ArgumentException>(() => fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "a", "problem", "two\nlines") }));
+			fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, null, "gone", "problem", "x", "ask-2") })).Message);
 	}
 
 	[Fact]
@@ -70,7 +68,7 @@ public sealed class AcpWalkthroughTests {
 		fixture.AskAside($"block:claude:publishWalkthrough:{Publish}");
 		var row = await fixture.WaitForMessageAsync(message => message.Category == "walkthrough" && message.ConversationId is not null);
 
-		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(row.ConversationId, "a", "gist", "g") });
+		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, row.ConversationId, "a", "gist", "g", "ask-1") });
 
 		await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started" && message.Anchor?.ConversationId == row.ConversationId);
 	}
@@ -124,7 +122,7 @@ public sealed class AcpWalkthroughTests {
 		await fixture.StartAsync();
 		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
 		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
-		var anchor = new AgentAsideAnchor(null, "a", "gist", "g");
+		var anchor = new AgentAnchor(null, null, "a", "gist", "g", "ask-1");
 		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = anchor });
 		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId == started.ConversationId);

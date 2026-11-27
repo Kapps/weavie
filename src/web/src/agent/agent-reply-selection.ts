@@ -4,7 +4,7 @@ import { createSelectionActions, sendToConversation } from "./selection-actions"
 
 /** Offers explicit actions for a completed selection wholly inside this reply. */
 export function installReplySelection(host: HTMLElement, session: ClientSession): () => void {
-  const actions = createSelectionActions(host, session, sendToConversation, () => null);
+  const actions = createSelectionActions(host, session, () => null);
   const unwatch = watchDomSelectionGestures(
     host,
     (range, text) => {
@@ -12,7 +12,7 @@ export function installReplySelection(host: HTMLElement, session: ClientSession)
       actions.show(
         { label: selectionLabel(text), text },
         { x: rect.left, y: rect.bottom },
-        () => {},
+        sendToConversation,
       );
     },
     actions.clear,

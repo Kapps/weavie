@@ -25,9 +25,8 @@ public sealed partial class AcpAgentSession {
 			EnsureConversationAdmission();
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
-			if (submission.Anchor is { } anchor) {
-				if (anchor.Problem() is { } problem) throw new ArgumentException(problem, nameof(submission));
-				if (Output.View(_definition.Id, anchor.ConversationId).Block(anchor.BlockId)?.Walkthrough is null) {
+			if (submission.Anchor is { BlockId: { } blockId } anchor) {
+				if (Output.View(_definition.Id, anchor.ConversationId).Block(blockId)?.Walkthrough is null) {
 					throw new InvalidOperationException("That walkthrough is no longer shown.");
 				}
 			}
@@ -83,6 +82,25 @@ public sealed partial class AcpAgentSession {
 				Text = null,
 				Summary = null,
 				Status = collapsed ? "collapsed" : "expanded",
+			});
+		}
+	}
+
+	/// <inheritdoc/>
+	public void SetReplyCard(string submissionId, AgentReplyCardState state) {
+		ArgumentException.ThrowIfNullOrEmpty(submissionId);
+		lock (_turnTransitionGate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			// Its prompt may still be queued, so the row stands alone and the pane applies it wherever the prompt lands.
+			_primary.Publish(new AgentPaneMessage {
+				Type = "reply-card",
+				ProviderId = _definition.Id,
+				ItemId = submissionId,
+				Status = state switch {
+					AgentReplyCardState.Collapsed => "collapsed",
+					AgentReplyCardState.Dismissed => "dismissed",
+					_ => "expanded",
+				},
 			});
 		}
 	}

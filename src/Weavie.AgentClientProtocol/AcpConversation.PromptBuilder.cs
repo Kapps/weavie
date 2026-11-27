@@ -94,6 +94,7 @@ internal sealed partial class AcpConversation {
 				ItemId = submission.Id,
 				Text = submission.Text,
 				Sender = submission.Sender,
+				Anchor = submission.Anchor,
 			});
 		}
 		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {

@@ -61,7 +61,7 @@ public sealed class AcpWorkflowTests {
 			.Where(block => block.GetProperty("type").GetString() == "text")
 			.Select(block => block.GetProperty("text").GetString())];
 		Assert.Equal(3, text.Length);
-		Assert.Equal((kickoff.Text, AgentSettings.VisualPreference), (text[0], text[1]));
+		Assert.Equal((kickoff.Text, AgentSettings.VisualPreferenceBlock), (text[0], text[1]));
 		Assert.Contains($"Run {run.Id} of workflow \"flow\" is at stage \"build\"", text[2], StringComparison.Ordinal);
 	}
 

@@ -554,8 +554,9 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 Weavie tells an agent what the pane can draw, never how to write a reply; that is the user's to decide.
 
 - **Tool descriptions** say what each tool is for: `showBlock` for data worth seeing as a chart or a large or
-  live table, a markdown table for a small static one, an update in place over resending or reprinting, one
-  update per block at a time. Claude Code and Codex show an MCP tool by name only until the agent looks it up,
+  live table of data, a markdown table for a small static one or one whose cells hold sentences (a block's
+  cell shows one line), an update in place over resending or reprinting, one update per block at a time.
+  Claude Code and Codex show an MCP tool by name only until the agent looks it up,
   and an agent does not look up a tool it has no reason to want. `showBlock` is therefore listed with `_meta`
   `anthropic/alwaysLoad`, which keeps its description in Claude's context. Codex ignores the marker.
 - **`EmbeddedAgentGuidance.PaneInstructions`** tells agents with embedded context in the native pane that it
@@ -563,7 +564,8 @@ Weavie tells an agent what the pane can draw, never how to write a reply; that i
   tables. Terminal Claude never lists the tools and does not get it.
 - **`agent.preferVisuals`** (machine, on by default) adds `AgentSettings.VisualPreference` to each prompt an
   agent in the pane receives, whoever wrote it (the user, a workflow stage, Fix Line), as assistant-audience
-  text after the prompt's own. It is the user's preference in the user's voice, in the prompt, because the same
+  text after the prompt's own, with a blank line on each side because an agent reads a prompt's text blocks as
+  one run. It is the user's preference in the user's voice, in the prompt, because the same
   preference stated in Weavie's instructions is followed far less often. A prompt that begins with `/` does
   not carry it, because Claude runs a slash command itself only when it is the last text block; nor does a
   message from another session.

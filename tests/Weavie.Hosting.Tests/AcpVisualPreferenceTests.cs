@@ -15,7 +15,7 @@ public sealed class AcpVisualPreferenceTests {
 
 		JsonElement[] blocks = [.. AcpPromptAssertions.Blocks(Assert.Single(AcpPromptAssertions.Read(fixture)))];
 		Assert.Equal("compare the options", blocks[0].GetProperty("text").GetString());
-		Assert.Equal(AgentSettings.VisualPreference, blocks[1].GetProperty("text").GetString());
+		Assert.Equal($"\n\n{AgentSettings.VisualPreference}\n\n", blocks[1].GetProperty("text").GetString());
 		Assert.Equal("assistant", Assert.Single(blocks[1].GetProperty("annotations").GetProperty("audience").EnumerateArray()).GetString());
 		Assert.Equal("compare the options", Assert.Single(fixture.Messages, message => message.Type == "user-message").Text);
 	}
@@ -46,5 +46,5 @@ public sealed class AcpVisualPreferenceTests {
 	}
 
 	private static bool CarriesPreference(JsonElement request) => AcpPromptAssertions.Blocks(request).Any(block =>
-		block.GetProperty("type").GetString() == "text" && block.GetProperty("text").GetString() == AgentSettings.VisualPreference);
+		block.GetProperty("type").GetString() == "text" && block.GetProperty("text").GetString() == AgentSettings.VisualPreferenceBlock);
 }

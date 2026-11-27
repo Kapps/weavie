@@ -106,8 +106,8 @@ public static class EmbeddedAgentGuidance {
 	public const string PaneInstructions =
 		"""
 		Weavie's agent pane draws more than text. A `mermaid` fence in your reply is drawn as a diagram, a markdown
-		table as a table, and `mcp__weavie__showBlock` shows a chart or a large or live table. A diagram shows how
-		steps or parts connect, and a table how options compare.
+		table as a table, and `mcp__weavie__showBlock` shows a chart or a large or live table of data. A diagram
+		shows how steps or parts connect, and a table how options compare.
 		""";
 
 	/// <summary>The static instructions plus a host-runtime block describing what <paramref name="runtime"/> is running.</summary>

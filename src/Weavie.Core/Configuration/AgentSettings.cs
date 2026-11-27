@@ -29,6 +29,9 @@ public static class AgentSettings {
 	/// <summary>The user's preference, in their voice, that <see cref="PreferVisuals"/> adds to a prompt.</summary>
 	public const string VisualPreference = "In your replies to me, I prefer diagrams and tables to paragraphs of text where they fit.";
 
+	/// <summary><see cref="VisualPreference"/> as its own paragraph: an agent reads a prompt's text blocks as one run.</summary>
+	public const string VisualPreferenceBlock = $"\n\n{VisualPreference}\n\n";
+
 	/// <summary>Whether thought text is shown inline or in a separate collapsed disclosure.</summary>
 	public const string ThoughtDisplay = "agent.thoughtDisplay";
 

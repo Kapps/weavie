@@ -37,7 +37,7 @@ internal sealed partial class AcpConversation {
 		}
 		// A slash command stays the last text block, which is how Claude recognizes one it runs itself.
 		if (submission.Sender is null && !submission.Text.StartsWith('/') && _context.Settings.RequireBool(AgentSettings.PreferVisuals)) {
-			blocks.Add(AcpContent.AssistantText(AgentSettings.VisualPreference));
+			blocks.Add(AcpContent.AssistantText(AgentSettings.VisualPreferenceBlock));
 		}
 
 		if (_features.EmbeddedContext) {

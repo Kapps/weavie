@@ -69,7 +69,7 @@ public sealed partial class McpServer {
 		JsonObject Tool(string name, string description, JsonObject schema) =>
 			new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 		var show = Tool(ShowBlockTool,
-			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table; use a markdown table for a small static one. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
+			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table of data. A cell shows one line, so use a markdown table for a small static table or one whose cells hold sentences. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
 			Object(new JsonObject {
 				["id"] = Described(Text(), AgentBlockRules.IdRule + "; unique in this conversation."),
 				["title"] = Text(),

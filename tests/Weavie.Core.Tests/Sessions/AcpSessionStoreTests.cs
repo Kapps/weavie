@@ -28,6 +28,41 @@ public sealed class AcpSessionStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void AWalkthroughKeepsOnlyTheCopiesItNames() {
+		var store = new AcpSessionStore(Database);
+		var row = Message("item-completed", "") with { Text = null, TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "w" };
+		AgentBlockState Walkthrough(string before, string? after, string source) => new("provider", null, new AgentBlock {
+			Id = "w",
+			Title = "w",
+			Walkthrough = new AgentWalkthrough {
+				Problem = "p",
+				Gist = "g",
+				Files = [new AgentWalkthroughFile { Path = "a.cs", Before = before, After = after }],
+				Stops = [new AgentWalkthroughStop { Id = "s", Name = "s", Title = "s", Lead = "l", Code = [new AgentWalkthroughCode { Path = "a.cs", From = 1, To = 1, Source = source }] }],
+			},
+		});
+		string Read(string hash) => store.ReadBlockSource("provider", "/workspace", null, "w", hash);
+
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one", ["stray"] = "x" });
+		Assert.Equal("one", Read("h1"));
+		Assert.Throws<KeyNotFoundException>(() => Read("stray"));
+		store.SaveBlock("/workspace", Walkthrough("h1", "h2", "h2"), new Dictionary<string, string> { ["h2"] = "two" });
+		Assert.Equal(("one", "two"), (Read("h1"), Read("h2")));
+		store.SaveBlock("/workspace", Walkthrough("h2", "h2", "h2"), new Dictionary<string, string>());
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+
+		store.Replace("provider", "/workspace", [], []);
+		Assert.Throws<KeyNotFoundException>(() => Read("h2"));
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one" });
+		store.DeleteBlock("provider", "/workspace", null, "w");
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one" });
+		store.ClearWorkspace("/workspace");
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+		Assert.Empty(store.ReadBlocks("provider", "/workspace", [row]));
+	}
+
+	[Fact]
 	public void ReopenPreservesExactConversationsAndDisplayOrderAndClearIsScoped() {
 		var store = new AcpSessionStore(Database);
 		var primary = State("", "primary-id", 4);

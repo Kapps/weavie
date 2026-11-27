@@ -22,8 +22,13 @@ export function createSources(
       text = session
         .feature("agent")
         .request<{ text: string }, unknown>("walkthroughSource", { conversationId, blockId, hash })
-        .then((reply) => reply.text);
-      text.catch(() => sources.delete(hash));
+        .then(
+          (reply) => reply.text,
+          () => {
+            sources.delete(hash);
+            throw new Error("This code is no longer stored");
+          },
+        );
       sources.set(hash, text);
     }
     return text;
@@ -65,8 +70,9 @@ export function createBlockModels(
 }
 
 /**
- * The stop being read: the last whose heading has passed the top third of the tab. An observer reports crossings,
- * so scrolling reads no layout.
+ * The stop being read: the last whose heading has passed the top third of the tab. The observer's band runs from far
+ * above the tab down to that line, so a stop is in it exactly when it has passed, and a jump that skips the line
+ * still changes it. Scrolling reads no layout.
  */
 export function trackCurrentStop(
   scroller: () => HTMLElement,
@@ -81,7 +87,7 @@ export function trackCurrentStop(
     observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          passed.set(entry.target, entry.boundingClientRect.top <= (entry.rootBounds?.bottom ?? 0));
+          passed.set(entry.target, entry.isIntersecting);
         }
         let at = 0;
         sections().forEach((section, index) => {
@@ -91,7 +97,7 @@ export function trackCurrentStop(
         setCurrent(at);
         onChange(at);
       },
-      { root: scroller(), rootMargin: "0px 0px -66% 0px" },
+      { root: scroller(), rootMargin: "1000000px 0px -66% 0px" },
     );
     onCleanup(() => observer?.disconnect());
   });
@@ -149,6 +155,8 @@ export function highlightQuotes(root: () => HTMLElement, placed: () => readonly 
       const range = host == null ? null : findText(host, question.anchor.quote);
       if (range !== null) ranges.push(range);
     }
+    // A cosmetic mark: an engine without the Highlight API (WebKit before 17.2) shows the card without it.
+    if (typeof Highlight === "undefined") return;
     CSS.highlights.set("walkthrough-asked", new Highlight(...ranges));
     onCleanup(() => CSS.highlights.delete("walkthrough-asked"));
   });

@@ -20,12 +20,12 @@ maintainability problem; a **nit** is anything smaller.
 | --- | --- | --- | --- | --- |
 | 1 | bug | fixed | A note, fold row or question under a block's last line is not drawn | `src/web/src/agent/walkthrough/walkthrough-code.tsx:225` |
 | 2 | bug | fixed | A stop row on the pane card always opens the tab at stop 1 | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:275` |
-| 3 | bug | fixed in part | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
+| 3 | bug | fixed | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
 | 4 | bug | fixed | A question asked from a walkthrough a `/btw` published is refused as "no longer shown" | `src/Weavie.AgentClientProtocol/AcpAgentSession.SideConversations.cs:28` |
 | 5 | bug | fixed | A dismissed question that then needs a permission can't be answered | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:33` |
 | 6 | bug | fixed | A whole-line selection puts its question one line low | `src/web/src/agent/walkthrough/walkthrough-code.tsx:255` |
 | 7 | bug | fixed | After an update re-records a block, older questions sit under the wrong line | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:119` |
-| 8 | bug | reopened | `/btw` cards did not get Stop; the Stop added is invisible | `src/web/src/agent/AgentAsideEntry.tsx:57` |
+| 8 | bug | fixed | `/btw` cards did not get Stop; the Stop added is invisible | `src/web/src/agent/AgentAsideEntry.tsx:57` |
 | 9 | warn | fixed | Scrolling past a stop, opening a fold or revealing an answer repaints every mounted block | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:214` |
 | 10 | warn | fixed | Code selection is a second copy of the editor's selection actions and works on every selection event | `src/web/src/agent/walkthrough/walkthrough-code.tsx:248` |
 | 11 | warn | fixed | `WalkthroughQuestion` re-wires `AsideEntry` | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:30` |
@@ -42,20 +42,20 @@ maintainability problem; a **nit** is anything smaller.
 | 22 | nit | fixed | An update can blank `title`, `problem` or `gist` with an empty string | `src/Weavie.Core/Agents/AgentWalkthroughRules.cs:56` |
 | 23 | nit | fixed | An update accepts `title`, which the design does not list; the pane card keeps the old one | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:45` |
 | 24 | nit | fixed | The 2 MB limit is checked after the file is read, split and hashed | `src/Weavie.Core/Agents/WalkthroughCapture.cs:33` |
-| 25 | nit | fixed in part | Three small design items are not built | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:150` |
+| 25 | nit | fixed | Three small design items are not built | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:150` |
 | 26 | nit | fixed | `Prose` builds a new cache key per read, so its markdown is never cached | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:32` |
 | 27 | nit | fixed | Three-line file comment | `src/web/src/agent/walkthrough/walkthrough-code.tsx:1` |
 | 28 | nit | fixed | `em` in chrome geometry | `src/web/src/agent/walkthrough/walkthrough.css:107` |
 | 29 | nit | fixed | A stop request is keyed by tab path alone, in a module global | `src/web/src/agent/walkthrough/walkthrough-view.ts:19` |
 | 30 | nit | fixed | The embedded-editor setup repeats the review's, with a class that has no rule | `src/web/src/agent/walkthrough/walkthrough-code.tsx:78` |
-| 31 | bug | open | A closed fold under an empty line has no row and can't be opened (from fix 1) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:240` |
-| 32 | bug | open | The strip shows the wrong current stop after a jump back up the page (from fix 9) | `src/web/src/agent/walkthrough/walkthrough-page.ts:84` |
-| 33 | nit | open | Any failure to build a block reads "This code is no longer stored" (rest of 3) | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:220` |
-| 34 | nit | open | A code selection of only blank text offers Send, which the host refuses | `src/web/src/agent/walkthrough/walkthrough-code.tsx:269` |
-| 35 | nit | open | A code selection over several lines is not lit | `src/web/src/agent/walkthrough/walkthrough-code.tsx:179` |
-| 36 | nit | open | The waiting row can't reach a question under a block that has not mounted | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:210` |
-| 37 | nit | open | The prose highlight uses `CSS.highlights` unguarded | `src/web/src/agent/walkthrough/walkthrough-page.ts:152` |
-| 38 | nit | open | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
+| 31 | bug | fixed | A closed fold under an empty line has no row and can't be opened (from fix 1) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:240` |
+| 32 | bug | fixed | The strip shows the wrong current stop after a jump back up the page (from fix 9) | `src/web/src/agent/walkthrough/walkthrough-page.ts:84` |
+| 33 | nit | fixed | Any failure to build a block reads "This code is no longer stored" (rest of 3) | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:220` |
+| 34 | nit | fixed | A code selection of only blank text offers Send, which the host refuses | `src/web/src/agent/walkthrough/walkthrough-code.tsx:269` |
+| 35 | nit | fixed | A code selection over several lines is not lit | `src/web/src/agent/walkthrough/walkthrough-code.tsx:179` |
+| 36 | nit | fixed | The waiting row can't reach a question under a block that has not mounted | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:210` |
+| 37 | nit | fixed | The prose highlight uses `CSS.highlights` unguarded | `src/web/src/agent/walkthrough/walkthrough-page.ts:152` |
+| 38 | nit | fixed | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
 
 ## Bugs
 
@@ -335,6 +335,25 @@ stop, and the wrong stop is saved as where the tab reopens.
   undefined and the effect throws while the tab renders.
 - **38.** The doc comment of `createSelectionActions` now sits above the `SelectionActions` type, followed by the
   type's own.
+
+## Second fixes
+
+Fixed after the recheck (`d63a73d4`), each with an e2e case where one applies.
+
+- **8.** Stop carries `agent-entry-stop`, shown in a card head as Open is. e2e asserts its opacity is 1.
+- **31.** A card under lines that are hidden goes after the hidden run when a shown line follows it, and otherwise
+  hangs after the last character of the nearest line above with text. e2e: a fold under an empty line opens.
+- **32.** The current stop's observer band runs from far above the tab to the top-third line, so a stop is in it
+  exactly when it has passed, and a jump changes that. e2e: from the last of twelve stops, a jump to the top makes
+  stop 1 current and disables Previous.
+- **3, 33.** A missing copy reads "This code is no longer stored"; any other failure shows its own message.
+- **25.** Send is disabled, with the reason as its tooltip, when the agent's slash commands have no `/btw`.
+- **34.** A code selection with no text on its last line offers nothing.
+- **35.** A code question quotes the selected text of its last line, where its card and mark sit. e2e: a two-line
+  selection is lit on its last line.
+- **36.** When the question's card has not mounted, the waiting row opens the tab at its stop.
+- **37.** Without the Highlight API (WebKit before 17.2) the quote is simply not lit; nothing throws.
+- **38.** One doc comment per declaration.
 
 ## Rejected
 

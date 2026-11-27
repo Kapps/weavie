@@ -217,7 +217,10 @@ function CodeBlock(props: {
             if (disposed) release();
             else dispose = release;
           },
-          () => setNotices(["This code is no longer stored"]),
+          (error: unknown) =>
+            setNotices([
+              error instanceof Error ? error.message : `Couldn't show this code: ${String(error)}`,
+            ]),
         );
       },
       // The tab scrolls, not the window, so a block out of its view is clipped from the window's.

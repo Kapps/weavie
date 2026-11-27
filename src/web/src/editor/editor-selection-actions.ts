@@ -10,7 +10,12 @@ import { watchSelectionGestures } from "./selection-gestures";
 /** Positions actions only on completed gestures; typing and scroll frames never measure layout. */
 export function connectSelectionActions(connection: TextEditorConnection): () => void {
   const { editor, model, session } = connection;
-  const actions = createSelectionActions(editor.getDomNode()!, session, sendToConversation);
+  const actions = createSelectionActions(
+    editor.getDomNode()!,
+    session,
+    sendToConversation,
+    () => null,
+  );
   const unwatch = watchSelectionGestures(editor, actions, (selection, point) => {
     if (
       editorContexts.get(session) !== connection ||

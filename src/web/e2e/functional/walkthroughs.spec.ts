@@ -220,8 +220,10 @@ test("a question about code sits under the line it was asked about", async ({ pa
   const block = tab(page).locator(".walkthrough-code").first();
   await expect.poll(() => marked(block)).toBe("Math.random()}");
 
-  await block.locator(".view-line", { hasText: "this.staged.set" }).click();
+  // Two lines: the card, its quote and its mark go with the last.
+  await block.locator(".view-line", { hasText: "const token" }).click();
   await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+End");
   await page.getByRole("button", { name: "Comment on Selection" }).click();
   await page.getByRole("textbox", { name: "Comment" }).fill("Why a map?");
@@ -233,6 +235,14 @@ test("a question about code sits under the line it was asked about", async ({ pa
     "this.staged.set(token, operation);",
   );
   await expect(question).toContainText("echo: Why a map?");
+  await expect
+    .poll(async () =>
+      // Monaco draws spaces as non-breaking ones.
+      (await block.locator(".walkthrough-asked").allTextContents())
+        .join("")
+        .replace(/\u00a0/g, " "),
+    )
+    .toBe("this.staged.set(token, operation);");
   // Under line 7, the one selected, and above line 8.
   const top = async (locator: Locator) => (await locator.boundingBox())!.y;
   const asked = block.locator(".view-line", { hasText: "this.staged.set" });
@@ -247,6 +257,8 @@ test("a BTW card's Stop ends its turn and leaves the main conversation alone", a
   const aside = surface.locator("[data-agent-aside]");
   const stop = aside.getByRole("button", { name: "Stop", exact: true });
   await expect(stop).toBeVisible();
+  // Playwright clicks a transparent button, so its opacity is what proves a reader can see it.
+  await expect(stop).toHaveCSS("opacity", "1");
   await stop.click();
   await expect(stop).toHaveCount(0);
   await expect(aside.getByRole("button", { name: "Reply" })).toBeVisible();
@@ -324,5 +336,50 @@ test.describe("render budget", () => {
     expect(sample.removed, report).toBe(0);
     expect(sample.reads, report).toBeLessThanOrEqual(NOTCHES * READS_PER_NOTCH);
     await expect(page_.locator(".walkthrough-strip-stop").last()).toHaveClass(/is-current/);
+    // A jump back to the top, as Home or a scrollbar drag makes, skips every stop's heading on the way.
+    await page_.evaluate((element) => {
+      element.closest(".editor-agent-view")!.scrollTop = 0;
+    });
+    await expect(page_.locator(".walkthrough-strip-stop").first()).toHaveClass(/is-current/);
+    await expect(page_.getByRole("button", { name: "Previous Stop" })).toBeDisabled();
   });
+});
+
+test("a fold under an empty line still has its row", async ({ page, weavie }) => {
+  const surface = await createAcpSession(page, "walkthrough-empty-fold");
+  const worktree = sessionWorktrees(weavie.workspace)[0]!;
+  await writeFile(
+    join(worktree, "fields.ts"),
+    "class Fields {\n\n  a = 1;\n  b = 2;\n  c = 3;\n}\n",
+  );
+  const walkthrough = {
+    ...published,
+    stops: [
+      {
+        id: "fields",
+        name: "Fields",
+        title: "Fields",
+        lead: "Read it.",
+        code: [
+          {
+            path: "fields.ts",
+            from: 1,
+            to: 6,
+            folds: [{ from: 3, to: 4, label: "two fields" }],
+          },
+        ],
+      },
+    ],
+  };
+  await submitAcpDraft(surface, `block:claude:publishWalkthrough:${JSON.stringify(walkthrough)}`);
+  await surface
+    .locator('[data-agent-walkthrough="claims"]')
+    .getByRole("button", { name: "Open", exact: true })
+    .click();
+  const block = tab(page).locator(".walkthrough-code").first();
+  const fold = block.getByRole("button", { name: /2 lines · two fields/ });
+  await expect(fold).toBeInViewport();
+  await expect(block.locator(".view-lines")).not.toContainText("a = 1");
+  await fold.click();
+  await expect(block.locator(".view-lines")).toContainText("a = 1");
 });

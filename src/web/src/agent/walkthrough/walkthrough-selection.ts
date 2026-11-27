@@ -1,5 +1,7 @@
 import { onCleanup } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { CommandIds } from "../../commands/types";
+import { agentControlState } from "../agent-controls-store";
 import { createSelectionActions, type SelectionActions } from "../selection-actions";
 import { type AskPlace, askFrom } from "./walkthrough-ask";
 
@@ -19,8 +21,15 @@ export function createWalkthroughSelection(
   listen: (root: HTMLElement) => () => void;
 } {
   let at: AskPlace | null = null;
-  const actions = createSelectionActions(document.body, session, (owner, selection, comment) =>
-    at === null ? null : askFrom(at)(owner, selection, comment),
+  // A question is a /btw, so an agent without one can't take it.
+  const actions = createSelectionActions(
+    document.body,
+    session,
+    (owner, selection, comment) => (at === null ? null : askFrom(at)(owner, selection, comment)),
+    () =>
+      agentControlState(session).slash.some((entry) => entry.commandId === CommandIds.askAgentAside)
+        ? null
+        : "This agent can't answer side questions",
   );
   onCleanup(actions.dispose);
   const offer = (

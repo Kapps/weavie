@@ -54,7 +54,7 @@ export function AsideEntry(props: {
           <Show when={props.entry.asideActive === true}>
             <button
               type="button"
-              class="agent-entry-rewind"
+              class="agent-entry-rewind agent-entry-stop"
               title={`Stop${liveKeyHint(CommandIds.stopAgentAside)}`}
               onClick={() => void stopAside(props.session, conversationId)}
             >

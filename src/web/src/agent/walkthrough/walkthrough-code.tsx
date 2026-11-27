@@ -202,6 +202,19 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
       options.onNotices(notices.filter((notice): notice is string => notice !== false));
     });
 
+    // Monaco draws a zone only when the position after it is visible. Under a line whose next ones are hidden, a
+    // card goes after the hidden lines, which take no room, when a shown line follows them; under the block's last
+    // shown lines it hangs after the last character of the nearest line above that has one.
+    const hang = (line: number): { afterLine: number; afterColumn?: number } => {
+      let next = line + 1;
+      while (next <= model.getLineCount() && !isShown(next)) next++;
+      if (next <= model.getLineCount()) return { afterLine: next - 1 };
+      for (let above = line; above >= shown().first; above--) {
+        const column = model.getLineMaxColumn(above) - 1;
+        if (isShown(above) && column >= 1) return { afterLine: above, afterColumn: column };
+      }
+      return { afterLine: line };
+    };
     const cards = createMemo((): ZoneCard<LineCard>[] => {
       map();
       const list: LineCard[] = [
@@ -233,15 +246,7 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         ),
         ...questions().map((question): LineCard => ({ kind: "question", ...question })),
       ];
-      // Monaco draws a zone only when the position after it is visible, so under a line whose next one is hidden
-      // (the block's last, or one above a closed fold) a card hangs after the line's last character.
-      return list.map((card) => {
-        const afterLine = at(card.line).afterLine;
-        const column = model.getLineMaxColumn(afterLine) - 1;
-        return isShown(afterLine + 1) || column < 1
-          ? { key: card.key, afterLine, data: card }
-          : { key: card.key, afterLine, afterColumn: column, data: card };
-      });
+      return list.map((card) => ({ key: card.key, ...hang(at(card.line).afterLine), data: card }));
     });
     const removeCards = createZoneCards(
       editor,
@@ -257,19 +262,20 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     measure();
     // Asking is from a selection, once its gesture completes; the copy's line keeps the question in place.
     const unwatch = watchSelectionGestures(editor, options.actions, (selection, point) => {
-      if (map() === null) return;
+      // The card and its mark sit under the selection's last line, so the quote is that line's text.
       const last = lastLineOf(selection);
-      const line = deleted ? last : mapLine(diffLines(live(), copy), last).afterLine;
       const quote = model
-        .getValueInRange(selection)
-        .split("\n")
-        .find((text) => text.trim() !== "");
-      options.onSelect(
-        selectionExcerpt(model, selection).text,
-        (quote ?? "").trim().slice(0, 200),
-        line,
-        point,
-      );
+        .getValueInRange(
+          selection.intersectRanges(new monaco.Range(last, 1, last, model.getLineMaxColumn(last)))!,
+        )
+        .trim()
+        .slice(0, 200);
+      if (map() === null || quote === "") {
+        options.actions.clear();
+        return;
+      }
+      const line = deleted ? last : mapLine(diffLines(live(), copy), last).afterLine;
+      options.onSelect(selectionExcerpt(model, selection).text, quote, line, point);
     });
 
     return () => {

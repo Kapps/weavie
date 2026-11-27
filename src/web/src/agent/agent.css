@@ -260,7 +260,7 @@
   text-overflow: ellipsis;
 }
 
-.agent-aside-head .agent-entry-open {
+.agent-aside-head :is(.agent-entry-open, .agent-entry-stop) {
   margin-left: 0;
   opacity: 1;
 }

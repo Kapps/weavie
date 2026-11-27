@@ -203,13 +203,22 @@ function Page(props: {
   createEffect(() => {
     const target = requestedTarget(props.session, props.path, true);
     if (target === null) return;
-    queueMicrotask(() =>
-      "stopId" in target
-        ? go(stops().findIndex((stop) => stop.id === target.stopId))
-        : reveal(
-            root.querySelector(`[data-walkthrough-question="${CSS.escape(target.question)}"]`),
-          ),
-    );
+    queueMicrotask(() => {
+      if ("stopId" in target) return go(stops().findIndex((stop) => stop.id === target.stopId));
+      // A card under code exists once its block's editor mounts; until then its stop is where it is.
+      const card = root.querySelector(
+        `[data-walkthrough-question="${CSS.escape(target.question)}"]`,
+      );
+      const place = placed().find(
+        (question) => question.question.entry.conversationId === target.question,
+      )?.place;
+      reveal(
+        card ??
+          (place === undefined
+            ? null
+            : root.querySelector(`[data-stop="${CSS.escape(place.split("/")[0]!)}"]`)),
+      );
+    });
   });
 
   return (

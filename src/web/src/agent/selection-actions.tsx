@@ -29,14 +29,18 @@ export type SelectionSend = (
 export const sendToConversation: SelectionSend = (session, selection, comment) =>
   sendAgentSelection(session, selection, comment);
 
-/** A captured excerpt belongs to its source and exact session, even while a command takes focus. */
 /** The selection toolbar of one surface. */
 export type SelectionActions = ReturnType<typeof createSelectionActions>;
 
+/**
+ * A captured excerpt belongs to its source and exact session, even while a command takes focus. `blocked` says why
+ * Send can't go where `deliver` takes it, or null when it can.
+ */
 export function createSelectionActions(
   host: HTMLElement,
   session: ClientSession,
   deliver: SelectionSend,
+  blocked: () => string | null,
 ) {
   let release: (() => void) | null = null;
   let commentOpen = (): boolean => false;
@@ -71,6 +75,7 @@ export function createSelectionActions(
       return true;
     };
     const send = (): boolean => {
+      if (blocked() !== null) return true;
       const id = deliver(session, selection, note());
       if (id !== null) sent(id, note());
       clear();
@@ -162,11 +167,12 @@ export function createSelectionActions(
               <button
                 type="button"
                 class="ui-button ui-button-primary"
-                disabled={note() === ""}
+                disabled={note() === "" || blocked() !== null}
                 title={
-                  evaluateWhen("compact")
+                  blocked() ??
+                  (evaluateWhen("compact")
                     ? "Send"
-                    : title(CommandIds.sendAgentSelectionComment, "Send")
+                    : title(CommandIds.sendAgentSelectionComment, "Send"))
                 }
                 onClick={send}
               >

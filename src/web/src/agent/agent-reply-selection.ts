@@ -3,7 +3,7 @@ import { createSelectionActions, sendToConversation } from "./selection-actions"
 
 /** Offers explicit actions for a completed selection wholly inside this reply. */
 export function installReplySelection(host: HTMLElement, session: ClientSession): () => void {
-  const actions = createSelectionActions(host, session, sendToConversation);
+  const actions = createSelectionActions(host, session, sendToConversation, () => null);
   const show = (): void => {
     const selection = document.getSelection();
     if (

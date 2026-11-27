@@ -35,6 +35,7 @@ export interface AgentTranscriptEntry {
     | "block"
     | "block-added"
     | "dashboard"
+    | "walkthrough"
     | "message"
     | "thought"
     | "notice"
@@ -68,7 +69,7 @@ export interface AgentTranscriptEntry {
   asideReplyable?: boolean | undefined;
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
-  block?: { id: string; key: string; kind: "chart" | "table" } | undefined;
+  block?: { id: string; key: string; kind: "chart" | "table" | "walkthrough" } | undefined;
   /** The dashboard a dashboard card shows, a block belongs to, or a block-added line points at. */
   dashboardId?: string;
 }

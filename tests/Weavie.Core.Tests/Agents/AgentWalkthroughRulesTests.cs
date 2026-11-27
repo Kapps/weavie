@@ -62,7 +62,7 @@ public sealed class AgentWalkthroughRulesTests {
 	[InlineData("\"path\":\"Claims.cs\"", "\"path\":\"../etc/passwd\"", "stops[0].code[0].path: '../etc/passwd' isn't a file inside /repo.")]
 	[InlineData("\"path\":\"Claims.cs\"", "\"path\":\"Gone.cs\"", "stops[0].code[0].path: 'Gone.cs' doesn't exist.")]
 	[InlineData("{\"from\":2,\"to\":2,\"label\":\"the map\"}", "{\"from\":2,\"to\":2,\"label\":\"a\"},{\"from\":3,\"to\":3,\"label\":\"b\"}", "stops[0].code[0].folds[1]: lines 3-3 touch the fold at lines 2-2; join them.")]
-	[InlineData("{\"from\":2,\"to\":2,\"label\":\"the map\"}", "{\"from\":0,\"to\":2,\"label\":\"a\"}", "stops[0].code[0].folds[0]: lines 0-2 are outside the block's lines 1-7.")]
+	[InlineData("{\"from\":2,\"to\":2,\"label\":\"the map\"}", "{\"from\":0,\"to\":2,\"label\":\"a\"}", "stops[0].code[0].folds[0]: lines 0-2 must lie inside the block's lines 1-7, after its first line.")]
 	[InlineData("\"example\":\"showBlock p95\",", "", "Stop 'stage' has a 'state', which follows the walkthrough's 'example'; give the example.")]
 	[InlineData("\"name\":\"Stage\",", "", "stops[0].name is required.")]
 	public void RefusalsNameThePathAndTheRealText(string from, string to, string message) {

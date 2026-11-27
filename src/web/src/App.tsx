@@ -1644,8 +1644,8 @@ export default function App(): JSX.Element {
           return true;
         }
         const collapsed = (args as { collapsed?: unknown }).collapsed;
-        if (named.kind !== "aside" && named.kind !== "dashboard")
-          throw new Error("Only a BTW or a dashboard card collapses.");
+        if (named.kind !== "aside" && named.kind !== "dashboard" && named.kind !== "walkthrough")
+          throw new Error("Only a BTW, dashboard or walkthrough card collapses.");
         if (typeof collapsed !== "boolean")
           throw new Error("Say whether to collapse the card: collapsed true or false.");
         setCardCollapsed(liveCard(context.session, named), named, collapsed);

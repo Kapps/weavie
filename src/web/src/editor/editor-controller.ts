@@ -470,6 +470,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         validity.throwIfAborted();
         await presenter.restore(result.placement, validity);
         validity.throwIfAborted();
+        // The review bar belongs to the editor only while the tab shows it.
+        inlineDiff?.refreshPresentation();
         const location = captureLocation(tab);
         if (location !== undefined) navigation.record(session, location);
         // An activation can land long after it began; the keyboard stays with a palette opened meanwhile.
@@ -751,20 +753,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           setViewMode(connection.session, connection.tab.entry.path, "source");
           return true;
         };
+        // A rendered preview reviewing this model counts as showing it; a card tab over the editor doesn't.
+        const shown = (): boolean => {
+          const connection = editorContexts.fromEditor(created.editor);
+          return (
+            connection !== undefined &&
+            (editorContexts.displayed(connection) || activePreviewReview() !== undefined)
+          );
+        };
         inlineDiff = diff.createInlineDiff(created.editor, {
           scope: reviewScope,
-          // A rendered preview reviewing this model counts as showing it.
-          active: () => {
-            const connection = editorContexts.fromEditor(created.editor);
-            return (
-              connection !== undefined &&
-              (editorContexts.displayed(connection) || activePreviewReview() !== undefined)
-            );
-          },
-          toolbarHost: () =>
-            editorContexts.fromEditor(created.editor) === undefined
-              ? null
-              : created.editor.getDomNode(),
+          active: shown,
+          toolbarHost: () => (shown() ? created.editor.getDomNode() : null),
           revealLine: (line) => {
             if (activePreviewReview()?.revealLine(line)) return;
             showUnderPreviewSource();

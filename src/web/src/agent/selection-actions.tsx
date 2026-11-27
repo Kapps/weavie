@@ -18,8 +18,23 @@ import "./selection-actions.css";
 
 let releaseCurrent: (() => void) | null = null;
 
+/** Where Send takes a selection and its comment; returns the submission id, or null when nothing was sent. */
+export type SelectionSend = (
+  session: ClientSession,
+  selection: AgentSelection,
+  comment: string,
+) => string | null;
+
+/** Send to the session's main conversation, as a prompt of its own. */
+export const sendToConversation: SelectionSend = (session, selection, comment) =>
+  sendAgentSelection(session, selection, comment);
+
 /** A captured excerpt belongs to its source and exact session, even while a command takes focus. */
-export function createSelectionActions(host: HTMLElement, session: ClientSession) {
+export function createSelectionActions(
+  host: HTMLElement,
+  session: ClientSession,
+  deliver: SelectionSend,
+) {
   let release: (() => void) | null = null;
   let commentOpen = (): boolean => false;
   const clear = (): void => release?.();
@@ -53,7 +68,7 @@ export function createSelectionActions(host: HTMLElement, session: ClientSession
       return true;
     };
     const send = (): boolean => {
-      const id = sendAgentSelection(session, selection, note());
+      const id = deliver(session, selection, note());
       if (id !== null) sent(id, note());
       clear();
       return true;

@@ -200,8 +200,8 @@ public static class AgentWalkthroughRules {
 		for (int index = 0; index < folds.Count; index++) {
 			var fold = folds[index];
 			string path = $"{at}.folds[{index}]";
-			if (fold.From < from || fold.To > to || fold.To < fold.From) {
-				Refuse($"{path}: lines {fold.From}-{fold.To} are outside the block's lines {from}-{to}.");
+			if (fold.From <= from || fold.To > to || fold.To < fold.From) {
+				Refuse($"{path}: lines {fold.From}-{fold.To} must lie inside the block's lines {from}-{to}, after its first line.");
 			}
 			if (index > 0 && fold.From <= folds[index - 1].To + 1) {
 				Refuse($"{path}: lines {fold.From}-{fold.To} touch the fold at lines {folds[index - 1].From}-{folds[index - 1].To}; join them.");

@@ -1,0 +1,93 @@
+import { For, type JSX, Show } from "solid-js";
+import type { ClientSession } from "../../bridge";
+import { liveKeyHint } from "../../commands/keys-live";
+import { CommandIds } from "../../commands/types";
+import { cardTabPath } from "../../editor/tab-entry";
+import { AgentCardOpenButton } from "../AgentCardOpenButton";
+import { AgentCardShell } from "../AgentCardShell";
+import { AgentMarkdown } from "../AgentMarkdown";
+import type { AgentBlockTranscriptEntry } from "../AgentPaneTranscriptTypes";
+import { hasPendingRequest } from "../AgentPendingRequests";
+import { openCard, ownCardOnFocus, setCardCollapsed } from "../agent-cards";
+import { agentBlock } from "../block-store";
+import { agentPaneModel } from "../pane-store";
+import { EffectTag } from "./WalkthroughStop";
+import { requestStop } from "./walkthrough-view";
+import "./walkthrough.css";
+
+/** A walkthrough's card in the pane: the short version and its stops; a stop opens the tab there. */
+export function WalkthroughCard(props: {
+  entry: AgentBlockTranscriptEntry;
+  session: ClientSession;
+}): JSX.Element {
+  const blockId = props.entry.block.id;
+  const card = {
+    kind: "walkthrough",
+    conversationId: props.entry.conversationId ?? null,
+    blockId,
+  } as const;
+  const walkthrough = () => agentBlock(props.session, props.entry.block.key)?.block.walkthrough;
+  const collapsed = () => props.entry.asideCollapsed === true;
+  const toggle = () => setCardCollapsed(props.session, card, !collapsed());
+  const own = ownCardOnFocus(() => ({ session: props.session, card, toggle }));
+  const waiting = () =>
+    (agentPaneModel(props.session)?.questions() ?? []).some(
+      (question) =>
+        question.blockId === blockId && (question.entry.asideEntries ?? []).some(hasPendingRequest),
+    );
+  const open = (stopId: string | null): void => {
+    if (stopId !== null) requestStop(cardTabPath(card), stopId);
+    void openCard(card);
+  };
+
+  return (
+    <AgentCardShell
+      label={`Walkthrough · ${props.entry.summary ?? blockId}`}
+      collapsed={collapsed()}
+      headOnly={collapsed() && !waiting()}
+      meta={null}
+      wrapLabel={false}
+      onToggle={toggle}
+      toggleHint={liveKeyHint(CommandIds.toggleAgentAside)}
+      actions={<AgentCardOpenButton card={card} />}
+      onOwn={own}
+      data={{ "data-agent-walkthrough": blockId }}
+    >
+      <Show when={walkthrough()}>
+        {(read) => (
+          <div class="walkthrough-card">
+            <Show when={!collapsed()}>
+              <AgentMarkdown
+                attachable={false}
+                cacheKey={read()}
+                content={read().gist}
+                flavor="agent"
+                renderMermaid={false}
+                session={props.session}
+              />
+              <For each={read().stops}>
+                {(stop, index) => (
+                  <button
+                    type="button"
+                    class="ui-row walkthrough-card-stop"
+                    title={`Open at Stop ${index() + 1}`}
+                    onClick={() => open(stop.id)}
+                  >
+                    <span class="walkthrough-number">{index() + 1}</span>
+                    <span class="ui-row-name">{stop.title}</span>
+                    <EffectTag effect={stop.effect ?? null} />
+                  </button>
+                )}
+              </For>
+            </Show>
+            <Show when={waiting()}>
+              <button type="button" class="ui-row" onClick={() => open(null)}>
+                <span class="ui-row-name">A question is waiting for you</span>
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
+    </AgentCardShell>
+  );
+}

@@ -1,9 +1,9 @@
 import type { ClientSession } from "../bridge";
-import { createSelectionActions } from "./selection-actions";
+import { createSelectionActions, sendToConversation } from "./selection-actions";
 
 /** Offers explicit actions for a completed selection wholly inside this reply. */
 export function installReplySelection(host: HTMLElement, session: ClientSession): () => void {
-  const actions = createSelectionActions(host, session);
+  const actions = createSelectionActions(host, session, sendToConversation);
   const show = (): void => {
     const selection = document.getSelection();
     if (

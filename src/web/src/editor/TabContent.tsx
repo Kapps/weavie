@@ -14,6 +14,7 @@ import {
   Switch,
 } from "solid-js";
 import type { BlocksTabViewState } from "../agent/AgentBlocksTab";
+import type { WalkthroughViewState } from "../agent/walkthrough/walkthrough-view";
 import type { ClientSession } from "../bridge";
 import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
@@ -30,6 +31,7 @@ const PlanView = lazy(() => import("./plan/PlanView"));
 const AgentConversationTab = lazy(() => import("../agent/AgentConversationTab"));
 const AgentBlocksTab = lazy(() => import("../agent/AgentBlocksTab"));
 const AgentTaskTab = lazy(() => import("../agent/AgentTaskTab"));
+const WalkthroughTab = lazy(() => import("../agent/walkthrough/WalkthroughTab"));
 const PreviewPane = lazy(() => import("./preview/PreviewPane"));
 const SourceView = lazy(() => import("./source/SourceView"));
 const ReviewTab = lazy(() => import("./review/ReviewTab"));
@@ -155,6 +157,21 @@ function ActiveTabContent(props: {
               }}
               bind={bind}
             />
+          </Match>
+          <Match when={kind === "walkthrough" && host()}>
+            {(ready) => (
+              <WalkthroughTab
+                session={tab.session}
+                path={tab.entry.path}
+                createScope={() => ready().createReviewCopyScope(tab.session)}
+                viewState={() => viewState() as WalkthroughViewState | null}
+                setViewState={(state) => {
+                  setViewState(state);
+                  controller.captureTab(tab);
+                }}
+                bind={bind}
+              />
+            )}
           </Match>
           <Match when={kind === "task"}>
             <AgentTaskTab session={tab.session} path={tab.entry.path} bind={bind} />

@@ -12,6 +12,9 @@ const monoLineHeight = 18;
 /** One expander row under the gap between transcript rows. */
 const expanderRowHeight = 31;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
+// A walkthrough card: its head alone when collapsed; open, the short version and a row per stop.
+const walkthroughCardEstimate = (entry: AgentTranscriptEntry): number =>
+  entry.asideCollapsed ? 40 : 280;
 
 // Called for every unmeasured row on each measurement pass, so the per-entry result is memoized.
 export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): number {
@@ -25,7 +28,11 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   )
     return expanderRowHeight;
   if (entry.block !== undefined)
-    return entry.block.kind === "chart" ? chartHeight : tableHeightEstimate;
+    return entry.block.kind === "chart"
+      ? chartHeight
+      : entry.block.kind === "walkthrough"
+        ? walkthroughCardEstimate(entry)
+        : tableHeightEstimate;
   if (entry.conversation !== undefined) return entry.conversation.estimatedHeight;
   const cached = estimates.get(entry);
   if (cached !== undefined) {

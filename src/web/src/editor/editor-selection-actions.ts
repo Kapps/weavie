@@ -1,4 +1,4 @@
-import { createSelectionActions } from "../agent/selection-actions";
+import { createSelectionActions, sendToConversation } from "../agent/selection-actions";
 import { sessions } from "../chrome/session-store";
 import { currentEditorOptions } from "../editor-options";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
@@ -10,7 +10,7 @@ import { lastLineOf, selectionExcerpt } from "./selection-excerpt";
 export function connectSelectionActions(connection: TextEditorConnection): () => void {
   const { editor, model, session } = connection;
   const host = editor.getDomNode()!;
-  const actions = createSelectionActions(host, session);
+  const actions = createSelectionActions(host, session, sendToConversation);
   let changed = false;
   // Where the shown selection's line sits in the view, to tell it moving from content elsewhere resizing.
   let shownTop: number | null = null;

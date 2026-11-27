@@ -202,6 +202,12 @@ public static partial class CoreCommands {
 	/// <summary>Attaches all of the focused agent chart or table to that session's next prompt.</summary>
 	public const string AttachAgentBlock = "weavie.agent.attachBlock";
 
+	/// <summary>Moves the focused walkthrough to its next stop.</summary>
+	public const string NextWalkthroughStop = "weavie.walkthrough.nextStop";
+
+	/// <summary>Moves the focused walkthrough to its previous stop.</summary>
+	public const string PreviousWalkthroughStop = "weavie.walkthrough.previousStop";
+
 	/// <summary>Copies the focused or newest fenced code block in structured-agent output.</summary>
 	public const string CopyAgentCodeBlock = "weavie.agent.copyCodeBlock";
 
@@ -1346,6 +1352,26 @@ public static partial class CoreCommands {
 			Description = "Attach all of the focused agent chart or table to the next prompt.",
 			Aliases = ["attach chart", "attach table", "attach block"],
 			When = "agentBlockFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NextWalkthroughStop,
+			Title = "Next Walkthrough Stop",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Scroll the focused walkthrough to its next stop.",
+			Aliases = ["next stop", "walkthrough next"],
+			When = "walkthroughFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviousWalkthroughStop,
+			Title = "Previous Walkthrough Stop",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Scroll the focused walkthrough to its previous stop.",
+			Aliases = ["previous stop", "walkthrough back"],
+			When = "walkthroughFocused",
 		});
 
 		registry.Register(new CommandDefinition {

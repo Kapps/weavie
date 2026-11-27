@@ -143,6 +143,8 @@ export interface AgentPaneUpdate {
   planPath?: string | null;
   /** The block a block row shows; its data arrives separately as an `AgentBlockRecord`. */
   blockId?: string | null;
+  /** Where in walkthrough `blockId` a side conversation was asked. */
+  anchor?: string | null;
   /** The session that sent a submitted prompt, when another session's agent sent it. */
   sender?: AgentMessageSender | null;
 }
@@ -186,13 +188,63 @@ export interface AgentTable {
   rows: AgentBlockValue[][];
 }
 
-/** A chart or table an agent shows in its pane; only its latest state exists. */
+/** A chart, table or walkthrough an agent shows in its pane; only its latest state exists. */
 export interface AgentBlock {
   id: string;
   title: string;
   updatedAtMs?: number | null;
   chart?: AgentChart | null;
   table?: AgentTable | null;
+  walkthrough?: AgentWalkthrough | null;
+}
+
+/** A guided read of how some code works; its code is anchors into copies the host keeps. */
+export interface AgentWalkthrough {
+  problem: string;
+  gist: string;
+  example?: string | null;
+  closing?: string | null;
+  change?: string | null;
+  stops: WalkthroughStop[];
+  files: WalkthroughFile[];
+}
+
+/** A cited file: the hash of its first recorded copy and of the copy the last update recorded ("" once gone). */
+export interface WalkthroughFile {
+  path: string;
+  before: string;
+  after?: string | null;
+  late?: boolean;
+}
+
+export interface WalkthroughStop {
+  id: string;
+  name: string;
+  title: string;
+  lead: string;
+  code: WalkthroughCode[];
+  state?: { cells: { label: string; value: string }[]; note?: string | null } | null;
+  why?: { title: string; text: string; source: { kind: string; ref?: string | null } } | null;
+  predict?: { question: string; answer: string } | null;
+  effect?: "changed" | "affected" | "added" | null;
+  note?: string | null;
+}
+
+/** Lines `from`–`to` of `path`, as the copy `source` held them. */
+export interface WalkthroughCode {
+  path: string;
+  from: number;
+  to: number;
+  source: string;
+  folds?: { from: number; to: number; label: string }[] | null;
+  notes?: WalkthroughNote[] | null;
+}
+
+export interface WalkthroughNote {
+  line: number;
+  token: string;
+  text: string;
+  was?: string | null;
 }
 
 /** A block's latest state at the output generation and revision that last changed it. */

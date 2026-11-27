@@ -60,9 +60,19 @@ export interface AgentPaneModel {
   readonly cards: Accessor<readonly AgentTranscriptEntry[]>;
   /** Retained subagent conversations, independent of transcript placement. */
   readonly subagents: Accessor<readonly AgentTranscriptEntry[]>;
+  /** The side conversations asked from walkthroughs, which their walkthrough draws in place of the transcript. */
+  readonly questions: Accessor<readonly WalkthroughQuestion[]>;
   setActivityExpanded(id: string, expanded: boolean): void;
   /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
   activityStep(itemId: string): AgentActivityStep | undefined;
+}
+
+/** A side conversation asked from a place in a walkthrough, about the text selected there. */
+export interface WalkthroughQuestion {
+  blockId: string;
+  place: string;
+  quote: string;
+  entry: AgentTranscriptEntry;
 }
 
 export interface MutableAgentPaneModel extends AgentPaneModel {
@@ -95,6 +105,10 @@ export function createAgentPaneModel(
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const [subagents, setSubagents] = createSignal<readonly AgentTranscriptEntry[]>([]);
+  const [questions, setQuestions] = createSignal<readonly WalkthroughQuestion[]>([], {
+    equals: (a, b) =>
+      a.length === b.length && a.every((question, index) => question.entry === b[index]!.entry),
+  });
   const expanded = new Set<string>();
   const main = new AgentConversationProjection(expanded, thoughtDisplay, progressDisplay);
   const views = new Map<string, AgentConversationProjection>([["", main]]);
@@ -143,6 +157,8 @@ export function createAgentPaneModel(
     const cards = new Map<AgentPaneUpdate, AgentTranscriptEntry>();
     const indexes = [...scope.indexes];
     for (const child of scope.cards) {
+      // A question asked from a walkthrough is drawn there, never in its container's transcript.
+      if (child.marker?.blockId) continue;
       cards.set(child.marker!, viewFor(child).linked);
       indexes.push(child.markerIndex);
     }
@@ -259,6 +275,20 @@ export function createAgentPaneModel(
         for (const scope of affected) retainRequests(scope);
       }
       source.placements.clear();
+      setQuestions(
+        [...source.get("").cards].flatMap((scope) =>
+          scope.marker?.blockId
+            ? [
+                {
+                  blockId: scope.marker.blockId,
+                  place: scope.marker.anchor ?? "",
+                  quote: scope.marker.summary ?? "",
+                  entry: viewFor(scope).linked,
+                },
+              ]
+            : [],
+        ),
+      );
       setCardChanges([...resized].map(([id, delta]) => ({ id, delta })));
       if (pendingChanged) {
         let latest: { request: PendingRequest; index: number } | undefined;
@@ -297,6 +327,7 @@ export function createAgentPaneModel(
   const model: MutableAgentPaneModel = {
     cardChanges,
     subagents,
+    questions,
     generation,
     history,
     historyComplete,

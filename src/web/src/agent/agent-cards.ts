@@ -8,14 +8,22 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { ownsCommand, ownTarget } from "./agent-command-owner";
 
 /** A card with a collapsed state, kept in its conversation's history. */
-export type CollapsibleCard = Extract<AgentCardRef, { kind: "aside" | "dashboard" }>;
+export type CollapsibleCard = Extract<
+  AgentCardRef,
+  { kind: "aside" | "dashboard" | "walkthrough" }
+>;
 
 /** The card `entry` is, for opening its tab; null for an entry that is not one. */
 export function cardOf(entry: AgentTranscriptEntry): AgentCardRef | null {
   const conversationId = entry.conversationId ?? null;
   if (entry.kind === "dashboard")
     return { kind: "dashboard", conversationId, dashboardId: entry.dashboardId! };
-  if (entry.block !== undefined) return { kind: "block", conversationId, blockId: entry.block.id };
+  if (entry.block !== undefined)
+    return {
+      kind: entry.kind === "walkthrough" ? "walkthrough" : "block",
+      conversationId,
+      blockId: entry.block.id,
+    };
   if ((entry.kind === "aside" || entry.kind === "subagent") && conversationId !== null)
     return { kind: entry.kind, conversationId };
   return null;
@@ -38,9 +46,10 @@ export function namedCard(args: unknown): AgentCardRef | null {
     return { kind, conversationId };
   if (kind === "dashboard" && typeof dashboardId === "string")
     return { kind, conversationId, dashboardId };
-  if (kind === "block" && typeof blockId === "string") return { kind, conversationId, blockId };
+  if ((kind === "block" || kind === "walkthrough") && typeof blockId === "string")
+    return { kind, conversationId, blockId };
   throw new Error(
-    "Name a card by kind: subagent or aside with its conversationId, dashboard with its dashboardId, block with its blockId.",
+    "Name a card by kind: subagent or aside with its conversationId, dashboard with its dashboardId, block or walkthrough with its blockId.",
   );
 }
 
@@ -61,6 +70,7 @@ export function setCardCollapsed(
   session.feature("agent").publish("setCardCollapsed", {
     conversationId: card.conversationId,
     dashboardId: card.kind === "dashboard" ? card.dashboardId : null,
+    blockId: card.kind === "walkthrough" ? card.blockId : null,
     collapsed,
   });
 }

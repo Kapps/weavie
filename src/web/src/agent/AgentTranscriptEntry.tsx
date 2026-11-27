@@ -26,6 +26,7 @@ import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
 import { isStructuredInput } from "./input-questions";
 import type { AgentSectionLabel } from "./pane-store";
+import { WalkthroughCard } from "./walkthrough/WalkthroughCard";
 
 export function TranscriptEntry(props: {
   expandedDetails: ReadonlySet<string>;
@@ -71,6 +72,9 @@ export function TranscriptEntry(props: {
     );
   }
   const block = props.entry.block;
+  if (block !== undefined && props.entry.kind === "walkthrough") {
+    return <WalkthroughCard entry={{ ...props.entry, block }} session={props.session} />;
+  }
   if (block !== undefined) {
     return (
       <AgentBlockEntry entry={{ ...props.entry, block }} session={props.session} height={null} />

@@ -50,14 +50,14 @@ public static class AgentWalkthroughRules {
 		ArgumentNullException.ThrowIfNull(reads);
 		if (current is null) Refuse($"Walkthrough '{request.Id}' does not exist in this conversation. Publish it with {PublishTool}.");
 		var walkthrough = current!.Walkthrough ?? Fail<AgentWalkthrough>($"Block '{request.Id}' is a {current.Kind}; change it with {UpdateTool}.");
+		if (request.Title is not null) Refuse($"'title' is set when publishing; {UpdateWalkthroughTool} keeps it.");
 		var cited = new Cited(reads);
 		var changes = new List<AgentWalkthroughChange> {
 			new AgentWalkthroughChange.SetText(
-				Optional(request.Title, "title", AgentWalkthroughLimits.Title),
-				Optional(request.Problem, "problem", AgentWalkthroughLimits.Text),
-				Optional(request.Gist, "gist", AgentWalkthroughLimits.Text),
-				Optional(request.Example, "example", AgentWalkthroughLimits.Text),
-				Optional(request.Closing, "closing", AgentWalkthroughLimits.Text),
+				Given(request.Problem, "problem", AgentWalkthroughLimits.Text),
+				Given(request.Gist, "gist", AgentWalkthroughLimits.Text),
+				Given(request.Example, "example", AgentWalkthroughLimits.Text),
+				Given(request.Closing, "closing", AgentWalkthroughLimits.Text),
 				Required(request.Change, "change", AgentWalkthroughLimits.Text)),
 		};
 		var stops = Items(request.Stops ?? [], AgentWalkthroughLimits.Stops, "stops");
@@ -89,12 +89,10 @@ public static class AgentWalkthroughRules {
 	public static AgentBlock? Apply(AgentBlock? current, AgentBlockOperation.Walkthrough operation, long nowMs) {
 		ArgumentNullException.ThrowIfNull(operation);
 		if (current?.Walkthrough is not { } walkthrough) return null;
-		string title = current.Title;
 		foreach (var change in operation.Changes) {
 			var stops = walkthrough.Stops.ToList();
 			switch (change) {
 				case AgentWalkthroughChange.SetText text:
-					title = text.Title ?? title;
 					walkthrough = walkthrough with {
 						Problem = text.Problem ?? walkthrough.Problem,
 						Gist = text.Gist ?? walkthrough.Gist,
@@ -126,16 +124,16 @@ public static class AgentWalkthroughRules {
 					break;
 			}
 		}
-		return current with { Title = title, Walkthrough = walkthrough, UpdatedAtMs = nowMs };
+		return current with { Walkthrough = walkthrough, UpdatedAtMs = nowMs };
 	}
 
 	private static AgentWalkthroughChange.PatchStop Patch(AgentWalkthroughStopRequest stop, string at, Cited cited) {
 		OneOf(stop.Effect, Effects, at + ".effect");
 		if (stop.After is not null) Refuse($"{at}.after places an added stop; stop '{stop.Id}' exists.");
 		var request = stop with {
-			Name = Optional(stop.Name, at + ".name", AgentWalkthroughLimits.Name),
-			Title = Optional(stop.Title, at + ".title", AgentWalkthroughLimits.Title),
-			Lead = Optional(stop.Lead, at + ".lead", AgentWalkthroughLimits.Text),
+			Name = Given(stop.Name, at + ".name", AgentWalkthroughLimits.Name),
+			Title = Given(stop.Title, at + ".title", AgentWalkthroughLimits.Title),
+			Lead = Given(stop.Lead, at + ".lead", AgentWalkthroughLimits.Text),
 			State = State(stop.State, at + ".state"),
 			Why = Why(stop.Why, at + ".why"),
 			Predict = Predict(stop.Predict, at + ".predict"),
@@ -271,6 +269,9 @@ public static class AgentWalkthroughRules {
 	private static void Id(string id, string at) {
 		if (!BlockId().IsMatch(id)) Refuse($"{at} must be {IdRule}.");
 	}
+
+	// A field an update leaves out keeps its value; one it gives must say something.
+	private static string? Given(string? text, string at, int limit) => text is null ? null : Required(text, at, limit);
 
 	private static string Required(string? text, string at, int limit) =>
 		Optional(text, at, limit) is { Length: > 0 } given ? given : Fail<string>($"{at} is required.");

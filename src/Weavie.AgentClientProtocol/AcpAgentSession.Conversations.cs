@@ -119,9 +119,8 @@ public sealed partial class AcpAgentSession : IStructuredAgentConversations {
 			try {
 				var anchor = spec.Seed.Pending.FirstOrDefault()?.Anchor;
 				if (spec.Seed.Continuation.SessionId is null) conversation.Publish(SideMarker(side, "forking") with {
-					Summary = conversation.Independent ? binding.Title : anchor?.Quote,
-					BlockId = anchor?.BlockId,
-					Anchor = anchor?.Place,
+					Summary = conversation.Independent ? binding.Title : null,
+					Anchor = anchor,
 				});
 				_runtime.Open(conversation, _runtime.Process!);
 			} catch (Exception error) {

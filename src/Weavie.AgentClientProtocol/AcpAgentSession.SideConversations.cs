@@ -25,8 +25,11 @@ public sealed partial class AcpAgentSession {
 			EnsureConversationAdmission();
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
-			if (submission.Anchor is { } anchor && Output.View(_definition.Id, null).Block(anchor.BlockId)?.Walkthrough is null) {
-				throw new InvalidOperationException("That walkthrough is no longer shown.");
+			if (submission.Anchor is { } anchor) {
+				if (anchor.Problem() is { } problem) throw new ArgumentException(problem, nameof(submission));
+				if (Output.View(_definition.Id, anchor.ConversationId).Block(anchor.BlockId)?.Walkthrough is null) {
+					throw new InvalidOperationException("That walkthrough is no longer shown.");
+				}
 			}
 			var spec = ChildSpec(primary, primary, fork: true, submission.Text, AcpConversationRole.Side);
 			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side(spec.Seed.Continuation.ConversationId));

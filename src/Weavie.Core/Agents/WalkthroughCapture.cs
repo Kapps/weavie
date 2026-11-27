@@ -1,4 +1,3 @@
-using System.Text;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Agents;
@@ -24,16 +23,15 @@ public sealed class WalkthroughCapture {
 	/// <summary>The worktree cited paths are relative to.</summary>
 	public string Root { get; }
 
+	/// <summary>A capture with no worktree, for a server that can't show walkthroughs: every path is refused.</summary>
+	public static WalkthroughCapture None { get; } = new(new InMemoryFileSystem(), Path.GetTempPath(), _ => false);
+
 	/// <summary>The reads of one tool call, in which each cited file is read once.</summary>
 	public WalkthroughReads Begin() => new(this);
 
 	internal string? TryRead(string path, out CitedFile cited) {
 		cited = new CitedFile(new WorktreeTextFile(string.Empty, string.Empty), false);
-		if (WorktreeTextFile.TryRead(_fileSystem, Root, path, null, out var file) is { } error) return error;
-		int bytes = Encoding.UTF8.GetByteCount(file.Text);
-		if (bytes > AgentWalkthroughLimits.FileBytes) {
-			return $"'{file.Path}' is {bytes:N0} bytes; a cited file is at most {AgentWalkthroughLimits.FileBytes:N0}.";
-		}
+		if (WorktreeTextFile.TryRead(_fileSystem, Root, path, null, AgentWalkthroughLimits.FileBytes, out var file) is { } error) return error;
 		cited = new CitedFile(file, _hasUnkeptAgentEdits(Path.Combine(Root, file.Path)));
 		return null;
 	}

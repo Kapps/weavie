@@ -50,13 +50,29 @@ public sealed class AcpWalkthroughTests {
 		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
 		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
 
-		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why a field?") with { Anchor = new("a", "one/code/0/2", "int b") });
+		var anchor = new AgentAsideAnchor(null, "a", "one/code/0/2", "int b");
+		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why a field?") with { Anchor = anchor });
 
 		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
-		Assert.Equal(("a", "one/code/0/2", "int b", "Why a field?"), (started.BlockId, started.Anchor, started.Summary, started.Text));
-		Assert.Contains(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.Type == "side-conversation-started" && message.Anchor == "one/code/0/2");
+		Assert.Equal((anchor, "Why a field?"), (started.Anchor, started.Text));
+		Assert.Contains(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.Type == "side-conversation-started" && message.Anchor == anchor);
 		Assert.Equal("That walkthrough is no longer shown.", Assert.Throws<InvalidOperationException>(() =>
-			fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new("gone", "problem", "x") })).Message);
+			fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "gone", "problem", "x") })).Message);
+		Assert.Throws<ArgumentException>(() => fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "a", "not a place", "x") }));
+		Assert.Throws<ArgumentException>(() => fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(null, "a", "problem", "two\nlines") }));
+	}
+
+	[Fact]
+	public async Task AQuestionCanBeAskedAboutAWalkthroughASideConversationPublished() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
+		fixture.AskAside($"block:claude:publishWalkthrough:{Publish}");
+		var row = await fixture.WaitForMessageAsync(message => message.Category == "walkthrough" && message.ConversationId is not null);
+
+		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = new(row.ConversationId, "a", "gist", "g") });
+
+		await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started" && message.Anchor?.ConversationId == row.ConversationId);
 	}
 
 	[Fact]
@@ -74,5 +90,47 @@ public sealed class AcpWalkthroughTests {
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "turn-completed" && message.ConversationId is null);
 		fixture.Session.StopAside(side.ConversationId!);
 		fixture.Session.StopAside("missing");
+	}
+
+	[Fact]
+	public async Task AWalkthroughsCodeLeavesWithIt_OnClearAndRewind_AndComesBackOnRestore() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
+		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
+		string hash = fixture.Session.Output.Block("fake", null, "a")!.Walkthrough!.Files[0].Before;
+
+		fixture.Session.Restore();
+		Assert.Equal(Code, fixture.Session.Source(null, "a", hash));
+		fixture.Session.SetCardCollapsed(new(null, null, "a"), collapsed: true);
+		var collapsed = await fixture.WaitForMessageAsync(message => message.Type == "block-collapsed");
+		Assert.Equal(("a", "collapsed"), (collapsed.BlockId, collapsed.Status));
+		Assert.Throws<InvalidOperationException>(() => fixture.Session.SetCardCollapsed(new(null, null, "gone"), collapsed: true));
+
+		await fixture.TurnAsync("alpha", 2);
+		await fixture.WaitForControlsAsync(state => state.Rewindable);
+		await fixture.Session.RewindBeforeAsync("1");
+		await fixture.WaitForSnapshotAsync();
+		Assert.Throws<KeyNotFoundException>(() => fixture.Session.Source(null, "a", hash));
+
+		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
+		fixture.Session.StartNewConversation();
+		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
+		Assert.Throws<KeyNotFoundException>(() => fixture.Session.Source(null, "a", hash));
+	}
+
+	[Fact]
+	public async Task AQuestionsAnchorIsRestoredWithItsRow() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		File.WriteAllText(Path.Combine(fixture.Workspace, "A.cs"), Code);
+		await fixture.TurnAsync($"block:claude:publishWalkthrough:{Publish}", 1);
+		var anchor = new AgentAsideAnchor(null, "a", "gist", "g");
+		fixture.Session.AskAside(AgentTurnSubmission.Prompt("Why?") with { Anchor = anchor });
+		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId == started.ConversationId);
+
+		fixture.Session.Restore();
+
+		Assert.Contains(fixture.Session.Output.ReadHistory(null, null).Messages, record => record.Message.Anchor == anchor);
 	}
 }

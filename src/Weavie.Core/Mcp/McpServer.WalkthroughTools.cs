@@ -73,6 +73,7 @@ public sealed partial class McpServer {
 					: "The steps, in the order the code runs."),
 			};
 			if (!update) return Object(properties, "id", "title", "problem", "gist", "stops");
+			properties.Remove("title");
 			properties["change"] = Described(Text(), "One or two sentences on what you changed.");
 			return Object(properties, "id", "change");
 		}
@@ -100,7 +101,7 @@ public sealed partial class McpServer {
 			var request = JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentWalkthroughRequest)
 				?? throw new AgentBlockException("The arguments must be an object.");
 			var current = call.Blocks.Find(request.Id);
-			var reads = (_walkthroughs ?? throw new ToolUnavailableException("Walkthroughs are shown only in Weavie's agent pane.")).Begin();
+			var reads = _walkthroughs.Begin();
 			return publish
 				? (AgentWalkthroughRules.Publish(request, current, reads),
 					$" Walkthrough '{request.Id}' is shown to the user. After you change the code it explains, call {UpdateWalkthroughTool}: change every stop "

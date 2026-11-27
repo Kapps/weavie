@@ -91,7 +91,19 @@ public sealed record AgentTurnSubmission {
 }
 
 /// <summary>
-/// Where a side question was asked: a place in walkthrough <paramref name="BlockId"/>, which the page reads, and the
-/// text the user selected there.
+/// Where a side question was asked: a place in walkthrough <paramref name="BlockId"/> of conversation
+/// <paramref name="ConversationId"/> (null for the primary), which the page reads, and the text selected there.
 /// </summary>
-public sealed record AgentAsideAnchor(string BlockId, string Place, string Quote);
+public sealed partial record AgentAsideAnchor(string? ConversationId, string BlockId, string Place, string Quote) {
+	/// <summary>The most characters of the selected text the anchor quotes.</summary>
+	public const int QuoteLength = 200;
+
+	/// <summary>Why this anchor can't be kept, or null: a place is a short path, a quote one line of text.</summary>
+	public string? Problem() =>
+		!PlaceRule().IsMatch(Place) ? "A walkthrough place is up to 200 letters, digits, '.', '_', '-', '@' or '/'."
+		: Quote.Trim().Length == 0 || Quote.Length > QuoteLength || Quote.Contains('\n') ? $"A walkthrough quote is one line of up to {QuoteLength} characters."
+		: null;
+
+	[System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9_.@/-]{1,200}$")]
+	private static partial System.Text.RegularExpressions.Regex PlaceRule();
+}

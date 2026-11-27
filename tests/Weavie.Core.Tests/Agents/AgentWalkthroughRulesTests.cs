@@ -131,6 +131,8 @@ public sealed class AgentWalkthroughRulesTests {
 
 	[Theory]
 	[InlineData("""{"id":"claims"}""", "change is required.")]
+	[InlineData("""{"id":"claims","change":"c","problem":""}""", "problem is required.")]
+	[InlineData("""{"id":"claims","change":"c","title":"t"}""", "'title' is set when publishing; updateWalkthrough keeps it.")]
 	[InlineData("""{"id":"other","change":"c"}""", "Walkthrough 'other' does not exist in this conversation. Publish it with publishWalkthrough.")]
 	[InlineData("""{"id":"claims","change":"c","stops":[{"id":"stage","note":"n"}]}""", "stops[0].effect must be changed, affected.")]
 	[InlineData("""{"id":"claims","change":"c","stops":[{"id":"stage","effect":"changed"}]}""", "stops[0].note is required.")]

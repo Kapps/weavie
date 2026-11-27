@@ -71,10 +71,10 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 	public IReadOnlyList<string> Add(IReadOnlyList<ReviewFinding> findings, string? cwd) {
 		ArgumentNullException.ThrowIfNull(findings);
 		var errors = new List<string>();
-		var captured = new List<(ReviewFinding Finding, string Path, string Text)>();
+		var captured = new List<(ReviewFinding Finding, WorktreeTextFile File)>();
 		foreach (var finding in findings) {
-			if (Capture(finding, cwd, out string relative, out string text) is { } error) errors.Add(error);
-			else captured.Add((finding, relative, text));
+			if (Capture(finding, cwd, out var file) is { } error) errors.Add(error);
+			else captured.Add((finding, file));
 		}
 		if (captured.Count == 0) return errors;
 
@@ -82,15 +82,14 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 			var hints = new List<ReviewHint>(_hints);
 			var sources = new Dictionary<string, string>(StringComparer.Ordinal);
 			long nextId = _nextId;
-			foreach (var (finding, path, text) in captured) {
-				string hash = Hash(text);
-				if (hints.Any(hint => hint.Path == path && hint.Line == finding.Line && hint.Title == finding.Title
-					&& hint.SourceHash == hash)) {
+			foreach (var (finding, file) in captured) {
+				if (hints.Any(hint => hint.Path == file.Path && hint.Line == finding.Line && hint.Title == finding.Title
+					&& hint.SourceHash == file.Hash)) {
 					continue;
 				}
-				sources[hash] = text;
-				hints.Add(new ReviewHint(nextId++, path, finding.Line, finding.Severity, finding.Title,
-					finding.Body, finding.Category, _agent, hash, LineDiff.SplitLines(text)[finding.Line - 1]));
+				sources[file.Hash] = file.Text;
+				hints.Add(new ReviewHint(nextId++, file.Path, finding.Line, finding.Severity, finding.Title,
+					finding.Body, finding.Category, _agent, file.Hash, file.Lines[finding.Line - 1]));
 			}
 			if (nextId != _nextId) Commit(hints, sources, nextId);
 		}
@@ -122,15 +121,13 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 		}
 	}
 
-	private string? Capture(ReviewFinding finding, string? cwd, out string relative, out string text) {
-		relative = text = string.Empty;
+	private string? Capture(ReviewFinding finding, string? cwd, out WorktreeTextFile file) {
+		file = new WorktreeTextFile(string.Empty, string.Empty);
 		if (finding.Title.Length == 0) return $"A review finding on {finding.Path}:{finding.Line} has no summary.";
-		if (WorktreeTextFile.TryRead(_fileSystem, _root, finding.Path, cwd, out var file) is { } error) return error;
-		(relative, text) = (file.Path, file.Text);
+		if (WorktreeTextFile.TryRead(_fileSystem, _root, finding.Path, cwd, out file) is { } error) return error;
 		return finding.Line < 1 || finding.Line > file.Lines.Length
-			? $"Line {finding.Line} is outside '{relative}', which has {file.Lines.Length} line(s)."
+			? $"Line {finding.Line} is outside '{file.Path}', which has {file.Lines.Length} line(s)."
 			: null;
 	}
 
-	private static string Hash(string text) => WorktreeTextFile.HashOf(text);
 }

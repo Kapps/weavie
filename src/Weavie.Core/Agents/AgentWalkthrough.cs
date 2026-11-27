@@ -241,7 +241,7 @@ public sealed record AgentWalkthroughStopRequest {
 /// <summary>One change an update makes, applied in order to the walkthrough as it stands at the commit.</summary>
 public abstract record AgentWalkthroughChange {
 	/// <summary>Replaces each text given; null keeps the current text.</summary>
-	public sealed record SetText(string? Title, string? Problem, string? Gist, string? Example, string? Closing, string Change) : AgentWalkthroughChange;
+	public sealed record SetText(string? Problem, string? Gist, string? Example, string? Closing, string Change) : AgentWalkthroughChange;
 
 	/// <summary>Adds a stop after <paramref name="After"/>, or last.</summary>
 	public sealed record AddStop(AgentWalkthroughStop Stop, string? After) : AgentWalkthroughChange;

@@ -98,8 +98,8 @@ public sealed record AgentPaneMessage {
 	/// <summary>The block a block row shows; its data lives in the conversation's block store.</summary>
 	public string? BlockId { get; init; }
 
-	/// <summary>Where in walkthrough <see cref="BlockId"/> a side conversation was asked; the page reads it.</summary>
-	public string? Anchor { get; init; }
+	/// <summary>Where in a walkthrough a side conversation was asked; the page reads it.</summary>
+	public AgentAsideAnchor? Anchor { get; init; }
 
 	/// <summary>The editable plan file a plan review asks the user to approve.</summary>
 	public string? PlanPath { get; init; }

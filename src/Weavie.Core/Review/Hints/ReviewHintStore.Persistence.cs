@@ -69,8 +69,8 @@ public sealed partial class ReviewHintStore {
 					throw new JsonException("Invalid review hint.");
 				}
 				hints.Add(hint);
-			} else if (key.StartsWith("source:", StringComparison.Ordinal) && key == SourceKey(Hash(value))) {
-				sources.Add(Hash(value), value);
+			} else if (key.StartsWith("source:", StringComparison.Ordinal) && key == SourceKey(WorktreeTextFile.HashOf(value))) {
+				sources.Add(WorktreeTextFile.HashOf(value), value);
 			} else {
 				throw new JsonException("Unknown review hint record.");
 			}

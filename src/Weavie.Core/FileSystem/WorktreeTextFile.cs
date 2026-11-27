@@ -19,7 +19,11 @@ public sealed record WorktreeTextFile(string Path, string Text) {
 	/// Reads <paramref name="path"/>, resolved against <paramref name="cwd"/> or <paramref name="root"/>; returns why it
 	/// can't be cited (not a valid path, outside the worktree, missing, not text), or null with <paramref name="file"/> set.
 	/// </summary>
-	public static string? TryRead(IFileSystem fileSystem, string root, string path, string? cwd, out WorktreeTextFile file) {
+	public static string? TryRead(IFileSystem fileSystem, string root, string path, string? cwd, out WorktreeTextFile file) =>
+		TryRead(fileSystem, root, path, cwd, long.MaxValue, out file);
+
+	/// <summary>As <see cref="TryRead(IFileSystem, string, string, string?, out WorktreeTextFile)"/>, refusing a file over <paramref name="maxBytes"/> before reading it.</summary>
+	public static string? TryRead(IFileSystem fileSystem, string root, string path, string? cwd, long maxBytes, out WorktreeTextFile file) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		file = new WorktreeTextFile(string.Empty, string.Empty);
@@ -32,6 +36,9 @@ public sealed record WorktreeTextFile(string Path, string Text) {
 		string relative = System.IO.Path.GetRelativePath(root, absolute).Replace('\\', '/');
 		if (!PathBoundary.Contains(root, absolute) || relative == ".") return $"'{path}' isn't a file inside {root}.";
 		if (!fileSystem.FileExists(absolute)) return $"'{relative}' doesn't exist.";
+		if (fileSystem.TryGetStat(absolute, out var stat) && stat.Size > maxBytes) {
+			return $"'{relative}' is {stat.Size:N0} bytes; a cited file is at most {maxBytes:N0}.";
+		}
 		if (!fileSystem.TryReadAllText(absolute, out string text)) return $"'{relative}' isn't a text file.";
 		file = new WorktreeTextFile(relative, text);
 		return null;

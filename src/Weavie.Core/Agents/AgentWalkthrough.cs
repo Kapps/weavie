@@ -6,6 +6,9 @@ namespace Weavie.Core.Agents;
 /// docs/specs/code-walkthroughs/design.md.
 /// </summary>
 public sealed record AgentWalkthrough {
+	/// <summary>The worktree the cited paths are relative to.</summary>
+	public required string Root { get; init; }
+
 	/// <summary>What the code has to solve and the question that raises, as markdown.</summary>
 	public required string Problem { get; init; }
 

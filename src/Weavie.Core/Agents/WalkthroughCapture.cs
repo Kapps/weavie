@@ -6,7 +6,6 @@ namespace Weavie.Core.Agents;
 /// <summary>Reads the files a session's walkthroughs cite. Reads only the cited files, never the tree.</summary>
 public sealed class WalkthroughCapture {
 	private readonly IFileSystem _fileSystem;
-	private readonly string _root;
 	private readonly Func<string, bool> _hasUnkeptAgentEdits;
 
 	/// <summary>
@@ -18,21 +17,24 @@ public sealed class WalkthroughCapture {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeRoot);
 		ArgumentNullException.ThrowIfNull(hasUnkeptAgentEdits);
 		_fileSystem = fileSystem;
-		_root = Path.GetFullPath(worktreeRoot);
+		Root = Path.GetFullPath(worktreeRoot);
 		_hasUnkeptAgentEdits = hasUnkeptAgentEdits;
 	}
+
+	/// <summary>The worktree cited paths are relative to.</summary>
+	public string Root { get; }
 
 	/// <summary>The reads of one tool call, in which each cited file is read once.</summary>
 	public WalkthroughReads Begin() => new(this);
 
 	internal string? TryRead(string path, out CitedFile cited) {
 		cited = new CitedFile(new WorktreeTextFile(string.Empty, string.Empty), false);
-		if (WorktreeTextFile.TryRead(_fileSystem, _root, path, null, out var file) is { } error) return error;
+		if (WorktreeTextFile.TryRead(_fileSystem, Root, path, null, out var file) is { } error) return error;
 		int bytes = Encoding.UTF8.GetByteCount(file.Text);
 		if (bytes > AgentWalkthroughLimits.FileBytes) {
 			return $"'{file.Path}' is {bytes:N0} bytes; a cited file is at most {AgentWalkthroughLimits.FileBytes:N0}.";
 		}
-		cited = new CitedFile(file, _hasUnkeptAgentEdits(Path.Combine(_root, file.Path)));
+		cited = new CitedFile(file, _hasUnkeptAgentEdits(Path.Combine(Root, file.Path)));
 		return null;
 	}
 }
@@ -48,6 +50,9 @@ public sealed class WalkthroughReads {
 	internal WalkthroughReads(WalkthroughCapture capture) {
 		_capture = capture;
 	}
+
+	/// <summary>The worktree cited paths are relative to.</summary>
+	public string Root => _capture.Root;
 
 	/// <summary>The file <paramref name="path"/> names; refused, under <paramref name="at"/>, when it can't be cited.</summary>
 	public CitedFile Cite(string path, string at) {

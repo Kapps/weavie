@@ -40,6 +40,8 @@ export type WalkthroughLineCard =
 
 export interface WalkthroughCodeOptions {
   scope: ReviewCopyScope;
+  /** The worktree `code.path` is relative to. */
+  root: string;
   mount: HTMLElement;
   code: WalkthroughCode;
   file: WalkthroughFile;
@@ -64,7 +66,7 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
   let model: monaco.editor.ITextModel;
   let snapshot: monaco.editor.ITextModel | null = null;
   try {
-    model = (await options.scope.open(code.path, true)).model;
+    model = (await options.scope.open(`${options.root}/${code.path}`, true)).model;
   } catch {
     snapshot = monaco.editor.createModel(
       copy,
@@ -219,11 +221,16 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         ),
         ...options.questions(),
       ];
-      return list.map((card) => ({
-        key: card.key,
-        afterLine: at(card.line).afterLine,
-        data: card,
-      }));
+      // Monaco hides a zone whose next line is hidden, so one above a closed fold goes after its last line.
+      const place = (line: number): number => {
+        const after = at(line).afterLine;
+        const fold = (code.folds ?? []).find(
+          (candidate) =>
+            !options.openFolds().has(candidate.from) && at(candidate.from).afterLine === after + 1,
+        );
+        return fold === undefined ? after : at(fold.to).afterLine;
+      };
+      return list.map((card) => ({ key: card.key, afterLine: place(card.line), data: card }));
     });
     const removeCards = createZoneCards(
       editor,

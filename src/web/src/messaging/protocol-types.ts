@@ -200,6 +200,8 @@ export interface AgentBlock {
 
 /** A guided read of how some code works; its code is anchors into copies the host keeps. */
 export interface AgentWalkthrough {
+  /** The worktree the cited paths are relative to. */
+  root: string;
   problem: string;
   gist: string;
   example?: string | null;

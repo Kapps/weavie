@@ -17,7 +17,8 @@
   width: 100%;
   max-width: 900px;
   margin: 0 auto;
-  padding: 18px 20px 48px;
+  /* Room below the last stop, so any stop can be scrolled up to where it reads as the current one. */
+  padding: 18px 20px 70vh;
   font: var(--font-chrome-body-wrap);
 }
 

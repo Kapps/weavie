@@ -185,6 +185,9 @@ function Page(props: {
 
   const context: StopContext = {
     session: props.session,
+    get root() {
+      return props.walkthrough.root;
+    },
     scope: props.scope,
     get files() {
       return props.walkthrough.files;
@@ -238,7 +241,9 @@ function Page(props: {
   const go = (index: number): void => {
     const section = sections()[index];
     if (section === undefined) return;
-    scroller().scrollTo({ top: section.offsetTop - 8, behavior: "smooth" });
+    const area = scroller();
+    const top = area.scrollTop + section.getBoundingClientRect().top - area.getBoundingClientRect().top;
+    area.scrollTo({ top: top - 8, behavior: "smooth" });
   };
   onMount(() => {
     const keyUp = (event: KeyboardEvent): void => {

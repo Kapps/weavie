@@ -35,6 +35,7 @@ public sealed class AcpSessionStoreTests : IDisposable {
 			Id = "w",
 			Title = "w",
 			Walkthrough = new AgentWalkthrough {
+				Root = "/workspace",
 				Problem = "p",
 				Gist = "g",
 				Files = [new AgentWalkthroughFile { Path = "a.cs", Before = before, After = after }],

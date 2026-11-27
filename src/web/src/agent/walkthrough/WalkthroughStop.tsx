@@ -49,6 +49,7 @@ export function Prose(props: {
 
 export interface StopContext {
   session: ClientSession;
+  root: string;
   scope: ReviewCopyScope;
   files: readonly WalkthroughFile[];
   source: (hash: string) => Promise<string>;
@@ -189,6 +190,7 @@ function CodeBlock(props: {
         void createWalkthroughCode({
           scope: props.context.scope,
           mount,
+          root: props.context.root,
           code: props.code,
           file: cited,
           source: props.context.source,

@@ -27,6 +27,7 @@ public static class AgentWalkthroughRules {
 		Unique(stops.Select(stop => stop.Id), "stops ids");
 		var cited = new Cited(reads);
 		var walkthrough = new AgentWalkthrough {
+			Root = reads.Root,
 			Problem = Required(request.Problem, "problem", AgentWalkthroughLimits.Text),
 			Gist = Required(request.Gist, "gist", AgentWalkthroughLimits.Text),
 			Example = Optional(request.Example, "example", AgentWalkthroughLimits.Text),

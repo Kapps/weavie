@@ -10,7 +10,7 @@ namespace Weavie.Core.Mcp;
 // showBlock / updateBlock: a chart or table drawn in the native agent pane. See docs/specs/acp-rich-content/design.md.
 // The schema is built from the validator's own value sets and limits, so the two can't drift.
 public sealed partial class McpServer {
-	private const string ShowBlockTool = "showBlock";
+	private const string ShowBlockTool = AgentBlockRules.ShowTool;
 	private const string UpdateBlockTool = AgentBlockRules.UpdateTool;
 	private const string OpenDashboardTool = "openDashboard";
 

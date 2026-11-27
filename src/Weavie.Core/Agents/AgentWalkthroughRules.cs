@@ -8,8 +8,6 @@ namespace Weavie.Core.Agents;
 /// names the path into the arguments and the real text, so the agent can correct itself.
 /// </summary>
 public static class AgentWalkthroughRules {
-	/// <summary>The tool that publishes a walkthrough.</summary>
-	public const string PublishTool = "publishWalkthrough";
 	/// <summary>Where an explanation can come from.</summary>
 	public static readonly IReadOnlyList<string> SourceKinds = ["spec", "pr", "commit", "reading"];
 	/// <summary>What an update did to a stop that exists.</summary>
@@ -20,60 +18,56 @@ public static class AgentWalkthroughRules {
 		ArgumentNullException.ThrowIfNull(request);
 		ArgumentNullException.ThrowIfNull(reads);
 		Id(request.Id, "id");
-		if (current is not null) Refuse($"Block '{request.Id}' is already shown; change it with {UpdaterOf(current)}.");
+		NotShown(request.Id, current);
 		if (request.Change is not null) Refuse($"'change' says what an update changed; it is for {UpdateWalkthroughTool}.");
-		var stops = Items(request.Stops ?? [], AgentWalkthroughLimits.Stops, "stops");
+		var stops = Stops(request);
 		if (stops.Count == 0) Refuse("A walkthrough needs at least one stop.");
-		Unique(stops.Select(stop => stop.Id), "stops ids");
-		var cited = new Cited(reads);
 		var walkthrough = new AgentWalkthrough {
 			Root = reads.Root,
-			Problem = Required(request.Problem, "problem", AgentWalkthroughLimits.Text),
-			Gist = Required(request.Gist, "gist", AgentWalkthroughLimits.Text),
-			Example = Optional(request.Example, "example", AgentWalkthroughLimits.Text),
-			Closing = Optional(request.Closing, "closing", AgentWalkthroughLimits.Text),
-			Stops = [.. stops.Select((stop, index) => New(stop, $"stops[{index}]", cited))],
-			Files = cited.Files,
+			Problem = Name(request.Problem, "problem", AgentWalkthroughLimits.Text),
+			Gist = Name(request.Gist, "gist", AgentWalkthroughLimits.Text),
+			Example = Text(request.Example, "example", AgentWalkthroughLimits.Text),
+			Closing = Text(request.Closing, "closing", AgentWalkthroughLimits.Text),
+			Stops = [.. stops.Select((stop, index) => New(stop, $"stops[{index}]", reads))],
+			Files = [.. reads.Files],
 		};
 		Example(walkthrough.Example, walkthrough.Stops.Where(stop => stop.State is not null).Select(stop => stop.Id));
 		var block = new AgentBlock {
 			Id = request.Id,
-			Title = Required(request.Title, "title", AgentWalkthroughLimits.Title),
+			Title = Name(request.Title, "title", AgentWalkthroughLimits.Title),
 			Walkthrough = walkthrough,
 		};
-		return new AgentBlockOperation.Show(block, null, cited.Sources);
+		return new AgentBlockOperation.Show(block, null, reads.Sources);
 	}
 
 	/// <summary>Checks an update: one change per stop, then every cited file recorded as it stands.</summary>
 	public static AgentBlockOperation.Walkthrough Update(AgentWalkthroughRequest request, AgentBlock? current, WalkthroughReads reads) {
 		ArgumentNullException.ThrowIfNull(request);
 		ArgumentNullException.ThrowIfNull(reads);
-		if (current is null) Refuse($"Walkthrough '{request.Id}' does not exist in this conversation. Publish it with {PublishTool}.");
+		if (current is null) Refuse($"Walkthrough '{request.Id}' does not exist in this conversation. Publish it with {PublishWalkthroughTool}.");
 		var walkthrough = current!.Walkthrough ?? Fail<AgentWalkthrough>($"Block '{request.Id}' is a {current.Kind}; change it with {UpdateTool}.");
 		if (request.Title is not null) Refuse($"'title' is set when publishing; {UpdateWalkthroughTool} keeps it.");
-		var cited = new Cited(reads);
 		var changes = new List<AgentWalkthroughChange> {
 			new AgentWalkthroughChange.SetText(
 				Given(request.Problem, "problem", AgentWalkthroughLimits.Text),
 				Given(request.Gist, "gist", AgentWalkthroughLimits.Text),
 				Given(request.Example, "example", AgentWalkthroughLimits.Text),
 				Given(request.Closing, "closing", AgentWalkthroughLimits.Text),
-				Required(request.Change, "change", AgentWalkthroughLimits.Text)),
+				Name(request.Change, "change", AgentWalkthroughLimits.Text)),
 		};
-		var stops = Items(request.Stops ?? [], AgentWalkthroughLimits.Stops, "stops");
-		Unique(stops.Select(stop => stop.Id), "stops ids");
+		var stops = Stops(request);
 		var known = walkthrough.Stops.Select(stop => stop.Id).ToHashSet(StringComparer.Ordinal);
 		foreach (var (stop, index) in stops.Select((stop, index) => (stop, index))) {
 			string at = $"stops[{index}]";
 			if (known.Contains(stop.Id)) {
-				changes.Add(Patch(stop, at, cited));
+				changes.Add(Patch(stop, at, reads));
 				continue;
 			}
 			if (stop.Name is null || stop.Title is null || stop.Lead is null || stop.Code is null) {
 				Refuse($"{at}: stop '{stop.Id}' does not exist, so it needs 'name', 'title', 'lead' and 'code' to be added.");
 			}
 			if (stop.After is { } after && !known.Contains(after)) Refuse($"{at}.after: there is no stop '{after}' before this one.");
-			var stopAdded = New(stop, at, cited) with { Effect = "added", Note = Optional(stop.Note, at + ".note", AgentWalkthroughLimits.Title) };
+			var stopAdded = New(stop, at, reads) with { Effect = "added", Note = Text(stop.Note, at + ".note", AgentWalkthroughLimits.Title) };
 			changes.Add(new AgentWalkthroughChange.AddStop(stopAdded, stop.After));
 			known.Add(stop.Id);
 		}
@@ -81,8 +75,8 @@ public static class AgentWalkthroughRules {
 			Refuse($"The walkthrough would have {known.Count} stops; the limit is {AgentWalkthroughLimits.Stops}.");
 		}
 		Example(request.Example ?? walkthrough.Example, stops.Where(stop => stop.State is not null).Select(stop => stop.Id));
-		changes.Add(new AgentWalkthroughChange.RecordFiles(Record(walkthrough.Files, cited)));
-		return new AgentBlockOperation.Walkthrough(request.Id, changes, cited.Sources);
+		changes.Add(new AgentWalkthroughChange.RecordFiles(Record(walkthrough.Files, reads)));
+		return new AgentBlockOperation.Walkthrough(request.Id, changes, reads.Sources);
 	}
 
 	/// <summary>The walkthrough after <paramref name="operation"/>, or null when a change no longer applies.</summary>
@@ -127,7 +121,7 @@ public static class AgentWalkthroughRules {
 		return current with { Walkthrough = walkthrough, UpdatedAtMs = nowMs };
 	}
 
-	private static AgentWalkthroughChange.PatchStop Patch(AgentWalkthroughStopRequest stop, string at, Cited cited) {
+	private static AgentWalkthroughChange.PatchStop Patch(AgentWalkthroughStopRequest stop, string at, WalkthroughReads reads) {
 		OneOf(stop.Effect, Effects, at + ".effect");
 		if (stop.After is not null) Refuse($"{at}.after places an added stop; stop '{stop.Id}' exists.");
 		var request = stop with {
@@ -137,9 +131,9 @@ public static class AgentWalkthroughRules {
 			State = State(stop.State, at + ".state"),
 			Why = Why(stop.Why, at + ".why"),
 			Predict = Predict(stop.Predict, at + ".predict"),
-			Note = Required(stop.Note, at + ".note", AgentWalkthroughLimits.Title),
+			Note = Name(stop.Note, at + ".note", AgentWalkthroughLimits.Title),
 		};
-		return new AgentWalkthroughChange.PatchStop(request, stop.Code is null ? null : Code(stop.Code, at + ".code", cited));
+		return new AgentWalkthroughChange.PatchStop(request, stop.Code is null ? null : Code(stop.Code, at + ".code", reads));
 	}
 
 	// A changed stop keeps what each reworded note said before, so the page can show what it was.
@@ -166,32 +160,30 @@ public static class AgentWalkthroughRules {
 		};
 	}
 
-	private static AgentWalkthroughStop New(AgentWalkthroughStopRequest stop, string at, Cited cited) {
+	private static AgentWalkthroughStop New(AgentWalkthroughStopRequest stop, string at, WalkthroughReads reads) {
 		Id(stop.Id, at + ".id");
 		return new AgentWalkthroughStop {
 			Id = stop.Id,
-			Name = Required(stop.Name, at + ".name", AgentWalkthroughLimits.Name),
-			Title = Required(stop.Title, at + ".title", AgentWalkthroughLimits.Title),
-			Lead = Required(stop.Lead, at + ".lead", AgentWalkthroughLimits.Text),
-			Code = Code(stop.Code ?? Fail<IReadOnlyList<AgentWalkthroughCode>>($"{at}.code is required."), at + ".code", cited),
+			Name = Name(stop.Name, at + ".name", AgentWalkthroughLimits.Name),
+			Title = Name(stop.Title, at + ".title", AgentWalkthroughLimits.Title),
+			Lead = Name(stop.Lead, at + ".lead", AgentWalkthroughLimits.Text),
+			Code = Code(stop.Code ?? Fail<IReadOnlyList<AgentWalkthroughCode>>($"{at}.code is required."), at + ".code", reads),
 			State = State(stop.State, at + ".state"),
 			Why = Why(stop.Why, at + ".why"),
 			Predict = Predict(stop.Predict, at + ".predict"),
 		};
 	}
 
-	private static IReadOnlyList<AgentWalkthroughCode> Code(IReadOnlyList<AgentWalkthroughCode> blocks, string at, Cited cited) {
+	private static IReadOnlyList<AgentWalkthroughCode> Code(IReadOnlyList<AgentWalkthroughCode> blocks, string at, WalkthroughReads reads) {
 		var list = Items(blocks, AgentWalkthroughLimits.Blocks, at);
 		if (list.Count == 0) Refuse($"{at} needs at least one code block.");
-		return [.. list.Select((block, index) => Block(block, $"{at}[{index}]", cited))];
+		return [.. list.Select((block, index) => Block(block, $"{at}[{index}]", reads))];
 	}
 
-	private static AgentWalkthroughCode Block(AgentWalkthroughCode block, string at, Cited cited) {
-		var file = cited.Cite(block.Path, at + ".path");
+	private static AgentWalkthroughCode Block(AgentWalkthroughCode block, string at, WalkthroughReads reads) {
+		var file = reads.Cite(block.Path, at + ".path");
 		var (from, to) = (block.From, block.To);
-		if (from < 1 || to < from || to > file.Lines.Length) {
-			Refuse($"{at}: lines {from}-{to} are outside '{file.Path}', which has {file.Lines.Length} line(s).");
-		}
+		if (file.LinesProblem(from, to) is { } problem) Refuse($"{at}: {problem}");
 		if (to - from + 1 > AgentWalkthroughLimits.Lines) {
 			Refuse($"{at} shows {to - from + 1} lines; the limit is {AgentWalkthroughLimits.Lines}. Fold what is not the point, or split the block.");
 		}
@@ -205,7 +197,7 @@ public static class AgentWalkthroughRules {
 			if (index > 0 && fold.From <= folds[index - 1].To + 1) {
 				Refuse($"{path}: lines {fold.From}-{fold.To} touch the fold at lines {folds[index - 1].From}-{folds[index - 1].To}; join them.");
 			}
-			folds[index] = fold with { Label = Required(fold.Label, path + ".label", AgentWalkthroughLimits.Title) };
+			folds[index] = fold with { Label = Name(fold.Label, path + ".label", AgentWalkthroughLimits.Title) };
 		}
 		var notes = Items(block.Notes ?? [], AgentWalkthroughLimits.Notes, at + ".notes").Select((note, index) => {
 			string path = $"{at}.notes[{index}]";
@@ -220,43 +212,43 @@ public static class AgentWalkthroughRules {
 				Refuse($"{path}: line {note.Line} of '{file.Path}' does not contain '{note.Token}'. Line {note.Line} is \"{line.Trim()}\". "
 					+ (holding.Count == 0 ? $"'{note.Token}' is not in lines {from}-{to}." : $"'{note.Token}' is on line {string.Join(", ", holding)}."));
 			}
-			return note with { Text = Required(note.Text, path + ".text", AgentWalkthroughLimits.Title), Was = null };
+			return note with { Text = Name(note.Text, path + ".text", AgentWalkthroughLimits.Title), Was = null };
 		}).ToList();
 		return block with { Path = file.Path, Source = file.Hash, Folds = folds, Notes = notes };
 	}
 
 	private static AgentWalkthroughState? State(AgentWalkthroughState? state, string at) => state is null ? null : new AgentWalkthroughState {
 		Cells = [.. Items(state.Cells, AgentWalkthroughLimits.Cells, at + ".cells").Select((cell, index) => new AgentWalkthroughCell {
-			Label = Required(cell.Label, $"{at}.cells[{index}].label", AgentWalkthroughLimits.Name),
-			Value = Optional(cell.Value, $"{at}.cells[{index}].value", AgentWalkthroughLimits.Value) ?? "",
+			Label = Name(cell.Label, $"{at}.cells[{index}].label", AgentWalkthroughLimits.Name),
+			Value = Text(cell.Value, $"{at}.cells[{index}].value", AgentWalkthroughLimits.Value) ?? "",
 		})],
-		Note = Optional(state.Note, at + ".note", AgentWalkthroughLimits.Text),
+		Note = Text(state.Note, at + ".note", AgentWalkthroughLimits.Text),
 	};
 
 	private static AgentWalkthroughWhy? Why(AgentWalkthroughWhy? why, string at) {
 		if (why is null) return null;
 		string kind = OneOf(why.Source.Kind, SourceKinds, at + ".source.kind");
-		string? reference = Optional(why.Source.Ref, at + ".source.ref", AgentWalkthroughLimits.Title);
+		string? reference = Text(why.Source.Ref, at + ".source.ref", AgentWalkthroughLimits.Title);
 		if ((kind == "reading") != (reference is null)) {
 			Refuse(kind == "reading" ? $"{at}.source: a reading has no 'ref'." : $"{at}.source.ref is required for a {kind}.");
 		}
 		return new AgentWalkthroughWhy {
-			Title = Required(why.Title, at + ".title", AgentWalkthroughLimits.Title),
-			Text = Required(why.Text, at + ".text", AgentWalkthroughLimits.Text),
+			Title = Name(why.Title, at + ".title", AgentWalkthroughLimits.Title),
+			Text = Name(why.Text, at + ".text", AgentWalkthroughLimits.Text),
 			Source = new AgentWalkthroughSource { Kind = kind, Ref = reference },
 		};
 	}
 
 	private static AgentWalkthroughPredict? Predict(AgentWalkthroughPredict? predict, string at) => predict is null ? null : new AgentWalkthroughPredict {
-		Question = Required(predict.Question, at + ".question", AgentWalkthroughLimits.Text),
-		Answer = Required(predict.Answer, at + ".answer", AgentWalkthroughLimits.Text),
+		Question = Name(predict.Question, at + ".question", AgentWalkthroughLimits.Text),
+		Answer = Name(predict.Answer, at + ".answer", AgentWalkthroughLimits.Text),
 	};
 
 	// Each file the walkthrough cites, recorded as it stands; a file that can no longer be read records as empty.
-	private static IReadOnlyList<AgentWalkthroughFile> Record(IReadOnlyList<AgentWalkthroughFile> files, Cited cited) =>
-		[.. files.Select(file => file.Path).Union(cited.Files.Select(file => file.Path)).Select(path => {
-			string after = cited.Record(path)?.Hash ?? "";
-			var first = cited.Files.FirstOrDefault(file => file.Path == path);
+	private static IReadOnlyList<AgentWalkthroughFile> Record(IReadOnlyList<AgentWalkthroughFile> files, WalkthroughReads reads) =>
+		[.. files.Select(file => file.Path).Union(reads.Files.Select(file => file.Path)).Select(path => {
+			string after = reads.Record(path)?.Hash ?? "";
+			var first = reads.Files.FirstOrDefault(file => file.Path == path);
 			return new AgentWalkthroughFile { Path = path, Before = first?.Before ?? after, After = after, Late = first?.Late ?? false };
 		})];
 
@@ -266,40 +258,12 @@ public static class AgentWalkthroughRules {
 		}
 	}
 
-	private static void Id(string id, string at) {
-		if (!BlockId().IsMatch(id)) Refuse($"{at} must be {IdRule}.");
+	private static IReadOnlyList<AgentWalkthroughStopRequest> Stops(AgentWalkthroughRequest request) {
+		var stops = Items(request.Stops ?? [], AgentWalkthroughLimits.Stops, "stops");
+		Unique(stops.Select(stop => stop.Id), "stops ids");
+		return stops;
 	}
 
 	// A field an update leaves out keeps its value; one it gives must say something.
-	private static string? Given(string? text, string at, int limit) => text is null ? null : Required(text, at, limit);
-
-	private static string Required(string? text, string at, int limit) =>
-		Optional(text, at, limit) is { Length: > 0 } given ? given : Fail<string>($"{at} is required.");
-
-	private static string? Optional(string? text, string at, int limit) => text is { Length: var length } && length > limit
-		? Fail<string>($"{at} has {length:N0} characters; the limit is {limit:N0}.")
-		: text?.Trim();
-
-	// The files one call cites: the copies to keep, by hash, and each path's first copy.
-	private sealed class Cited(WalkthroughReads reads) {
-		public Dictionary<string, string> Sources { get; } = new(StringComparer.Ordinal);
-		public List<AgentWalkthroughFile> Files { get; } = [];
-
-		public WorktreeTextFile Cite(string path, string at) {
-			var cited = reads.Cite(path, at);
-			Keep(cited.File);
-			if (Files.All(file => file.Path != cited.File.Path)) {
-				Files.Add(new AgentWalkthroughFile { Path = cited.File.Path, Before = cited.File.Hash, Late = cited.Late });
-			}
-			return cited.File;
-		}
-
-		public WorktreeTextFile? Record(string path) {
-			var file = reads.Record(path)?.File;
-			if (file is not null) Keep(file);
-			return file;
-		}
-
-		private void Keep(WorktreeTextFile file) => Sources[file.Hash] = file.Text;
-	}
+	private static string? Given(string? text, string at, int limit) => text is null ? null : Name(text, at, limit);
 }

@@ -125,9 +125,7 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 		file = new WorktreeTextFile(string.Empty, string.Empty);
 		if (finding.Title.Length == 0) return $"A review finding on {finding.Path}:{finding.Line} has no summary.";
 		if (WorktreeTextFile.TryRead(_fileSystem, _root, finding.Path, cwd, out file) is { } error) return error;
-		return finding.Line < 1 || finding.Line > file.Lines.Length
-			? $"Line {finding.Line} is outside '{file.Path}', which has {file.Lines.Length} line(s)."
-			: null;
+		return file.LinesProblem(finding.Line, finding.Line);
 	}
 
 }

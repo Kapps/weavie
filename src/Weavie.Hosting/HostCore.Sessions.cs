@@ -78,11 +78,10 @@ public sealed partial class HostCore {
 				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
 				var args = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentAsideCommand)
 					?? throw new ArgumentException("Ask Agent Aside requires a question or image.");
-				var anchor = args.Anchor is { } place ? new AgentAsideAnchor(place.ConversationId, place.BlockId, place.Place, place.Quote) : null;
 				session.AcceptAgentSubmission(new HostSession.AgentSubmitMessage(
 					args.SubmissionId ?? Guid.NewGuid().ToString("N"), args.Question ?? string.Empty,
 					args.Kind ?? "prompt", args.CommandName ?? string.Empty, args.AttachmentIds, args.Selections),
-					submission => sideConversations.AskAside(submission with { Anchor = anchor }));
+					submission => sideConversations.AskAside(submission with { Anchor = args.Anchor }));
 				return Task.FromResult(CommandResult.Success());
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
@@ -158,10 +157,8 @@ public sealed partial class HostCore {
 
 	internal sealed record AgentAsideCommand(
 		string? Question, string? SubmissionId, string[]? AttachmentIds, HostSession.AgentSelectionWire[]? Selections, string? Kind, string? CommandName,
-		AgentAsideAnchorWire? Anchor);
+		AgentAsideAnchor? Anchor);
 
-	/// <summary>Where in a walkthrough a side question is asked.</summary>
-	internal sealed record AgentAsideAnchorWire(string? ConversationId, string BlockId, string Place, string Quote);
 	internal sealed record AgentRewindCommand(string? TurnId);
 
 	private void PostForSession(HostSession session, Action action) {

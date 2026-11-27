@@ -8,7 +8,7 @@ namespace Weavie.Core.Mcp;
 // publishWalkthrough / updateWalkthrough: a guided read of code, drawn in an editor tab from the pane's card. See
 // docs/specs/code-walkthroughs/design.md. The agent sends anchors, never code; Weavie reads and checks every line.
 public sealed partial class McpServer {
-	private const string PublishWalkthroughTool = AgentWalkthroughRules.PublishTool;
+	private const string PublishWalkthroughTool = AgentBlockRules.PublishWalkthroughTool;
 	private const string UpdateWalkthroughTool = AgentBlockRules.UpdateWalkthroughTool;
 
 	private static readonly string WalkthroughToolEntries = WalkthroughSchemas();
@@ -89,9 +89,8 @@ public sealed partial class McpServer {
 			+ "(path, lines, tokens), never code: Weavie reads the lines, checks every anchor, and refuses a wrong one with the real text. " + limits,
 			Walkthrough(update: false));
 		var update = Tool(UpdateWalkthroughTool,
-			"Update a walkthrough you published, after your edits change the code it explains. Say what you changed. Change every stop the change "
-			+ "alters, including stops whose code you did not touch, recording their code again against the edited files, and add stops for what you "
-			+ "found while editing. Stops you don't name stay as they are. " + limits,
+			"Update a walkthrough you published, after your edits change the code it explains: " + EmbeddedAgentGuidance.WalkthroughUpdate
+			+ " Stops you don't name stay as they are. " + limits,
 			Walkthrough(update: true));
 		return publish.ToJsonString() + "," + update.ToJsonString();
 	}
@@ -104,8 +103,8 @@ public sealed partial class McpServer {
 			var reads = _walkthroughs.Begin();
 			return publish
 				? (AgentWalkthroughRules.Publish(request, current, reads),
-					$" Walkthrough '{request.Id}' is shown to the user. After you change the code it explains, call {UpdateWalkthroughTool}: change every stop "
-					+ "the change alters, including stops whose code you did not touch, and add stops for what you found while editing.")
+					$" Walkthrough '{request.Id}' is shown to the user. After you change the code it explains, call {UpdateWalkthroughTool}: "
+					+ EmbeddedAgentGuidance.WalkthroughUpdate)
 				: (AgentWalkthroughRules.Update(request, current, reads),
 					$" Walkthrough '{request.Id}' is updated; the user sees which stops changed.");
 		}, ct);

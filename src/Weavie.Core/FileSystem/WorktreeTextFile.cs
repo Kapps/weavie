@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Weavie.Core.Changes;
 
 namespace Weavie.Core.FileSystem;
@@ -10,10 +8,12 @@ public sealed record WorktreeTextFile(string Path, string Text) {
 	public string[] Lines { get; } = LineDiff.SplitLines(Text);
 
 	/// <summary>The content hash that names this text wherever a copy of it is kept.</summary>
-	public string Hash { get; } = HashOf(Text);
+	public string Hash => TextRevision.Of(Text);
 
-	/// <summary>The SHA-256 of <paramref name="text"/>'s UTF-8 bytes, as lowercase hex.</summary>
-	public static string HashOf(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+	/// <summary>Why lines <paramref name="from"/> to <paramref name="to"/> can't be cited, or null when the file has them.</summary>
+	public string? LinesProblem(int from, int to) => from >= 1 && to >= from && to <= Lines.Length
+		? null
+		: $"{(from == to ? $"Line {from} is" : $"Lines {from}-{to} are")} outside '{Path}', which has {Lines.Length} line(s).";
 
 	/// <summary>
 	/// Reads <paramref name="path"/>, resolved against <paramref name="cwd"/> or <paramref name="root"/>; returns why it

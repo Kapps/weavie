@@ -15,8 +15,8 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		feature.HandleConcurrent(
-			"source", MessageActivity.ActionFailed("Loading a review hint's source"), WireJson.Default.ReviewHintSourceRequest, WireJson.Default.ReviewHintSource,
-			(message, _) => Task.FromResult(new ReviewHintSource(hints.Source(
+			"source", MessageActivity.ActionFailed("Loading a review hint's source"), WireJson.Default.ReviewHintSourceRequest, WireJson.Default.StoredText,
+			(message, _) => Task.FromResult(new StoredText(hints.Source(
 				WorktreeRelativePath(session, message.Path) ?? throw new InvalidOperationException(NotInWorktree(session, message.Path)),
 				message.Hash))));
 		session.Commands.RegisterHandler(CoreCommands.ReviewHintsClear, (_, _) => {
@@ -65,7 +65,8 @@ public sealed partial class HostCore {
 
 	internal sealed record ReviewHintSourceRequest(string Path, string Hash);
 
-	internal sealed record ReviewHintSource(string Text);
+	/// <summary>A copy of a file's text that Weavie kept, by its hash.</summary>
+	internal sealed record StoredText(string Text);
 
 	internal sealed record FixLineArgs(string Path, int Line, string Quote, string Text, string Instruction);
 }

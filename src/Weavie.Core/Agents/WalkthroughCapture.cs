@@ -29,21 +29,20 @@ public sealed class WalkthroughCapture {
 	/// <summary>The reads of one tool call, in which each cited file is read once.</summary>
 	public WalkthroughReads Begin() => new(this);
 
-	internal string? TryRead(string path, out CitedFile cited) {
-		cited = new CitedFile(new WorktreeTextFile(string.Empty, string.Empty), false);
-		if (WorktreeTextFile.TryRead(_fileSystem, Root, path, null, AgentWalkthroughLimits.FileBytes, out var file) is { } error) return error;
-		cited = new CitedFile(file, _hasUnkeptAgentEdits(Path.Combine(Root, file.Path)));
+	internal string? TryRead(string path, out WorktreeTextFile file, out bool late) {
+		late = false;
+		if (WorktreeTextFile.TryRead(_fileSystem, Root, path, null, AgentWalkthroughLimits.FileBytes, out file) is { } error) return error;
+		late = _hasUnkeptAgentEdits(Path.Combine(Root, file.Path));
 		return null;
 	}
 }
 
-/// <summary>A cited file and whether the agent had already edited it, unkept, when it was read.</summary>
-public sealed record CitedFile(WorktreeTextFile File, bool Late);
-
-/// <summary>One tool call's reads of cited files.</summary>
+/// <summary>One tool call's reads of cited files: each read once, and the copies of them to keep.</summary>
 public sealed class WalkthroughReads {
 	private readonly WalkthroughCapture _capture;
-	private readonly Dictionary<string, (CitedFile File, string? Error)> _read = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, (WorktreeTextFile File, bool Late, string? Error)> _read = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _sources = new(StringComparer.Ordinal);
+	private readonly List<AgentWalkthroughFile> _files = [];
 
 	internal WalkthroughReads(WalkthroughCapture capture) {
 		_capture = capture;
@@ -52,19 +51,32 @@ public sealed class WalkthroughReads {
 	/// <summary>The worktree cited paths are relative to.</summary>
 	public string Root => _capture.Root;
 
+	/// <summary>The copies of the files read, by hash.</summary>
+	public IReadOnlyDictionary<string, string> Sources => _sources;
+
+	/// <summary>Each file cited, as first read.</summary>
+	public IReadOnlyList<AgentWalkthroughFile> Files => _files;
+
 	/// <summary>The file <paramref name="path"/> names; refused, under <paramref name="at"/>, when it can't be cited.</summary>
-	public CitedFile Cite(string path, string at) {
-		var (file, error) = Read(path);
-		return error is null ? file : AgentBlockRules.Fail<CitedFile>($"{at}: {error}");
+	public WorktreeTextFile Cite(string path, string at) {
+		var (file, late, error) = Read(path);
+		if (error is not null) return AgentBlockRules.Fail<WorktreeTextFile>($"{at}: {error}");
+		if (_files.All(cited => cited.Path != file.Path)) _files.Add(new AgentWalkthroughFile { Path = file.Path, Before = file.Hash, Late = late });
+		return Keep(file);
 	}
 
 	/// <summary>The file as it stands now, or null when it can no longer be read.</summary>
-	public CitedFile? Record(string path) => Read(path) is { Error: null } read ? read.File : null;
+	public WorktreeTextFile? Record(string path) => Read(path) is { Error: null } read ? Keep(read.File) : null;
 
-	private (CitedFile File, string? Error) Read(string path) {
+	private WorktreeTextFile Keep(WorktreeTextFile file) {
+		_sources[file.Hash] = file.Text;
+		return file;
+	}
+
+	private (WorktreeTextFile File, bool Late, string? Error) Read(string path) {
 		if (!_read.TryGetValue(path, out var read)) {
-			string? error = _capture.TryRead(path, out var file);
-			_read[path] = read = (file, error);
+			string? error = _capture.TryRead(path, out var file, out bool late);
+			_read[path] = read = (file, late, error);
 		}
 		return read;
 	}

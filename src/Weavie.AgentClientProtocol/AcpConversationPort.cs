@@ -27,7 +27,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 	public bool CommitBlock(AcpConversationState state, AgentBlockOperation operation, IReadOnlyList<AgentPaneMessage> rows) {
 		lock (transitionGate) {
 			if (!Publishing || AgentBlockRules.Apply(view.Block(operation.Id), operation, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is not { } block) return false;
-			OnCommitBlock(state, block, operation.CitedSources, rows);
+			OnCommitBlock(state, block, operation.Sources, rows);
 			return true;
 		}
 	}

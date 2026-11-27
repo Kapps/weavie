@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -40,8 +41,12 @@ public static partial class AgentBlockRules {
 	public static readonly IReadOnlyList<string> ColumnTypes = ["time", "number", "text", "level"];
 	/// <summary>The id rule, as the tool schema states it.</summary>
 	public const string IdRule = "1-64 letters, digits, '.', '_' or '-'";
+	/// <summary>The MCP tool that shows a chart or table.</summary>
+	public const string ShowTool = "showBlock";
 	/// <summary>The MCP tool that changes a block.</summary>
 	public const string UpdateTool = "updateBlock";
+	/// <summary>The MCP tool that publishes a walkthrough.</summary>
+	public const string PublishWalkthroughTool = "publishWalkthrough";
 	/// <summary>The MCP tool that changes a walkthrough.</summary>
 	public const string UpdateWalkthroughTool = "updateWalkthrough";
 
@@ -55,14 +60,14 @@ public static partial class AgentBlockRules {
 	/// <summary>Validates and normalizes a request against the conversation's current block with that id.</summary>
 	public static AgentBlockOperation Validate(AgentBlockRequest request, AgentBlock? current, bool show) {
 		ArgumentNullException.ThrowIfNull(request);
-		if (!BlockId().IsMatch(request.Id)) Refuse($"id must be {IdRule}.");
+		Id(request.Id, "id");
 		int parts = (request.Chart is null ? 0 : 1) + (request.Table is null ? 0 : 1) + (request.Append is null ? 0 : 1);
 		if (show) {
-			if (current is not null) Refuse($"Block '{request.Id}' is already shown; change it with {UpdaterOf(current)}.");
+			NotShown(request.Id, current);
 			if (request.Append is not null || parts != 1) Refuse("showBlock takes exactly one of 'chart' or 'table'.");
 			string title = Text(request.Title, "title") is { Length: > 0 } given ? given : Fail<string>("showBlock requires a 'title'.");
 			var (chart, table) = Content(request);
-			return new AgentBlockOperation.Show(new AgentBlock { Id = request.Id, Title = title, Chart = chart, Table = table }, Dashboard(request.Dashboard), new Dictionary<string, string>());
+			return new AgentBlockOperation.Show(new AgentBlock { Id = request.Id, Title = title, Chart = chart, Table = table }, Dashboard(request.Dashboard), FrozenDictionary<string, string>.Empty);
 		}
 		if (request.Dashboard is not null) Refuse("updateBlock cannot move a block into a dashboard; show it again with showBlock under a new id.");
 		if (current?.Walkthrough is not null) Refuse($"Block '{request.Id}' is a walkthrough; change it with {UpdateWalkthroughTool}.");
@@ -109,8 +114,20 @@ public static partial class AgentBlockRules {
 		return series.Count > AgentBlockLimits.Series ? null : next with { Chart = current.Chart with { Series = series } };
 	}
 
+	internal static void NotShown(string id, AgentBlock? current) {
+		if (current is not null) Refuse($"Block '{id}' is already shown; change it with {UpdaterOf(current)}.");
+	}
+
 	/// <summary>The tool that changes <paramref name="block"/>.</summary>
 	public static string UpdaterOf(AgentBlock block) => block.Walkthrough is null ? UpdateTool : UpdateWalkthroughTool;
+
+	/// <summary>The tool that made <paramref name="operation"/>.</summary>
+	public static string ToolOf(AgentBlockOperation operation) => operation switch {
+		AgentBlockOperation.Show { Block.Walkthrough: not null } => PublishWalkthroughTool,
+		AgentBlockOperation.Show => ShowTool,
+		AgentBlockOperation.Walkthrough => UpdateWalkthroughTool,
+		_ => UpdateTool,
+	};
 
 	private static (AgentChart? Chart, AgentTable? Table) Content(AgentBlockRequest request) =>
 		(request.Chart is { } chart ? Chart(chart) : null, request.Table is { } table ? Table(table) : null);
@@ -249,15 +266,23 @@ public static partial class AgentBlockRules {
 
 	private static AgentDashboardRequest? Dashboard(AgentDashboardRequest? dashboard) {
 		if (dashboard is null) return null;
-		if (!BlockId().IsMatch(dashboard.Id)) Refuse($"dashboard.id must be {IdRule}.");
+		Id(dashboard.Id, "dashboard.id");
 		return dashboard with { Title = Name(dashboard.Title, "dashboard.title") };
 	}
 
-	private static string Name(string name, string path) =>
-		Text(name, path) is { Length: > 0 } valid ? valid : Fail<string>($"{path} must not be empty.");
+	internal static void Id(string id, string path) {
+		if (!BlockId().IsMatch(id)) Refuse($"{path} must be {IdRule}.");
+	}
 
-	private static string? Text(string? text, string path) => text is { Length: > AgentBlockLimits.Text }
-		? Fail<string>($"{path} has {text.Length:N0} characters; the limit is {AgentBlockLimits.Text:N0}.")
+	private static string Name(string name, string path) => Name(name, path, AgentBlockLimits.Text);
+
+	internal static string Name(string? name, string path, int limit) =>
+		Text(name, path, limit) is { Length: > 0 } valid ? valid : Fail<string>($"{path} is required.");
+
+	private static string? Text(string? text, string path) => Text(text, path, AgentBlockLimits.Text);
+
+	internal static string? Text(string? text, string path, int limit) => text is { Length: var length } && length > limit
+		? Fail<string>($"{path} has {length:N0} characters; the limit is {limit:N0}.")
 		: text?.Trim();
 
 	private static IReadOnlyList<T> Last<T>(IReadOnlyList<T> values, int keep) => values.Count <= keep ? values : [.. values.Skip(values.Count - keep)];

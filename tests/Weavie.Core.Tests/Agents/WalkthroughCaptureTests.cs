@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.FileSystem;
 using Xunit;
 
@@ -10,7 +11,7 @@ public sealed class WalkthroughCaptureTests : IDisposable {
 	public void Dispose() => Directory.Delete(_root, recursive: true);
 
 	private string? Error(string path, Func<string, bool> late) =>
-		new WalkthroughCapture(new LocalFileSystem(), _root, late).TryRead(path, out _);
+		new WalkthroughCapture(new LocalFileSystem(), _root, late).TryRead(path, out _, out _);
 
 	[Fact]
 	public void RefusesWhatItCantCite() {
@@ -31,9 +32,10 @@ public sealed class WalkthroughCaptureTests : IDisposable {
 		var reads = new WalkthroughCapture(new LocalFileSystem(), _root, path => (asked = path) is not null).Begin();
 		var cited = reads.Cite("a.cs", "at");
 
-		Assert.True(cited.Late);
+		Assert.True(Assert.Single(reads.Files).Late);
 		Assert.Equal(Path.Combine(_root, "a.cs"), asked);
-		Assert.Equal(("a.cs", WorktreeTextFile.HashOf("class A {}\n")), (cited.File.Path, cited.File.Hash));
+		Assert.Equal(("a.cs", TextRevision.Of("class A {}\n")), (cited.Path, cited.Hash));
 		Assert.Same(cited, reads.Cite("a.cs", "again"));
+		Assert.Equal("class A {}\n", reads.Sources[cited.Hash]);
 	}
 }

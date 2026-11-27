@@ -214,8 +214,8 @@ public sealed partial class HostSession {
 			return Task.CompletedTask;
 		});
 		messages.HandleConcurrent(
-			"walkthroughSource", MessageActivity.ActionFailed("Loading walkthrough code"), WireJson.Default.WalkthroughSourceRequest, WireJson.Default.WalkthroughSource,
-			(message, _) => Task.FromResult(new WalkthroughSource(
+			"walkthroughSource", MessageActivity.ActionFailed("Loading walkthrough code"), WireJson.Default.WalkthroughSourceRequest, WireJson.Default.StoredText,
+			(message, _) => Task.FromResult(new HostCore.StoredText(
 				(Agent.Walkthroughs ?? throw new InvalidOperationException("This agent has no walkthroughs."))
 					.Source(message.ConversationId, message.BlockId, message.Hash))));
 		messages.Handle(
@@ -392,8 +392,6 @@ public sealed partial class HostSession {
 	internal sealed record AgentStopAsideMessage(string ConversationId);
 
 	internal sealed record WalkthroughSourceRequest(string? ConversationId, string BlockId, string Hash);
-
-	internal sealed record WalkthroughSource(string Text);
 }
 
 internal sealed record AttachmentState(string Id, string Status, string Error);

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.FileSystem;
 using Xunit;
 
@@ -36,7 +37,7 @@ public sealed class AgentWalkthroughRulesTests {
 	public void PublishChecksEveryAnchorAndKeepsTheCopy() {
 		_edited.Add("/repo/Claims.cs");
 		var show = AgentWalkthroughRules.Publish(Request(Published), null, Reads());
-		string hash = WorktreeTextFile.HashOf(Claims);
+		string hash = TextRevision.Of(Claims);
 
 		var walkthrough = show.Block.Walkthrough!;
 		Assert.Equal("walkthrough", show.Block.Kind);
@@ -58,7 +59,7 @@ public sealed class AgentWalkthroughRulesTests {
 	}
 
 	[Theory]
-	[InlineData("\"from\":1,\"to\":7", "\"from\":1,\"to\":30", "stops[0].code[0]: lines 1-30 are outside 'Claims.cs', which has 8 line(s).")]
+	[InlineData("\"from\":1,\"to\":7", "\"from\":1,\"to\":30", "stops[0].code[0]: Lines 1-30 are outside 'Claims.cs', which has 8 line(s).")]
 	[InlineData("\"path\":\"Claims.cs\"", "\"path\":\"../etc/passwd\"", "stops[0].code[0].path: '../etc/passwd' isn't a file inside /repo.")]
 	[InlineData("\"path\":\"Claims.cs\"", "\"path\":\"Gone.cs\"", "stops[0].code[0].path: 'Gone.cs' doesn't exist.")]
 	[InlineData("{\"from\":2,\"to\":2,\"label\":\"the map\"}", "{\"from\":2,\"to\":2,\"label\":\"a\"},{\"from\":3,\"to\":3,\"label\":\"b\"}", "stops[0].code[0].folds[1]: lines 3-3 touch the fold at lines 2-2; join them.")]
@@ -98,7 +99,7 @@ public sealed class AgentWalkthroughRulesTests {
 		Assert.Equal(("changed", "added"), (walkthrough.Stops[0].Effect, walkthrough.Stops[1].Effect));
 		Assert.Equal("Holding", walkthrough.Stops[0].Title);
 		var file = Assert.Single(walkthrough.Files);
-		Assert.Equal((WorktreeTextFile.HashOf(Claims), WorktreeTextFile.HashOf(edited)), (file.Before, file.After));
+		Assert.Equal((TextRevision.Of(Claims), TextRevision.Of(edited)), (file.Before, file.After));
 		Assert.Equal(edited, update.Sources[file.After!]);
 		Assert.Null(Assert.Single(walkthrough.Stops[0].Code[0].Notes!).Was);
 	}

@@ -23,15 +23,18 @@ public static class EmbeddedAgentGuidance {
 		the user asks you to in this conversation.
 		""";
 
+	/// <summary>What an update to a walkthrough does, as the guidance and the walkthrough tools say it.</summary>
+	public const string WalkthroughUpdate =
+		"say what you changed, change every stop the change alters, including stops whose code you did not touch, "
+		+ "record their code again against the edited files, and add stops for what you found while editing.";
+
 	/// <summary>Asks the agent to explain the code it is about to change before changing it.</summary>
 	public const string WalkthroughBeforeEditing =
 		"""
 		Before you edit code for a task, once you understand the code you are about to change, publish a walkthrough of
 		how it works today with mcp__weavie__publishWalkthrough. Do this once per task, before your first edit to that
-		code. When your edits are done, call mcp__weavie__updateWalkthrough on the same walkthrough: say what you
-		changed, change every stop the change alters, including stops whose code you did not touch, record their code
-		again against the edited files, and add stops for what you found while editing.
-		""";
+		code. When your edits are done, call mcp__weavie__updateWalkthrough on the same walkthrough:
+		""" + " " + WalkthroughUpdate;
 
 	/// <summary>Frames the one request a consulted agent receives from another agent.</summary>
 	public const string ConsultInstructions =

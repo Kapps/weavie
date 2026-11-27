@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -211,28 +212,19 @@ public sealed record AgentChartSeriesPoints {
 }
 
 /// <summary>A validated block tool call, applied when the call's transcript row is claimed.</summary>
-public abstract record AgentBlockOperation(string Id) {
-	/// <summary>
-	/// Shows a new block, in <paramref name="Dashboard"/> when it names one. <paramref name="Sources"/> holds the
-	/// copies of code a walkthrough cites, by hash; it is empty for a chart or table.
-	/// </summary>
-	public sealed record Show(AgentBlock Block, AgentDashboardRequest? Dashboard, IReadOnlyDictionary<string, string> Sources) : AgentBlockOperation(Block.Id);
+/// <param name="Id">The block's id.</param>
+/// <param name="Sources">The copies of code a walkthrough cites, saved beside its block by hash; empty for a chart or table.</param>
+public abstract record AgentBlockOperation(string Id, IReadOnlyDictionary<string, string> Sources) {
+	/// <summary>Shows a new block, in <paramref name="Dashboard"/> when it names one.</summary>
+	public sealed record Show(AgentBlock Block, AgentDashboardRequest? Dashboard, IReadOnlyDictionary<string, string> Sources)
+		: AgentBlockOperation(Block.Id, Sources);
 
 	/// <summary>Changes an existing chart or table.</summary>
-	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id);
+	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id, FrozenDictionary<string, string>.Empty);
 
 	/// <summary>Changes an existing walkthrough, one change at a time, with the copies of code it newly cites.</summary>
 	public sealed record Walkthrough(string WalkthroughId, IReadOnlyList<AgentWalkthroughChange> Changes, IReadOnlyDictionary<string, string> Sources)
-		: AgentBlockOperation(WalkthroughId);
-
-	/// <summary>The copies of code this operation saves beside its block, by hash.</summary>
-	public IReadOnlyDictionary<string, string> CitedSources => this switch {
-		Show show => show.Sources,
-		Walkthrough walkthrough => walkthrough.Sources,
-		_ => NoSources,
-	};
-
-	private static readonly IReadOnlyDictionary<string, string> NoSources = new Dictionary<string, string>();
+		: AgentBlockOperation(WalkthroughId, Sources);
 }
 
 /// <summary>A block and the provider and Weavie conversation that own it.</summary>

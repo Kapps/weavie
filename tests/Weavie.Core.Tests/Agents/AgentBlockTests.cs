@@ -49,7 +49,7 @@ public sealed class AgentBlockTests {
 
 		Assert.Equal("dashboard.id must be 1-64 letters, digits, '.', '_' or '-'.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "roll out", Title = "t" } }, null, show: true)).Message);
-		Assert.Equal("dashboard.title must not be empty.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
+		Assert.Equal("dashboard.title is required.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "rollout", Title = " " } }, null, show: true)).Message);
 		Assert.StartsWith("updateBlock cannot move a block into a dashboard", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Chart = Line, Dashboard = new() { Id = "rollout", Title = "t" } }, show.Block, show: false)).Message);

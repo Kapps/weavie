@@ -11,7 +11,10 @@ Review of [PR #1302](https://github.com/Kapps/weavie/pull/1302) against [design.
 - **Result:** the host side (rules, capture, storage, tools, path containment) holds. The reading tab has eight
   bugs, most in code no test reaches.
 - **Rechecked:** `1c165c9d`, the fixes in `ec955b85..1c165c9d` (see Recheck). 27 of the 30 findings are fixed, one
-  is reopened, two are fixed in part, and the fixes added two bugs and six nits. All of those were fixed in `a85e255c` (see Second fixes); none is open.
+  is reopened, two are fixed in part, and the fixes added two bugs and six nits. All of those were fixed in
+  `a85e255c` (see Second fixes).
+- **Rechecked again:** `be2e000f`, the fixes in `d63a73d4..be2e000f` (see Second recheck). All ten hold. Open now:
+  one small bug the fixes added (39) and one nit (40).
 
 Severity: a **bug** is wrong behaviour a user or another feature would hit; a **warn** is a standards or
 maintainability problem; a **nit** is anything smaller.
@@ -56,6 +59,8 @@ maintainability problem; a **nit** is anything smaller.
 | 36 | nit | fixed | The waiting row can't reach a question under a block that has not mounted | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:210` |
 | 37 | nit | fixed | The prose highlight uses `CSS.highlights` unguarded | `src/web/src/agent/walkthrough/walkthrough-page.ts:152` |
 | 38 | nit | fixed | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
+| 39 | bug | open | A code selection that ends on a blank line offers no actions (from fixes 34 and 35) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:273` |
+| 40 | nit | open | A failed request for a file's `after` copy is an unhandled rejection | `src/web/src/agent/walkthrough/walkthrough-code.tsx:143` |
 
 ## Bugs
 
@@ -354,6 +359,41 @@ Fixed after the recheck (`d63a73d4`), each with an e2e case where one applies.
 - **36.** When the question's card has not mounted, the waiting row opens the tab at its stop.
 - **37.** Without the Highlight API (WebKit before 17.2) the quote is simply not lit; nothing throws.
 - **38.** One doc comment per declaration.
+
+## Second recheck
+
+Rechecked at `be2e000f` (PR #1302, open): the two commits after `d63a73d4`, web only, read in full. The design did
+not change, so the review was not restarted. Each fix was confirmed against the code and its e2e case; two points
+were run with a temporary Playwright probe on the headless project, removed afterwards. Nothing was fixed here.
+
+**Confirmed fixed:** 8, 31, 32, 33 (and with it the rest of 3), 34 to 38, and the rest of 25.
+
+- **8.** Stop carries `agent-entry-stop`, which a card head shows at full opacity beside Open; the e2e asserts the
+  computed opacity.
+- **31.** A card under hidden lines goes after the hidden run when a shown line follows, as it did before the first
+  fix. The other branch was probed: a fold that ends its block, under an empty line, has its row in view, opens, and
+  shows no line from past the block.
+- **32.** The observer's band reaches far above the tab, so a stop is in it exactly when its heading has passed the
+  top-third line, and a jump changes that. The e2e jumps from the last of twelve stops to the top.
+- **25.** `ComposeSlash` adds `/btw` only for an agent that can fork, and Send is disabled with its reason when the
+  session's slash commands lack it. Add to context still works. No fake agent lacks `/btw`, so this is read, not run.
+- **36.** The waiting row falls back to the question's stop when its card has not mounted. Read, not run.
+
+### New bug, from the fixes
+
+**39. A code selection that ends on a blank line offers no actions.** The quote is now the selected text of the
+selection's last line, and a selection whose last line has none clears the toolbar (`walkthrough-code.tsx:273`).
+That covers the all-blank selection finding 34 was about, and also any selection of code that runs onto a blank
+line. The probe selected `a = 1;` and the empty line under it with Shift+Down twice: no Comment button and no Add to
+Context, with nothing said. One line shorter, the toolbar shows. Before these fixes that selection could be asked
+about. It is small, and the last line with text in the selection would serve as the quote's line.
+
+### New nit
+
+- **40.** `walkthrough-code.tsx:143` calls `options.source(file.after).then(setAfterText)` with no rejection
+  handler, so a failed request is an unhandled rejection and the block silently never says "Changed since this
+  walkthrough was updated". It needs the `after` request alone to fail, since the block's other two copies are
+  awaited first. This line predates the fixes; it was missed in the first review.
 
 ## Rejected
 

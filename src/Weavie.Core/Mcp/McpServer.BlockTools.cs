@@ -69,7 +69,7 @@ public sealed partial class McpServer {
 		JsonObject Tool(string name, string description, JsonObject schema) =>
 			new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 		var show = Tool(ShowBlockTool,
-			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table; use a markdown table for a small static one. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
+			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table of data. A cell shows one line, so use a markdown table for a small static table or one whose cells hold sentences. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
 			Object(new JsonObject {
 				["id"] = Described(Text(), AgentBlockRules.IdRule + "; unique in this conversation."),
 				["title"] = Text(),
@@ -80,6 +80,8 @@ public sealed partial class McpServer {
 					["title"] = Described(Text(), "Set by the first block that names the dashboard."),
 				}, "id", "title"), "The dashboard this block joins, created by the first block that names it."),
 			}, "id", "title"));
+		// Claude Code shows an MCP tool by name only until the agent looks it up; this keeps showBlock's description in context.
+		show["_meta"] = new JsonObject { ["anthropic/alwaysLoad"] = true };
 		var update = Tool(UpdateBlockTool,
 			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention. When updating blocks is all a turn did, reply with exactly " + AgentNoReply.Text + " and nothing else; Weavie shows no reply for it.",
 			Object(new JsonObject {

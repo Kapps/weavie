@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 
 namespace Weavie.AgentClientProtocol;
@@ -34,13 +35,17 @@ internal sealed partial class AcpConversation {
 		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {
 			blocks.Add(AcpContent.Text($"Attached selection ({selection.Label}):\n{selection.Text}"));
 		}
+		// A slash command stays the last text block, which is how Claude recognizes one it runs itself.
+		if (submission.Sender is null && !submission.Text.StartsWith('/') && _context.Settings.RequireBool(AgentSettings.PreferVisuals)) {
+			blocks.Add(AcpContent.AssistantText(AgentSettings.VisualPreferenceBlock));
+		}
 
 		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
 			if (includesGuidance) {
 				blocks.Add(AcpContent.AssistantResource(
 					"weavie://instructions",
-					EmbeddedAgentGuidance.Compose(_context.Runtime)));
+					EmbeddedAgentGuidance.ComposeForPane(_context.Runtime)));
 			}
 			if (_context.Editor.Active is { } editor) {
 				string selection = $"Active file: {editor.FilePath}\n"

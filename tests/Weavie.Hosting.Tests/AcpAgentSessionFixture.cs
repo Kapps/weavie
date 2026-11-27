@@ -416,6 +416,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		settings.Set(
 			AgentSettings.AllowAllPermissions,
 			JsonSerializer.SerializeToElement(allowAllPermissions));
+		// Off, so a prompt holds only what its test sends; AcpVisualPreferenceTests turns it on.
+		settings.Set(AgentSettings.PreferVisuals, JsonSerializer.SerializeToElement(false));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(
 			commandRegistry,
@@ -568,6 +570,9 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	}
 
 	public void Submit(string text) => Session.Submit(Prompt(text));
+
+	public void PreferVisuals(bool enabled) =>
+		_settings.Set(AgentSettings.PreferVisuals, JsonSerializer.SerializeToElement(enabled));
 
 	public void AskAside(string text) => Session.AskAside(Prompt(text));
 

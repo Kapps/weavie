@@ -190,6 +190,17 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.PreferVisuals,
+			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
+			Description = "Tell agents in the agent pane, with each prompt: \"" + AgentSettings.VisualPreference
+				+ "\" Slash commands go without it. On by default.",
+			Aliases = ["visual replies", "prefer diagrams", "diagrams and tables", "less text in replies", "wall of text"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.ReplyStartOffset,
 			Kind = SettingKind.Number,
 			Owner = SettingOwner.Device,

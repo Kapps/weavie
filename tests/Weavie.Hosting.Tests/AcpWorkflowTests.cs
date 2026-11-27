@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Configuration;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
 using Xunit;
@@ -40,6 +41,28 @@ public sealed class AcpWorkflowTests {
 		fixture.Submit("after");
 		await fixture.WaitForMessageAsync(message => message.Text == "echo: after");
 		Assert.Equal(context, File.ReadAllText(log));
+	}
+
+	[Fact]
+	public async Task StagePromptCarriesTheVisualPreferenceBeforeItsStageBlock() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		Directory.CreateDirectory(Path.Combine(fixture.Workspace, ".weavie", "workflows"));
+		File.WriteAllText(Path.Combine(fixture.Workspace, ".weavie", "workflows", "flow.yaml"), Flow);
+		await fixture.StartAsync();
+		fixture.PreferVisuals(true);
+
+		var run = fixture.Workflow.Start("flow", JsonDocument.Parse("{}").RootElement);
+		Assert.True(fixture.WorkflowKickoffs.TryDequeue(out var kickoff));
+		fixture.Submit(kickoff.Text);
+		await fixture.WaitForMessageAsync(message =>
+			message.Text?.StartsWith("completeStage: Complete. The workflow is finished.", StringComparison.Ordinal) == true);
+
+		string?[] text = [.. AcpPromptAssertions.Blocks(AcpPromptAssertions.Read(fixture)[0])
+			.Where(block => block.GetProperty("type").GetString() == "text")
+			.Select(block => block.GetProperty("text").GetString())];
+		Assert.Equal(3, text.Length);
+		Assert.Equal((kickoff.Text, AgentSettings.VisualPreferenceBlock), (text[0], text[1]));
+		Assert.Contains($"Run {run.Id} of workflow \"flow\" is at stage \"build\"", text[2], StringComparison.Ordinal);
 	}
 
 	[Fact]

@@ -114,6 +114,11 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   expect(context[0]?.resource?.uri).toBe("weavie://instructions");
   expect(context[1]?.resource?.uri).toContain("#selection");
   expect(context[1]?.resource?.text).toContain("just plain text");
+  const preference = blocks.find((block) =>
+    block.text?.includes("In your replies to me, I prefer"),
+  );
+  expect(preference?.annotations?.audience).toEqual(["assistant"]);
+  await expect(surface).not.toContainText(preference!.text!.trim());
 
   await pastePng(composer, encodedImage);
   await expect(surface.locator(".agent-attachment")).toHaveAttribute("title", "ready");
@@ -138,7 +143,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
     (request) => request.parameters.sessionId === childId,
   )!.parameters.prompt;
   const scope = initialSide.find(
-    (block) => block.type === "text" && block.annotations?.audience.includes("assistant"),
+    (block) => block.type === "text" && block.text?.startsWith("You are a side agent"),
   );
   expect(scope).toMatchObject({
     text: expect.any(String),

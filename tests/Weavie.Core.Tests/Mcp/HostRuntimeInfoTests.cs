@@ -40,6 +40,12 @@ public sealed class HostRuntimeInfoTests {
 	}
 
 	[Fact]
+	public void Compose_ForTerminalClaude_LeavesOutWhatThePaneDraws() => Assert.DoesNotContain(
+		EmbeddedAgentGuidance.PaneInstructions,
+		EmbeddedAgentGuidance.Compose(new HostRuntimeInfo(HostTransport.Local, Managed: false, "0.1.247")),
+		StringComparison.Ordinal);
+
+	[Fact]
 	public void GuidanceFindsWorkflowsThroughTheirTool() =>
 		Assert.Contains("Find workflows through `mcp__weavie__listWorkflows`", EmbeddedAgentGuidance.Instructions, StringComparison.Ordinal);
 }

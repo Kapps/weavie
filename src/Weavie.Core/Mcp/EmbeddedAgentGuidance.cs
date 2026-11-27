@@ -102,8 +102,21 @@ public static class EmbeddedAgentGuidance {
 		resolved.
 		""";
 
+	/// <summary>What the native agent pane draws, for agents whose replies render there.</summary>
+	public const string PaneInstructions =
+		"""
+		Weavie's agent pane draws more than text. A `mermaid` fence in your reply is drawn as a diagram, a markdown
+		table as a table, and `mcp__weavie__showBlock` shows a chart or a large or live table. A diagram shows how
+		steps or parts connect, and a table how options compare.
+		""";
+
 	/// <summary>The static instructions plus a host-runtime block describing what <paramref name="runtime"/> is running.</summary>
-	public static string Compose(HostRuntimeInfo runtime) {
+	public static string Compose(HostRuntimeInfo runtime) => WithRuntime(Instructions, runtime);
+
+	/// <summary><see cref="Compose"/> for an agent in the native pane, which also learns what the pane draws.</summary>
+	public static string ComposeForPane(HostRuntimeInfo runtime) => WithRuntime($"{Instructions}\n\n{PaneInstructions}", runtime);
+
+	private static string WithRuntime(string instructions, HostRuntimeInfo runtime) {
 		ArgumentNullException.ThrowIfNull(runtime);
 		string transport = runtime.Transport == HostTransport.Remote
 			? "remote (network-exposed worker)"
@@ -111,6 +124,6 @@ public static class EmbeddedAgentGuidance {
 		string build = runtime.Managed
 			? $"{runtime.Build} (runner-managed worker)"
 			: $"{runtime.Build} (local dev build)";
-		return $"{Instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n";
+		return $"{instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n";
 	}
 }

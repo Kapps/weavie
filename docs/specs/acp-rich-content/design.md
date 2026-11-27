@@ -551,10 +551,22 @@ function attachRegion(session: ClientSession, source: CanvasImageSource, box: DO
 
 ### Agent guidance
 
-The guidance lives in the two tools' descriptions: use `showBlock` for data worth seeing as a chart or a large
-or live table; use a markdown table for a small static one; update in place instead of resending or reprinting;
-one update per block at a time. Every agent that lists the tools reads it, whereas the embedded instructions
-reach only agents with embedded context; terminal Claude never lists the tools.
+Weavie tells an agent what the pane can draw, never how to write a reply; that is the user's to decide.
+
+- **Tool descriptions** say what each tool is for: `showBlock` for data worth seeing as a chart or a large or
+  live table, a markdown table for a small static one, an update in place over resending or reprinting, one
+  update per block at a time. Claude Code and Codex show an MCP tool by name only until the agent looks it up,
+  and an agent does not look up a tool it has no reason to want. `showBlock` is therefore listed with `_meta`
+  `anthropic/alwaysLoad`, which keeps its description in Claude's context. Codex ignores the marker.
+- **`EmbeddedAgentGuidance.PaneInstructions`** tells agents with embedded context in the native pane that it
+  draws a `mermaid` fence as a diagram and a markdown table as a table, and that `showBlock` shows charts and
+  tables. Terminal Claude never lists the tools and does not get it.
+- **`agent.preferVisuals`** (machine, on by default) adds `AgentSettings.VisualPreference` to each prompt an
+  agent in the pane receives, whoever wrote it (the user, a workflow stage, Fix Line), as assistant-audience
+  text after the prompt's own. It is the user's preference in the user's voice, in the prompt, because the same
+  preference stated in Weavie's instructions is followed far less often. A prompt that begins with `/` does
+  not carry it, because Claude runs a slash command itself only when it is the last text block; nor does a
+  message from another session.
 
 ## Error handling
 

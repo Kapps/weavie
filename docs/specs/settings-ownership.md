@@ -42,12 +42,12 @@ request, or it is two settings.
 
 ## Classification
 
-99 settings: 63 device, 27 machine, 9 repo.
+100 settings: 63 device, 28 machine, 9 repo.
 
 | Owner | Keys |
 |---|---|
 | Device | `font.*`, `editor.font.*`, `terminal.font.*`, `interface.font.*`, `prose.font.family`; every `editor.*` option including `editor.spellCheckLocale`; `notifications.*`; `theme.*`; `agent.replyStartOffset`, `agent.thoughtDisplay`, `agent.progressDisplay`; `gettingStarted.completed` |
-| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.paneCoalesceMs`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds`; `developer.webInspector` |
+| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.preferVisuals`, `agent.paneCoalesceMs`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds`; `developer.webInspector` |
 | Repo | `worktree.setupCommand`, `worktree.teardownCommand`, `test.profile`, `lsp.<id>.command`, `workflow.default` |
 
 Settings that change sides:

@@ -139,6 +139,19 @@ public sealed class AcpSideGuidanceTests {
 		AssertPrimaryScope(requests[3]);
 	}
 
+	[Fact]
+	public async Task APaneAgentsFirstPromptSaysWhatThePaneDraws() {
+		await using var fixture = AcpAgentSessionFixture.CreateWithEmbeddedContext(true);
+		await fixture.StartAsync();
+		await fixture.TurnAsync("hello", 1);
+
+		var instructions = Assert.Single(AcpPromptAssertions.Blocks(Assert.Single(AcpPromptAssertions.Read(fixture))),
+			block => block.GetProperty("type").GetString() == "resource"
+				&& block.GetProperty("resource").GetProperty("uri").GetString() == "weavie://instructions");
+		Assert.Contains(EmbeddedAgentGuidance.PaneInstructions,
+			instructions.GetProperty("resource").GetProperty("text").GetString(), StringComparison.Ordinal);
+	}
+
 	private static bool HasGenericGuidance(JsonElement request) => AcpPromptAssertions.Blocks(request)
 		.Any(block => block.GetProperty("type").GetString() == "resource"
 			&& block.GetProperty("resource").GetProperty("uri").GetString() == "weavie://instructions");

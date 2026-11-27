@@ -23,6 +23,12 @@ public static class AgentSettings {
 	/// <summary>How far down the agent pane a reply read from its start rests, as a fraction of the pane's height.</summary>
 	public const string ReplyStartOffset = "agent.replyStartOffset";
 
+	/// <summary>Adds <see cref="VisualPreference"/> to each prompt an agent in the native pane receives, slash commands and other sessions' messages aside.</summary>
+	public const string PreferVisuals = "agent.preferVisuals";
+
+	/// <summary>The user's preference, in their voice, that <see cref="PreferVisuals"/> adds to a prompt.</summary>
+	public const string VisualPreference = "In your replies to me, I prefer diagrams and tables to paragraphs of text where they fit.";
+
 	/// <summary>Whether thought text is shown inline or in a separate collapsed disclosure.</summary>
 	public const string ThoughtDisplay = "agent.thoughtDisplay";
 

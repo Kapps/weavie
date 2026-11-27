@@ -80,6 +80,8 @@ public sealed partial class McpServer {
 					["title"] = Described(Text(), "Set by the first block that names the dashboard."),
 				}, "id", "title"), "The dashboard this block joins, created by the first block that names it."),
 			}, "id", "title"));
+		// Claude Code shows an MCP tool by name only until the agent looks it up; this keeps showBlock's description in context.
+		show["_meta"] = new JsonObject { ["anthropic/alwaysLoad"] = true };
 		var update = Tool(UpdateBlockTool,
 			"Change a block you showed with showBlock, in place, instead of showing or printing the data again. Pass a whole new 'chart' or 'table', or 'append' new points or rows, with append.keep holding a rolling window. Make one update per block at a time. The user watches the block change and sees when it was last updated, so don't announce an update or describe what changed unless it needs their attention. When updating blocks is all a turn did, reply with exactly " + AgentNoReply.Text + " and nothing else; Weavie shows no reply for it.",
 			Object(new JsonObject {

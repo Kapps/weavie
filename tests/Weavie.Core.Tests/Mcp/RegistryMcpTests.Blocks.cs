@@ -19,10 +19,13 @@ public sealed partial class RegistryMcpTests {
 		Assert.DoesNotContain("\"showBlock\"", await ListAsync(server, other.Credential.Token), StringComparison.Ordinal);
 		Assert.DoesNotContain("\"showBlock\"", await ListAsync(server, Token), StringComparison.Ordinal);
 		using (var tools = JsonDocument.Parse(await ListAsync(server, pane.Credential.Token))) {
-			var update = tools.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
-				.Single(tool => tool.GetProperty("name").GetString() == "updateBlock");
+			JsonElement[] listed = [.. tools.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()];
+			var update = listed.Single(tool => tool.GetProperty("name").GetString() == "updateBlock");
 			var append = update.GetProperty("inputSchema").GetProperty("properties").GetProperty("append");
 			Assert.Equal(["keep"], append.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+			Assert.Equal(["showBlock"], listed
+				.Where(tool => tool.TryGetProperty("_meta", out var meta) && meta.GetProperty("anthropic/alwaysLoad").GetBoolean())
+				.Select(tool => tool.GetProperty("name").GetString()));
 		}
 
 		using var shown = await CallBlockAsync(server, pane.Credential.Token,

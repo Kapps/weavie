@@ -25,6 +25,11 @@ public sealed partial class AcpAgentSession {
 			EnsureConversationAdmission();
 			var primary = _primary;
 			EnsureSideConversationSupport(primary);
+			if (submission.Anchor is { BlockId: { } blockId } anchor) {
+				if (Output.View(_definition.Id, anchor.ConversationId).Block(blockId)?.Walkthrough is null) {
+					throw new InvalidOperationException("That walkthrough is no longer shown.");
+				}
+			}
 			var spec = ChildSpec(primary, primary, fork: true, submission.Text, AcpConversationRole.Side);
 			StartOwned(spec with { Seed = spec.Seed with { Pending = [primary.Normalize(submission)!] } }, _context.Bindings.Side(spec.Seed.Continuation.ConversationId));
 		}
@@ -54,21 +59,48 @@ public sealed partial class AcpAgentSession {
 	}
 
 	/// <inheritdoc/>
+	public void StopAside(string conversationId) {
+		ArgumentException.ThrowIfNullOrEmpty(conversationId);
+		lock (_turnTransitionGate) {
+			if (_sides.GetValueOrDefault(conversationId) is { Conversation: { Live: true, HasWork: true } conversation }) conversation.Interrupt();
+		}
+	}
+
+	/// <inheritdoc/>
 	public void SetCardCollapsed(AgentCardRef card, bool collapsed) {
 		ArgumentNullException.ThrowIfNull(card);
 		lock (_turnTransitionGate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
 			var view = Output.View(_definition.Id, card.ConversationId);
-			var marker = (card.DashboardId is { } dashboard
-				? view.Dashboard(dashboard)
+			var marker = (card.DashboardId is { } dashboard ? view.Dashboard(dashboard)
+				: card.BlockId is { } block ? view.Rows.FirstOrDefault(message => AgentBlockReferences.IsBlockRow(message) && message.BlockId == block)
 				: card.ConversationId is null ? null : view.Rows.FirstOrDefault(message => message.Type == "side-conversation-started"))
 				?? throw new InvalidOperationException("That card is no longer in this conversation.");
 			// Its own row type, never the card's row again: a re-emitted item row would join the publishing turn's items.
 			_primary.Publish(marker with {
-				Type = card.DashboardId is null ? "side-conversation-collapsed" : AgentDashboards.Collapsed,
+				Type = card.DashboardId is not null ? AgentDashboards.Collapsed : card.BlockId is not null ? "block-collapsed" : "side-conversation-collapsed",
 				Text = null,
 				Summary = null,
 				Status = collapsed ? "collapsed" : "expanded",
+			});
+		}
+	}
+
+	/// <inheritdoc/>
+	public void SetReplyCard(string submissionId, AgentReplyCardState state) {
+		ArgumentException.ThrowIfNullOrEmpty(submissionId);
+		lock (_turnTransitionGate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			// Its prompt may still be queued, so the row stands alone and the pane applies it wherever the prompt lands.
+			_primary.Publish(new AgentPaneMessage {
+				Type = "reply-card",
+				ProviderId = _definition.Id,
+				ItemId = submissionId,
+				Status = state switch {
+					AgentReplyCardState.Collapsed => "collapsed",
+					AgentReplyCardState.Dismissed => "dismissed",
+					_ => "expanded",
+				},
 			});
 		}
 	}

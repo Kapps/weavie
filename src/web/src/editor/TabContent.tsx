@@ -14,6 +14,7 @@ import {
   Switch,
 } from "solid-js";
 import type { BlocksTabViewState } from "../agent/AgentBlocksTab";
+import type { WalkthroughViewState } from "../agent/walkthrough/walkthrough-view";
 import type { ClientSession } from "../bridge";
 import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
@@ -30,6 +31,7 @@ const PlanView = lazy(() => import("./plan/PlanView"));
 const AgentConversationTab = lazy(() => import("../agent/AgentConversationTab"));
 const AgentBlocksTab = lazy(() => import("../agent/AgentBlocksTab"));
 const AgentTaskTab = lazy(() => import("../agent/AgentTaskTab"));
+const WalkthroughTab = lazy(() => import("../agent/walkthrough/WalkthroughTab"));
 const PreviewPane = lazy(() => import("./preview/PreviewPane"));
 const SourceView = lazy(() => import("./source/SourceView"));
 const ReviewTab = lazy(() => import("./review/ReviewTab"));
@@ -48,6 +50,10 @@ function ActiveTabContent(props: {
   const [view, setView] = createSignal<HTMLElement>();
   // An overlay's saved view state: what it hands back on capture, and what a blocks tab sizes its rows from.
   const [viewState, setViewState] = createSignal<unknown>(tab.entry.viewState);
+  const saveViewState = (state: unknown): void => {
+    setViewState(state);
+    controller.captureTab(tab);
+  };
   const bind = (element: HTMLElement): (() => void) => {
     setView(element);
     return () => {
@@ -149,12 +155,21 @@ function ActiveTabContent(props: {
               kind={kind as "dashboard" | "block"}
               path={tab.entry.path}
               viewState={() => viewState() as BlocksTabViewState | null}
-              setViewState={(state) => {
-                setViewState(state);
-                controller.captureTab(tab);
-              }}
+              setViewState={saveViewState}
               bind={bind}
             />
+          </Match>
+          <Match when={kind === "walkthrough" && host()}>
+            {(ready) => (
+              <WalkthroughTab
+                session={tab.session}
+                path={tab.entry.path}
+                createScope={() => ready().createFileModelScope(tab.session)}
+                viewState={() => viewState() as WalkthroughViewState | null}
+                setViewState={saveViewState}
+                bind={bind}
+              />
+            )}
           </Match>
           <Match when={kind === "task"}>
             <AgentTaskTab session={tab.session} path={tab.entry.path} bind={bind} />

@@ -47,34 +47,64 @@ vi.mock("../../agent/composer-store", () => ({
   followUpComposer: (
     _session: unknown,
     _key: string,
+    anchor: unknown,
     _selection: unknown,
     sent: (id: string) => void,
-  ) => ({ setOpen: () => {}, sent }),
+  ) => ({ setOpen: () => {}, sent, anchor }),
 }));
 vi.mock("../../notify/notify", () => ({ notify: () => {} }));
 vi.mock("../editor-context", () => ({ editorContexts: { get: () => host.connection } }));
 vi.mock("../selection-excerpt", () => ({
-  lastLineOf: (range: { endLineNumber: number }) => range.endLineNumber,
+  anchorPath: (model: { uri: { scheme: string; path: string; toString(): string } }) =>
+    model.uri.scheme === "weavie-file" ? model.uri.path : model.uri.toString(),
   selectionExcerpt: () => ({ label: "notes.txt:1:1-1:8", text: "retry()" }),
 }));
-vi.mock("../monaco-setup", () => ({
-  monaco: { editor: { TrackedRangeStickiness: { GrowsOnlyWhenTypingBefore: 3 } } },
+vi.mock("../session-uri", () => ({
+  SESSION_FILE_SCHEME: "weavie-file",
+  sessionUriHostPath: (uri: { path: string }) => uri.path,
 }));
+vi.mock("../monaco-setup", () => {
+  class Range {
+    constructor(
+      readonly startLineNumber: number,
+      readonly startColumn: number,
+      readonly endLineNumber: number,
+      readonly endColumn: number,
+    ) {}
+    delta(lines: number) {
+      return new Range(
+        this.startLineNumber + lines,
+        this.startColumn,
+        this.endLineNumber + lines,
+        this.endColumn,
+      );
+    }
+  }
+  return {
+    monaco: { Range, editor: { TrackedRangeStickiness: { GrowsOnlyWhenTypingBefore: 3 } } },
+  };
+});
 vi.mock("../../agent/agent-command-owner", () => ({ ownedTarget: () => host.owned }));
 
 import { createSignal } from "solid-js";
-import type { AgentTranscriptSnapshot } from "../../agent/AgentPaneTranscriptTypes";
+import type {
+  AgentTranscriptEntry,
+  AgentTranscriptSnapshot,
+} from "../../agent/AgentPaneTranscriptTypes";
 import { emptyTranscript } from "../../agent/AgentTranscriptSnapshot";
-import type { ClientSession } from "../../bridge";
+import type { AgentAnchor, ClientSession } from "../../bridge";
 import { evaluateWhen } from "../../commands/context";
 import { CommandIds } from "../../commands/types";
 import type { monaco } from "../monaco-setup";
 import {
   addInlineReply,
+  anchorPlace,
   dismissInlineRepliesOn,
   dismissInlineReply,
   inlineFollowUp,
   inlineReplies,
+  placeReply,
+  setInlineReplyCollapsed,
 } from "./inline-replies-store";
 
 const onLine = (line: number) => ({
@@ -84,8 +114,18 @@ const onLine = (line: number) => ({
   endColumn: 8,
 });
 
+const anchorOn = (line: number, card: string, path = "/notes.txt") => ({
+  path,
+  conversationId: null,
+  blockId: null,
+  place: anchorPlace(onLine(line)),
+  quote: `line ${line}`,
+  card,
+});
+
 function openSession() {
   const handlers = new Map<string, (payload: unknown) => void>();
+  const published: Array<{ name: string; payload: unknown }> = [];
   const session = {
     closed: false,
     feature: () => ({
@@ -93,41 +133,65 @@ function openSession() {
         handlers.set(name, handler);
         return () => handlers.delete(name);
       },
+      publish: (name: string, payload: unknown) => published.push({ name, payload }),
     }),
   } as unknown as ClientSession;
   const [historyComplete, setHistoryComplete] = createSignal(true);
   const [transcript, setTranscript] = createSignal(emptyTranscript);
   host.pane = { historyComplete, transcript };
   for (const install of host.installers) install(session);
-  const prompts = (...ids: string[]): AgentTranscriptSnapshot => ({
+  // A prompt row: its submission id, and the anchor and card state it was saved with.
+  const prompt = (
+    id: string,
+    anchor: AgentAnchor | undefined,
+    replyCard: AgentTranscriptEntry["replyCard"],
+  ): AgentTranscriptEntry => ({
+    actionMessage: null,
+    detailCount: 0,
+    details: [],
+    id,
+    kind: "message",
+    label: "You",
+    status: null,
+    streaming: false,
+    summary: null,
+    text: id,
+    tone: "user",
+    submissionId: id,
+    ...(anchor === undefined ? {} : { anchor }),
+    ...(replyCard === undefined ? {} : { replyCard }),
+  });
+  const rows = (entries: AgentTranscriptEntry[]): AgentTranscriptSnapshot => ({
     ...emptyTranscript,
-    entries: ids.map((id) => ({
-      actionMessage: null,
-      detailCount: 0,
-      details: [],
-      id,
-      kind: "message",
-      label: "You",
-      status: null,
-      streaming: false,
-      summary: null,
-      text: id,
-      tone: "user",
-      submissionId: id,
-    })),
+    entries,
   });
   return {
     session,
+    published,
     setHistoryComplete,
-    show: (...ids: string[]) => setTranscript(prompts(...ids)),
+    prompt,
+    load: (...entries: AgentTranscriptEntry[]) => setTranscript(rows(entries)),
+    // Rows for prompts sent from this page: each carries the anchor its card was sent with.
+    show: (...ids: string[]) =>
+      setTranscript(
+        rows(
+          ids.map((id) => {
+            const card = inlineReplies(session).find(
+              (reply) => reply.id === id || reply.followUps.includes(id),
+            );
+            return prompt(id, card?.anchor, undefined);
+          }),
+        ),
+      ),
     settle: (id: string, status: "rejected" | "dropped", error: string) =>
       handlers.get("submissionState")!({ id, attachmentIds: [], status, error }),
   };
 }
 
-function openModel(scheme = "weavie-file") {
+function openModel(scheme = "weavie-file", text = "") {
   const marks = new Set<string>();
   const lines = new Map<string, ReturnType<typeof onLine> & { isEmpty(): boolean }>();
+  let content = text.split("\n");
   let disposed = false;
   const listeners = new Map<string, (event: { isFlush: boolean }) => void>();
   const listen = (name: string, listener: (event: { isFlush: boolean }) => void) => {
@@ -136,8 +200,11 @@ function openModel(scheme = "weavie-file") {
   };
   const model = {
     uri: { scheme, path: "/notes.txt", toString: () => `${scheme}:/notes.txt` },
+    getLineCount: () => content.length,
+    getLineContent: (line: number) => content[line - 1] ?? "",
+    validateRange: (range: ReturnType<typeof onLine>) => range,
     // Each mark stays on the code it was made for.
-    getDecorationRange: (mark: string) => lines.get(mark) ?? null,
+    getDecorationRange: (mark: string) => (marks.has(mark) ? lines.get(mark)! : null),
     deltaDecorations: (old: string[], added: { range: ReturnType<typeof onLine> }[]) => {
       for (const mark of old) marks.delete(mark);
       return added.map(({ range }) => {
@@ -156,13 +223,27 @@ function openModel(scheme = "weavie-file") {
     model,
     marks,
     listening: () => listeners.size,
-    replaceText: () => listeners.get("content")?.({ isFlush: true }),
+    replaceText: (next: string) => {
+      content = next.split("\n");
+      marks.clear();
+      listeners.get("content")?.({ isFlush: true });
+    },
     dispose: () => {
       listeners.get("dispose")?.({ isFlush: false });
       disposed = true;
     },
   };
 }
+
+const add = (
+  session: ClientSession,
+  model: monaco.editor.ITextModel,
+  line: number,
+  id: string,
+  path = "/notes.txt",
+) => addInlineReply(session, model, onLine(line), anchorOn(line, id, path), "why?");
+
+const ids = (session: ClientSession) => inlineReplies(session).map((reply) => reply.id);
 
 describe("inline replies", () => {
   beforeEach(() => {
@@ -174,58 +255,66 @@ describe("inline replies", () => {
     host.select(null);
   });
 
-  it("holds a file open until its replies end or it is gone, and never a model that is not a file", async () => {
+  it("holds a file open while its replies are shown, never a model that is not a file, and ends a deleted file's", async () => {
     const { session } = openSession();
     const settled = () => new Promise((resolve) => setTimeout(resolve));
-    addInlineReply(session, openModel("weavie-review").model, onLine(1), "proposed", "why?");
-    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
+    add(session, openModel("weavie-review").model, 1, "proposed", "weavie-review:/notes.txt");
+    add(session, openModel().model, 1, "ask");
     await settled();
     expect(host.held).toEqual(["/notes.txt"]);
 
-    dismissInlineRepliesOn(session, "weavie-file:/other.txt");
-    expect(inlineReplies(session)).toHaveLength(2);
-    dismissInlineRepliesOn(session, "weavie-file:/notes.txt");
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["proposed"]);
+    dismissInlineRepliesOn(session, { path: "/other.txt" } as monaco.Uri);
+    expect(ids(session)).toEqual(["proposed", "ask"]);
+    dismissInlineRepliesOn(session, { path: "/notes.txt" } as monaco.Uri);
+    expect(ids(session)).toEqual(["proposed"]);
     await settled();
     expect(host.held).toEqual([]);
   });
 
-  it("keeps a reply under its line until it is dismissed", () => {
-    const { session } = openSession();
+  it("keeps a reply under its code until it is dismissed, which the host records", () => {
+    const { session, published } = openSession();
     const { model, marks } = openModel();
-    addInlineReply(session, model, onLine(3), "ask", "why?");
+    add(session, model, 3, "ask");
     expect(inlineReplies(session)).toMatchObject([{ id: "ask", question: "why?", error: null }]);
-    expect(marks.size).toBe(1);
+    expect(placeReply(session, inlineReplies(session)[0]!, model)).toEqual({
+      line: 3,
+      moved: false,
+    });
 
     dismissInlineReply(session, "ask");
     expect(inlineReplies(session)).toEqual([]);
     expect(marks.size).toBe(0);
     expect(host.cleared).toEqual(["inline-reply:ask"]);
+    expect(published).toEqual([
+      { name: "setReplyCard", payload: { submissionId: "ask", state: "dismissed" } },
+    ]);
   });
 
   it("carries the reason a prompt was refused, and ends when the agent drops it undelivered", () => {
-    const { session, settle } = openSession();
-    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
+    const { session, settle, published } = openSession();
+    add(session, openModel().model, 1, "ask");
     settle("ask", "rejected", "Agent input is paused while Weavie restarts.");
     expect(inlineReplies(session)[0]?.error).toBe("Agent input is paused while Weavie restarts.");
 
-    addInlineReply(session, openModel().model, onLine(1), "queued", "and this?");
+    add(session, openModel().model, 1, "queued");
     settle("queued", "dropped", "");
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["ask"]);
+    expect(ids(session)).toEqual(["ask"]);
+    // A refused card never reached the host, so dismissing it tells the host nothing.
+    dismissInlineReply(session, "ask");
+    expect(published).toEqual([]);
   });
 
-  it("keeps the follow-ups asked from a card, less any that went nowhere", () => {
+  it("keeps the follow-ups asked from a card, less any that went nowhere, each sent with the card's anchor", () => {
     const { session, settle } = openSession();
-    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
-    const sent = (id: string) =>
-      (
-        inlineFollowUp(session, inlineReplies(session)[0]!) as unknown as {
-          sent(id: string): void;
-        }
-      ).sent(id);
-    sent("more");
-    sent("refused");
-    sent("lost");
+    add(session, openModel().model, 1, "ask");
+    const box = inlineFollowUp(session, inlineReplies(session)[0]!) as unknown as {
+      sent(id: string): void;
+      anchor: AgentAnchor;
+    };
+    expect(box.anchor.card).toBe("ask");
+    box.sent("more");
+    box.sent("refused");
+    box.sent("lost");
     settle("refused", "rejected", "Agent input is paused while Weavie restarts.");
     settle("lost", "dropped", "");
     expect(inlineReplies(session)).toMatchObject([{ id: "ask", followUps: ["more"], error: null }]);
@@ -233,7 +322,7 @@ describe("inline replies", () => {
 
   it("drops a follow-up that was rewound away, and keeps its card", () => {
     const { session, show } = openSession();
-    addInlineReply(session, openModel().model, onLine(1), "ask", "why?");
+    add(session, openModel().model, 1, "ask");
     const follow = inlineFollowUp(session, inlineReplies(session)[0]!) as unknown as {
       sent(id: string): void;
     };
@@ -243,12 +332,60 @@ describe("inline replies", () => {
     expect(inlineReplies(session)).toMatchObject([{ id: "ask", followUps: [] }]);
   });
 
+  it("comes back from the saved transcript with its follow-ups and state, less the dismissed", () => {
+    const { session, load, prompt } = openSession();
+    load(
+      prompt("first", anchorOn(2, "first"), "collapsed"),
+      prompt("plain", undefined, undefined),
+      prompt("more", anchorOn(2, "first"), undefined),
+      prompt("gone", anchorOn(5, "gone"), "dismissed"),
+      prompt("walkthrough", { ...anchorOn(1, "walkthrough"), path: null, blockId: "w" }, undefined),
+    );
+    expect(inlineReplies(session)).toMatchObject([
+      { id: "first", question: "first", followUps: ["more"], collapsed: true },
+    ]);
+  });
+
+  it("shows a fold or dismissal at once, and holds it until the transcript catches up, however rows land", () => {
+    const { session, load, prompt } = openSession();
+    const saved = (state: AgentTranscriptEntry["replyCard"]) =>
+      load(prompt("ask", anchorOn(2, "ask"), state));
+    saved(undefined);
+    const collapsed = () => inlineReplies(session)[0]?.collapsed;
+
+    // Folded then opened again before either row lands: the first row's arrival must not fold it.
+    setInlineReplyCollapsed(session, "ask", true);
+    setInlineReplyCollapsed(session, "ask", false);
+    saved("collapsed");
+    expect(collapsed()).toBe(false);
+    saved(undefined);
+    expect(collapsed()).toBe(false);
+
+    dismissInlineReply(session, "ask");
+    expect(ids(session)).toEqual([]);
+    saved(undefined);
+    expect(ids(session)).toEqual([]);
+    saved("dismissed");
+    expect(ids(session)).toEqual([]);
+  });
+
+  it("finds its code again in a file that changed, and stays where the code was once it is gone", () => {
+    const { session, load, prompt } = openSession();
+    load(prompt("ask", anchorOn(2, "ask"), undefined));
+    const reply = inlineReplies(session)[0]!;
+    const shifted = openModel("weavie-file", "new\nlines\nline 1\nline 2");
+    expect(placeReply(session, reply, shifted.model)).toEqual({ line: 4, moved: false });
+
+    shifted.replaceText("nothing\nlike it\nnow");
+    expect(placeReply(session, reply, shifted.model)).toEqual({ line: 2, moved: true });
+  });
+
   it("is collapsed and dismissed by command: the one named, else the one in view nearest the cursor", () => {
-    const { session } = openSession();
+    const { session, published } = openSession();
     const { model } = openModel();
-    addInlineReply(session, model, onLine(2), "upper", "why?");
-    addInlineReply(session, model, onLine(9), "lower", "why?");
-    addInlineReply(session, model, onLine(40), "offscreen", "why?");
+    add(session, model, 2, "upper");
+    add(session, model, 9, "lower");
+    add(session, model, 40, "offscreen");
     let cursor = 7;
     host.connection = {
       model,
@@ -264,45 +401,46 @@ describe("inline replies", () => {
     expect(collapsed()).toEqual([false, true, false]);
     run(CommandIds.toggleInlineReply, { id: "upper" });
     expect(collapsed()).toEqual([true, true, false]);
+    expect(published.map(({ payload }) => payload)).toEqual([
+      { submissionId: "lower", state: "collapsed" },
+      { submissionId: "upper", state: "collapsed" },
+    ]);
     cursor = 38;
     run(CommandIds.dismissInlineReply, undefined);
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["upper", "offscreen"]);
+    expect(ids(session)).toEqual(["upper", "offscreen"]);
     // The card the user is in wins over the cursor.
     host.owned = "offscreen";
     run(CommandIds.dismissInlineReply, undefined);
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["upper"]);
+    expect(ids(session)).toEqual(["upper"]);
     expect(() => run(CommandIds.dismissInlineReply, { id: "gone" })).toThrow("no inline reply");
   });
 
   it("drops a reply whose prompt left the loaded transcript, and keeps one still on its way", () => {
     const { session, show, setHistoryComplete } = openSession();
     const { model } = openModel();
-    addInlineReply(session, model, onLine(1), "answered", "why?");
-    addInlineReply(session, model, onLine(2), "queued", "and this?");
+    add(session, model, 1, "answered");
+    add(session, model, 2, "queued");
     show("answered");
     // A reloading transcript is not a cleared one.
     setHistoryComplete(false);
     show();
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["answered", "queued"]);
+    expect(ids(session)).toEqual(["answered", "queued"]);
 
     setHistoryComplete(true);
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["queued"]);
+    expect(ids(session)).toEqual(["queued"]);
   });
 
-  it("ends with its model or the text its mark was in, and all at once by command", () => {
+  it("outlives its model and the text its mark was in, and ends all at once by command", () => {
     const { session } = openSession();
     host.select(session);
     const closing = openModel();
-    const replaced = openModel();
     const { model, marks, listening } = openModel();
-    addInlineReply(session, closing.model, onLine(1), "closed", "why?");
-    addInlineReply(session, replaced.model, onLine(1), "replaced", "why?");
-    addInlineReply(session, model, onLine(1), "first", "why?");
-    addInlineReply(session, model, onLine(2), "second", "why?");
+    add(session, closing.model, 1, "closed");
+    add(session, model, 1, "first");
+    add(session, model, 2, "second");
     closing.dispose();
-    replaced.replaceText();
-    expect(inlineReplies(session).map((reply) => reply.id)).toEqual(["first", "second"]);
-    expect(replaced.listening()).toBe(0);
+    expect(closing.listening()).toBe(0);
+    expect(ids(session)).toEqual(["closed", "first", "second"]);
 
     expect(evaluateWhen("agentInlineReplies")).toBe(true);
     host.commands.get(CommandIds.dismissInlineReplies)!(undefined, { session });

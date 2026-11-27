@@ -8,7 +8,7 @@ const dashboardPrefix = "dashboard:";
 
 /** Whether `entry` is a card a user can open and collapse. */
 export const isCard = (entry: AgentTranscriptEntry): boolean =>
-  entry.kind === "aside" || entry.kind === "dashboard";
+  entry.kind === "aside" || entry.kind === "dashboard" || entry.kind === "walkthrough";
 
 /** The transcript entry id of dashboard `dashboardId` in one conversation. */
 export const dashboardEntryId = (conversationId: string | null, dashboardId: string): string =>
@@ -23,6 +23,7 @@ type Card = AgentTranscriptEntry & { asideEntries: AgentTranscriptEntry[] };
 export class AgentPaneBlocks {
   private readonly cards = new Map<string, Card>();
   private readonly waiting = new Map<string, AgentTranscriptEntry[]>();
+  private readonly walkthroughs = new Map<string, AgentTranscriptEntry>();
 
   /** The entries `message` adds at its place, or null when it is not a block or dashboard row. */
   take(message: AgentPaneUpdate, sequence: number): AgentTranscriptEntry[] | null {
@@ -38,8 +39,19 @@ export class AgentPaneBlocks {
       this.cards.set(message.itemId, card);
       return [card];
     }
+    if (message.type === "block-collapsed" && message.blockId) {
+      const card = this.walkthroughs.get(message.blockId);
+      if (card !== undefined) card.asideCollapsed = message.status === "collapsed";
+      return [];
+    }
     if (message.type !== "item-completed" || message.itemType !== "block" || !message.blockId) {
       return null;
+    }
+    if (message.category === "walkthrough") {
+      const card = blockEntry(message, sequence, null);
+      card.asideCollapsed = false;
+      this.walkthroughs.set(message.blockId, card);
+      return [card];
     }
     const parent = message.parentItemId?.startsWith(dashboardPrefix) ? message.parentItemId : null;
     const block = blockEntry(message, sequence, parent?.slice(dashboardPrefix.length) ?? null);
@@ -57,9 +69,11 @@ function blockEntry(
   sequence: number,
   dashboardId: string | null,
 ): AgentBlockTranscriptEntry {
-  const kind = message.category === "table" ? "table" : "chart";
+  const kind =
+    message.category === "table" || message.category === "walkthrough" ? message.category : "chart";
+  const label = { chart: "Chart", table: "Table", walkthrough: "Walkthrough" }[kind];
   return {
-    ...entry(message, sequence, "block", "assistant", kind === "table" ? "Table" : "Chart", null),
+    ...entry(message, sequence, kind === "walkthrough" ? kind : "block", "assistant", label, null),
     ...inConversation(message),
     ...(dashboardId === null ? {} : { dashboardId }),
     // A member's text is the line its turn shows, never the block's.

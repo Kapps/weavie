@@ -40,6 +40,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly ISessionPeers _sessions;
 	private readonly AgentConsultation _agents;
 	private readonly IReviewHintSink _reviewHints;
+	private readonly WalkthroughCapture _walkthroughs;
 	private readonly IWorkflowRegistry _workflows;
 	private readonly string _toolsListJson;
 	private readonly string _paneToolsListJson;
@@ -94,6 +95,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_sessions = registry?.Sessions ?? NoSessionPeers.Instance;
 		_agents = registry?.Agents ?? AgentConsultation.None;
 		_reviewHints = registry?.ReviewHints ?? ReviewHintSink.None;
+		_walkthroughs = registry?.Walkthroughs ?? WalkthroughCapture.None;
 		_workflows = registry?.Workflows ?? WorkflowRegistry.None;
 		AddGrant(new AgentSessionCredential { Token = authToken }, _workflows.CaptureStageCall, _sessions);
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
@@ -113,7 +115,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				LayoutToolEntries, CommandToolEntries, ThemeToolEntries,
 			]);
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
-		_paneToolsListJson = registry is null ? _toolsListJson : "{\"tools\":[" + entries + "," + BlockToolEntries + "]}";
+		_paneToolsListJson = registry is null ? _toolsListJson : "{\"tools\":[" + entries + "," + BlockToolEntries + "," + WalkthroughToolEntries + "]}";
 		IdeName = ideName;
 	}
 
@@ -462,6 +464,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case ShowBlockTool or UpdateBlockTool:
 				await HandleBlockToolAsync(responder, args, idRaw, call, name == ShowBlockTool, ct).ConfigureAwait(false);
+				break;
+			case PublishWalkthroughTool or UpdateWalkthroughTool:
+				await HandleWalkthroughToolAsync(responder, args, idRaw, call, name == PublishWalkthroughTool, ct).ConfigureAwait(false);
 				break;
 			case OpenDashboardTool:
 				await HandleOpenDashboardAsync(responder, args, idRaw, call, ct).ConfigureAwait(false);

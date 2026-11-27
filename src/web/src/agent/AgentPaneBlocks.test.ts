@@ -153,3 +153,63 @@ describe("dashboards", () => {
     );
   });
 });
+
+describe("walkthroughs", () => {
+  const walkthrough = row({
+    itemId: "tool:w",
+    itemType: "block",
+    category: "walkthrough",
+    summary: "How claims work",
+    blockId: "claims",
+  });
+
+  it("is a card of its own that collapses by its block", () => {
+    withModel(
+      [
+        walkthrough,
+        row({ type: "block-collapsed", itemId: "tool:w", blockId: "claims", status: "collapsed" }),
+      ],
+      (model) => {
+        const card = model.transcript().entries[0]!;
+        expect(card).toMatchObject({
+          kind: "walkthrough",
+          summary: "How claims work",
+          block: { id: "claims", kind: "walkthrough" },
+          asideCollapsed: true,
+        });
+        expect(model.transcript().cardIndexes).toEqual([0]);
+        expect(model.block(null, "claims")).toBe(card);
+      },
+    );
+  });
+
+  it("keeps a question asked from it out of the transcript and lists it for the walkthrough", () => {
+    withModel(
+      [
+        walkthrough,
+        row({
+          type: "side-conversation-started",
+          conversationId: "q1",
+          status: "forking",
+          text: "Why a ticket?",
+          anchor: {
+            conversationId: null,
+            blockId: "claims",
+            place: "stage/code/0/4",
+            quote: "random",
+            card: "ask",
+          },
+        }),
+        row({ type: "agent-message-delta", conversationId: "q1", itemId: "a", text: "Because…" }),
+      ],
+      (model) => {
+        expect(model.transcript().entries.map((entry) => entry.kind)).toEqual(["walkthrough"]);
+        expect(model.cards().map((card) => card.kind)).toEqual(["walkthrough"]);
+        const [question] = model.questions();
+        expect(question!.anchor).toMatchObject({ blockId: "claims", place: "stage/code/0/4" });
+        expect(question!.entry.summary).toBe("Why a ticket?");
+        expect(model.conversation("q1")).toBe(question!.entry);
+      },
+    );
+  });
+});

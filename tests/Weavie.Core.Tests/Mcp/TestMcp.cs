@@ -43,7 +43,8 @@ internal static class TestMcp {
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null,
-		IDevice? device = null) {
+		IDevice? device = null,
+		WalkthroughCapture? walkthroughs = null) {
 		var defaults = Defaults(settings, settingsWorkspaceRoot ?? workspaceFolders[0]);
 		return new McpServer(authToken, presenter, workspaceFolders, "weavie", defaults with {
 			ExposeIdeTools = exposeIdeTools,
@@ -56,6 +57,7 @@ internal static class TestMcp {
 			ReviewHints = reviewHints ?? defaults.ReviewHints,
 			Workflows = workflows ?? defaults.Workflows,
 			Device = device ?? defaults.Device,
+			Walkthroughs = walkthroughs ?? defaults.Walkthroughs,
 		});
 	}
 
@@ -83,6 +85,7 @@ internal static class TestMcp {
 			Sessions = NoSessionPeers.Instance,
 			Agents = AgentConsultation.None,
 			ReviewHints = ReviewHintSink.None,
+			Walkthroughs = new WalkthroughCapture(fileSystem, settingsWorkspaceRoot, _ => false),
 			Workflows = WorkflowRegistry.None,
 		};
 	}

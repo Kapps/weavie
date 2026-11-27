@@ -26,6 +26,7 @@ export function cardEntry(
     case "dashboard":
       return model?.dashboard(card.conversationId, card.dashboardId);
     case "block":
+    case "walkthrough":
       return model?.block(card.conversationId, card.blockId);
   }
 }

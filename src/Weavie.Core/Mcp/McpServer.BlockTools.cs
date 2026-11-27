@@ -3,13 +3,14 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
+using static Weavie.Core.Mcp.McpSchema;
 
 namespace Weavie.Core.Mcp;
 
 // showBlock / updateBlock: a chart or table drawn in the native agent pane. See docs/specs/acp-rich-content/design.md.
 // The schema is built from the validator's own value sets and limits, so the two can't drift.
 public sealed partial class McpServer {
-	private const string ShowBlockTool = "showBlock";
+	private const string ShowBlockTool = AgentBlockRules.ShowTool;
 	private const string UpdateBlockTool = AgentBlockRules.UpdateTool;
 	private const string OpenDashboardTool = "openDashboard";
 
@@ -19,18 +20,6 @@ public sealed partial class McpServer {
 		string limits = string.Create(CultureInfo.InvariantCulture,
 			$"{AgentBlockLimits.Series} series of {AgentBlockLimits.Points:N0} points, {AgentBlockLimits.Rows:N0} rows of {AgentBlockLimits.Columns} columns.");
 		JsonObject Value() => new() { ["type"] = new JsonArray("number", "string", "null") };
-		JsonObject Text() => new() { ["type"] = "string" };
-		JsonObject Enum(IReadOnlyList<string> values) => new() { ["type"] = "string", ["enum"] = new JsonArray([.. values.Select(value => (JsonNode)value)]) };
-		JsonObject Described(JsonObject schema, string description) {
-			schema["description"] = description;
-			return schema;
-		}
-		JsonObject Array(JsonNode items) => new() { ["type"] = "array", ["items"] = items };
-		JsonObject Object(JsonObject properties, params string[] required) => new() {
-			["type"] = "object",
-			["properties"] = properties,
-			["required"] = new JsonArray([.. required.Select(name => (JsonNode)name)]),
-		};
 		JsonObject Points() => Described(Array(new JsonObject { ["type"] = "array", ["items"] = Value(), ["minItems"] = 2, ["maxItems"] = 2 }),
 			"[x, y] pairs. A time x is Unix milliseconds or ISO 8601.");
 		JsonObject Rows() => Described(Array(Array(Value())), "One array per row, one value per column.");
@@ -66,8 +55,6 @@ public sealed partial class McpServer {
 			}, "name", "type")),
 			["rows"] = Rows(),
 		}, "columns", "rows");
-		JsonObject Tool(string name, string description, JsonObject schema) =>
-			new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 		var show = Tool(ShowBlockTool,
 			"Show the user a chart or a table in Weavie's agent pane, between your reply's text. Use it for data worth seeing as a chart, or for a large or live table; use a markdown table for a small static one. Give it an id to change it later with updateBlock. To keep several blocks together, for example the signals of a rollout, name the same 'dashboard' on each: they share one card the user can open in an editor tab. Weavie draws it in the user's theme; don't repeat its data in your reply. Limits: " + limits,
 			Object(new JsonObject {
@@ -126,7 +113,20 @@ public sealed partial class McpServer {
 			: $" Added to dashboard '{dashboard.Id}' (\"{standing}\").";
 	}
 
-	private async Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) {
+	private Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) =>
+		StageBlockAsync(responder, args, idRaw, call, show ? ShowBlockTool : UpdateBlockTool, json => {
+			var request = JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest)
+				?? throw new AgentBlockException("The arguments must be an object.");
+			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
+			return (operation, operation is AgentBlockOperation.Show shown
+				? $" The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
+				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.");
+		}, ct);
+
+	// Checks a block tool's arguments and stages the operation; the result leads with the token that claims its row.
+	private async Task StageBlockAsync(
+		IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, string tool,
+		Func<string, (AgentBlockOperation Operation, string Said)> validate, CancellationToken ct) {
 		string text;
 		try {
 			string json = args.ValueKind == JsonValueKind.Object ? args.GetRawText() : "{}";
@@ -134,15 +134,10 @@ public sealed partial class McpServer {
 			if (bytes > AgentBlockLimits.ArgumentBytes) {
 				throw new AgentBlockException($"The arguments are {bytes:N0} bytes; the limit is {AgentBlockLimits.ArgumentBytes:N0}. Aggregate and resend.");
 			}
-			var request = JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest)
-				?? throw new AgentBlockException("The arguments must be an object.");
-			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
-			text = operation is AgentBlockOperation.Show shown
-				? $" The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
-				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.";
-			text = call.Blocks.Stage(operation) + text;
+			var (operation, said) = validate(json);
+			text = call.Blocks.Stage(operation) + said;
 		} catch (JsonException ex) {
-			await SendToolErrorAsync(responder, idRaw, $"Invalid {(show ? ShowBlockTool : UpdateBlockTool)} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, $"Invalid {tool} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
 			return;
 		} catch (AgentBlockException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);

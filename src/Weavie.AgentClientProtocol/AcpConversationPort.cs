@@ -27,7 +27,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 	public bool CommitBlock(AcpConversationState state, AgentBlockOperation operation, IReadOnlyList<AgentPaneMessage> rows) {
 		lock (transitionGate) {
 			if (!Publishing || AgentBlockRules.Apply(view.Block(operation.Id), operation, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is not { } block) return false;
-			OnCommitBlock(state, block, rows);
+			OnCommitBlock(state, block, operation.Sources, rows);
 			return true;
 		}
 	}
@@ -126,7 +126,7 @@ internal abstract class AcpConversationPort(Lock transitionGate, ConversationVie
 
 	protected abstract AgentEventFeedback OnObserve(AgentEvent value);
 	protected abstract void OnEmit(AcpConversationState state, AgentPaneMessage message);
-	protected abstract void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyList<AgentPaneMessage> rows);
+	protected abstract void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyDictionary<string, string> sources, IReadOnlyList<AgentPaneMessage> rows);
 	protected abstract void OnSave(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages);
 	protected abstract void OnControlsChanged();
 	protected abstract void OnUsageChanged(AgentUsageSnapshot snapshot);
@@ -169,13 +169,13 @@ public sealed partial class AcpAgentSession {
 		}
 
 		// The block is saved before its rows, so a crash between them leaves only a block no history shows.
-		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyList<AgentPaneMessage> rows) {
+		protected override void OnCommitBlock(AcpConversationState state, AgentBlock block, IReadOnlyDictionary<string, string> sources, IReadOnlyList<AgentPaneMessage> rows) {
 			AgentPaneMessage[] prepared = [.. rows.Select(Prepare).OfType<AgentPaneMessage>()];
 			if (prepared.Length != rows.Count) return;
 			var blockState = new AgentBlockState(runtime.Definition.Id, conversationId, block);
 			owner.Output.WriteBlock(blockState, prepared, () => {
 				if (owner._storageFailed) throw StorageUnavailable();
-				Archive(() => owner._sessions.SaveBlock(owner._context.Workspace, blockState));
+				Archive(() => owner._sessions.SaveBlock(owner._context.Workspace, blockState, sources));
 				OnSave(state, prepared);
 			});
 		}

@@ -1,4 +1,4 @@
-import type { AgentPaneUpdate } from "../bridge";
+import type { AgentAnchor, AgentPaneUpdate } from "../bridge";
 import type { ActivityDetailsSource } from "./AgentActivityDetailsSource";
 import type { AgentConversationProjection } from "./AgentConversationProjection";
 
@@ -35,6 +35,7 @@ export interface AgentTranscriptEntry {
     | "block"
     | "block-added"
     | "dashboard"
+    | "walkthrough"
     | "message"
     | "thought"
     | "notice"
@@ -58,6 +59,10 @@ export interface AgentTranscriptEntry {
   promptTurnId?: string;
   /** The submission whose text this row is. */
   submissionId?: string;
+  /** Where the submission was asked from, for a prompt a surface places under its selection. */
+  anchor?: AgentAnchor;
+  /** What the user made of the card this prompt starts, when anything but leaving it expanded. */
+  replyCard?: "collapsed" | "dismissed";
   /** The user's row a pending request came after, which says whose it is once it moves to the end. */
   promptedBy?: string;
   conversation?: AgentConversationProjection;
@@ -68,7 +73,7 @@ export interface AgentTranscriptEntry {
   asideReplyable?: boolean | undefined;
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
-  block?: { id: string; key: string; kind: "chart" | "table" } | undefined;
+  block?: { id: string; key: string; kind: "chart" | "table" | "walkthrough" } | undefined;
   /** The dashboard a dashboard card shows, a block belongs to, or a block-added line points at. */
   dashboardId?: string;
 }

@@ -46,7 +46,7 @@ export default function ReviewTab(props: {
       onSectionCollapsed={controller.review.setSectionCollapsed}
       onRevealContext={controller.review.revealFileContext}
       configureDiff={controller.review.configureDiff}
-      createCopyScope={() => props.host.createReviewCopyScope(tab.session)}
+      createCopyScope={() => props.host.createFileModelScope(tab.session)}
     />
   );
 }

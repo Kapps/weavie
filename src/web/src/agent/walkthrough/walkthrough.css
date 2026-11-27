@@ -1,0 +1,267 @@
+/* A walkthrough: one centred column a reader moves down, with its stops listed along the bottom. */
+
+.walkthrough-tab {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.walkthrough-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.walkthrough-column {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  /* Room below the last stop, so any stop can be scrolled up to where it reads as the current one. */
+  padding: 18px 20px 70vh;
+  font: var(--font-chrome-body-wrap);
+}
+
+.walkthrough-title {
+  margin: 0 0 12px;
+  font: var(--font-chrome-display);
+}
+
+.walkthrough-prose {
+  max-width: 76ch;
+  font: var(--font-prose);
+}
+
+.walkthrough-gist {
+  margin: 14px 0 10px;
+  padding: 10px 14px 4px;
+  border-left: 2px solid var(--accent);
+  background: var(--bar);
+}
+
+.walkthrough-example {
+  color: var(--dim);
+  font: var(--font-chrome-mono);
+}
+
+.walkthrough-update {
+  display: grid;
+  margin-top: 20px;
+  padding-bottom: 6px;
+}
+
+.walkthrough-update > p {
+  margin: 6px 14px;
+}
+
+.walkthrough-stop {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hairline);
+}
+
+.walkthrough-stop-number {
+  color: var(--accent);
+  font: var(--font-chrome-badge);
+}
+
+.walkthrough-stop-title {
+  margin: 2px 0 8px;
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
+}
+
+.walkthrough-changed {
+  margin: 0 0 10px;
+}
+
+.walkthrough-tag {
+  margin-right: 8px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  font: var(--font-chrome-badge);
+}
+
+.ui-row .walkthrough-tag {
+  margin: 0 0 0 auto;
+}
+
+.walkthrough-tag.is-changed,
+.walkthrough-dot.is-changed {
+  color: var(--warn);
+}
+
+.walkthrough-tag.is-affected,
+.walkthrough-dot.is-affected {
+  color: var(--busy);
+}
+
+.walkthrough-tag.is-added,
+.walkthrough-dot.is-added {
+  color: var(--ok);
+}
+
+.walkthrough-number {
+  min-width: 18px;
+  color: var(--dim);
+}
+
+/* Code: a read-only editor framed by its file's name. */
+.walkthrough-code {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+}
+
+.walkthrough-file {
+  display: flex;
+  gap: 12px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  font: var(--font-chrome-badge);
+}
+
+.walkthrough-file-lines {
+  flex: none;
+  margin-left: auto;
+  color: var(--dim);
+}
+
+.walkthrough-notice {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--warn);
+  font: var(--font-chrome-badge);
+}
+
+.walkthrough-editor {
+  position: relative;
+}
+
+.walkthrough-mark {
+  border-bottom: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.walkthrough-note {
+  padding: 1px 12px 5px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--accent);
+  font: var(--font-chrome-body-wrap);
+}
+
+.walkthrough-was {
+  display: block;
+  color: var(--dim);
+}
+
+.walkthrough-asked {
+  border-bottom: 2px solid var(--busy);
+  background: color-mix(in srgb, var(--busy) 20%, transparent);
+}
+
+::highlight(walkthrough-asked) {
+  background-color: color-mix(in srgb, var(--busy) 25%, transparent);
+}
+
+/* The followed example, under the code as a notebook shows a cell's output. */
+.walkthrough-state {
+  --card-pad: 12px;
+  margin-top: 18px;
+  border-left: 2px solid var(--busy);
+}
+
+.walkthrough-state-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.walkthrough-state-label,
+.walkthrough-state-note,
+.walkthrough-source {
+  color: var(--dim);
+  font: var(--font-chrome-badge);
+}
+
+.walkthrough-state-value {
+  overflow-wrap: anywhere;
+  font: var(--font-chrome-mono);
+}
+
+.walkthrough-why,
+.walkthrough-predict {
+  --card-pad: 12px;
+  max-width: 80ch;
+  margin-top: 18px;
+}
+
+.walkthrough-why-title {
+  font-weight: var(--font-weight-emphasis);
+}
+
+.walkthrough-answer {
+  color: var(--accent);
+}
+
+/* A question, under the text it was asked about. */
+.walkthrough-question {
+  max-width: 80ch;
+  margin: 6px 0 10px;
+}
+
+.walkthrough-quote {
+  margin: 8px 0;
+  padding-left: 8px;
+  overflow: hidden;
+  border-left: 2px solid var(--busy);
+  color: var(--dim);
+  font: var(--font-chrome-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The stops, along the bottom of the tab. */
+.walkthrough-strip {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px 4px;
+  background: var(--bg);
+}
+
+.walkthrough-strip .ui-stepper {
+  margin-right: 8px;
+}
+
+.walkthrough-strip-stop {
+  flex: 1;
+  min-width: 0;
+  border-top: 2px solid var(--hairline);
+  color: var(--dim);
+}
+
+.walkthrough-strip-stop.is-read {
+  border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.walkthrough-strip-stop.is-current {
+  border-top-color: var(--accent);
+  color: var(--fg);
+}
+
+.walkthrough-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.walkthrough-card {
+  display: grid;
+  gap: 2px;
+}

@@ -1,5 +1,6 @@
 import {
   Activity,
+  BookOpen,
   Bot,
   ChartLine,
   ChevronLeft,
@@ -50,6 +51,7 @@ const cardKindNames = new Map<TabKind, string>([
   ["aside", "BTW"],
   ["dashboard", "Dashboard"],
   ["block", "Chart"],
+  ["walkthrough", "Walkthrough"],
 ]);
 
 // A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
@@ -278,6 +280,9 @@ export function TabStrip(props: {
                   </Show>
                   <Show when={view.kind === "dashboard" || view.kind === "block"}>
                     <ChartLine class="editor-tab-icon" />
+                  </Show>
+                  <Show when={view.kind === "walkthrough"}>
+                    <BookOpen class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "task"}>
                     <Activity class="editor-tab-icon" />

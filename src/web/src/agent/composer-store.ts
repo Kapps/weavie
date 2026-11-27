@@ -1,4 +1,4 @@
-import { type ClientSession, invokeCommandInSession } from "../bridge";
+import { type AgentAnchor, type ClientSession, invokeCommandInSession } from "../bridge";
 import { CommandIds } from "../commands/types";
 import { captureCommandUsage } from "../commands/usage-store";
 import * as state from "./composer-state";
@@ -34,7 +34,9 @@ export const sendAgentSelection = (
   session: ClientSession,
   selection: AgentSelection,
   comment: string,
-): string | null => state.sendSelection(main(session), selection, comment);
+  place: Omit<AgentAnchor, "card"> | null,
+): { id: string; anchor: AgentAnchor | null } | null =>
+  state.sendSelection(main(session), selection, comment, place);
 
 type PreparedSubmission = NonNullable<ReturnType<typeof state.prepareSubmission>>;
 
@@ -88,13 +90,14 @@ export const replyComposer = (session: ClientSession, conversationId: string): R
   );
 
 /**
- * The composer of a follow-up box keyed `key`: each prompt goes to the main conversation, and the box opens
- * holding what `selection` is now, so the follow-up is about the same code. `sent` receives each submission's id.
- * A follow-up needs text.
+ * The composer of a follow-up box keyed `key`: each prompt goes to the main conversation carrying `anchor`, its
+ * card's, and the box opens holding what `selection` is now, so the follow-up is about the same code. `sent`
+ * receives each submission's id. A follow-up needs text.
  */
 export const followUpComposer = (
   session: ClientSession,
   key: string,
+  anchor: AgentAnchor,
   selection: () => AgentSelection | null,
   sent: (submissionId: string) => void,
 ): ReplyComposer =>
@@ -111,7 +114,7 @@ export const followUpComposer = (
       if (excerpt !== null) state.attachSelection(owner, excerpt);
     },
     (owner, submission) => {
-      state.publishAgent(owner, "submit", submission);
+      state.publishAgent(owner, "submit", { ...submission, anchor });
       sent(submission.id);
     },
   );

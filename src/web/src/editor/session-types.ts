@@ -20,6 +20,7 @@ export interface EditorSessionEntry {
     | "aside"
     | "dashboard"
     | "block"
+    | "walkthrough"
     | "task";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a

@@ -80,7 +80,8 @@ public sealed partial class HostCore {
 					?? throw new ArgumentException("Ask Agent Aside requires a question or image.");
 				session.AcceptAgentSubmission(new HostSession.AgentSubmitMessage(
 					args.SubmissionId ?? Guid.NewGuid().ToString("N"), args.Question ?? string.Empty,
-					args.Kind ?? "prompt", args.CommandName ?? string.Empty, args.AttachmentIds, args.Selections), sideConversations.AskAside);
+					args.Kind ?? "prompt", args.CommandName ?? string.Empty, args.AttachmentIds, args.Selections, args.Anchor),
+					sideConversations.AskAside);
 				return Task.FromResult(CommandResult.Success());
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
@@ -155,7 +156,9 @@ public sealed partial class HostCore {
 	}
 
 	internal sealed record AgentAsideCommand(
-		string? Question, string? SubmissionId, string[]? AttachmentIds, HostSession.AgentSelectionWire[]? Selections, string? Kind, string? CommandName);
+		string? Question, string? SubmissionId, string[]? AttachmentIds, HostSession.AgentSelectionWire[]? Selections, string? Kind, string? CommandName,
+		AgentAnchor? Anchor);
+
 	internal sealed record AgentRewindCommand(string? TurnId);
 
 	private void PostForSession(HostSession session, Action action) {

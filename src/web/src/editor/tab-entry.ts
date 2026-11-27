@@ -16,7 +16,8 @@ export type AgentCardRef =
   | { kind: "subagent"; conversationId: string }
   | { kind: "aside"; conversationId: string }
   | { kind: "dashboard"; conversationId: string | null; dashboardId: string }
-  | { kind: "block"; conversationId: string | null; blockId: string };
+  | { kind: "block"; conversationId: string | null; blockId: string }
+  | { kind: "walkthrough"; conversationId: string | null; blockId: string };
 
 export type AgentCardKind = AgentCardRef["kind"];
 
@@ -29,7 +30,8 @@ export function cardTabPath(card: AgentCardRef): string {
     case "dashboard":
       return `dashboard:${card.dashboardId}@${card.conversationId ?? ""}`;
     case "block":
-      return `block:${card.blockId}@${card.conversationId ?? ""}`;
+    case "walkthrough":
+      return `${card.kind}:${card.blockId}@${card.conversationId ?? ""}`;
   }
 }
 
@@ -37,7 +39,7 @@ export function cardTabPath(card: AgentCardRef): string {
 export function cardForTab(kind: TabKind, path: string): AgentCardRef | null {
   const rest = path.slice(kind.length + 1);
   if (kind === "subagent" || kind === "aside") return { kind, conversationId: rest };
-  if (kind !== "dashboard" && kind !== "block") return null;
+  if (kind !== "dashboard" && kind !== "block" && kind !== "walkthrough") return null;
   // An id never holds '@', so the first one ends it.
   const at = rest.indexOf("@");
   const id = rest.slice(0, at);

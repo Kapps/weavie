@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 
 namespace Weavie.AgentClientProtocol;
@@ -40,7 +41,7 @@ internal sealed partial class AcpConversation {
 			if (includesGuidance) {
 				blocks.Add(AcpContent.AssistantResource(
 					"weavie://instructions",
-					EmbeddedAgentGuidance.Compose(_context.Runtime)));
+					EmbeddedAgentGuidance.Compose(_context.Runtime, _context.Settings.RequireBool(AgentSettings.WalkthroughBeforeEditing))));
 			}
 			if (_context.Editor.Active is { } editor) {
 				string selection = $"Active file: {editor.FilePath}\n"
@@ -93,6 +94,7 @@ internal sealed partial class AcpConversation {
 				ItemId = submission.Id,
 				Text = submission.Text,
 				Sender = submission.Sender,
+				Anchor = submission.Anchor,
 			});
 		}
 		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {

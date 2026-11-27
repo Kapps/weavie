@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("./selection-actions", () => ({ createSelectionActions: vi.fn() }));
+vi.mock("./selection-actions", () => ({
+  createSelectionActions: vi.fn(),
+  sendToConversation: vi.fn(),
+}));
 
 const { selectionLabel } = await import("./agent-reply-selection");
 

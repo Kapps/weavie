@@ -1,21 +1,28 @@
-import { onCleanup } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
-import { runCommandWithFeedback } from "../commands/registry";
+import { runCommandInSessionWithFeedback, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { AgentCardRef } from "../editor/tab-entry";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { ownsCommand, ownTarget } from "./agent-command-owner";
+import { ownOnFocus } from "./agent-command-owner";
 
 /** A card with a collapsed state, kept in its conversation's history. */
-export type CollapsibleCard = Extract<AgentCardRef, { kind: "aside" | "dashboard" }>;
+export type CollapsibleCard = Extract<
+  AgentCardRef,
+  { kind: "aside" | "dashboard" | "walkthrough" }
+>;
 
 /** The card `entry` is, for opening its tab; null for an entry that is not one. */
 export function cardOf(entry: AgentTranscriptEntry): AgentCardRef | null {
   const conversationId = entry.conversationId ?? null;
   if (entry.kind === "dashboard")
     return { kind: "dashboard", conversationId, dashboardId: entry.dashboardId! };
-  if (entry.block !== undefined) return { kind: "block", conversationId, blockId: entry.block.id };
+  if (entry.block !== undefined)
+    return {
+      kind: entry.kind === "walkthrough" ? "walkthrough" : "block",
+      conversationId,
+      blockId: entry.block.id,
+    };
   if ((entry.kind === "aside" || entry.kind === "subagent") && conversationId !== null)
     return { kind: entry.kind, conversationId };
   return null;
@@ -38,11 +45,16 @@ export function namedCard(args: unknown): AgentCardRef | null {
     return { kind, conversationId };
   if (kind === "dashboard" && typeof dashboardId === "string")
     return { kind, conversationId, dashboardId };
-  if (kind === "block" && typeof blockId === "string") return { kind, conversationId, blockId };
+  if ((kind === "block" || kind === "walkthrough") && typeof blockId === "string")
+    return { kind, conversationId, blockId };
   throw new Error(
-    "Name a card by kind: subagent or aside with its conversationId, dashboard with its dashboardId, block with its blockId.",
+    "Name a card by kind: subagent or aside with its conversationId, dashboard with its dashboardId, block or walkthrough with its blockId.",
   );
 }
+
+/** Stops the turn side conversation `conversationId` is working on, as Stop on its card does. */
+export const stopAside = (session: ClientSession, conversationId: string): Promise<unknown> =>
+  runCommandInSessionWithFeedback(session, CommandIds.stopAgentAside, { conversationId });
 
 /** Opens `card` in an editor tab of its session. */
 export const openCard = (card: AgentCardRef): Promise<unknown> =>
@@ -61,6 +73,7 @@ export function setCardCollapsed(
   session.feature("agent").publish("setCardCollapsed", {
     conversationId: card.conversationId,
     dashboardId: card.kind === "dashboard" ? card.dashboardId : null,
+    blockId: card.kind === "walkthrough" ? card.blockId : null,
     collapsed,
   });
 }
@@ -88,15 +101,11 @@ const claimed = new WeakSet<Event>();
 
 /** Makes the card the user presses or focuses the one the card commands act on, until they move on. */
 export function ownCardOnFocus(target: () => OwnedCard | null): (event: Event) => void {
-  let release: (() => void) | null = null;
-  onCleanup(() => release?.());
+  const own = ownOnFocus(cardFocusContext, target);
   return (event) => {
-    if (claimed.has(event)) return;
-    const owned = target();
-    if (owned === null) return;
+    if (claimed.has(event) || target() === null) return;
     claimed.add(event);
-    if (ownsCommand(cardFocusContext, release)) return;
-    release = ownTarget(cardFocusContext, event.currentTarget as Element, owned);
+    own(event);
   };
 }
 

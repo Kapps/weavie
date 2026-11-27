@@ -30,6 +30,8 @@ export function createZoneCards<T>(
   renderCard: (data: Accessor<T>) => JSX.Element,
   /** How far in from the code's left edge the cards start, kept clear on the right too. */
   inset: number,
+  /** Whether a card under a hidden line still shows, after the nearest shown line above it. */
+  showInHiddenAreas: boolean,
 ): () => void {
   const slots = new Map<string, Slot<T>>();
   const [list, setList] = createSignal<Slot<T>[]>([]);
@@ -59,6 +61,7 @@ export function createZoneCards<T>(
         const zone = {
           afterLineNumber: card.afterLine,
           heightInPx: 0,
+          showInHiddenAreas,
           domNode: document.createElement("div"),
           onDomNodeTop: setTop,
         };

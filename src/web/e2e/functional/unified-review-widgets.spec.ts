@@ -87,7 +87,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
       .poll(async () =>
         page.evaluate(
           () =>
-            document.querySelectorAll(".unified-review-overflow-widgets").length -
+            document.querySelectorAll(".embedded-editor-overflow-widgets").length -
             document.querySelectorAll(".unified-review-editor-viewport > .monaco-editor").length,
         ),
       )

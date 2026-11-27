@@ -25,7 +25,7 @@ async function openSection(page: Page): Promise<Locator> {
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: sourceName }),
   });
-  await expect(section.locator(".unified-review-gap")).toHaveText([
+  await expect(section.locator(".code-band")).toHaveText([
     "Show 36 unchanged lines",
     "Show 63 unchanged lines",
     "Show 36 unchanged lines",
@@ -37,10 +37,10 @@ test("every collapsed stretch shows a band, and a real click on one reveals its 
   page,
 }) => {
   const section = await openSection(page);
-  for (const band of await section.locator(".unified-review-gap").all()) {
+  for (const band of await section.locator(".code-band").all()) {
     await expect(band).toBeVisible();
   }
-  const middle = section.locator(".unified-review-gap", { hasText: "Show 63" });
+  const middle = section.locator(".code-band", { hasText: "Show 63" });
   await expect(middle).toBeInViewport();
   // Monaco's text layer covers view zones, so click the point the way a user does.
   const box = (await middle.boundingBox())!;
@@ -49,20 +49,20 @@ test("every collapsed stretch shows a band, and a real click on one reveals its 
   const opened = section.locator(".view-line", { hasText: "line44 = 0" });
   await expect(opened).toBeInViewport();
   expect(Math.abs((await opened.boundingBox())!.y - box.y)).toBeLessThan(2);
-  await expect(section.locator(".unified-review-gap")).toHaveCount(2);
+  await expect(section.locator(".code-band")).toHaveCount(2);
 });
 
 test("Alt+] shows the whole file and collapses it back", async ({ page }) => {
   const section = await openSection(page);
   await section.locator(".view-line", { hasText: "line38 = 0" }).click();
   await page.keyboard.press("Alt+BracketRight");
-  await expect(section.locator(".unified-review-gap")).toHaveCount(0);
+  await expect(section.locator(".code-band")).toHaveCount(0);
   await expect(section.locator(".unified-review-file-context")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await page.keyboard.press("Alt+BracketRight");
-  await expect(section.locator(".unified-review-gap")).toHaveCount(3);
+  await expect(section.locator(".code-band")).toHaveCount(3);
 });
 
 test("clicking a line number opens the file at that line", async ({ page }) => {

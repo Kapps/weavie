@@ -71,6 +71,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 		SideConversations = Session as IStructuredAgentSideConversations;
 		Cards = Session as IStructuredAgentCards;
+		Walkthroughs = Session as IStructuredAgentWalkthroughs;
 		Rewind = Session as IStructuredAgentRewind;
 	}
 
@@ -106,6 +107,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The transcript's collapsible cards, when the structured agent has them.</summary>
 	public IStructuredAgentCards? Cards { get; }
+
+	/// <summary>The code its walkthroughs recorded, when the structured agent can publish them.</summary>
+	public IStructuredAgentWalkthroughs? Walkthroughs { get; }
 
 	/// <summary>The conversation-rewind surface, when the structured agent supports it.</summary>
 	public IStructuredAgentRewind? Rewind { get; }

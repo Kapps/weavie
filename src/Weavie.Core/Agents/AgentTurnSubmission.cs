@@ -73,6 +73,9 @@ public sealed record AgentTurnSubmission {
 	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
 	public AgentMessageSender? Sender { get; init; }
 
+	/// <summary>Where the prompt was asked from, when it was asked about a selection a surface places it under.</summary>
+	public AgentAnchor? Anchor { get; init; }
+
 	/// <summary>Whether a provider command also carries the session's per-turn context, as a workflow stage's opening
 	/// turn does; ordinary prompts always carry it.</summary>
 	public bool CarriesTurnContext { get; init; }
@@ -85,4 +88,27 @@ public sealed record AgentTurnSubmission {
 		var paths = Attachments.OfType<AgentInputAttachment.Image>().Select(attachment => attachment.Path);
 		return Kind == AgentTurnSubmissionKind.ProviderCommand ? [Text, .. paths] : [.. paths, Text];
 	}
+}
+
+/// <summary>
+/// Where a prompt was asked from and the text selected there: lines of the file <paramref name="Path"/>, or a place in
+/// walkthrough <paramref name="BlockId"/> of conversation <paramref name="ConversationId"/> (null for the primary).
+/// <paramref name="Place"/> is the asking surface's own, which only it reads; <paramref name="Card"/> is the first
+/// prompt of the card the prompt belongs to, which its follow-ups repeat.
+/// </summary>
+public sealed partial record AgentAnchor(string? Path, string? ConversationId, string? BlockId, string Place, string Quote, string Card) {
+	/// <summary>The most characters of the selected text the anchor quotes.</summary>
+	public const int QuoteLength = 200;
+
+	/// <summary>Why this anchor can't be kept, or null: it names a file or a walkthrough, a place and card are short
+	/// paths, a quote one line of text.</summary>
+	public string? Problem() =>
+		(Path is null) == (BlockId is null) ? "An anchor names a file or a walkthrough."
+		: Path?.Length == 0 ? "An anchor's file needs a path."
+		: !PlaceRule().IsMatch(Place) || !PlaceRule().IsMatch(Card) ? "An anchor's place and card are up to 200 letters, digits, '.', '_', '-', '@' or '/'."
+		: Quote.Trim().Length == 0 || Quote.Length > QuoteLength || Quote.Contains('\n') ? $"An anchor's quote is one line of up to {QuoteLength} characters."
+		: null;
+
+	[System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9_.@/-]{1,200}$")]
+	private static partial System.Text.RegularExpressions.Regex PlaceRule();
 }

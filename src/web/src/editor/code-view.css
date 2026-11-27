@@ -1,0 +1,39 @@
+.code-band,
+.code-band-margin {
+  box-sizing: border-box;
+  border-block: 1px dashed color-mix(in srgb, var(--border) 80%, var(--fg));
+  background: color-mix(in srgb, var(--border) 25%, transparent);
+  color: var(--dim);
+  font: var(--font-chrome-body);
+  cursor: pointer;
+}
+
+.code-band > span,
+.code-band-margin > span {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Right-aligns the glyph with the line numbers, clear of the decorations lane. */
+.code-band-margin > span {
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+
+.code-band-margin svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Monaco's text layer covers view zones, so hover is driven from its mouse events (code-view.ts). */
+.code-band.hover,
+.code-band-margin.hover {
+  background: var(--list-active-bg);
+  color: var(--fg);
+}
+
+.code-band-hover .monaco-editor .view-lines,
+.code-band-hover .monaco-editor .margin {
+  cursor: pointer;
+}

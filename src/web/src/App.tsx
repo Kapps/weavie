@@ -29,6 +29,7 @@ import {
   agentPaneModel,
 } from "./agent/pane-store";
 import { WorkflowRunStatus } from "./agent/WorkflowRunStatus";
+import { walkthroughFocusContext } from "./agent/walkthrough/walkthrough-page";
 import {
   activeBackendId,
   activeBackendOffline,
@@ -1644,11 +1645,40 @@ export default function App(): JSX.Element {
           return true;
         }
         const collapsed = (args as { collapsed?: unknown }).collapsed;
-        if (named.kind !== "aside" && named.kind !== "dashboard")
-          throw new Error("Only a BTW or a dashboard card collapses.");
+        if (named.kind !== "aside" && named.kind !== "dashboard" && named.kind !== "walkthrough")
+          throw new Error("Only a BTW, dashboard or walkthrough card collapses.");
         if (typeof collapsed !== "boolean")
           throw new Error("Say whether to collapse the card: collapsed true or false.");
         setCardCollapsed(liveCard(context.session, named), named, collapsed);
+        return true;
+      }),
+      ...(
+        [
+          [CommandIds.nextWalkthroughStop, 1],
+          [CommandIds.previousWalkthroughStop, -1],
+        ] as const
+      ).map(([id, delta]) =>
+        registerCommand(id, () => {
+          const step = ownedTarget<(delta: number) => void>(walkthroughFocusContext);
+          step?.(delta);
+          return step !== undefined;
+        }),
+      ),
+      registerCommand(CommandIds.stopAgentAside, (args, context) => {
+        const named = (args as { conversationId?: unknown } | undefined)?.conversationId;
+        const owned = named === undefined ? ownedTarget<OwnedCard>(cardFocusContext) : undefined;
+        const conversationId =
+          typeof named === "string"
+            ? named
+            : owned?.card.kind === "aside"
+              ? owned.card.conversationId
+              : undefined;
+        if (conversationId === undefined) return false;
+        const session = liveCard(owned?.session ?? context.session, {
+          kind: "aside",
+          conversationId,
+        });
+        session.feature("agent").publish("stopAside", { conversationId });
         return true;
       }),
       registerCommand(CommandIds.openAgentCard, (args, context) => {

@@ -1,10 +1,11 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Weavie.Core.Agents;
 
-/// <summary>A chart or table an agent shows in its pane and updates in place; it holds only its latest state.</summary>
+/// <summary>A chart, table or walkthrough an agent shows in its pane and updates in place; it holds only its latest state.</summary>
 public sealed record AgentBlock {
 	/// <summary>The agent-chosen id, unique within its conversation.</summary>
 	public required string Id { get; init; }
@@ -21,9 +22,12 @@ public sealed record AgentBlock {
 	/// <summary>The table, when the block is one.</summary>
 	public AgentTable? Table { get; init; }
 
-	/// <summary>The block's kind: <c>chart</c> or <c>table</c>.</summary>
+	/// <summary>The walkthrough, when the block is one.</summary>
+	public AgentWalkthrough? Walkthrough { get; init; }
+
+	/// <summary>The block's kind: <c>chart</c>, <c>table</c> or <c>walkthrough</c>.</summary>
 	[JsonIgnore]
-	public string Kind => Chart is null ? "table" : "chart";
+	public string Kind => Chart is not null ? "chart" : Table is not null ? "table" : "walkthrough";
 }
 
 /// <summary>A chart description: Weavie owns the format and draws it.</summary>
@@ -208,12 +212,19 @@ public sealed record AgentChartSeriesPoints {
 }
 
 /// <summary>A validated block tool call, applied when the call's transcript row is claimed.</summary>
-public abstract record AgentBlockOperation(string Id) {
+/// <param name="Id">The block's id.</param>
+/// <param name="Sources">The copies of code a walkthrough cites, saved beside its block by hash; empty for a chart or table.</param>
+public abstract record AgentBlockOperation(string Id, IReadOnlyDictionary<string, string> Sources) {
 	/// <summary>Shows a new block, in <paramref name="Dashboard"/> when it names one.</summary>
-	public sealed record Show(AgentBlock Block, AgentDashboardRequest? Dashboard) : AgentBlockOperation(Block.Id);
+	public sealed record Show(AgentBlock Block, AgentDashboardRequest? Dashboard, IReadOnlyDictionary<string, string> Sources)
+		: AgentBlockOperation(Block.Id, Sources);
 
-	/// <summary>Changes an existing block.</summary>
-	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id);
+	/// <summary>Changes an existing chart or table.</summary>
+	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id, FrozenDictionary<string, string>.Empty);
+
+	/// <summary>Changes an existing walkthrough, one change at a time, with the copies of code it newly cites.</summary>
+	public sealed record Walkthrough(string WalkthroughId, IReadOnlyList<AgentWalkthroughChange> Changes, IReadOnlyDictionary<string, string> Sources)
+		: AgentBlockOperation(WalkthroughId, Sources);
 }
 
 /// <summary>A block and the provider and Weavie conversation that own it.</summary>
@@ -230,5 +241,6 @@ public sealed record AgentBlockRecord(long Generation, long Revision, AgentBlock
 	RespectNullableAnnotations = true,
 	DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AgentBlockRequest))]
+[JsonSerializable(typeof(AgentWalkthroughRequest))]
 [JsonSerializable(typeof(AgentBlock))]
 public sealed partial class AgentBlockJson : JsonSerializerContext;

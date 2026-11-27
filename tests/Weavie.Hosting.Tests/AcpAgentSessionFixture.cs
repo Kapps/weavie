@@ -446,6 +446,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				Sessions = NoSessionPeers.Instance,
 				Agents = AgentConsultation.None,
 				ReviewHints = reviewHints,
+				Walkthroughs = new WalkthroughCapture(fileSystem, workspace, _ => false),
 				Workflows = new SessionWorkflowRegistry(workflowCatalog, workflow, new WorkflowRoleStore(fileSystem, directory.Combine("workflow-roles.json"))),
 			});
 		IFileSystem sessionFileSystem = failSessionPersistence

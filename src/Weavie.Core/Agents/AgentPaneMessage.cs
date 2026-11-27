@@ -98,6 +98,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The block a block row shows; its data lives in the conversation's block store.</summary>
 	public string? BlockId { get; init; }
 
+	/// <summary>Where a prompt or side conversation was asked from; the surface asked from reads it.</summary>
+	public AgentAnchor? Anchor { get; init; }
+
 	/// <summary>The editable plan file a plan review asks the user to approve.</summary>
 	public string? PlanPath { get; init; }
 

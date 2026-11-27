@@ -91,12 +91,38 @@ public interface IStructuredAgentSideConversations {
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, AgentTurnSubmission submission);
+
+	/// <summary>Stops the turn side conversation <paramref name="conversationId"/> is working on; one not working is left alone.</summary>
+	void StopAside(string conversationId);
 }
 
-/// <summary>The cards of one structured agent session's transcript: side conversations and dashboards.</summary>
+/// <summary>The code a structured agent session's walkthroughs recorded.</summary>
+public interface IStructuredAgentWalkthroughs {
+	/// <summary>The copy <paramref name="hash"/> names, as walkthrough <paramref name="blockId"/> recorded it.</summary>
+	string Source(string? conversationId, string blockId, string hash);
+}
+
+/// <summary>The cards of one structured agent session's transcript: side conversations, dashboards and the replies to
+/// prompts asked from a selection.</summary>
 public interface IStructuredAgentCards {
 	/// <summary>Records whether <paramref name="card"/> is collapsed, so it stays that way across restarts.</summary>
 	void SetCardCollapsed(AgentCardRef card, bool collapsed);
+
+	/// <summary>Records the state of the reply card whose first prompt is <paramref name="submissionId"/>, so it stays
+	/// that way across restarts.</summary>
+	void SetReplyCard(string submissionId, AgentReplyCardState state);
+}
+
+/// <summary>What the user made of a reply card, which its surface draws under the selection it was asked about.</summary>
+public enum AgentReplyCardState {
+	/// <summary>Shown whole.</summary>
+	Expanded,
+
+	/// <summary>Shown as its heading.</summary>
+	Collapsed,
+
+	/// <summary>Not shown.</summary>
+	Dismissed,
 }
 
 /// <summary>Rewinds one structured agent's primary conversation to just before an earlier prompt.</summary>

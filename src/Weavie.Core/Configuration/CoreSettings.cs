@@ -179,6 +179,17 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.WalkthroughBeforeEditing,
+			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
+			Description = "Ask native agents to publish a walkthrough of the code they are about to change, once they understand "
+				+ "it and before editing it, then update it after their edits. Applies from the next conversation.",
+			Aliases = ["walkthrough", "code walkthrough", "explain before editing", "walkthrough before editing"],
+			Apply = ApplyMode.Live,
+			Default = false,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.RemoteImages,
 			Kind = SettingKind.Bool,
 			Owner = SettingOwner.Machine,

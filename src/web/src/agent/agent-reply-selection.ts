@@ -1,30 +1,24 @@
 import type { ClientSession } from "../bridge";
-import { createSelectionActions } from "./selection-actions";
+import { watchDomSelectionGestures } from "../editor/selection-gestures";
+import { createSelectionActions, sendToConversation } from "./selection-actions";
 
 /** Offers explicit actions for a completed selection wholly inside this reply. */
 export function installReplySelection(host: HTMLElement, session: ClientSession): () => void {
-  const actions = createSelectionActions(host, session);
-  const show = (): void => {
-    const selection = document.getSelection();
-    if (
-      selection === null ||
-      selection.isCollapsed ||
-      !host.contains(selection.anchorNode) ||
-      !host.contains(selection.focusNode)
-    ) {
-      actions.clear();
-      return;
-    }
-    const text = selection.toString().trim();
-    if (text.length === 0) return;
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    actions.show({ label: selectionLabel(text), text }, { x: rect.left, y: rect.bottom }, () => {});
-  };
-  host.addEventListener("pointerup", show);
-  host.addEventListener("keyup", show);
+  const actions = createSelectionActions(host, session, () => null);
+  const unwatch = watchDomSelectionGestures(
+    host,
+    (range, text) => {
+      const rect = range.getBoundingClientRect();
+      actions.show(
+        { label: selectionLabel(text), text },
+        { x: rect.left, y: rect.bottom },
+        sendToConversation,
+      );
+    },
+    actions.clear,
+  );
   return () => {
-    host.removeEventListener("pointerup", show);
-    host.removeEventListener("keyup", show);
+    unwatch();
     actions.dispose();
   };
 }

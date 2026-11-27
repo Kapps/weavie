@@ -45,9 +45,10 @@ export interface ReviewCopy {
   editable: boolean;
 }
 
-/** Owns every model reference acquired by one mounted unified-review surface. */
-export interface ReviewCopyScope {
-  open(path: string, currentExists: boolean): Promise<ReviewCopy>;
+/** Owns every model reference acquired by one mounted review or walkthrough. */
+export interface FileModelScope {
+  /** The live file, or, for a file that is gone (`deleted` not null), a read-only copy holding `deleted`. */
+  open(path: string, deleted: string | null): Promise<ReviewCopy>;
   dispose(): void;
 }
 
@@ -110,8 +111,8 @@ export interface EditorHost {
   flushDirty(): Promise<void>;
   /** Flushes dirty working copies belonging to one exact session before that backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
-  /** Creates one model-reference scope owned by a mounted unified-review surface. */
-  createReviewCopyScope(session: ClientSession): ReviewCopyScope;
+  /** Creates one model-reference scope owned by a mounted surface: a unified review or a walkthrough. */
+  createFileModelScope(session: ClientSession): FileModelScope;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /** Releases working copies no longer owned by one of the session's open file tabs. */
@@ -487,7 +488,7 @@ export async function createEditorHost(
       // Discarded/converted scratch: drop the pending save instead of flushing — its temp file is being
       // deleted host-side, so a flush would be wasted or re-create the file.
       cancelPendingSave(key);
-      dismissInlineRepliesOn(session, key);
+      dismissInlineRepliesOn(session, sessionFileUri(session, path));
     } else {
       flushSave(key);
     }
@@ -580,9 +581,10 @@ export async function createEditorHost(
   // its own references, never the copies a rapidly-mounted successor just acquired.
   const reviewScopes = new Set<() => void>();
   let reviewScopeSequence = 0;
-  const createReviewCopyScope = (session: ClientSession): ReviewCopyScope => {
+  const createFileModelScope = (session: ClientSession): FileModelScope => {
     const refsByUri = new Map<string, ModelRef>();
-    const snapshots = new Map<string, monaco.editor.ITextModel>();
+    // Each deleted file's read-only copies, by the text they hold.
+    const snapshots = new Map<string, Map<string, monaco.editor.ITextModel>>();
     const scope = ++reviewScopeSequence;
     let disposed = false;
     const dispose = (): void => {
@@ -596,32 +598,33 @@ export async function createEditorHost(
         ref.dispose();
       }
       refsByUri.clear();
-      for (const model of snapshots.values()) {
-        model.dispose();
+      for (const copies of snapshots.values()) {
+        for (const model of copies.values()) model.dispose();
       }
       snapshots.clear();
     };
     reviewScopes.add(dispose);
 
     return {
-      open: async (path, currentExists) => {
+      open: async (path, deleted) => {
         if (disposed || session.signal.aborted) {
           throw new Error("the review closed while this file was loading");
         }
         const fileUri = sessionFileUri(session, path);
         const key = fileUri.toString();
-        if (!currentExists) {
-          const held = snapshots.get(key);
+        if (deleted !== null) {
+          const copies = snapshots.get(key) ?? new Map<string, monaco.editor.ITextModel>();
+          snapshots.set(key, copies);
+          const held = copies.get(deleted);
           if (held !== undefined) {
             return { model: held, editable: false };
           }
-          const uri = fileUri.with({ scheme: REVIEW_SCHEME, query: `deleted=${scope}` });
-          const model = monaco.editor.createModel("", undefined, uri);
-          if (disposed || session.signal.aborted) {
-            model.dispose();
-            throw new Error("the review closed while this file was loading");
-          }
-          snapshots.set(key, model);
+          const uri = fileUri.with({
+            scheme: REVIEW_SCHEME,
+            query: `deleted=${scope}.${copies.size}`,
+          });
+          const model = monaco.editor.createModel(deleted, undefined, uri);
+          copies.set(deleted, model);
           return { model, editable: false };
         }
 
@@ -854,7 +857,7 @@ export async function createEditorHost(
     flush,
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),
-    createReviewCopyScope,
+    createFileModelScope,
     clear,
     beginReview,
     endReview,

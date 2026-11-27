@@ -49,7 +49,7 @@ public sealed class AgentBlockTests {
 
 		Assert.Equal("dashboard.id must be 1-64 letters, digits, '.', '_' or '-'.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "roll out", Title = "t" } }, null, show: true)).Message);
-		Assert.Equal("dashboard.title must not be empty.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
+		Assert.Equal("dashboard.title is required.", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Title = "t", Chart = Line, Dashboard = new() { Id = "rollout", Title = " " } }, null, show: true)).Message);
 		Assert.StartsWith("updateBlock cannot move a block into a dashboard", Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(
 			new() { Id = "p95", Chart = Line, Dashboard = new() { Id = "rollout", Title = "t" } }, show.Block, show: false)).Message);
@@ -103,7 +103,7 @@ public sealed class AgentBlockTests {
 		Assert.Equal([2.0, 3.0], updated.Chart!.Series[0].Points.Select(point => point[1].Number!.Value));
 		Assert.Equal(42, updated.UpdatedAtMs);
 		Assert.Null(AgentBlockRules.Apply(null, append, 42));
-		Assert.Null(AgentBlockRules.Apply(updated, new AgentBlockOperation.Show(shown, null), 42));
+		Assert.Null(AgentBlockRules.Apply(updated, new AgentBlockOperation.Show(shown, null, new Dictionary<string, string>()), 42));
 	}
 
 	[Fact]
@@ -140,7 +140,7 @@ public sealed class AgentBlockTests {
 	[Fact]
 	public void ClaimsAreSingleUseAndFoundInAnyRelayShape() {
 		var claims = new AgentBlockClaims();
-		var operation = new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, null);
+		var operation = new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, null, new Dictionary<string, string>());
 		string token = claims.Stage(operation);
 
 		Assert.Null(claims.Take("weavie-block:" + new string('0', 32), null));
@@ -176,7 +176,7 @@ public sealed class AgentBlockTests {
 	[Fact]
 	public void StagedShowsNameTheDashboardTheyWillCreate() {
 		var claims = new AgentBlockClaims();
-		claims.Stage(new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, new() { Id = "rollout", Title = "Checkout rollout" }));
+		claims.Stage(new AgentBlockOperation.Show(new() { Id = "a", Title = "a" }, new() { Id = "rollout", Title = "Checkout rollout" }, new Dictionary<string, string>()));
 		Assert.Equal("Checkout rollout", claims.StagedTitle("rollout"));
 		Assert.Null(claims.StagedTitle("other"));
 	}

@@ -206,9 +206,28 @@ public sealed partial class HostSession {
 		});
 		messages.Handle("setCardCollapsed", MessageActivity.ActionFailed("Collapsing a card"), WireJson.Default.AgentCardCollapsedMessage, (message, _) => {
 			var cards = Agent.Cards ?? throw new InvalidOperationException("This agent has no cards.");
-			cards.SetCardCollapsed(new(message.ConversationId, message.DashboardId), message.Collapsed);
+			cards.SetCardCollapsed(new(message.ConversationId, message.DashboardId, message.BlockId), message.Collapsed);
 			return Task.CompletedTask;
 		});
+		messages.Handle("setReplyCard", MessageActivity.ActionFailed("Changing a reply card"), WireJson.Default.AgentReplyCardMessage, (message, _) => {
+			var cards = Agent.Cards ?? throw new InvalidOperationException("This agent has no cards.");
+			cards.SetReplyCard(message.SubmissionId, message.State switch {
+				"expanded" => AgentReplyCardState.Expanded,
+				"collapsed" => AgentReplyCardState.Collapsed,
+				"dismissed" => AgentReplyCardState.Dismissed,
+				_ => throw new InvalidOperationException($"'{message.State}' isn't a reply card state."),
+			});
+			return Task.CompletedTask;
+		});
+		messages.Handle("stopAside", MessageActivity.ActionFailed("Stopping the side conversation"), WireJson.Default.AgentStopAsideMessage, (message, _) => {
+			(Agent.SideConversations ?? throw new InvalidOperationException("This agent does not support side conversations.")).StopAside(message.ConversationId);
+			return Task.CompletedTask;
+		});
+		messages.HandleConcurrent(
+			"walkthroughSource", MessageActivity.ActionFailed("Loading walkthrough code"), WireJson.Default.WalkthroughSourceRequest, WireJson.Default.StoredText,
+			(message, _) => Task.FromResult(new HostCore.StoredText(
+				(Agent.Walkthroughs ?? throw new InvalidOperationException("This agent has no walkthroughs."))
+					.Source(message.ConversationId, message.BlockId, message.Hash))));
 		messages.Handle(
 			"openPlan", MessageActivity.ActionFailed("Opening the plan"), WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
@@ -281,12 +300,14 @@ public sealed partial class HostSession {
 		if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length + selections.Length != 0) {
 			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
+		if (message.Anchor?.Problem() is { } problem) throw new InvalidOperationException(problem);
 		return [.. AgentAttachments.Submit(message.Id, attachmentIds, images => submit(new AgentTurnSubmission {
 			Id = message.Id,
 			Text = message.Prompt,
 			Kind = kind,
 			CommandName = message.CommandName ?? string.Empty,
 			Attachments = [.. images, .. selections],
+			Anchor = message.Anchor,
 		})), .. selections.Select(selection => selection.Id)];
 	}
 
@@ -371,14 +392,21 @@ public sealed partial class HostSession {
 		string? Kind,
 		string? CommandName,
 		string[]? AttachmentIds,
-		AgentSelectionWire[]? Selections);
+		AgentSelectionWire[]? Selections,
+		AgentAnchor? Anchor);
 
 	/// <summary>Values the user selected in the pane, attached to a prompt as text.</summary>
 	internal sealed record AgentSelectionWire(string Id, string Label, string Text);
 
 	internal sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
 
-	internal sealed record AgentCardCollapsedMessage(string? ConversationId, string? DashboardId, bool Collapsed);
+	internal sealed record AgentCardCollapsedMessage(string? ConversationId, string? DashboardId, string? BlockId, bool Collapsed);
+
+	internal sealed record AgentStopAsideMessage(string ConversationId);
+
+	internal sealed record AgentReplyCardMessage(string SubmissionId, string State);
+
+	internal sealed record WalkthroughSourceRequest(string? ConversationId, string BlockId, string Hash);
 }
 
 internal sealed record AttachmentState(string Id, string Status, string Error);

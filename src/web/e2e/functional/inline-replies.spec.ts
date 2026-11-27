@@ -304,6 +304,55 @@ test("a reply to a comment sent from the review is there after leaving its tab a
   await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
 });
 
+test("a reply is kept across a reload, folded as it was and under its code wherever it moved, until dismissed", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "inline-reply-reload");
+  await openFile(page, "notes.txt");
+  await askAboutFirstLine(page, "why this line");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await card.getByRole("textbox", { name: "Reply", exact: true }).fill("and the next one");
+  await page.keyboard.press("Enter");
+  await expect(card.locator(".agent-markdown").last()).toContainText("echo: and the next one");
+  const head = card.locator(".agent-aside-toggle");
+  await head.click();
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    surface.locator(".agent-markdown", { hasText: "echo: and the next one" }),
+  ).toBeVisible();
+
+  // The file changes while the page is gone: its line moves down one.
+  const file = join(sessionWorktrees(weavie.workspace)[0]!, "notes.txt");
+  await writeFile(file, "a line above\njust plain text\n");
+  await page.reload();
+  await openFile(page, "notes.txt");
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  const line = page.locator(".monaco-editor .view-line", { hasText: "just plain text" });
+  const below = page.locator(".monaco-editor .view-line", { hasText: "a line above" });
+  await expect(line).toBeVisible();
+  expect((await card.boundingBox())!.y).toBeGreaterThanOrEqual(
+    (await line.boundingBox())!.y + (await line.boundingBox())!.height - 1,
+  );
+  expect((await below.boundingBox())!.y).toBeLessThan((await card.boundingBox())!.y);
+  await head.click();
+  await expect(card.locator(".agent-markdown").last()).toContainText("echo: and the next one");
+
+  await card.getByRole("button", { name: "Dismiss Inline Reply", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await openFile(page, "notes.txt");
+  await expect(
+    page.locator(".monaco-editor .view-line", { hasText: "just plain text" }),
+  ).toBeVisible();
+  await expect(page.locator('[data-surface="structured-agent"]')).toContainText(
+    "echo: why this line",
+  );
+  await expect(card).toHaveCount(0);
+});
+
 test.describe("with permissions asked", () => {
   test.use({
     fakeScript: {

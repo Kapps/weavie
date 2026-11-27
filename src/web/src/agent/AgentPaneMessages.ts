@@ -25,6 +25,11 @@ export function projectAgentTranscript(
   cards: ReadonlyMap<AgentPaneUpdate, AgentTranscriptEntry>,
 ): AgentTranscriptProjection {
   const resolved = requestResolutions(messages);
+  // A reply card's last state; its row may come before its prompt's, which can wait in the queue.
+  const replyCards = new Map<string, string>();
+  for (const message of messages)
+    if (message.type === "reply-card" && message.itemId)
+      replyCards.set(message.itemId, message.status ?? "");
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {
     if (message.type === "error") {
@@ -54,6 +59,7 @@ export function projectAgentTranscript(
           type: source.type === "agent-message-delta" ? "item-completed" : "item-started",
         }
       : source;
+    if (message.type === "reply-card") continue;
     const card = cards.get(message);
     if (card?.kind === "subagent") continue;
     if (card !== undefined) {
@@ -94,6 +100,13 @@ export function projectAgentTranscript(
       if (startsTurn) {
         durable.turnStart = true;
       }
+      const state =
+        durable.submissionId === undefined ? undefined : replyCards.get(durable.submissionId);
+      if (
+        durable.anchor?.card === durable.submissionId &&
+        (state === "collapsed" || state === "dismissed")
+      )
+        durable.replyCard = state;
       entries.push(durable);
       if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -250,7 +263,10 @@ function submitted(
   sequence: number,
 ): AgentTranscriptEntry {
   const prompt = entry(message, sequence, "message", "user", label, null);
-  return message.itemId ? { ...prompt, submissionId: message.itemId } : prompt;
+  if (!message.itemId) return prompt;
+  return message.anchor
+    ? { ...prompt, submissionId: message.itemId, anchor: message.anchor }
+    : { ...prompt, submissionId: message.itemId };
 }
 
 // A primary prompt carries its turn so the pane can rewind to just before it.

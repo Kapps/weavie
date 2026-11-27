@@ -40,6 +40,25 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   return editor;
 }
 
+/** The chrome an editor embedded in another surface leaves out: rulers, minimap, folding, sticky scroll. */
+export const embeddedEditorChrome: monaco.editor.IEditorOptions = {
+  scrollBeyondLastLine: false,
+  overviewRulerLanes: 0,
+  overviewRulerBorder: false,
+  hideCursorInOverviewRuler: true,
+  minimap: { enabled: false },
+  folding: false,
+  stickyScroll: { enabled: false },
+};
+
+/** A layer under `parent` for an embedded editor's overflow widgets, so fixed widgets escape transformed content. */
+export function createOverflowWidgets(parent: HTMLElement): HTMLElement {
+  const widgets = document.createElement("div");
+  widgets.className = "monaco-editor embedded-editor-overflow-widgets";
+  parent.append(widgets);
+  return widgets;
+}
+
 /**
  * A secondary editor embedded in another surface (the unified review's per-file diffs). Same settings, fonts and
  * language services as the main pane — `overrides` win over the user's editor settings and stay applied when

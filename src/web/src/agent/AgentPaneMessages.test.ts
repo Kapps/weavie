@@ -16,6 +16,36 @@ function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
 }
 
 describe("toAgentTranscript", () => {
+  it("gives a prompt its anchor and its card's last state, wherever that state's row sits", () => {
+    const anchor = { path: "/w/a.ts", place: "1.1-1.4", quote: "a()", card: "u1" };
+    const state = (status: string) => ({
+      type: "reply-card",
+      providerId: "acp",
+      itemId: "u1",
+      status,
+    });
+    const prompt = (itemId: string, turnId: string) => ({
+      type: "user-message",
+      providerId: "acp",
+      turnId,
+      itemId,
+      text: itemId,
+      anchor,
+    });
+    const entries = toAgentTranscript([
+      state("dismissed"),
+      prompt("u1", "1"),
+      state("collapsed"),
+      prompt("u2", "2"),
+    ]);
+    expect(
+      entries.map(({ submissionId, anchor, replyCard }) => ({ submissionId, anchor, replyCard })),
+    ).toEqual([
+      { submissionId: "u1", anchor, replyCard: "collapsed" },
+      { submissionId: "u2", anchor, replyCard: undefined },
+    ]);
+  });
+
   it("shows a plan review and the plan it became as one entry carrying the outcome", () => {
     const item = { providerId: "fake", threadId: "t", turnId: "1", itemId: "plan:plan-mode:x" };
     const review = { ...item, type: "approval-requested", itemType: "plan-review", requestId: "0" };

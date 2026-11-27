@@ -1,12 +1,12 @@
 import { X } from "lucide-solid";
-import { createMemo, type JSX, Match, on, onCleanup, Show, Switch } from "solid-js";
+import { createMemo, type JSX, Match, on, Show, Switch } from "solid-js";
 import { AgentCardReplyBox } from "../../agent/AgentCardReplyBox";
 import { AgentCardShell } from "../../agent/AgentCardShell";
 import { NestedTranscript } from "../../agent/AgentNestedCard";
 import { hasPendingRequest } from "../../agent/AgentPendingRequests";
 import { sameItems } from "../../agent/AgentTranscriptSnapshot";
 import { AgentWorkingStatus } from "../../agent/AgentWorkingStatus";
-import { ownsCommand, ownTarget } from "../../agent/agent-command-owner";
+import { ownOnFocus } from "../../agent/agent-command-owner";
 import { agentQueuedSubmissions } from "../../agent/agent-queue-store";
 import { CollapsibleCardContent } from "../../agent/CollapsibleCardContent";
 import { hasSubmission, submissionReply } from "../../agent/inline-reply";
@@ -26,6 +26,8 @@ import {
 /** One prompt sent from a selection, in the pane's card with the pane's rows for what the agent did about it. */
 export function InlineReplyCard(props: {
   reply: InlineReply;
+  /** The code it was asked about is gone, so it sits where that code was. */
+  moved: boolean;
   session: ClientSession;
 }): JSX.Element {
   const pane = () => agentPaneModel(props.session);
@@ -69,12 +71,7 @@ export function InlineReplyCard(props: {
     ),
   );
   // The card last pressed or focused is the one its commands act on, until the user presses elsewhere.
-  let release: (() => void) | null = null;
-  onCleanup(() => release?.());
-  const own = (event: Event): void => {
-    if (!ownsCommand(INLINE_REPLY_OWNED, release))
-      release = ownTarget(INLINE_REPLY_OWNED, event.currentTarget as Element, props.reply.id);
-  };
+  const own = ownOnFocus(INLINE_REPLY_OWNED, () => props.reply.id);
   return (
     <AgentCardShell
       label={props.reply.question}
@@ -125,6 +122,9 @@ export function InlineReplyCard(props: {
       data={{ "data-inline-reply": props.reply.id, "data-comment-box": "" }}
     >
       <div class="inline-reply-body agent-body">
+        <Show when={props.moved}>
+          <p class="anchor-moved">Asked about code that has since changed</p>
+        </Show>
         <Show when={props.reply.error}>
           {(error) => (
             <p class="inline-reply-error" role="alert">

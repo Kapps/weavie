@@ -26,9 +26,12 @@ internal sealed record AcpRewindPlan(
 				"The previous prompt has no recorded agent reply to rewind to. Rewind further back.");
 		}
 		var after = journal.Skip(cut);
+		// A reply card's state is journalled when the user acts, so a card kept by the rewind keeps its rows from after the cut.
+		var prompts = journal.Take(cut).Where(message => message.Anchor is not null).Select(message => message.ItemId).ToHashSet();
 		return new(
 			turn,
-			[.. journal.Take(cut), .. after.Where(message => message.ConversationId is not null && AnchoredBefore(message.AnchorTurnId, turn))],
+			[.. journal.Take(cut), .. after.Where(message => message.ConversationId is not null && AnchoredBefore(message.AnchorTurnId, turn)
+				|| message.Type == "reply-card" && prompts.Contains(message.ItemId))],
 			after.FirstOrDefault(message => message.ConversationId is null && message.TurnId == turnId
 				&& message.Type is "user-message" or "user-command")?.Text ?? string.Empty,
 			fork);

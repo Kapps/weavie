@@ -10,6 +10,27 @@ public sealed class HostCoreStructuredAttachmentTests {
 	private static readonly byte[] PngBytes = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
 
 	[Fact]
+	public async Task APromptWithAnAnchorItCantKeepIsRefused() {
+		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "anchored", Base = "main", AgentProviderId = "structured" })).Ok);
+		var session = host.Session("anchored");
+
+		host.SessionEvent(session, "agent", "submit", new {
+			id = "ask",
+			prompt = "why?",
+			kind = "prompt",
+			commandName = "",
+			attachmentIds = Array.Empty<string>(),
+			anchor = new { path = "/w/a.cs", place = "1.1-1.4", quote = "two\nlines", card = "ask" },
+		});
+
+		var refused = host.Bridge.LastEvent(session.Address, "agent", "submissionState")!.Value;
+		Assert.Equal(("rejected", "An anchor's quote is one line of up to 200 characters."),
+			(refused.GetProperty("status").GetString(), refused.GetProperty("error").GetString()));
+	}
+
+	[Fact]
 	public async Task NewSession_SubmitsItsTextAndImageAsOneInitialInput() {
 		await using var host = await TestHost.StartAsync();
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));

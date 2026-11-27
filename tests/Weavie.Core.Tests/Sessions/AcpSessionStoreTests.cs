@@ -15,7 +15,7 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		var row = Message("item-completed", "") with { Text = null, TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "a" };
 		var side = row with { ConversationId = "btw-1" };
 		foreach (var (conversation, id) in new[] { ((string?)null, "a"), ("btw-1", "a"), (null, "gone") }) {
-			store.SaveBlock("/workspace", new AgentBlockState("provider", conversation, new AgentBlock { Id = id, Title = id }));
+			store.SaveBlock("/workspace", new AgentBlockState("provider", conversation, new AgentBlock { Id = id, Title = id }), new Dictionary<string, string>());
 		}
 
 		var kept = store.ReadBlocks("provider", "/workspace", [row, side]);
@@ -25,6 +25,42 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Single(store.ReadBlocks("provider", "/workspace", [row, side]));
 		store.ClearWorkspace("/workspace");
 		Assert.Empty(store.ReadBlocks("provider", "/workspace", [row, side]));
+	}
+
+	[Fact]
+	public void AWalkthroughKeepsOnlyTheCopiesItNames() {
+		var store = new AcpSessionStore(Database);
+		var row = Message("item-completed", "") with { Text = null, TurnId = "1", ItemId = "tool:1", ItemType = "block", BlockId = "w" };
+		AgentBlockState Walkthrough(string before, string? after, string source) => new("provider", null, new AgentBlock {
+			Id = "w",
+			Title = "w",
+			Walkthrough = new AgentWalkthrough {
+				Root = "/workspace",
+				Problem = "p",
+				Gist = "g",
+				Files = [new AgentWalkthroughFile { Path = "a.cs", Before = before, After = after }],
+				Stops = [new AgentWalkthroughStop { Id = "s", Name = "s", Title = "s", Lead = "l", Code = [new AgentWalkthroughCode { Path = "a.cs", From = 1, To = 1, Source = source }] }],
+			},
+		});
+		string Read(string hash) => store.ReadBlockSource("provider", "/workspace", null, "w", hash);
+
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one", ["stray"] = "x" });
+		Assert.Equal("one", Read("h1"));
+		Assert.Throws<KeyNotFoundException>(() => Read("stray"));
+		store.SaveBlock("/workspace", Walkthrough("h1", "h2", "h2"), new Dictionary<string, string> { ["h2"] = "two" });
+		Assert.Equal(("one", "two"), (Read("h1"), Read("h2")));
+		store.SaveBlock("/workspace", Walkthrough("h2", "h2", "h2"), new Dictionary<string, string>());
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+
+		store.Replace("provider", "/workspace", [], []);
+		Assert.Throws<KeyNotFoundException>(() => Read("h2"));
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one" });
+		store.DeleteBlock("provider", "/workspace", null, "w");
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+		store.SaveBlock("/workspace", Walkthrough("h1", null, "h1"), new Dictionary<string, string> { ["h1"] = "one" });
+		store.ClearWorkspace("/workspace");
+		Assert.Throws<KeyNotFoundException>(() => Read("h1"));
+		Assert.Empty(store.ReadBlocks("provider", "/workspace", [row]));
 	}
 
 	[Fact]

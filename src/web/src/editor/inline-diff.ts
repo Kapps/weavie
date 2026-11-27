@@ -25,7 +25,7 @@ import {
   type HunkRevert,
   type HunkUnkeep,
 } from "./review/diff-markers";
-import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./review/diff-zones";
+import { createDiffPaint, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./review/diff-zones";
 import {
   buttonGroup,
   createParkedNavigation,
@@ -262,8 +262,6 @@ export function createInlineDiff(
   const diffs = new Map<string, InlineDiffOptions>();
   const appliedKeys = new Map<ClientSession, Set<string>>();
   const diffComputer = new DiffComputer();
-  let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
-  let zoneIds: string[] = [];
   // The floating action bar is a plain DOM child of the editor (not a Monaco overlay widget) so it sits above
   // sticky-scroll and clear of the minimap, positioned bottom-center via CSS.
   let toolbarNode: HTMLElement | undefined;
@@ -352,18 +350,8 @@ export function createInlineDiff(
   const changeViewZones = (change: Parameters<typeof editor.changeViewZones>[0]): void =>
     presentation.updateGeometry(() => editor.changeViewZones(change));
 
-  const clearPaint = (): void => {
-    decorations?.clear();
-    decorations = undefined;
-    if (zoneIds.length > 0) {
-      changeViewZones((accessor) => {
-        for (const id of zoneIds) {
-          accessor.removeZone(id);
-        }
-      });
-      zoneIds = [];
-    }
-  };
+  const diffPaint = createDiffPaint(editor, changeViewZones);
+  const clearPaint = diffPaint.clear;
 
   // Every path that clears the render replaces the toolbar too, so its live parts go with it.
   const clearRenderState = (): void => {
@@ -1084,21 +1072,7 @@ export function createInlineDiff(
     syncHistoryButtons();
   };
 
-  const replacePaint = (markers: ReturnType<typeof computeDiffMarkers>): void => {
-    if (decorations === undefined) {
-      decorations = editor.createDecorationsCollection(markers.decorations);
-    } else {
-      decorations.set(markers.decorations);
-    }
-
-    const previousZoneIds = zoneIds;
-    changeViewZones((accessor) => {
-      for (const id of previousZoneIds) {
-        accessor.removeZone(id);
-      }
-      zoneIds = addDiffZones(editor, accessor, markers);
-    });
-  };
+  const replacePaint = diffPaint.paint;
 
   const render = async (uriString: string, generation: number): Promise<void> => {
     const model = editor.getModel();

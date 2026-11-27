@@ -14,7 +14,7 @@ Review of [PR #1302](https://github.com/Kapps/weavie/pull/1302) against [design.
   is reopened, two are fixed in part, and the fixes added two bugs and six nits. All of those were fixed in
   `a85e255c` (see Second fixes).
 - **Rechecked again:** `be2e000f`, the fixes in `d63a73d4..be2e000f` (see Second recheck). All ten hold. Open now:
-  one small bug the fixes added (39) and one nit (40).
+  one small bug the fixes added (39) and one nit (40). Both fixed (see Third fixes).
 
 Severity: a **bug** is wrong behaviour a user or another feature would hit; a **warn** is a standards or
 maintainability problem; a **nit** is anything smaller.
@@ -59,8 +59,8 @@ maintainability problem; a **nit** is anything smaller.
 | 36 | nit | fixed | The waiting row can't reach a question under a block that has not mounted | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:210` |
 | 37 | nit | fixed | The prose highlight uses `CSS.highlights` unguarded | `src/web/src/agent/walkthrough/walkthrough-page.ts:152` |
 | 38 | nit | fixed | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
-| 39 | bug | open | A code selection that ends on a blank line offers no actions (from fixes 34 and 35) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:273` |
-| 40 | nit | open | A failed request for a file's `after` copy is an unhandled rejection | `src/web/src/agent/walkthrough/walkthrough-code.tsx:143` |
+| 39 | bug | fixed | A code selection that ends on a blank line offers no actions (from fixes 34 and 35) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:273` |
+| 40 | nit | fixed | A failed request for a file's `after` copy is an unhandled rejection | `src/web/src/agent/walkthrough/walkthrough-code.tsx:143` |
 
 ## Bugs
 
@@ -394,6 +394,15 @@ about. It is small, and the last line with text in the selection would serve as 
   handler, so a failed request is an unhandled rejection and the block silently never says "Changed since this
   walkthrough was updated". It needs the `after` request alone to fail, since the block's other two copies are
   awaited first. This line predates the fixes; it was missed in the first review.
+
+## Third fixes
+
+- **39.** The quote and the card's line are the selection's last line with text, so a selection that runs onto
+  blank lines is asked about from the line above them; a selection of blank lines alone still offers nothing. The
+  empty-line e2e case selects a line and the empty one under it, asks, and checks the quote; it fails without the
+  fix, at the missing Comment button.
+- **40.** The `after` copy is fetched with the block's other two copies, so a failed request fails the block with
+  its notice, as theirs do.
 
 ## Rejected
 

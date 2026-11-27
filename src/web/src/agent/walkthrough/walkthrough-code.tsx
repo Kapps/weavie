@@ -74,9 +74,10 @@ const sameSet = (a: ReadonlySet<number>, b: ReadonlySet<number>): boolean =>
 /** Builds the block's editor once its texts load; the returned function disposes it. */
 export async function createWalkthroughCode(options: WalkthroughCodeOptions): Promise<() => void> {
   const { code, file, mount } = options;
-  const [copy, before] = await Promise.all([
+  const [copy, before, afterText] = await Promise.all([
     options.source(code.source),
     options.source(file.before),
+    file.after ? options.source(file.after) : null,
   ]);
   const { model, deleted } = await options.open(code, copy);
   const widgets = document.createElement("div");
@@ -139,8 +140,6 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     const copyLines = copy.split(/\r?\n/);
     const decorations = editor.createDecorationsCollection();
     let diffZones: string[] = [];
-    const [afterText, setAfterText] = createSignal<string | null>(null);
-    if (file.after) void options.source(file.after).then(setAfterText);
     const questions = createMemo(() => options.questions(), [], {
       equals: (a, b) =>
         a.length === b.length &&
@@ -194,9 +193,7 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
         deleted && "Deleted since this walkthrough recorded it",
         changes === null && "Too large to compare",
         file.late === true && "Recorded after edits to this file began",
-        afterText() !== null &&
-          live() !== afterText() &&
-          "Changed since this walkthrough was updated",
+        afterText !== null && live() !== afterText && "Changed since this walkthrough was updated",
         lost.length > 0 && "A noted line changed",
       ];
       options.onNotices(notices.filter((notice): notice is string => notice !== false));
@@ -262,14 +259,19 @@ export async function createWalkthroughCode(options: WalkthroughCodeOptions): Pr
     measure();
     // Asking is from a selection, once its gesture completes; the copy's line keeps the question in place.
     const unwatch = watchSelectionGestures(editor, options.actions, (selection, point) => {
-      // The card and its mark sit under the selection's last line, so the quote is that line's text.
-      const last = lastLineOf(selection);
-      const quote = model
-        .getValueInRange(
-          selection.intersectRanges(new monaco.Range(last, 1, last, model.getLineMaxColumn(last)))!,
-        )
-        .trim()
-        .slice(0, 200);
+      // The card and its mark sit under the selection's last line with text, so the quote is that line's text.
+      const quoteOf = (line: number): string =>
+        model
+          .getValueInRange(
+            selection.intersectRanges(
+              new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
+            )!,
+          )
+          .trim()
+          .slice(0, 200);
+      let last = lastLineOf(selection);
+      while (last > selection.startLineNumber && quoteOf(last) === "") last--;
+      const quote = quoteOf(last);
       if (map() === null || quote === "") {
         options.actions.clear();
         return;

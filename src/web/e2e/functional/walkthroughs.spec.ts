@@ -345,7 +345,10 @@ test.describe("render budget", () => {
   });
 });
 
-test("a fold under an empty line still has its row", async ({ page, weavie }) => {
+test("an empty line still has a fold's row under it and can end a question's selection", async ({
+  page,
+  weavie,
+}) => {
   const surface = await createAcpSession(page, "walkthrough-empty-fold");
   const worktree = sessionWorktrees(weavie.workspace)[0]!;
   await writeFile(
@@ -382,4 +385,16 @@ test("a fold under an empty line still has its row", async ({ page, weavie }) =>
   await expect(block.locator(".view-lines")).not.toContainText("a = 1");
   await fold.click();
   await expect(block.locator(".view-lines")).toContainText("a = 1");
+
+  // A selection running onto the empty line is asked about from the last line with text.
+  await block.locator(".view-line", { hasText: "class Fields" }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.getByRole("button", { name: "Comment on Selection" }).click();
+  await page.getByRole("textbox", { name: "Comment" }).fill("Why a class?");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(block.locator("[data-walkthrough-question] .walkthrough-quote")).toHaveText(
+    "class Fields {",
+  );
 });

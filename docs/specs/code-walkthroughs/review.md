@@ -10,6 +10,8 @@ Review of [PR #1302](https://github.com/Kapps/weavie/pull/1302) against [design.
   rest are confirmed by reading the code.
 - **Result:** the host side (rules, capture, storage, tools, path containment) holds. The reading tab has eight
   bugs, most in code no test reaches.
+- **Rechecked:** `1c165c9d`, the fixes in `ec955b85..1c165c9d` (see Recheck). 27 of the 30 findings are fixed, one
+  is reopened, two are fixed in part, and the fixes added two bugs and six nits. Open now: 3 bugs and 7 nits.
 
 Severity: a **bug** is wrong behaviour a user or another feature would hit; a **warn** is a standards or
 maintainability problem; a **nit** is anything smaller.
@@ -18,12 +20,12 @@ maintainability problem; a **nit** is anything smaller.
 | --- | --- | --- | --- | --- |
 | 1 | bug | fixed | A note, fold row or question under a block's last line is not drawn | `src/web/src/agent/walkthrough/walkthrough-code.tsx:225` |
 | 2 | bug | fixed | A stop row on the pane card always opens the tab at stop 1 | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:275` |
-| 3 | bug | fixed | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
+| 3 | bug | fixed in part | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
 | 4 | bug | fixed | A question asked from a walkthrough a `/btw` published is refused as "no longer shown" | `src/Weavie.AgentClientProtocol/AcpAgentSession.SideConversations.cs:28` |
 | 5 | bug | fixed | A dismissed question that then needs a permission can't be answered | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:33` |
 | 6 | bug | fixed | A whole-line selection puts its question one line low | `src/web/src/agent/walkthrough/walkthrough-code.tsx:255` |
 | 7 | bug | fixed | After an update re-records a block, older questions sit under the wrong line | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:119` |
-| 8 | bug | fixed | `/btw` cards did not get Stop | `src/web/src/agent/AgentAsideEntry.tsx:48` |
+| 8 | bug | reopened | `/btw` cards did not get Stop; the Stop added is invisible | `src/web/src/agent/AgentAsideEntry.tsx:57` |
 | 9 | warn | fixed | Scrolling past a stop, opening a fold or revealing an answer repaints every mounted block | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:214` |
 | 10 | warn | fixed | Code selection is a second copy of the editor's selection actions and works on every selection event | `src/web/src/agent/walkthrough/walkthrough-code.tsx:248` |
 | 11 | warn | fixed | `WalkthroughQuestion` re-wires `AsideEntry` | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:30` |
@@ -46,6 +48,14 @@ maintainability problem; a **nit** is anything smaller.
 | 28 | nit | fixed | `em` in chrome geometry | `src/web/src/agent/walkthrough/walkthrough.css:107` |
 | 29 | nit | fixed | A stop request is keyed by tab path alone, in a module global | `src/web/src/agent/walkthrough/walkthrough-view.ts:19` |
 | 30 | nit | fixed | The embedded-editor setup repeats the review's, with a class that has no rule | `src/web/src/agent/walkthrough/walkthrough-code.tsx:78` |
+| 31 | bug | open | A closed fold under an empty line has no row and can't be opened (from fix 1) | `src/web/src/agent/walkthrough/walkthrough-code.tsx:240` |
+| 32 | bug | open | The strip shows the wrong current stop after a jump back up the page (from fix 9) | `src/web/src/agent/walkthrough/walkthrough-page.ts:84` |
+| 33 | nit | open | Any failure to build a block reads "This code is no longer stored" (rest of 3) | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:220` |
+| 34 | nit | open | A code selection of only blank text offers Send, which the host refuses | `src/web/src/agent/walkthrough/walkthrough-code.tsx:269` |
+| 35 | nit | open | A code selection over several lines is not lit | `src/web/src/agent/walkthrough/walkthrough-code.tsx:179` |
+| 36 | nit | open | The waiting row can't reach a question under a block that has not mounted | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:210` |
+| 37 | nit | open | The prose highlight uses `CSS.highlights` unguarded | `src/web/src/agent/walkthrough/walkthrough-page.ts:152` |
+| 38 | nit | open | Two doc comments stacked over the new `SelectionActions` type | `src/web/src/agent/selection-actions.tsx:32` |
 
 ## Bugs
 
@@ -256,6 +266,76 @@ Found while fixing: the pane's wire row never carried the anchor (`AgentPaneWire
 pane transcript; the first e2e passed only through `blockId`. Blocks also mounted against the window, so a block
 scrolled out of the tab never mounted.
 
+## Recheck
+
+Rechecked at `1c165c9d` (PR #1302, open): the three commits after `ec955b85`, read in full. The design changed only
+where the fixes needed it (the anchor's shape, questions drawn as BTW cards, `stat` before opening a file), so the
+review was not restarted. Each fix was confirmed against the code and its tests; three points were run with a
+temporary Playwright probe on the headless project, removed afterwards. Nothing was fixed here.
+
+**Confirmed fixed:** 1, 2, 4, 5, 6, 7, 9 to 24 and 26 to 30. Notes on the ones with more to say:
+
+- **1.** A card under a line whose next line is hidden hangs after the line's last character. The note on a block's
+  last line is drawn (e2e). The same change broke a different case: finding 31.
+- **4, 15.** The anchor names its conversation and the host checks the place and the quote before it forks.
+- **5, 11, 13.** A question is an `AsideEntry`, so collapsing leaves its head and a pending request still shows.
+- **7.** A place carries the first 12 characters of its copy's hash; a question on an older copy moves to its
+  stop's end with the notice.
+- **9.** A stop change, a fold toggle and a reveal no longer repaint other blocks, and the budget case passes. The
+  observer that replaced the layout reads is finding 32.
+- **19.** The listed tests exist, except unit tests for line mapping, the shown range and folds. No test places a
+  fold row or moves the strip by a jump, which is where findings 31 and 32 are.
+
+### Reopened
+
+**8. The Stop on a BTW card is invisible.** The button's only class is `agent-entry-rewind`, which is `opacity: 0`
+unless an `.agent-entry` ancestor is hovered or the button has keyboard focus (`src/web/src/agent/agent.css:373`).
+A BTW card has no `.agent-entry` ancestor. The probe read `opacity: 0` on the pane's card, hovered and not, and
+the same for a button of that class in a walkthrough question's head. The e2e passes because Playwright treats an
+element at `opacity: 0` as visible and clicks it. Before the fix a walkthrough question had a visible Stop icon, so
+questions lost it too. The Open button beside it is shown by `.agent-aside-head .agent-entry-open`.
+
+### Fixed in part
+
+- **3.** Two blocks on a deleted file share one copy (e2e), and the tab asks the host whether the file exists. The
+  other half moved: see finding 33.
+- **25.** The quote stays lit and the waiting row opens at its card. Disabling the selection actions when the agent
+  has no `/btw` is still not built, and the reason given does not hold: the page keeps each session's slash commands
+  (`src/web/src/agent/agent-controls-store.ts:12`), and `design.md:586` still specifies it.
+
+### New bugs, from the fixes
+
+**31. A closed fold under an empty line has no row and can't be opened.** The fix for finding 1 hangs a card after
+column `getLineMaxColumn − 1` and falls back to the whole line when that is below 1, which is every empty line
+(`walkthrough-code.tsx:240`). Monaco then looks at the line after it, which the closed fold hides, and draws
+nothing. The probe folded lines 3-4 under an empty line 2: the row's zone sat at `top: -1e+06px` and the folded
+lines stayed hidden. A blank line before the members an agent folds away is common. Before the fix the row went
+after the fold's last line, which drew.
+
+**32. The strip shows the wrong current stop after a jump back up the page.** `trackCurrentStop` remembers, per
+stop, whether its heading has passed the top third, and learns it only when the stop crosses that band
+(`walkthrough-page.ts:84`). A stop that goes from above the band to below it between two frames never crosses, so
+it stays "passed". The probe read down to stop 12, set the scroller to the top, and the strip marked stop 11 with
+Previous enabled. Dragging the scrollbar or pressing Home does this. Next and Previous then step from the wrong
+stop, and the wrong stop is saved as where the tab reopens.
+
+### New nits, from the fixes
+
+- **33.** `WalkthroughStop.tsx:220` answers every rejection from `createWalkthroughCode` with "This code is no longer
+  stored": a failed `stat`, a file that would not open, a closed scope. The fix notes say other failures surface as
+  themselves.
+- **34.** `watchSelectionGestures` offers the actions for any non-empty selection. A selection of only blank lines or
+  indentation gives the quote `""`, `askFrom` sends it as given, and the host refuses with "A walkthrough quote is
+  one line of up to 200 characters".
+- **35.** The quote is the selection's first line and the mark is looked for on its last line
+  (`walkthrough-code.tsx:179`), so only a selection inside one line stays lit.
+- **36.** The waiting row reveals `[data-walkthrough-question]`, which exists only once its block's editor has
+  mounted. For a question under a block more than a viewport away, the tab opens where it was. Not run.
+- **37.** `CSS.highlights` and `Highlight` are used nowhere else in the app. On WebKit before 17.2 they are
+  undefined and the effect throws while the tab renders.
+- **38.** The doc comment of `createSelectionActions` now sits above the `SelectionActions` type, followed by the
+  type's own.
+
 ## Rejected
 
 - **Effects and notes from earlier updates are never cleared.** The design says `effect` is "absent on a stop no
@@ -270,4 +350,5 @@ scrolled out of the tab never mounted.
 - Sources are pruned on save and deleted on Replace, `DeleteBlock` and `ClearWorkspace`.
 - JSON goes through the source-generated contexts.
 - The update and claim path, and `StopAside`'s locking.
-- The review-bar change reads correctly; it has no end-to-end case.
+- The review-bar change reads correctly, and an end-to-end case now holds a walkthrough tab over a file under
+  review.

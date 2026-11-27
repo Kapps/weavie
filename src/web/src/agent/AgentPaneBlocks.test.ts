@@ -202,7 +202,11 @@ describe("walkthroughs", () => {
         expect(model.transcript().entries.map((entry) => entry.kind)).toEqual(["walkthrough"]);
         expect(model.cards().map((card) => card.kind)).toEqual(["walkthrough"]);
         const [question] = model.questions();
-        expect(question).toMatchObject({ blockId: "claims", place: "stage/code/0/4", quote: "weavie-block:" });
+        expect(question).toMatchObject({
+          blockId: "claims",
+          place: "stage/code/0/4",
+          quote: "weavie-block:",
+        });
         expect(question!.entry.summary).toBe("Why a ticket?");
         expect(model.conversation("q1")).toBe(question!.entry);
       },

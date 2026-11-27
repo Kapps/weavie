@@ -15,7 +15,7 @@ import type { ClientSession } from "../../bridge";
 import { isSelected } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { interfaceLine } from "../../fonts";
-import type { ReviewCopyScope } from "../editor-host";
+import type { FileModelScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { activeTabFor } from "../session-store";
@@ -65,7 +65,7 @@ export function UnifiedReview(props: {
     fail: (error: unknown) => void,
   ) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
-  createCopyScope: () => ReviewCopyScope;
+  createCopyScope: () => FileModelScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
   let virtualList: HTMLDivElement | undefined;

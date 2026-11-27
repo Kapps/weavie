@@ -45,7 +45,7 @@ export interface ReviewCopy {
 }
 
 /** Owns every model reference acquired by one mounted unified-review surface. */
-export interface ReviewCopyScope {
+export interface FileModelScope {
   open(path: string, currentExists: boolean): Promise<ReviewCopy>;
   dispose(): void;
 }
@@ -109,8 +109,8 @@ export interface EditorHost {
   flushDirty(): Promise<void>;
   /** Flushes dirty working copies belonging to one exact session before that backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
-  /** Creates one model-reference scope owned by a mounted unified-review surface. */
-  createReviewCopyScope(session: ClientSession): ReviewCopyScope;
+  /** Creates one model-reference scope owned by a mounted surface: a unified review or a walkthrough. */
+  createFileModelScope(session: ClientSession): FileModelScope;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /** Releases working copies no longer owned by one of the session's open file tabs. */
@@ -578,7 +578,7 @@ export async function createEditorHost(
   // its own references, never the copies a rapidly-mounted successor just acquired.
   const reviewScopes = new Set<() => void>();
   let reviewScopeSequence = 0;
-  const createReviewCopyScope = (session: ClientSession): ReviewCopyScope => {
+  const createFileModelScope = (session: ClientSession): FileModelScope => {
     const refsByUri = new Map<string, ModelRef>();
     const snapshots = new Map<string, monaco.editor.ITextModel>();
     const scope = ++reviewScopeSequence;
@@ -852,7 +852,7 @@ export async function createEditorHost(
     flush,
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),
-    createReviewCopyScope,
+    createFileModelScope,
     clear,
     beginReview,
     endReview,

@@ -13,7 +13,7 @@ import {
   Switch,
 } from "solid-js";
 import type { WalkthroughCode, WalkthroughFile } from "../../bridge";
-import type { ReviewCopyScope } from "../../editor/editor-host";
+import type { FileModelScope } from "../../editor/editor-host";
 import { hiddenAreas } from "../../editor/hidden-areas";
 import { diffLines, type LineChanges, mapLine } from "../../editor/line-anchor";
 import { createEmbeddedEditor, monaco } from "../../editor/monaco-setup";
@@ -39,7 +39,7 @@ export type WalkthroughLineCard =
   | { kind: "question"; key: string; line: number; render: () => JSX.Element };
 
 export interface WalkthroughCodeOptions {
-  scope: ReviewCopyScope;
+  scope: FileModelScope;
   /** The worktree `code.path` is relative to. */
   root: string;
   mount: HTMLElement;

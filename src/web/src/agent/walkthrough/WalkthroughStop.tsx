@@ -5,7 +5,7 @@ import type {
   WalkthroughCode,
   WalkthroughFile,
 } from "../../bridge";
-import type { ReviewCopyScope } from "../../editor/editor-host";
+import type { FileModelScope } from "../../editor/editor-host";
 import { AgentMarkdown } from "../AgentMarkdown";
 import { createWalkthroughCode, type WalkthroughLineCard } from "./walkthrough-code";
 
@@ -50,7 +50,7 @@ export function Prose(props: {
 export interface StopContext {
   session: ClientSession;
   root: string;
-  scope: ReviewCopyScope;
+  scope: FileModelScope;
   files: readonly WalkthroughFile[];
   source: (hash: string) => Promise<string>;
   /** The questions asked at `place`, as cards. */

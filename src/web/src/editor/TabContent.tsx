@@ -163,7 +163,7 @@ function ActiveTabContent(props: {
               <WalkthroughTab
                 session={tab.session}
                 path={tab.entry.path}
-                createScope={() => ready().createReviewCopyScope(tab.session)}
+                createScope={() => ready().createFileModelScope(tab.session)}
                 viewState={() => viewState() as WalkthroughViewState | null}
                 setViewState={(state) => {
                   setViewState(state);

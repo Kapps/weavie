@@ -101,6 +101,10 @@ load it only when you need it.
   and the conversation that sees it on its own tool row claims that row, so no provider id or ordering is needed.
   Selecting chart ranges, table cells, image regions, or reply text attaches them to the next prompt. See
   [docs/specs/acp-rich-content/design.md](docs/specs/acp-rich-content/design.md).
+- **Code walkthroughs** — an ACP agent publishes a guided read of how some code works (`publishWalkthrough`,
+  `updateWalkthrough`): stops through whole functions it names by file and line, which Weavie checks against the
+  file and keeps copies of, drawn in an editor tab as read-only editors diffed from the first copy. Selecting text
+  there asks a `/btw` anchored to it. See [docs/specs/code-walkthroughs/design.md](docs/specs/code-walkthroughs/design.md).
 - **Card tabs** — blocks an agent names a `dashboard` on share one journaled card; that card, a `/btw`, or a lone
   block opens in an editor tab showing the same live content at editor width. The strip above the composer lists
   expanded cards; ✕ collapses a card. See

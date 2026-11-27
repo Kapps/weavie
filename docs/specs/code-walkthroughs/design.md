@@ -246,6 +246,7 @@ stops[0]: a stop that exists is changed with 'effect' ('changed' or 'affected') 
   "title": "How a chart the agent asks for lands on its own row",
   "updatedAtMs": 1795600000000,
   "walkthrough": {
+    "root": "/home/me/repo/worktree",
     "problem": "…", "gist": "…", "example": "…", "closing": "…",
     "change": "showBlock with an id that is already on screen now replaces that chart.",
     "files": [
@@ -263,6 +264,7 @@ stops[0]: a stop that exists is changed with 'effect' ('changed' or 'affected') 
 }
 ```
 
+- `root`: the worktree the paths are relative to, so the page can open the live file.
 - `files[].before`: the first copy the walkthrough recorded of that path. `after`: the file as it stood at the last
   update; absent until the first update. `late`: the first copy was taken while the file held unkept agent edits.
 - `code[].source`: the copy the block's lines, folds and notes were checked against.
@@ -424,7 +426,7 @@ Stop(request, capture, files, sources)
   for each code block:
     (relative, text, hash, late) = capture.Read(block.Path)       // WorktreeTextFile refusals pass through
     1 ≤ from ≤ to ≤ lines, to − from < Lines                      else refuse with the line count
-    folds: inside from..to, in order, not touching each other     else refuse with the block's range
+    folds: inside from..to, after its first line, not touching   else refuse with the block's range
     for each note: from ≤ line ≤ to, outside every fold, and lines[line].Contains(token, Ordinal)
                                                                   else refuse with that line's text and the
                                                                   lines in the block that do contain the token
@@ -596,10 +598,12 @@ createWalkthroughCode(session, mount, code, file, view) → { dispose }
     map     = diffLines(copy, model text); line(n) = mapLine(map, n)
     shown   = line(from)..line(to), minus each fold the reader has not opened
     hiddenAreas(editor).setHiddenAreas(everything else, "weavie.walkthrough")
-    folds   → a gap row per closed fold: "<N> lines · <label>"; an open fold has a "Hide" row above it
+    cards   → one createZoneCards layer (as inline replies use) holds every row between lines:
+              a closed fold's "<N> lines · <label>", an open fold's "Hide", each note (and "Was: …"), and each
+              question asked about a line. Monaco hides a zone whose next line is hidden, so a card above a
+              closed fold sits after the fold's last line.
     notes   → for each note whose line maps exactly and still contains its token:
-                inlineClassName "weavie-walkthrough-mark" on the token, and a text zone under the line holding
-                the note (and "Was: …" when set), indented to the line's indent
+                inlineClassName "walkthrough-mark" on the token, and its card under the line
               any other note is not drawn and the block says "A noted line changed"
     notices: file.late → "Recorded after edits to this file began"
              after && model text !== after → "Changed since this walkthrough was updated"
@@ -607,10 +611,9 @@ createWalkthroughCode(session, mount, code, file, view) → { dispose }
   height = editor.getContentHeight() on onDidContentSizeChange
 ```
 
-- Shared with the review, extracted so neither copies it: the gap row (zone, margin chevron, click detection) moves
-  from `review-editor.ts` into `editor/gap-zones.ts`; `EditorHost.createReviewCopyScope` is renamed
-  `createFileModelScope`. The review's label stays "Show N unchanged lines".
-- `InlineDiff`'s unused `view` mode and its branches are deleted.
+- Shared with the review: `EditorHost.createReviewCopyScope` is renamed `createFileModelScope`, and the diff paint
+  is the review's own `computeDiffMarkers` and `addDiffZones`. Fold rows are zone cards, so the review's gap rows
+  stay where they are.
 - Sources are fetched once per hash through `walkthroughSource` and cached per session.
 - Hover and go to definition come from the model's `weavie-file` scheme. The block does not call
   `connectTextEditor`, so it gets no blame, hints, spell check or review actions.
@@ -707,8 +710,7 @@ own client (the probe sent no MCP server and did not re-apply controls).
 | `src/web/src/agent/AgentAsideEntry.tsx` | Stop while working; body shared with the walkthrough's cards |
 | `src/web/src/agent/walkthrough/*` (new) | Card, tab, stop, strip, code block, selection, questions, view state, CSS |
 | `src/web/src/editor/TabContent.tsx`, `TabStrip.tsx`, `App.tsx`, `commands/types.ts` | Tab body, label, commands |
-| `src/web/src/editor/gap-zones.ts` (new), `review/review-editor.ts`, `editor-host.ts`, `inline-diff.ts`, `editor-controller.ts` | Shared gap rows, renamed model scope, `view` mode removed, review bar host |
-| `tools/Weavie.FakeAcp/FakeAcpAgent.Blocks.cs` | Walkthrough drafts through the existing `block:` directive |
+| `src/web/src/editor/editor-host.ts`, `review/*`, `editor-controller.ts` | Renamed model scope, review bar host |
 | `docs/concepts/…`, `AGENTS.md` | One-line concept entry linking this spec |
 
 ## Risks
@@ -732,28 +734,28 @@ own client (the probe sent no MCP server and did not re-apply controls).
 
 ## Build checklist
 
-- [ ] `WorktreeTextFile`; `ReviewHintStore` on it; hint tests still pass
-- [ ] Walkthrough types, limits, `AgentBlock.Walkthrough`, `Kind`
-- [ ] `WalkthroughCapture`, `SessionChangeTracker.HasPendingAgentLines`, `McpCapabilities` wiring
-- [ ] `AgentWalkthroughRules` Publish, Update, Apply with unit tests
-- [ ] Operation variants; sources through `CommitBlock` and `OnCommitBlock`
-- [ ] `block_sources` table, save, prune, delete, read
-- [ ] `publishWalkthrough` and `updateWalkthrough` tools, schemas, dispatch, hidden update row
-- [ ] `walkthroughSource` request; `AgentCardRef.BlockId` and `block-collapsed`
-- [ ] Hosting tests for publish, update, storage, restore
-- [ ] Web types, walkthrough entry, pane card, tab kind, tab body, commands
-- [ ] Reading page: header, stops, state, why, predict, closing, the update box and tags
-- [ ] Bottom strip: current, read, effect dots, previous and next
-- [ ] `gap-zones.ts`, `createFileModelScope`, `view` mode removed; review specs and `pnpm e2e:perf` pass
-- [ ] Code block: deferred mount, diff, folds, notes, notices
-- [ ] Review bar hosted only while its editor is displayed; spec for an overlay tab
-- [ ] `AgentAsideAnchor` on the command, the submission and the started row; the ask heading
-- [ ] `StopAside`, `stopAside`, Stop on side-conversation cards
-- [ ] `SelectionTarget`; walkthrough selection in prose and in code; cards under the selection
-- [ ] Hosting and web tests for anchored asks and Stop
-- [ ] The setting, guidance, `Compose` callers, the side-conversation sentence
-- [ ] `walkthroughs.spec.ts`
+- [x] `WorktreeTextFile`; `ReviewHintStore` on it; hint tests still pass
+- [x] Walkthrough types, limits, `AgentBlock.Walkthrough`, `Kind`
+- [x] `WalkthroughCapture`, `SessionChangeTracker.HasPendingAgentLines`, `McpCapabilities` wiring
+- [x] `AgentWalkthroughRules` Publish, Update, Apply with unit tests
+- [x] Operation variants; sources through `CommitBlock` and `OnCommitBlock`
+- [x] `block_sources` table, save, prune, delete, read
+- [x] `publishWalkthrough` and `updateWalkthrough` tools, schemas, dispatch, hidden update row
+- [x] `walkthroughSource` request; `AgentCardRef.BlockId` and `block-collapsed`
+- [x] Hosting tests for publish, update, storage
+- [x] Web types, walkthrough entry, pane card, tab kind, tab body, commands
+- [x] Reading page: header, stops, state, why, predict, closing, the update box and tags
+- [x] Bottom strip: current, read, effect dots, previous and next
+- [x] `createFileModelScope`; review specs and `pnpm e2e:perf` pass
+- [x] Code block: deferred mount, diff, folds, notes, notices
+- [x] Review bar hosted only while its editor is displayed
+- [x] `AgentAsideAnchor` on the command, the submission and the started row
+- [x] `StopAside`, `stopAside`, Stop on walkthrough question cards
+- [x] Selection Send target; walkthrough selection in prose and in code; cards under the selection
+- [x] Hosting and web tests for anchored asks and Stop
+- [x] The setting, guidance, `Compose` callers, the side-conversation sentence
+- [x] `walkthroughs.spec.ts`
 - [ ] Real Claude and Codex runs: tune the tool description and guidance; confirm a question mid-edit runs on the
       session's model and ignores the synthetic interruption
-- [ ] Concept entry in `AGENTS.md` and `docs/concepts/`
-- [ ] `dotnet format`, `biome check --write`, reviewer pass
+- [x] Concept entry in `AGENTS.md`
+- [x] `dotnet format`, `biome check --write`; reviewer pass belongs to the review stage

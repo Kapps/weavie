@@ -12,7 +12,7 @@ import {
 import type { AgentWalkthrough, ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
-import type { ReviewCopyScope } from "../../editor/editor-host";
+import type { FileModelScope } from "../../editor/editor-host";
 import { AgentCardTabFrame } from "../AgentCardTabFrame";
 import type { WalkthroughQuestion as Question } from "../AgentPaneModel";
 import type { AgentBlockTranscriptEntry } from "../AgentPaneTranscriptTypes";
@@ -35,7 +35,7 @@ import "./walkthrough.css";
 export default function WalkthroughTab(props: {
   session: ClientSession;
   path: string;
-  createScope: () => ReviewCopyScope;
+  createScope: () => FileModelScope;
   viewState: () => WalkthroughViewState | null;
   setViewState: (state: WalkthroughViewState) => void;
   bind(element: HTMLElement): () => void;
@@ -83,7 +83,7 @@ export default function WalkthroughTab(props: {
 function Page(props: {
   session: ClientSession;
   path: string;
-  scope: ReviewCopyScope;
+  scope: FileModelScope;
   blockId: string;
   conversationId: string | null;
   title: string;
@@ -242,7 +242,8 @@ function Page(props: {
     const section = sections()[index];
     if (section === undefined) return;
     const area = scroller();
-    const top = area.scrollTop + section.getBoundingClientRect().top - area.getBoundingClientRect().top;
+    const top =
+      area.scrollTop + section.getBoundingClientRect().top - area.getBoundingClientRect().top;
     area.scrollTo({ top: top - 8, behavior: "smooth" });
   };
   onMount(() => {

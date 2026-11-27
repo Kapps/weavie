@@ -212,7 +212,7 @@ Each entry of `stops` is one operation.
 - An unknown `id` adds a stop and needs every publish field. `after` names the stop it follows; without it the stop
   goes last. It is tagged *new*.
 - `change` is required: one or two sentences on what the agent changed. `problem`, `gist`, `example` and `closing`
-  replace their fields when given.
+  replace their fields when given, and may not be empty. `title` is set when publishing and refused on update.
 
 ### Tool results
 
@@ -279,11 +279,13 @@ stops[0]: a stop that exists is changed with 'effect' ('changed' or 'affected') 
 | --- | --- |
 | Walkthrough's reference row | `type: item-completed`, `itemType: block`, `category: walkthrough`, `summary: <title>`, `blockId` |
 | Card collapsed or expanded | `type: block-collapsed`, `blockId`, `status: collapsed \| expanded` (the reference row's identity, no text) |
-| Question asked | the existing `side-conversation-started` row, with `blockId`, `anchor` and `summary: <the selected text>` set |
+| Question asked | the existing `side-conversation-started` row, with `anchor: { conversationId, blockId, place, quote }` |
 
-`anchor` is a new `AgentPaneMessage` field, a place in the walkthrough: `problem`, `gist`, `closing`,
-`<stop>/lead`, `<stop>/state`, `<stop>/why`, `<stop>/predict`, or `<stop>/code/<block index>/<line>` with the line
-numbered in the block's recorded copy. The host checks only its length and characters; the page reads it. Every
+`anchor` is a new `AgentPaneMessage` field (`AgentAsideAnchor`), also on the pane wire row. `conversationId` is the
+walkthrough's conversation, null for the primary. `place` is `problem`, `gist`, `closing`, `<stop>/lead`,
+`<stop>/state`, `<stop>/why`, `<stop>/predict`, or `<stop>/code/<block index>/<line>@<copy>` with the line numbered
+in the block's recorded copy, which `<copy>` names (the first 12 characters of its hash). `quote` is one line of up to
+200 characters. The host checks the place's characters and length and the quote's length; the page reads them. Every
 later row of the conversation (`side-conversation-closed`, `-failed`, `-collapsed`, its own transcript) is
 unchanged.
 
@@ -292,6 +294,7 @@ unchanged.
 | Name | Kind | Payload | Reply |
 | --- | --- | --- | --- |
 | `weavie.agent.askAside` | existing command | `AgentAsideCommand` gains `Anchor: { blockId, place }` | none |
+| `weavie.agent.stopAside` | web command, unbound; Stop on a BTW card runs it | `{ conversationId? }`, else the focused BTW card | none |
 | `stopAside` (`agent` feature) | handle, action failed "Stopping the side conversation" | `{ conversationId }` | none |
 | `walkthroughSource` (`agent` feature) | concurrent request, action failed "Loading walkthrough code" | `{ conversationId, blockId, hash }` | `{ text }` |
 | `setCardCollapsed` (`agent` feature) | existing | gains `blockId` | none |
@@ -505,8 +508,8 @@ StopAside(conversationId)                              // new, for every side co
 - **Instructions**: `SideConversationInstructions` gains: "The conversation you were forked from is still running
   elsewhere. Ignore any note that a tool call or turn was interrupted, and never resume, re-run or check on that
   work. Do not edit, create or delete files unless the user asks you to in this conversation."
-- **Dismiss**: the card's ✕ sends `setCardCollapsed` for the conversation, as a `/btw` card's does; a collapsed
-  question is not drawn in the walkthrough. A working one keeps working until it answers or is stopped.
+- **Collapse**: a question is drawn as a `/btw` card (`AsideEntry`); collapsing it leaves its head under the text,
+  and a request waiting on the user still shows in it.
 - **Collapse of the walkthrough's own card**: `SetCardCollapsed` with a `BlockId` finds the block's reference row
   and publishes it as `block-collapsed`, as dashboards do with `dashboard-collapsed`.
 
@@ -552,8 +555,9 @@ Guidance is sent once per conversation, so a change applies from the next conver
 - **Bottom strip** (`WalkthroughStrip.tsx`): `position: sticky; bottom: 0` inside the tab, the column's width.
   Previous and next (`.ui-stepper`), then one button per stop: its number and `name`, the current one lit, read ones
   marked, an orange dot for `changed`, blue for `affected`, green for `added`. A button's tooltip is the stop's
-  title. The current stop is the last whose heading has passed the top third of the tab; `read` grows as stops
-  become current.
+  title. The current stop is the last whose heading has passed the top third of the tab, reported by an
+  IntersectionObserver; `read` grows as stops become current. A stop or card scrolled to stays at the top while the
+  blocks above it mount, until the reader scrolls.
 - **Commands** (client, unbound, in the palette): `weavie.walkthrough.nextStop`, `weavie.walkthrough.previousStop`.
   They act on the focused walkthrough tab through `ownCommand`, as `weavie.agent.attachBlock` does, and the strip's
   buttons show their binding when one is set. `weavie.agent.openCard` and `weavie.agent.toggleAside` accept the new
@@ -586,8 +590,8 @@ Guidance is sent once per conversation, so a change applies from the next conver
 ```text
 createWalkthroughCode(session, mount, code, file, view) → { dispose }
   until mount is within one viewport of the screen: a placeholder as tall as its shown lines; then:
-  model   = models.open(code.path)                        // the shared file-model scope; live file model
-            a deleted file → a snapshot model of the block's copy, notice "Deleted since"
+  model   = files.stat(root/path).exists ? scope.open(root/path) : the tab's one copy per path and recorded text,
+            notice "Deleted since this walkthrough recorded it"
   editor  = createEmbeddedEditor(mount, model, …, { readOnly: true, minimap off, folding off, sticky scroll off,
             wordWrap: "on", wrappingIndent: "deepIndent", scrollBeyondLastLine: false,
             scrollbar: { handleMouseWheel: false, alwaysConsumeMouseWheel: false } })
@@ -598,10 +602,11 @@ createWalkthroughCode(session, mount, code, file, view) → { dispose }
     map     = diffLines(copy, model text); line(n) = mapLine(map, n)
     shown   = line(from)..line(to), minus each fold the reader has not opened
     hiddenAreas(editor).setHiddenAreas(everything else, "weavie.walkthrough")
-    cards   → one createZoneCards layer (as inline replies use) holds every row between lines:
+    cards   → one createZoneCards layer (as inline replies use) holds every row between lines; under a line whose
+              next one is hidden, a card hangs after the line's last character (`afterColumn`), since Monaco
+              draws a zone only when the position after it is visible:
               a closed fold's "<N> lines · <label>", an open fold's "Hide", each note (and "Was: …"), and each
-              question asked about a line. Monaco hides a zone whose next line is hidden, so a card above a
-              closed fold sits after the fold's last line.
+              question asked about a line.
     notes   → for each note whose line maps exactly and still contains its token:
                 inlineClassName "walkthrough-mark" on the token, and its card under the line
               any other note is not drawn and the block says "A noted line changed"

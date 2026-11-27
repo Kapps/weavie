@@ -16,36 +16,36 @@ maintainability problem; a **nit** is anything smaller.
 
 | # | Severity | Status | Finding | Where |
 | --- | --- | --- | --- | --- |
-| 1 | bug | open | A note, fold row or question under a block's last line is not drawn | `src/web/src/agent/walkthrough/walkthrough-code.tsx:225` |
-| 2 | bug | open | A stop row on the pane card always opens the tab at stop 1 | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:275` |
-| 3 | bug | open | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
-| 4 | bug | open | A question asked from a walkthrough a `/btw` published is refused as "no longer shown" | `src/Weavie.AgentClientProtocol/AcpAgentSession.SideConversations.cs:28` |
-| 5 | bug | open | A dismissed question that then needs a permission can't be answered | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:33` |
-| 6 | bug | open | A whole-line selection puts its question one line low | `src/web/src/agent/walkthrough/walkthrough-code.tsx:255` |
-| 7 | bug | open | After an update re-records a block, older questions sit under the wrong line | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:119` |
-| 8 | bug | open | `/btw` cards did not get Stop | `src/web/src/agent/AgentAsideEntry.tsx:48` |
-| 9 | warn | open | Scrolling past a stop, opening a fold or revealing an answer repaints every mounted block | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:214` |
-| 10 | warn | open | Code selection is a second copy of the editor's selection actions and works on every selection event | `src/web/src/agent/walkthrough/walkthrough-code.tsx:248` |
-| 11 | warn | open | `WalkthroughQuestion` re-wires `AsideEntry` | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:30` |
-| 12 | warn | open | `ReviewHintStore` hashes and splits text `WorktreeTextFile` already hashed and split | `src/Weavie.Core/Review/Hints/ReviewHintStore.cs:86` |
-| 13 | warn | open | Clicking a question's head dismisses it for good, under a "Collapse" tooltip | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:40` |
-| 14 | warn | open | Stop is a bare bus message, not a command | `src/web/src/agent/walkthrough/walkthrough-ask.ts:34` |
-| 15 | warn | open | The host checks neither the anchor's place nor its quote | `src/Weavie.Hosting/HostCore.Sessions.cs:81` |
-| 16 | warn | open | The fold row and strip buttons are styled from scratch, with a font set | `src/web/src/agent/walkthrough/walkthrough.css:162` |
-| 17 | warn | open | `WalkthroughTab.tsx` is 417 lines doing six jobs | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:83` |
-| 18 | warn | open | `McpServer` holds a nullable `WalkthroughCapture` | `src/Weavie.Core/Mcp/McpServer.cs:43` |
-| 19 | warn | open | Tests the design lists are absent | `src/web/e2e/functional/walkthroughs.spec.ts:83` |
-| 20 | nit | open | A block shows one notice; "Recorded after edits" hides the others for good | `src/web/src/agent/walkthrough/walkthrough-code.tsx:177` |
-| 21 | nit | open | A failed source request shows the raw error and is cached for the tab's life | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:213` |
-| 22 | nit | open | An update can blank `title`, `problem` or `gist` with an empty string | `src/Weavie.Core/Agents/AgentWalkthroughRules.cs:56` |
-| 23 | nit | open | An update accepts `title`, which the design does not list; the pane card keeps the old one | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:45` |
-| 24 | nit | open | The 2 MB limit is checked after the file is read, split and hashed | `src/Weavie.Core/Agents/WalkthroughCapture.cs:33` |
-| 25 | nit | open | Three small design items are not built | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:150` |
-| 26 | nit | open | `Prose` builds a new cache key per read, so its markdown is never cached | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:32` |
-| 27 | nit | open | Three-line file comment | `src/web/src/agent/walkthrough/walkthrough-code.tsx:1` |
-| 28 | nit | open | `em` in chrome geometry | `src/web/src/agent/walkthrough/walkthrough.css:107` |
-| 29 | nit | open | A stop request is keyed by tab path alone, in a module global | `src/web/src/agent/walkthrough/walkthrough-view.ts:19` |
-| 30 | nit | open | The embedded-editor setup repeats the review's, with a class that has no rule | `src/web/src/agent/walkthrough/walkthrough-code.tsx:78` |
+| 1 | bug | fixed | A note, fold row or question under a block's last line is not drawn | `src/web/src/agent/walkthrough/walkthrough-code.tsx:225` |
+| 2 | bug | fixed | A stop row on the pane card always opens the tab at stop 1 | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:275` |
+| 3 | bug | fixed | Two blocks on one deleted file collide, and any failure to open a file reads "Deleted" | `src/web/src/agent/walkthrough/walkthrough-code.tsx:70` |
+| 4 | bug | fixed | A question asked from a walkthrough a `/btw` published is refused as "no longer shown" | `src/Weavie.AgentClientProtocol/AcpAgentSession.SideConversations.cs:28` |
+| 5 | bug | fixed | A dismissed question that then needs a permission can't be answered | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:33` |
+| 6 | bug | fixed | A whole-line selection puts its question one line low | `src/web/src/agent/walkthrough/walkthrough-code.tsx:255` |
+| 7 | bug | fixed | After an update re-records a block, older questions sit under the wrong line | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:119` |
+| 8 | bug | fixed | `/btw` cards did not get Stop | `src/web/src/agent/AgentAsideEntry.tsx:48` |
+| 9 | warn | fixed | Scrolling past a stop, opening a fold or revealing an answer repaints every mounted block | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:214` |
+| 10 | warn | fixed | Code selection is a second copy of the editor's selection actions and works on every selection event | `src/web/src/agent/walkthrough/walkthrough-code.tsx:248` |
+| 11 | warn | fixed | `WalkthroughQuestion` re-wires `AsideEntry` | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:30` |
+| 12 | warn | fixed | `ReviewHintStore` hashes and splits text `WorktreeTextFile` already hashed and split | `src/Weavie.Core/Review/Hints/ReviewHintStore.cs:86` |
+| 13 | warn | fixed | Clicking a question's head dismisses it for good, under a "Collapse" tooltip | `src/web/src/agent/walkthrough/WalkthroughQuestion.tsx:40` |
+| 14 | warn | fixed | Stop is a bare bus message, not a command | `src/web/src/agent/walkthrough/walkthrough-ask.ts:34` |
+| 15 | warn | fixed | The host checks neither the anchor's place nor its quote | `src/Weavie.Hosting/HostCore.Sessions.cs:81` |
+| 16 | warn | fixed | The fold row and strip buttons are styled from scratch, with a font set | `src/web/src/agent/walkthrough/walkthrough.css:162` |
+| 17 | warn | fixed | `WalkthroughTab.tsx` is 417 lines doing six jobs | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:83` |
+| 18 | warn | fixed | `McpServer` holds a nullable `WalkthroughCapture` | `src/Weavie.Core/Mcp/McpServer.cs:43` |
+| 19 | warn | fixed | Tests the design lists are absent | `src/web/e2e/functional/walkthroughs.spec.ts:83` |
+| 20 | nit | fixed | A block shows one notice; "Recorded after edits" hides the others for good | `src/web/src/agent/walkthrough/walkthrough-code.tsx:177` |
+| 21 | nit | fixed | A failed source request shows the raw error and is cached for the tab's life | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:213` |
+| 22 | nit | fixed | An update can blank `title`, `problem` or `gist` with an empty string | `src/Weavie.Core/Agents/AgentWalkthroughRules.cs:56` |
+| 23 | nit | fixed | An update accepts `title`, which the design does not list; the pane card keeps the old one | `src/web/src/agent/walkthrough/WalkthroughCard.tsx:45` |
+| 24 | nit | fixed | The 2 MB limit is checked after the file is read, split and hashed | `src/Weavie.Core/Agents/WalkthroughCapture.cs:33` |
+| 25 | nit | fixed in part | Three small design items are not built | `src/web/src/agent/walkthrough/WalkthroughTab.tsx:150` |
+| 26 | nit | fixed | `Prose` builds a new cache key per read, so its markdown is never cached | `src/web/src/agent/walkthrough/WalkthroughStop.tsx:32` |
+| 27 | nit | fixed | Three-line file comment | `src/web/src/agent/walkthrough/walkthrough-code.tsx:1` |
+| 28 | nit | fixed | `em` in chrome geometry | `src/web/src/agent/walkthrough/walkthrough.css:107` |
+| 29 | nit | fixed | A stop request is keyed by tab path alone, in a module global | `src/web/src/agent/walkthrough/walkthrough-view.ts:19` |
+| 30 | nit | fixed | The embedded-editor setup repeats the review's, with a class that has no rule | `src/web/src/agent/walkthrough/walkthrough-code.tsx:78` |
 
 ## Bugs
 
@@ -211,6 +211,50 @@ outstanding.
 - **30.** `walkthrough-code.tsx:78-104` repeats the overflow-widgets node and most options of
   `src/web/src/editor/review/review-editor.ts:78-108`. `walkthrough-overflow-widgets` has no CSS rule; the review's
   class positions its node.
+
+## Fixes
+
+Fixed on `research/code-walkthrough` after `ec955b85`. Each change has a test unless noted.
+
+1. Cards hang after the line's last character when the line after it is hidden (`ZoneCard.afterColumn`). e2e: a
+   note on the block's last line is in view.
+2. The card asks the tab for a target once (`requestedTarget`), and a stop scrolled to stays put while the blocks
+   above it mount, until the reader scrolls. e2e: a stop row opens the tab at that stop.
+3. The tab asks the host whether the file exists (`files` `stat`), opens the live file when it does, and otherwise
+   shares one copy per path and recorded text. Other failures surface as themselves. e2e: two blocks on a deleted
+   file.
+4. The anchor names the walkthrough's conversation, and `AskAside` looks the block up there. Hosting test.
+5. and 13. A question is a BTW card (`AsideEntry`): collapsing it leaves its head, a pending request still shows
+   in it, and the pane card's waiting row opens the tab at that card.
+6. and 10. Code selections use the editor's own gesture watcher (`watchSelectionGestures`, extracted from
+   `editor-selection-actions.ts`), `lastLineOf` and `selectionExcerpt`. e2e: a code question sits under its line.
+7. A code place names the copy its line is numbered in (`<stop>/code/<i>/<line>@<copy>`); a place on an older copy
+   moves to its stop's end. Unit test.
+8. `/btw` cards have Stop, through the new `weavie.agent.stopAside` command (14). e2e.
+9. Folds and questions are compared by value, so a stop change repaints nothing; the current stop comes from an
+   IntersectionObserver, so scrolling reads no layout. e2e render budget: twelve blocks scrolled top to bottom, at
+   most one read per wheel notch, nothing removed.
+11. `WalkthroughQuestion` is `AsideEntry` with a label and the quote.
+12. `ReviewHintStore` keeps the `WorktreeTextFile` it read.
+15. `AgentAsideAnchor.Problem()` checks the place's characters and length and the quote's length. Hosting test.
+16. The fold row and strip stops are `.ui-row`s with no font of their own.
+17. `WalkthroughTab.tsx` keeps the page; its services are in `walkthrough-page.ts`, `walkthrough-selection.ts`,
+    `walkthrough-questions.ts` and `WalkthroughStrip.tsx`.
+18. `WalkthroughCapture.None`.
+19. Added: `WalkthroughCaptureTests`; hosting tests for `block-collapsed`, copies across Rewind and `/clear`, restore,
+    the anchor restored, a question about a `/btw`'s walkthrough; web unit tests for question placement; e2e for
+    code selection, Stop, the strip following the reader, a deleted file, the review bar and the render budget.
+20. Every notice that applies is shown. 21. A failed copy reads "This code is no longer stored" and is asked again.
+22. An update refuses an empty field it gives. 23. `title` is refused on update. 24. Size is checked before reading.
+25. The quoted text stays lit (a CSS highlight in prose, a decoration in code) and the waiting row opens at its
+    card. Not built: disabling the selection actions when the agent has no `/btw`; the host's refusal already says
+    so in a toast, and the page has no list of the agent's commands to ask.
+26. One cache key per prose. 27. Two-line comment. 28. px. 29. Requests are keyed by session, then path.
+30. `embeddedEditorChrome` and `embedded-editor-overflow-widgets` are shared with the review.
+
+Found while fixing: the pane's wire row never carried the anchor (`AgentPaneWire`), so every question landed in the
+pane transcript; the first e2e passed only through `blockId`. Blocks also mounted against the window, so a block
+scrolled out of the tab never mounted.
 
 ## Rejected
 

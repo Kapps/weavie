@@ -1,3 +1,4 @@
+import { getService, ITextModelService } from "@codingame/monaco-vscode-api/services";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { ownedTarget } from "../../agent/agent-command-owner";
 import type { SubmissionState } from "../../agent/composer-state";
@@ -17,6 +18,7 @@ import { notify } from "../../notify/notify";
 import { editorContexts } from "../editor-context";
 import { monaco } from "../monaco-setup";
 import { lastLineOf, selectionExcerpt } from "../selection-excerpt";
+import { SESSION_FILE_SCHEME } from "../session-uri-scheme";
 
 /** A prompt sent from an editor selection, answered under the line it was sent from. */
 export interface InlineReply {
@@ -36,6 +38,15 @@ export interface InlineReply {
 const composerKey = (id: string): string => `inline-reply:${id}`;
 
 const EMPTY: readonly InlineReply[] = [];
+
+// Keeps a file's working copy open with no tab or review showing it; a model of any other kind is its opener's.
+function holdOpen(model: monaco.editor.ITextModel): () => void {
+  if (model.uri.scheme !== SESSION_FILE_SCHEME) return () => {};
+  const reference = getService(ITextModelService).then((service) =>
+    service.createModelReference(model.uri),
+  );
+  return () => void reference.then((held) => held.dispose());
+}
 
 const owned = createSessionOwnedResource(
   (session) =>
@@ -64,6 +75,7 @@ const owned = createSessionOwnedResource(
         if (!watched.has(model)) {
           const ofModel = (other: InlineReply): boolean => other.model === model;
           const subscriptions = [
+            { dispose: holdOpen(model) },
             model.onWillDispose(() => remove(ofModel)),
             // Replacing the whole text discards the marks that place its replies.
             model.onDidChangeContent((event) => {
@@ -180,6 +192,11 @@ export function setInlineReplyCollapsed(
 
 export function dismissInlineReply(session: ClientSession, id: string): void {
   owned.get(session)?.remove((reply) => reply.id === id);
+}
+
+/** Ends the replies on a file that is gone, which nothing can show again. */
+export function dismissInlineRepliesOn(session: ClientSession, uri: string): void {
+  owned.get(session)?.remove((reply) => reply.model.uri.toString() === uri);
 }
 
 /** The composer of `reply`'s follow-up box, whose prompts join the card. */

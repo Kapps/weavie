@@ -280,6 +280,30 @@ test("review chords pressed in a card's reply box leave the pending change alone
   expect(await readFile(file, "utf8")).toBe("written through ACP");
 });
 
+test("a reply to a comment sent from the review is there after leaving its tab and returning", async ({
+  page,
+  weavie,
+}) => {
+  const surface = await createAcpSession(page, "inline-reply-review-tab");
+  const file = join(sessionWorktrees(weavie.workspace)[0]!, "notes.txt");
+  await submitAcpDraft(surface, `fs:${file}`);
+  await expect(surface).toContainText("fs: written through ACP");
+  await runCommand(page, "Review Changes");
+  await page
+    .locator(".unified-review-file .view-line", { hasText: "written" })
+    .click({ clickCount: 3 });
+  await page.getByRole("button", { name: "Comment on Selection", exact: true }).click();
+  await page.keyboard.type("why this line");
+  await page.keyboard.press("Enter");
+  const card = page.locator("[data-inline-reply]");
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+
+  await openFile(page, "hello.ts");
+  await expect(card).toHaveCount(0);
+  await page.locator(".editor-tab", { hasText: "Review" }).click();
+  await expect(card.locator(".agent-markdown")).toContainText("echo: why this line");
+});
+
 test.describe("with permissions asked", () => {
   test.use({
     fakeScript: {

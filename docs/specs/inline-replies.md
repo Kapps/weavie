@@ -88,13 +88,17 @@ Inline replies are client state owned by the session. Each holds a decoration on
 code it is about, which follows that code through edits; the card sits under its last line. A reply ends when:
 
 - the user dismisses it (the card's ✕ or a Dismiss command),
-- its model is disposed (the file's last tab closes) or its whole text is replaced, which discards the mark,
+- its whole text is replaced, which discards the mark,
+- its file is deleted, or is a scratch buffer that is discarded,
+- its model is disposed, for a model that is not a file (a proposed diff),
 - its first prompt leaves the loaded transcript (`/clear`, Rewind); a follow-up that leaves only drops out
   of the card,
 - the host drops its first prompt undelivered (a dropped follow-up only leaves the card),
 - the page reloads.
 
-Every editor showing the model shows its cards. The card layer exists only while a model has a reply.
+A reply holds a reference to its file's working copy, so the card is there when the file is shown again
+after its last tab closes or the review showing it is left. Every editor showing the model shows its cards.
+The card layer exists only while a model has a reply.
 
 ## Setting
 

@@ -26,16 +26,19 @@ import { hydrateGithubMedia } from "./github-media";
  */
 export type MarkdownFlavor = "agent" | "github";
 
-const agentEngine = createMarkdownEngine({
+const agentProfile = {
   html: "none",
   images: "hosted",
   allowMermaid: true,
   safeLinksOnly: true,
-});
-agentEngine.markdown.use(findingSlots);
+} as const;
+const replyEngine = createMarkdownEngine(agentProfile);
+replyEngine.markdown.use(findingSlots);
+// A reply is the only agent text that places findings.
+const renderReply = rendererOf(replyEngine);
 
 const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
-  agent: rendererOf(agentEngine),
+  agent: createMarkdownRenderer(agentProfile),
   github: createMarkdownRenderer({
     html: "github",
     images: "direct",
@@ -82,7 +85,7 @@ export function AgentMarkdown(props: {
     const includeRefs = props.session !== null && refLinkPrefixFor(props.session) !== null;
     const rendered = renderCached(
       props.cacheKey,
-      renderers[props.flavor],
+      props.reply === null ? renderers[props.flavor] : renderReply,
       props.content,
       includeRefs,
     );

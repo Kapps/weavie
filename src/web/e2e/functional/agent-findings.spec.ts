@@ -17,7 +17,7 @@ test("a pinned finding sits on the board, shows where the reply places it, and i
 
   const pinned = board.locator(".agent-finding-row");
   await expect(pinned).toHaveText("The review opens with no merge check.");
-  await expect(board.locator(".agent-findings-toggle")).toHaveText("Findings1");
+  await expect(board.locator(".agent-roster-toggle")).toHaveText("Findings1");
   // The pin is never a transcript row: not as a tool, and not as a block.
   await expect(surface.locator(".agent-entry-block")).toHaveCount(0);
   await expect(
@@ -48,7 +48,7 @@ test("a pinned finding sits on the board, shows where the reply places it, and i
   await expect(pinned).toContainText("The review checks for a merge, but too late.");
   await expect(pinned).toContainText("updated");
   await expect(placed).toContainText("The review checks for a merge, but too late.");
-  await expect(board.locator(".agent-findings-toggle")).toHaveText("Findings1");
+  await expect(board.locator(".agent-roster-toggle")).toHaveText("Findings1");
 
   await page.reload();
   const reloaded = page.locator('[data-surface="structured-agent"]');
@@ -66,9 +66,9 @@ test("Expand or Collapse Findings hides the board's rows and keeps its count", a
   const board = surface.locator("[data-agent-findings]");
   await expect(board.locator(".agent-finding-row")).toHaveCount(1);
 
-  await board.locator(".agent-findings-toggle").click();
+  await board.locator(".agent-roster-toggle").click();
 
   await expect(board.locator(".agent-finding-row")).toHaveCount(0);
-  await expect(board.locator(".agent-findings-toggle")).toHaveAttribute("aria-expanded", "false");
-  await expect(board.locator(".agent-findings-toggle")).toHaveText("Findings1");
+  await expect(board.locator(".agent-roster-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(board.locator(".agent-roster-toggle")).toHaveText("Findings1");
 });

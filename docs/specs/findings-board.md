@@ -39,8 +39,8 @@ history, Rewind and `readSession` show only what the user typed.
 
 | Prompt | Pin ask | Reader |
 |---|---|---|
-| Composer prompt, steer, bundled prompt, workflow prompt stage, review hints | yes | yes |
-| `/btw` side conversation, which has no board | no | yes |
+| Composer prompt, steer, bundled prompt, review hints, a workflow stage on the main conversation | yes | yes |
+| `/btw` side conversation or a workflow stage on its own conversation, which have no board | no | yes |
 | A message from another session | no | no |
 | A provider slash command, which must stay an exact block | no | no |
 | Terminal Claude, consultations, ad-hoc inference | no | no |
@@ -80,6 +80,14 @@ sequenceDiagram
 
 A subagent's pin is discarded with a notice, as its blocks are. A side conversation's findings are its own and
 show only where its replies place them.
+
+## Limits
+
+- A correction made in a turn that is then refused or rewound stays: only the turn that first pinned a finding
+  owns its row, as with `updateBlock`.
+- While a reply streams, each chunk re-renders it, so a finding opened inside it loses keyboard focus until the
+  reply ends. Its open state and rendered detail are kept.
+- The tool-argument size cap of the block tools applies to a pin; nothing else limits a finding.
 
 ## Evidence
 

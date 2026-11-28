@@ -26,11 +26,11 @@ public sealed partial class McpServer {
 		},
 	}.ToJsonString();
 
-	private Task HandlePinFindingAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, CancellationToken ct) =>
-		StageBlockAsync(responder, args, idRaw, call, PinFindingTool, AgentBlockJson.Default.AgentFindingRequest, request => {
+	private static StagedBlock StagePinFinding(JsonElement args, InflightCall call) =>
+		StageBlock(args, call, PinFindingTool, AgentBlockJson.Default.AgentFindingRequest, request => {
 			var current = call.Blocks.Find(request.Id);
 			return (AgentBlockRules.Pin(request, current),
 				$"Finding '{request.Id}' is {(current is null ? "pinned" : "replaced")} on the board. The user has it in front of them now. "
 				+ $"In your reply, write [[{request.Id}]] on a line of its own where it belongs, and don't restate what it says.");
-		}, ct);
+		});
 }

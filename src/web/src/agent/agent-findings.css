@@ -1,16 +1,7 @@
 .agent-findings {
   display: flex;
-  flex: 0 1 auto;
   flex-direction: column;
-  min-height: 0;
   max-height: 40%;
-  border-top: 1px solid var(--border);
-  background: var(--bar);
-}
-
-.agent-findings-toggle {
-  flex: none;
-  gap: 8px;
 }
 
 /* Reversed, so the list rests at its end and the newest finding stays in view as the board grows. */
@@ -27,6 +18,7 @@
 
 /* A finding reads as the agent's prose, in the reply and on the board alike. */
 .agent-finding-row {
+  --row-line: calc(var(--font-prose-size) * var(--font-prose-line));
   color: var(--fg);
   font: var(--font-prose);
   cursor: default;
@@ -34,6 +26,10 @@
 
 summary.agent-finding-row {
   cursor: pointer;
+}
+
+summary.agent-finding-row:hover {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
 }
 
 .agent-finding-title {

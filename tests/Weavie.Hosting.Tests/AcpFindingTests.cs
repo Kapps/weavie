@@ -102,6 +102,22 @@ public sealed class AcpFindingTests {
 			&& message.Type == "item-completed" && message.Text == "preferences:" + AgentPromptPreferences.AdhdReader);
 	}
 
+	[Fact]
+	public async Task ASlashCommandAndAnotherSessionsMessage_CarryNoSentences() {
+		await using var fixture = await AcpAgentSessionFixture.StartedAsync();
+		Set(fixture, board: true, reader: true);
+
+		fixture.SubmitCommand("review", "/review focus on tests");
+		await fixture.WaitForMessageAsync(message => message.Text == "review command: focus on tests");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		fixture.Session.Submit(AgentTurnSubmission.Prompt("ping") with { Sender = new AgentMessageSender("feat/other", "Other") });
+		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: ping");
+
+		Assert.Equal(2, AcpPromptAssertions.Read(fixture).Length);
+		Assert.DoesNotContain(AcpPromptAssertions.Read(fixture).SelectMany(request => AcpPromptAssertions.Blocks(request).ToArray()), block =>
+			block.GetProperty("type").GetString() == "text" && block.GetProperty("text").GetString()!.Contains("ADHD", StringComparison.Ordinal));
+	}
+
 	private static void Set(AcpAgentSessionFixture fixture, bool board, bool reader) {
 		fixture.Settings.Set(AgentSettings.FindingsBoard, JsonSerializer.SerializeToElement(board));
 		fixture.Settings.Set(AgentSettings.AdhdReader, JsonSerializer.SerializeToElement(reader));

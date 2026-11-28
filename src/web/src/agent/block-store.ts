@@ -73,6 +73,7 @@ export function clearBlocks(session: ClientSession): void {
 }
 
 function clear(store: BlockSignals): void {
+  store.open.clear();
   for (const [, write] of store.blocks.values()) write(undefined);
 }
 
@@ -99,7 +100,7 @@ export function findingOpen(session: ClientSession, placement: string): Signal<b
   if (store === undefined) return createSignal(false);
   let open = store.open.get(placement);
   if (open === undefined) {
-    open = createRoot(() => createSignal(false));
+    open = createSignal(false);
     store.open.set(placement, open);
   }
   return open;

@@ -127,35 +127,36 @@ public sealed partial class McpServer {
 			: $" Added to dashboard '{dashboard.Id}' (\"{standing}\").";
 	}
 
-	private Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) =>
-		StageBlockAsync(responder, args, idRaw, call, show ? ShowBlockTool : UpdateBlockTool, AgentBlockJson.Default.AgentBlockRequest, request => {
+	private static StagedBlock StageBlockTool(JsonElement args, InflightCall call, bool show) =>
+		StageBlock(args, call, show ? ShowBlockTool : UpdateBlockTool, AgentBlockJson.Default.AgentBlockRequest, request => {
 			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
 			return (operation, operation is AgentBlockOperation.Show shown
 				? $"The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
 				: $"Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.");
-		}, ct);
+		});
 
-	// Stages the operation a block tool's arguments describe and answers with its claim token, then what to tell the agent.
-	private async Task StageBlockAsync<TRequest>(
-		IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, string tool, JsonTypeInfo<TRequest> contract,
-		Func<TRequest, (AgentBlockOperation Operation, string Text)> describe, CancellationToken ct) {
-		string text;
+	// Stages the operation a block tool's arguments describe: its claim token and what to tell the agent, or the refusal.
+	private static StagedBlock StageBlock<TRequest>(
+		JsonElement args, InflightCall call, string tool, JsonTypeInfo<TRequest> contract,
+		Func<TRequest, (AgentBlockOperation Operation, string Text)> describe) {
 		try {
 			string json = args.ValueKind == JsonValueKind.Object ? args.GetRawText() : "{}";
 			int bytes = Encoding.UTF8.GetByteCount(json);
 			if (bytes > AgentBlockLimits.ArgumentBytes) {
-				throw new AgentBlockException($"The arguments are {bytes:N0} bytes; the limit is {AgentBlockLimits.ArgumentBytes:N0}. Aggregate and resend.");
+				throw new AgentBlockException($"The arguments are {bytes:N0} bytes; the limit is {AgentBlockLimits.ArgumentBytes:N0}. Send less and resend.");
 			}
 			var request = JsonSerializer.Deserialize(json, contract) ?? throw new AgentBlockException("The arguments must be an object.");
 			var (operation, told) = describe(request);
-			text = call.Blocks.Stage(operation) + " " + told;
+			return new(call.Blocks.Stage(operation) + " " + told, Refused: false);
 		} catch (JsonException ex) {
-			await SendToolErrorAsync(responder, idRaw, $"Invalid {tool} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
-			return;
+			return new($"Invalid {tool} arguments at {ex.Path ?? "$"}: {ex.Message}", Refused: true);
 		} catch (AgentBlockException ex) {
-			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
-			return;
+			return new(ex.Message, Refused: true);
 		}
-		await SendToolTextAsync(responder, idRaw, text, ct).ConfigureAwait(false);
 	}
+
+	private Task SendStagedAsync(IMcpResponder responder, string? idRaw, StagedBlock staged, CancellationToken ct) =>
+		staged.Refused ? SendToolErrorAsync(responder, idRaw, staged.Text, ct) : SendToolTextAsync(responder, idRaw, staged.Text, ct);
+
+	private readonly record struct StagedBlock(string Text, bool Refused);
 }

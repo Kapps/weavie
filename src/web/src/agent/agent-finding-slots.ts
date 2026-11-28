@@ -13,13 +13,13 @@ export function findingSlots(markdown: MarkdownIt): void {
       const open = state.tokens[index]!;
       const inline = state.tokens[index + 1];
       const close = state.tokens[index + 2];
-      const lines = inline?.content.split("\n") ?? [];
-      if (
-        open.type !== "paragraph_open" ||
-        inline?.type !== "inline" ||
-        close?.type !== "paragraph_close" ||
-        !lines.some((line) => SLOT.test(line))
-      ) {
+      const lines =
+        open.type === "paragraph_open" &&
+        inline?.type === "inline" &&
+        close?.type === "paragraph_close"
+          ? inline.content.split("\n")
+          : [];
+      if (inline === undefined || close === undefined || !lines.some((line) => SLOT.test(line))) {
         tokens.push(open);
         continue;
       }

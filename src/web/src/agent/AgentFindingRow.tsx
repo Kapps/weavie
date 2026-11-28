@@ -6,7 +6,7 @@ import { blockUpdatedAt } from "./agent-cards";
 import { agentBlock, findingOpen } from "./block-store";
 import "./agent-findings.css";
 
-const ROW = "agent-disclosure-row ui-row ui-row-stack agent-finding-row";
+const ROW = "ui-row ui-row-stack agent-finding-row";
 
 /**
  * One pinned finding where it is shown, on the board or in a reply: its title, opening to its detail. `title` stands
@@ -21,7 +21,6 @@ export function AgentFindingRow(props: {
 }): JSX.Element {
   const block = () => agentBlock(props.session, props.blockKey)?.block;
   const [open, setOpen] = findingOpen(props.session, props.placement);
-  const cacheKey = {};
   let root: HTMLDivElement | undefined;
   const label = (): JSX.Element => (
     <>
@@ -60,7 +59,7 @@ export function AgentFindingRow(props: {
             <div class="agent-disclosure-body">
               <AgentMarkdown
                 reply={null}
-                cacheKey={cacheKey}
+                cacheKey={block()!.finding!}
                 content={detail()}
                 flavor="agent"
                 renderMermaid={true}

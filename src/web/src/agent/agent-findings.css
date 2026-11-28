@@ -28,10 +28,6 @@ summary.agent-finding-row {
   cursor: pointer;
 }
 
-summary.agent-finding-row:hover {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
-}
-
 .agent-finding-title {
   flex: 1 1 auto;
   min-width: 0;

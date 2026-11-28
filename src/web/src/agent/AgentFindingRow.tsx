@@ -44,7 +44,7 @@ export function AgentFindingRow(props: {
         {(detail) => (
           <Disclosure
             class="agent-row-disclosure"
-            summaryClass={ROW}
+            summaryClass={`agent-disclosure-row ${ROW}`}
             label={label()}
             open={open()}
             onToggle={(next) => {

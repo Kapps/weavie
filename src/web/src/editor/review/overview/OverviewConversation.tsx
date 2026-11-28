@@ -43,7 +43,7 @@ function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.
         <Show when={props.item.body !== ""}>
           <div class="session-overview-comment-body">
             <AgentMarkdown
-              attachable={false}
+              reply={null}
               cacheKey={props.item}
               content={props.item.body}
               flavor="github"

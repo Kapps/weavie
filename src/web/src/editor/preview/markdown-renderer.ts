@@ -20,8 +20,15 @@ export interface MarkdownEngine {
   sanitize(html: string): DocumentFragment;
 }
 
-export function createMarkdownRenderer(profile: MarkdownProfile): (content: string) => HTMLElement {
-  const { markdown, sanitize } = createMarkdownEngine(profile);
+export const createMarkdownRenderer = (
+  profile: MarkdownProfile,
+): ((content: string) => HTMLElement) => rendererOf(createMarkdownEngine(profile));
+
+/** Renders markdown through `engine`, whose parser the caller may have extended. */
+export function rendererOf({
+  markdown,
+  sanitize,
+}: MarkdownEngine): (content: string) => HTMLElement {
   return (content: string): HTMLElement => {
     const element = document.createElement("div");
     element.append(sanitize(markdown.render(content)));

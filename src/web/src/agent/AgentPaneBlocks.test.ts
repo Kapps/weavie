@@ -153,3 +153,25 @@ describe("dashboards", () => {
     );
   });
 });
+
+describe("findings", () => {
+  it("collects a finding's row for the board and shows nothing at its place", () => {
+    const pin = row({
+      itemId: "tool:a",
+      itemType: "block",
+      category: "finding",
+      summary: "It races.",
+      blockId: "cause",
+    });
+    const reply = row({ itemId: "m1", itemType: "agentMessage", text: "[[cause]]" });
+    withModel([row({ type: "user-message", itemId: "u1", text: "why" }), pin, reply], (model) => {
+      expect(model.transcript().entries.map((entry) => entry.kind)).toEqual(["message", "message"]);
+      expect(model.findings()).toMatchObject([
+        { summary: "It races.", block: { id: "cause", kind: "finding" } },
+      ]);
+      expect(`${model.transcript().entries[1]!.blockScope}cause`).toBe(
+        model.findings()[0]!.block.key,
+      );
+    });
+  });
+});

@@ -1,0 +1,52 @@
+.agent-findings {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+}
+
+.agent-findings-toggle {
+  flex: none;
+  gap: 8px;
+}
+
+/* Reversed, so the list rests at its end and the newest finding stays in view as the board grows. */
+.agent-findings-scroll {
+  display: flex;
+  flex-direction: column-reverse;
+  min-height: 0;
+  overflow: auto;
+}
+
+.agent-findings-list {
+  padding: 0 8px 8px;
+}
+
+/* A finding reads as the agent's prose, in the reply and on the board alike. */
+.agent-finding-row {
+  color: var(--fg);
+  font: var(--font-prose);
+  cursor: default;
+}
+
+summary.agent-finding-row {
+  cursor: pointer;
+}
+
+.agent-finding-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-finding .agent-disclosure-body {
+  color: var(--fg);
+}
+
+/* A finding placed in a reply sits between its paragraphs as a block of its own. */
+.agent-finding-slot {
+  margin: 0.5em 0;
+}

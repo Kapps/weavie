@@ -117,7 +117,26 @@ public sealed class AgentBlockTests {
 		Assert.Single(AgentBlockRules.Apply(shown, append, 1)!.Table!.Rows);
 	}
 
+	[Fact]
+	public void AFindingIsReplacedByItsNextPin_AndNeverSharesAnIdWithAChart() {
+		var chart = new AgentBlock { Id = "a", Title = "Chart", Chart = Line };
+		var first = AgentBlockRules.Pin(new() { Id = "a", Title = "First", Detail = "why" }, null);
+		var finding = AgentBlockRules.Apply(null, first, 1)!;
+		var second = AgentBlockRules.Pin(new() { Id = "a", Title = "Second", Detail = " " }, finding);
+
+		Assert.Equal(("finding", "why", null), (finding.Kind, finding.Finding!.Detail, finding.UpdatedAtMs));
+		Assert.Equal(("Second", null, 2), AgentBlockRules.Apply(finding, second, 2) is { } replaced ? (replaced.Title, replaced.Finding!.Detail, replaced.UpdatedAtMs) : default);
+		Assert.Null(AgentBlockRules.Apply(chart, first, 3));
+		Assert.Equal("'a' is a chart you showed; pin the finding under another id.",
+			Assert.Throws<AgentBlockException>(() => AgentBlockRules.Pin(new() { Id = "a", Title = "x" }, chart)).Message);
+		Assert.Equal("pinFinding requires a 'title'.",
+			Assert.Throws<AgentBlockException>(() => AgentBlockRules.Pin(new() { Id = "a", Title = " " }, null)).Message);
+		Assert.Equal("Block 'a' is a finding; change it with pinFinding.",
+			Assert.Throws<AgentBlockException>(() => AgentBlockRules.Validate(new() { Id = "a", Title = "x" }, finding, show: false)).Message);
+	}
+
 	[Theory]
+	[InlineData("mcp__weavie__pinFinding", true)]
 	[InlineData("mcp__weavie__updateBlock", true)]
 	[InlineData("mcp.weavie.updateBlock", true)]
 	[InlineData("updateBlock", true)]
@@ -125,8 +144,8 @@ public sealed class AgentBlockTests {
 	[InlineData("grep -r updateBlock", false)]
 	[InlineData("mcp__weavie__showBlock", false)]
 	[InlineData(null, false)]
-	public void OnlyAToolTitleNamesAnUpdate(string? title, bool names) =>
-		Assert.Equal(names, AgentBlockRules.NamesUpdate(title));
+	public void OnlyAToolTitleNamesAnUndrawnTool(string? title, bool names) =>
+		Assert.Equal(names, AgentBlockRules.NamesUndrawnTool(title));
 
 	[Theory]
 	[InlineData("", true, false)]

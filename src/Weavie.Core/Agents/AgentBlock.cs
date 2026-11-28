@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace Weavie.Core.Agents;
 
-/// <summary>A chart or table an agent shows in its pane and updates in place; it holds only its latest state.</summary>
+/// <summary>A chart, table or finding an agent shows in its pane and changes in place; it holds only its latest state.</summary>
 public sealed record AgentBlock {
 	/// <summary>The agent-chosen id, unique within its conversation.</summary>
 	public required string Id { get; init; }
@@ -21,9 +21,18 @@ public sealed record AgentBlock {
 	/// <summary>The table, when the block is one.</summary>
 	public AgentTable? Table { get; init; }
 
-	/// <summary>The block's kind: <c>chart</c> or <c>table</c>.</summary>
+	/// <summary>The finding, when the block is one.</summary>
+	public AgentFinding? Finding { get; init; }
+
+	/// <summary>The block's kind: <c>chart</c>, <c>table</c>, or <c>finding</c>.</summary>
 	[JsonIgnore]
-	public string Kind => Chart is null ? "table" : "chart";
+	public string Kind => Chart is not null ? "chart" : Table is not null ? "table" : "finding";
+}
+
+/// <summary>One thing the agent learned, pinned to the findings board; the block's title states it.</summary>
+public sealed record AgentFinding {
+	/// <summary>The evidence behind the finding, as markdown; closed until the user opens it.</summary>
+	public string? Detail { get; init; }
 }
 
 /// <summary>A chart description: Weavie owns the format and draws it.</summary>
@@ -177,6 +186,18 @@ public sealed record AgentBlockRequest {
 	public AgentDashboardRequest? Dashboard { get; init; }
 }
 
+/// <summary>What an agent's <c>pinFinding</c> call asks for.</summary>
+public sealed record AgentFindingRequest {
+	/// <summary>The finding's id; pinning it again replaces the finding.</summary>
+	public required string Id { get; init; }
+
+	/// <summary>One sentence that states the finding.</summary>
+	public required string Title { get; init; }
+
+	/// <summary>The evidence behind it, as markdown.</summary>
+	public string? Detail { get; init; }
+}
+
 /// <summary>A dashboard named by the block that joins it; the first block to name it sets its title.</summary>
 public sealed record AgentDashboardRequest {
 	/// <summary>The dashboard id, unique within its conversation.</summary>
@@ -214,6 +235,9 @@ public abstract record AgentBlockOperation(string Id) {
 
 	/// <summary>Changes an existing block.</summary>
 	public sealed record Update(AgentBlockRequest Request) : AgentBlockOperation(Request.Id);
+
+	/// <summary>Pins a finding, replacing the one already pinned under its id.</summary>
+	public sealed record Pin(AgentBlock Block) : AgentBlockOperation(Block.Id);
 }
 
 /// <summary>A block and the provider and Weavie conversation that own it.</summary>
@@ -230,5 +254,6 @@ public sealed record AgentBlockRecord(long Generation, long Revision, AgentBlock
 	RespectNullableAnnotations = true,
 	DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AgentBlockRequest))]
+[JsonSerializable(typeof(AgentFindingRequest))]
 [JsonSerializable(typeof(AgentBlock))]
 public sealed partial class AgentBlockJson : JsonSerializerContext;

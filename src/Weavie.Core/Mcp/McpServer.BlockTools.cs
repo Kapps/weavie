@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 
 namespace Weavie.Core.Mcp;
@@ -126,7 +127,18 @@ public sealed partial class McpServer {
 			: $" Added to dashboard '{dashboard.Id}' (\"{standing}\").";
 	}
 
-	private async Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) {
+	private Task HandleBlockToolAsync(IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, bool show, CancellationToken ct) =>
+		StageBlockAsync(responder, args, idRaw, call, show ? ShowBlockTool : UpdateBlockTool, AgentBlockJson.Default.AgentBlockRequest, request => {
+			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
+			return (operation, operation is AgentBlockOperation.Show shown
+				? $"The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
+				: $"Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.");
+		}, ct);
+
+	// Stages the operation a block tool's arguments describe and answers with its claim token, then what to tell the agent.
+	private async Task StageBlockAsync<TRequest>(
+		IMcpResponder responder, JsonElement args, string? idRaw, InflightCall call, string tool, JsonTypeInfo<TRequest> contract,
+		Func<TRequest, (AgentBlockOperation Operation, string Text)> describe, CancellationToken ct) {
 		string text;
 		try {
 			string json = args.ValueKind == JsonValueKind.Object ? args.GetRawText() : "{}";
@@ -134,15 +146,11 @@ public sealed partial class McpServer {
 			if (bytes > AgentBlockLimits.ArgumentBytes) {
 				throw new AgentBlockException($"The arguments are {bytes:N0} bytes; the limit is {AgentBlockLimits.ArgumentBytes:N0}. Aggregate and resend.");
 			}
-			var request = JsonSerializer.Deserialize(json, AgentBlockJson.Default.AgentBlockRequest)
-				?? throw new AgentBlockException("The arguments must be an object.");
-			var operation = AgentBlockRules.Validate(request, call.Blocks.Find(request.Id), show);
-			text = operation is AgentBlockOperation.Show shown
-				? $" The {shown.Block.Kind} '{request.Id}' is shown to the user.{Joined(call.Blocks, shown.Dashboard)} Don't repeat its data; change it with updateBlock."
-				: $" Block '{request.Id}' is updated; the user sees it change. If updating is all this turn did, reply with exactly {AgentNoReply.Text}.";
-			text = call.Blocks.Stage(operation) + text;
+			var request = JsonSerializer.Deserialize(json, contract) ?? throw new AgentBlockException("The arguments must be an object.");
+			var (operation, told) = describe(request);
+			text = call.Blocks.Stage(operation) + " " + told;
 		} catch (JsonException ex) {
-			await SendToolErrorAsync(responder, idRaw, $"Invalid {(show ? ShowBlockTool : UpdateBlockTool)} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, $"Invalid {tool} arguments at {ex.Path ?? "$"}: {ex.Message}", ct).ConfigureAwait(false);
 			return;
 		} catch (AgentBlockException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);

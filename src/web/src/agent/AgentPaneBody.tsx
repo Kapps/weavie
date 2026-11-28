@@ -2,6 +2,7 @@ import { createEffect, createMemo, type JSX, on, onCleanup } from "solid-js";
 import { setContext } from "../commands/context";
 
 import { AgentComposer } from "./AgentComposer";
+import { AgentFindings } from "./AgentFindings";
 import { AgentStrip } from "./AgentStrip";
 import { AgentSubagents } from "./AgentSubagents";
 import { AgentTranscriptViewport } from "./AgentTranscriptViewport";
@@ -45,6 +46,7 @@ export function AgentPaneBody(props: {
   return (
     <>
       {viewport()}
+      <AgentFindings model={props.model} />
       <AgentSubagents model={props.model} />
       <AgentStrip session={props.model.session} cards={props.model.cards()} />
       <AgentComposer

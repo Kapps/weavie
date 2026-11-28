@@ -166,6 +166,9 @@ public static partial class CoreCommands {
 	/// <summary>Expand or collapse the subagent roster.</summary>
 	public const string ToggleSubagents = "weavie.agent.toggleSubagents";
 
+	/// <summary>Expand or collapse the findings board.</summary>
+	public const string ToggleFindings = "weavie.agent.toggleFindings";
+
 	/// <summary>Moves focus to the strip of expanded cards above the focused agent's composer.</summary>
 	public const string FocusAgentStrip = "weavie.agent.focusStrip";
 
@@ -1229,6 +1232,16 @@ public static partial class CoreCommands {
 			Description = "Show or hide the subagents and background tasks listed above the composer.",
 			Aliases = ["background tasks", "running work", "show background work"],
 			When = "agentSubagentsAvailable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleFindings,
+			Title = "Expand or Collapse Findings",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Show or hide the findings the agent has pinned above the composer.",
+			Aliases = ["findings board", "pinned findings", "pins"],
+			When = "agentFindingsAvailable",
 		});
 
 		registry.Register(new CommandDefinition {

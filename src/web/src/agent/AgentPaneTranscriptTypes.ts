@@ -68,12 +68,14 @@ export interface AgentTranscriptEntry {
   asideReplyable?: boolean | undefined;
   conversationId?: string;
   subagent?: AgentSubagentInfo | undefined;
-  block?: { id: string; key: string; kind: "chart" | "table" } | undefined;
+  block?: { id: string; key: string; kind: "chart" | "table" | "finding" } | undefined;
+  /** What a reply's `[[id]]` lines resolve in: the prefix of its conversation's block keys. */
+  blockScope?: string;
   /** The dashboard a dashboard card shows, a block belongs to, or a block-added line points at. */
   dashboardId?: string;
 }
 
-/** A chart or table entry. */
+/** A chart, table or finding entry. */
 export type AgentBlockTranscriptEntry = AgentTranscriptEntry & {
   block: NonNullable<AgentTranscriptEntry["block"]>;
 };
@@ -96,6 +98,8 @@ export interface AgentTranscriptSnapshot {
   readonly agentTurnStartIndex: number | null;
   readonly entries: readonly AgentTranscriptEntry[];
   readonly entryIndexes: ReadonlyMap<string, number>;
+  /** The conversation's pinned findings in pin order; the board lists them and no transcript row shows one. */
+  readonly findings: readonly AgentBlockTranscriptEntry[];
   /** The entries that are cards a user can open and collapse: side conversations and dashboards. */
   readonly cardIndexes: readonly number[];
   readonly latestResultIndex: number | null;

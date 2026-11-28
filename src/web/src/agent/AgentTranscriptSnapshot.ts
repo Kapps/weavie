@@ -14,6 +14,7 @@ export const emptyTranscript: AgentTranscriptSnapshot = {
   agentTurnStartIndex: null,
   entries: [],
   entryIndexes: new Map(),
+  findings: [],
   cardIndexes: [],
   latestResultIndex: null,
   pendingRowIndexes: [],
@@ -53,8 +54,10 @@ export function shareTranscript(
   next: AgentTranscriptSnapshot,
 ): AgentTranscriptSnapshot {
   const entries = share(previous.entries, next.entries);
+  const findings = share(previous.findings, next.findings);
   const unchanged =
     entries === previous.entries &&
+    findings === previous.findings &&
     next.agentTurnStartId === previous.agentTurnStartId &&
     next.agentTurnStartIndex === previous.agentTurnStartIndex &&
     next.latestResultIndex === previous.latestResultIndex &&
@@ -63,7 +66,7 @@ export function shareTranscript(
     sameItems(next.cardIndexes, previous.cardIndexes) &&
     next.sectionLabels.size === previous.sectionLabels.size &&
     [...next.sectionLabels].every(([id, label]) => previous.sectionLabels.get(id) === label);
-  return unchanged ? previous : { ...next, entries };
+  return unchanged ? previous : { ...next, entries, findings };
 }
 
 /**

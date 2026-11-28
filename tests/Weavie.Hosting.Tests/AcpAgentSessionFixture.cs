@@ -21,7 +21,6 @@ namespace Weavie.Hosting.Tests;
 
 internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	private readonly TempDirectory _directory;
-	private readonly SettingsStore _settings;
 	private readonly KeybindingStore _keybindings;
 	private readonly RecordingConversationOutput _output;
 	private readonly Channel<AgentControlState> _controls = Channel.CreateUnbounded<AgentControlState>();
@@ -50,7 +49,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		Workflow = workflow;
 		WorkflowKickoffs = workflowPort.Kickoffs;
 		ReviewHints = reviewHints;
-		_settings = settings;
+		Settings = settings;
 		_keybindings = keybindings;
 		Editor = editor;
 		Sessions = sessions;
@@ -74,6 +73,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace => _directory.Combine("workspace");
+	public SettingsStore Settings { get; }
 	public string FakeAcpStateDirectory => _directory.Combine("weavie", "fake-acp-state");
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
@@ -416,6 +416,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		settings.Set(
 			AgentSettings.AllowAllPermissions,
 			JsonSerializer.SerializeToElement(allowAllPermissions));
+		// Off, so a test reading the prompt on the wire sees what it submitted; AcpFindingTests turns it on.
+		settings.Set(AgentSettings.FindingsBoard, JsonSerializer.SerializeToElement(false));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(
 			commandRegistry,
@@ -591,7 +593,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		Workflow.Dispose();
 		await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
 		_keybindings.Dispose();
-		_settings.Dispose();
+		Settings.Dispose();
 		_directory.Dispose();
 	}
 

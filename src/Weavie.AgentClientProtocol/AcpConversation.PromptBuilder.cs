@@ -34,6 +34,11 @@ internal sealed partial class AcpConversation {
 		foreach (var selection in submission.Attachments.OfType<AgentInputAttachment.Selection>()) {
 			blocks.Add(AcpContent.Text($"Attached selection ({selection.Label}):\n{selection.Text}"));
 		}
+		// The user's own words to the agent, so another session's message carries none; a side conversation has no board.
+		if (submission.Sender is null
+			&& AgentPromptPreferences.Compose(_context.Settings, _spec.Role != AcpConversationRole.Side) is { } preferences) {
+			blocks.Add(AcpContent.Text(preferences));
+		}
 
 		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;

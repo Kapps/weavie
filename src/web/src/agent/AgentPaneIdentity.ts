@@ -32,11 +32,13 @@ export function paneActivityIdentity(message: AgentPaneUpdate, fallbackTurnId: s
   ]);
 }
 
+/** The prefix of every block key in one provider conversation. */
+export const blockScope = (providerId: string, conversationId: string | null | undefined): string =>
+  `${providerId}\u0000${conversationId ?? ""}\u0000`;
+
 /** The key of block `blockId` in one provider conversation. */
-export function blockKey(
+export const blockKey = (
   providerId: string,
   conversationId: string | null | undefined,
   blockId: string,
-): string {
-  return `${providerId}\u0000${conversationId ?? ""}\u0000${blockId}`;
-}
+): string => blockScope(providerId, conversationId) + blockId;

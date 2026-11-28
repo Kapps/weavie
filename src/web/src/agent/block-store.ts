@@ -1,4 +1,4 @@
-import { type Accessor, createRoot, createSignal, type Setter } from "solid-js";
+import { type Accessor, createRoot, createSignal, type Setter, type Signal } from "solid-js";
 import type { AgentBlockRecord, ClientSession } from "../bridge";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { blockKey } from "./AgentPaneIdentity";
@@ -18,6 +18,7 @@ interface BlockSignals {
     [Accessor<AgentBlockRecord | undefined>, Setter<AgentBlockRecord | undefined>]
   >;
   views: Map<string, TableView>;
+  open: Map<string, Signal<boolean>>;
   // The transcript generation the held blocks belong to; a newer one voids them all.
   generation: number;
   dispose: () => void;
@@ -25,7 +26,14 @@ interface BlockSignals {
 
 // One signal per block, so a refreshing chart re-renders only itself.
 const stores = createSessionOwnedResource<BlockSignals>(
-  () => createRoot((dispose) => ({ blocks: new Map(), views: new Map(), generation: -1, dispose })),
+  () =>
+    createRoot((dispose) => ({
+      blocks: new Map(),
+      views: new Map(),
+      open: new Map(),
+      generation: -1,
+      dispose,
+    })),
   (_session, store) => store.dispose(),
 );
 
@@ -83,6 +91,18 @@ export function tableView(session: ClientSession, entryId: string): TableView | 
     store.views.set(entryId, view);
   }
   return view;
+}
+
+/** Whether the finding shown at `placement` is open, held for the session so a re-rendered reply keeps it. */
+export function findingOpen(session: ClientSession, placement: string): Signal<boolean> {
+  const store = stores.get(session);
+  if (store === undefined) return createSignal(false);
+  let open = store.open.get(placement);
+  if (open === undefined) {
+    open = createRoot(() => createSignal(false));
+    store.open.set(placement, open);
+  }
+  return open;
 }
 
 /** The latest state of the block `key` names, tracked reactively. */

@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Configuration;
@@ -176,6 +177,28 @@ public static class CoreSettings {
 			Aliases = ["open plan automatically", "plan review", "auto open plan"],
 			Apply = ApplyMode.Live,
 			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.FindingsBoard,
+			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
+			Description = "Have agents pin what they find to a board above the composer as they work. Weavie adds this "
+				+ $"to each prompt you send: \"{AgentPromptPreferences.PinAsk}\"",
+			Aliases = ["findings board", "pin findings", "findings", "board"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.AdhdReader,
+			Kind = SettingKind.Bool,
+			Owner = SettingOwner.Machine,
+			Description = "Ask agents for brief, plain replies. Weavie adds this to each prompt you send: "
+				+ $"\"{AgentPromptPreferences.AdhdReader}\"",
+			Aliases = ["adhd", "brief replies", "plain replies", "shorter replies", "reading style", "focus"],
+			Apply = ApplyMode.Live,
+			Default = false,
 		});
 
 		registry.Register(new SettingDefinition {

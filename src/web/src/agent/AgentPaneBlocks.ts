@@ -5,6 +5,7 @@ import { normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentBlockTranscriptEntry, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 const dashboardPrefix = "dashboard:";
+const labels = { chart: "Chart", table: "Table", finding: "Finding" };
 
 /** Whether `entry` is a card a user can open and collapse. */
 export const isCard = (entry: AgentTranscriptEntry): boolean =>
@@ -19,8 +20,10 @@ type Card = AgentTranscriptEntry & { asideEntries: AgentTranscriptEntry[] };
 /**
  * Projects a conversation's block rows: a loose block is its own entry; a dashboard's row is its card, which holds
  * every block row that names it, wherever that row sits. A block added in a later turn also leaves a line there.
+ * A finding's row is collected for the board and adds nothing at its place.
  */
 export class AgentPaneBlocks {
+  readonly findings: AgentBlockTranscriptEntry[] = [];
   private readonly cards = new Map<string, Card>();
   private readonly waiting = new Map<string, AgentTranscriptEntry[]>();
 
@@ -43,6 +46,10 @@ export class AgentPaneBlocks {
     }
     const parent = message.parentItemId?.startsWith(dashboardPrefix) ? message.parentItemId : null;
     const block = blockEntry(message, sequence, parent?.slice(dashboardPrefix.length) ?? null);
+    if (block.block.kind === "finding") {
+      this.findings.push(block);
+      return [];
+    }
     if (parent === null) return [block];
     const card = this.cards.get(parent);
     if (card !== undefined) card.asideEntries.push(block);
@@ -57,9 +64,10 @@ function blockEntry(
   sequence: number,
   dashboardId: string | null,
 ): AgentBlockTranscriptEntry {
-  const kind = message.category === "table" ? "table" : "chart";
+  const kind =
+    message.category === "table" || message.category === "finding" ? message.category : "chart";
   return {
-    ...entry(message, sequence, "block", "assistant", kind === "table" ? "Table" : "Chart", null),
+    ...entry(message, sequence, "block", "assistant", labels[kind], null),
     ...inConversation(message),
     ...(dashboardId === null ? {} : { dashboardId }),
     // A member's text is the line its turn shows, never the block's.

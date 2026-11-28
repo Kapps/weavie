@@ -20,7 +20,7 @@ function QuestionProse(props: {
     <Show when={props.content !== ""}>
       <div class={props.class}>
         <AgentMarkdown
-          attachable={false}
+          reply={null}
           cacheKey={props.cacheKey}
           content={props.content}
           flavor="agent"

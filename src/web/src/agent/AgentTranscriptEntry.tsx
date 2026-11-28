@@ -163,11 +163,11 @@ export function TranscriptEntry(props: {
               }
             >
               <AgentMarkdown
-                attachable={props.entry.kind === "message" && props.entry.tone === "assistant"}
                 cacheKey={props.entry}
                 content={props.entry.text ?? ""}
                 flavor="agent"
                 renderMermaid={!props.entry.streaming}
+                reply={{ entryId: props.entry.id, scope: props.entry.blockScope! }}
                 session={props.session}
               />
             </Show>

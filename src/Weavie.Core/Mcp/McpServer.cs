@@ -113,7 +113,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				LayoutToolEntries, CommandToolEntries, ThemeToolEntries,
 			]);
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
-		_paneToolsListJson = registry is null ? _toolsListJson : "{\"tools\":[" + entries + "," + BlockToolEntries + "]}";
+		_paneToolsListJson = registry is null ? _toolsListJson : "{\"tools\":[" + entries + "," + BlockToolEntries + "," + FindingToolEntry + "]}";
 		IdeName = ideName;
 	}
 
@@ -462,6 +462,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case ShowBlockTool or UpdateBlockTool:
 				await HandleBlockToolAsync(responder, args, idRaw, call, name == ShowBlockTool, ct).ConfigureAwait(false);
+				break;
+			case PinFindingTool:
+				await HandlePinFindingAsync(responder, args, idRaw, call, ct).ConfigureAwait(false);
 				break;
 			case OpenDashboardTool:
 				await HandleOpenDashboardAsync(responder, args, idRaw, call, ct).ConfigureAwait(false);

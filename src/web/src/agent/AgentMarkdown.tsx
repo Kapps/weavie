@@ -3,10 +3,16 @@ import type { ClientSession } from "../bridge";
 import { findContentLinks } from "../content-links";
 import { installContentNavigation } from "../content-navigation";
 import { hydrateMermaid } from "../editor/preview/diagrams";
-import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
+import {
+  createMarkdownEngine,
+  createMarkdownRenderer,
+  rendererOf,
+} from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { onPreviewThemeChanged } from "../theme/controller";
+import { hydrateFindingSlots } from "./AgentFindingSlots";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
+import { findingSlots } from "./agent-finding-slots";
 import { hydrateAgentImages } from "./agent-images";
 import { installAgentMermaid } from "./agent-mermaid";
 import { installRegionSelect } from "./agent-region-select";
@@ -20,13 +26,16 @@ import { hydrateGithubMedia } from "./github-media";
  */
 export type MarkdownFlavor = "agent" | "github";
 
+const agentEngine = createMarkdownEngine({
+  html: "none",
+  images: "hosted",
+  allowMermaid: true,
+  safeLinksOnly: true,
+});
+agentEngine.markdown.use(findingSlots);
+
 const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
-  agent: createMarkdownRenderer({
-    html: "none",
-    images: "hosted",
-    allowMermaid: true,
-    safeLinksOnly: true,
-  }),
+  agent: rendererOf(agentEngine),
   github: createMarkdownRenderer({
     html: "github",
     images: "direct",
@@ -34,6 +43,11 @@ const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
     safeLinksOnly: true,
   }),
 };
+
+export interface AgentReplyPlace {
+  entryId: string;
+  scope: string;
+}
 
 interface CachedMarkdown {
   content: string;
@@ -44,10 +58,13 @@ interface CachedMarkdown {
 const renderedMarkdown = new WeakMap<object, CachedMarkdown>();
 
 export function AgentMarkdown(props: {
-  /** Whether highlighting text or boxing a picture attaches it to the next prompt; only agent replies do. */
-  attachable: boolean;
   cacheKey: object;
   content: string;
+  /**
+   * The agent reply this is, or null: highlighting its text or boxing a picture attaches it to the next prompt, and
+   * its `[[id]]` lines show the findings of the block scope it names.
+   */
+  reply: AgentReplyPlace | null;
   flavor: MarkdownFlavor;
   renderMermaid: boolean;
   session: ClientSession | null;
@@ -82,7 +99,7 @@ export function AgentMarkdown(props: {
         ? undefined
         : props.flavor === "github"
           ? hydrateGithubMedia(host, props.session)
-          : hydrateAgentImages(host, props.session);
+          : hydrateAgent(host, props.session, props.reply);
     if (host !== undefined && hasMermaid && shouldHydrate) {
       void hydrateMermaid(host, () => currentGeneration === generation).then((blocks) => {
         if (currentGeneration === generation) {
@@ -110,7 +127,7 @@ export function AgentMarkdown(props: {
       );
       onCleanup(installAgentCodeCopy(host));
       const session = props.session;
-      if (props.attachable && session !== null) {
+      if (props.reply !== null && session !== null) {
         onCleanup(installReplySelection(host, session));
         onCleanup(installRegionSelect(host, (png) => uploadAgentImage(session, png)));
       }
@@ -118,6 +135,20 @@ export function AgentMarkdown(props: {
   });
 
   return <div class="agent-markdown" ref={host} />;
+}
+
+function hydrateAgent(
+  host: HTMLElement,
+  session: ClientSession,
+  reply: AgentReplyPlace | null,
+): () => void {
+  const images = hydrateAgentImages(host, session);
+  if (reply === null) return images;
+  const slots = hydrateFindingSlots(host, session, reply);
+  return () => {
+    images();
+    slots();
+  };
 }
 
 function renderCached(

@@ -20,6 +20,12 @@ public static class AgentSettings {
 	/// <summary>Loads the https images an agent's reply shows, fetched from the machine the agent runs on.</summary>
 	public const string RemoteImages = "agent.remoteImages";
 
+	/// <summary>Asks the agent, in each prompt, to pin what it finds to the findings board.</summary>
+	public const string FindingsBoard = "agent.findingsBoard";
+
+	/// <summary>Tells the agent, in each prompt, that its reader has ADHD and needs brief, plain writing.</summary>
+	public const string AdhdReader = "agent.adhdReader";
+
 	/// <summary>How far down the agent pane a reply read from its start rests, as a fraction of the pane's height.</summary>
 	public const string ReplyStartOffset = "agent.replyStartOffset";
 

@@ -42,12 +42,12 @@ request, or it is two settings.
 
 ## Classification
 
-99 settings: 63 device, 27 machine, 9 repo.
+101 settings: 63 device, 29 machine, 9 repo.
 
 | Owner | Keys |
 |---|---|
 | Device | `font.*`, `editor.font.*`, `terminal.font.*`, `interface.font.*`, `prose.font.family`; every `editor.*` option including `editor.spellCheckLocale`; `notifications.*`; `theme.*`; `agent.replyStartOffset`, `agent.thoughtDisplay`, `agent.progressDisplay`; `gettingStarted.completed` |
-| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.paneCoalesceMs`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds`; `developer.webInspector` |
+| Machine | `workspace`, `terminal.shell`, `terminal.persistScrollbackKb`, `terminal.outputCoalesceMs`, `claude.path`, `claude.resumeSession`, `commands.learning`, `pr.autoReviewPrompt`; `agent.defaultProvider`, `agent.allowAllPermissions`, `agent.planReview.autoOpen`, `agent.remoteImages`, `agent.paneCoalesceMs`, `agent.findingsBoard`, `agent.adhdReader`; `inference.*`; `workflow.decisionConfidence`, `workflow.maxStageAttempts`, `workflow.openReviewItem`; `corrections.*`; `messaging.operationDeadlineSeconds`; `developer.webInspector` |
 | Repo | `worktree.setupCommand`, `worktree.teardownCommand`, `test.profile`, `lsp.<id>.command`, `workflow.default` |
 
 Settings that change sides:
@@ -62,7 +62,8 @@ Settings that change sides:
 - Turning on automatic inference changes machine settings, so `Enable Automatic Inference` is a host command of
   the machine that offered it.
 - `agent.planReview.autoOpen`, `pr.autoReviewPrompt` and `workflow.openReviewItem` shape what a session does
-  and are read by its host, so they are machine settings.
+  and are read by its host, so they are machine settings. `agent.findingsBoard` and `agent.adhdReader` are too:
+  the host reads them as it builds each prompt, including a workflow stage's, which no page sends.
 
 ## Reading device settings
 

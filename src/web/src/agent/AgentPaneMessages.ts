@@ -4,7 +4,7 @@ import { isAgentActivity } from "./AgentPaneActivitySummary";
 import { AgentPaneBlocks } from "./AgentPaneBlocks";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
 import { entry } from "./AgentPaneEntry";
-import { paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
+import { blockScope, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   normalizeStatus,
@@ -12,12 +12,17 @@ import {
   type RequestResolution,
   requestResolutions,
 } from "./AgentPaneMessageFormat";
-import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type {
+  AgentActivityStep,
+  AgentBlockTranscriptEntry,
+  AgentTranscriptEntry,
+} from "./AgentPaneTranscriptTypes";
 import { planIdentity } from "./agent-plan";
 
 export interface AgentTranscriptProjection {
   segments: AgentActivitySegments;
   entries: AgentTranscriptEntry[];
+  findings: AgentBlockTranscriptEntry[];
 }
 
 export function projectAgentTranscript(
@@ -120,7 +125,7 @@ export function projectAgentTranscript(
     Object.assign(entry, projection.summary(), { detailCount: projection.count });
   }
 
-  return { segments, entries: collapseEditLocations(entries) };
+  return { segments, entries: collapseEditLocations(entries), findings: blocks.findings };
 }
 
 function durableEntry(
@@ -173,7 +178,10 @@ function durableEntry(
     case "agent-message-delta":
     case "item-completed":
       if (message.itemType === "agentMessage") {
-        const reply = entry(message, sequence, "message", "assistant", "Agent", null);
+        const reply = {
+          ...entry(message, sequence, "message", "assistant", "Agent", null),
+          blockScope: blockScope(message.providerId, message.conversationId),
+        };
         return message.final === true ? { ...reply, final: true } : reply;
       }
       return message.itemType === "plan"

@@ -44,11 +44,11 @@ public static partial class AgentBlockRules {
 	public const string UpdateTool = "updateBlock";
 
 	/// <summary>
-	/// Whether a tool row's title is <see cref="UpdateTool"/> under whatever prefix its agent gives an MCP tool; a
-	/// command line that mentions the name is not. It decides only whether the in-flight row is drawn; claiming a
-	/// block never reads a title.
+	/// Whether a tool row's title is <see cref="UpdateTool"/> or <see cref="PinTool"/> under whatever prefix its agent
+	/// gives an MCP tool; a command line that mentions the name is not. It decides only whether the in-flight row is
+	/// drawn; claiming a block never reads a title.
 	/// </summary>
-	public static bool NamesUpdate(string? title) => title is not null && UpdateTitle().IsMatch(title);
+	public static bool NamesUndrawnTool(string? title) => title is not null && UndrawnTitle().IsMatch(title);
 
 	/// <summary>Validates and normalizes a request against the conversation's current block with that id.</summary>
 	public static AgentBlockOperation Validate(AgentBlockRequest request, AgentBlock? current, bool show) {
@@ -66,6 +66,7 @@ public static partial class AgentBlockRules {
 		if (current is null) {
 			Refuse($"Block '{request.Id}' does not exist. If you showed it earlier, this agent did not report the tool result to Weavie; present the data as text.");
 		}
+		if (current!.Finding is not null) Refuse($"Block '{request.Id}' is a finding; change it with {PinTool}.");
 		if (parts != 1) Refuse("updateBlock takes exactly one of 'chart', 'table', or 'append'.");
 		if ((request.Chart is not null && current!.Chart is null) || (request.Table is not null && current!.Table is null)) {
 			Refuse($"Block '{request.Id}' is a {current!.Kind}; an update keeps its kind.");
@@ -83,8 +84,9 @@ public static partial class AgentBlockRules {
 	public static AgentBlock? Apply(AgentBlock? current, AgentBlockOperation operation, long nowMs) {
 		ArgumentNullException.ThrowIfNull(operation);
 		if (operation is AgentBlockOperation.Show show) return current is null ? show.Block : null;
+		if (operation is AgentBlockOperation.Pin pin) return Repin(current, pin.Block, nowMs);
 		var request = ((AgentBlockOperation.Update)operation).Request;
-		if (current is null) return null;
+		if (current is null || current.Finding is not null) return null;
 		var next = current with { Title = request.Title ?? current.Title, UpdatedAtMs = nowMs };
 		if (request.Chart is { } chart) return current.Chart is null ? null : next with { Chart = chart };
 		if (request.Table is { } table) return current.Table is null ? null : next with { Table = table };
@@ -259,8 +261,8 @@ public static partial class AgentBlockRules {
 
 	private static T Fail<T>(string message) => throw new AgentBlockException(message);
 
-	[GeneratedRegex(@"^(\S*[^A-Za-z0-9\s])?" + UpdateTool + "$")]
-	private static partial Regex UpdateTitle();
+	[GeneratedRegex(@"^(\S*[^A-Za-z0-9\s])?(" + UpdateTool + "|" + PinTool + ")$")]
+	private static partial Regex UndrawnTitle();
 
 	[GeneratedRegex("^[A-Za-z0-9_.-]{1,64}$")]
 	private static partial Regex BlockId();

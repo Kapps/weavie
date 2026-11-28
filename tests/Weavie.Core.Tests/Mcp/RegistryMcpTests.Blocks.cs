@@ -39,6 +39,26 @@ public sealed partial class RegistryMcpTests {
 	}
 
 	[Fact]
+	public async Task PinFinding_TellsTheAgentToPlaceIt_AndSaysWhenItReplaced() {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
+		server.Start();
+		await using var pane = server.CreateGrant(() => null);
+		var pinned = new AgentBlock { Id = "old", Title = "Old", Finding = new() };
+		pane.Blocks.Bind(id => id == "old" ? pinned : null, _ => null);
+		Assert.Contains("\"pinFinding\"", await ListAsync(server, pane.Credential.Token), StringComparison.Ordinal);
+		Assert.DoesNotContain("\"pinFinding\"", await ListAsync(server, Token), StringComparison.Ordinal);
+
+		using var first = await CallToolAsync(server, pane.Credential.Token, "pinFinding", $$"""{"id":"new","title":" It races. ","detail":"{{new string('x', 5000)}}"}""");
+		using var again = await CallToolAsync(server, pane.Credential.Token, "pinFinding", """{"id":"old","title":"It does not race."}""");
+
+		Assert.EndsWith(" Finding 'new' is pinned on the board. The user has it in front of them now. In your reply, write [[new]] on a line of its own where it belongs, and don't restate what it says.", ToolText(first), StringComparison.Ordinal);
+		Assert.Contains("Finding 'old' is replaced on the board.", ToolText(again), StringComparison.Ordinal);
+		var pin = Assert.IsType<AgentBlockOperation.Pin>(pane.Blocks.Take(ToolText(first), null));
+		Assert.Equal(("It races.", 5000), (pin.Block.Title, pin.Block.Finding!.Detail!.Length));
+	}
+
+	[Fact]
 	public async Task ShowBlock_SaysWhetherItCreatedOrJoinedADashboard() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);

@@ -34,8 +34,10 @@ export function installAgentCodeCopy(host: HTMLElement): () => void {
       ? event.target.closest<HTMLButtonElement>(".agent-code-copy")
       : null;
   const click = (event: MouseEvent): void => {
+    // A finding's detail inside a reply is a host of its own; the copy it handled is done.
     const block = buttonOf(event)?.closest<HTMLElement>(".agent-code-block");
-    if (block != null) {
+    if (block != null && !event.defaultPrevented) {
+      event.preventDefault();
       copyBlock(block);
     }
   };

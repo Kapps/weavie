@@ -1,15 +1,6 @@
 .agent-subagents {
-  flex: 0 1 auto;
-  min-height: 0;
   max-height: 45%;
   overflow: auto;
-  border-top: 1px solid var(--border);
-  background: var(--bar);
-}
-
-.agent-subagents-toggle {
-  width: 100%;
-  gap: 8px;
 }
 
 /* Name, state, elapsed time and Stop are columns shared by every row. */

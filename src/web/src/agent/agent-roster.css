@@ -1,0 +1,11 @@
+.agent-roster {
+  flex: 0 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+}
+
+.agent-roster-toggle {
+  flex: none;
+  gap: 8px;
+}

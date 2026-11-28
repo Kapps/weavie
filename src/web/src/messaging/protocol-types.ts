@@ -186,13 +186,15 @@ export interface AgentTable {
   rows: AgentBlockValue[][];
 }
 
-/** A chart or table an agent shows in its pane; only its latest state exists. */
+/** A chart, table or finding an agent shows in its pane; only its latest state exists. */
 export interface AgentBlock {
   id: string;
   title: string;
   updatedAtMs?: number | null;
   chart?: AgentChart | null;
   table?: AgentTable | null;
+  /** A finding's evidence, as markdown; the block's title states the finding. */
+  finding?: { detail?: string | null } | null;
 }
 
 /** A block's latest state at the output generation and revision that last changed it. */

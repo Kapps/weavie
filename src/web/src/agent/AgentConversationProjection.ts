@@ -173,6 +173,7 @@ export class AgentConversationProjection {
             turnStartId === null ? null : (this.entryIndexes.get(turnStartId) ?? null),
           entries: ordered.entries,
           entryIndexes: this.entryIndexes,
+          findings: projection.findings,
           cardIndexes: cardIndexes(ordered.entries),
           latestResultIndex: latestResultIndex(ordered.entries),
           pendingRowIndexes: ordered.pendingRowIndexes,

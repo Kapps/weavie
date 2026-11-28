@@ -6,16 +6,12 @@ import {
   type JSX,
   Match,
   on,
-  onCleanup,
   Show,
   Switch,
 } from "solid-js";
-import { setContext } from "../commands/context";
-import { liveKeyHint } from "../commands/keys-live";
-import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { DisclosureIcon } from "./AgentDisclosure";
 import { NestedTranscript } from "./AgentNestedCard";
+import { createRoster } from "./AgentRoster";
 import { SubagentRow, subagentRunning, TaskRow } from "./AgentRosterRows";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { liveNow } from "./live-clock";
@@ -27,9 +23,7 @@ import "./agent-subagents.css";
  * is collapsed.
  */
 export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
-  const [expanded, setExpanded] = createSignal(false);
   const [details, setDetails] = createSignal<ReadonlySet<string>>(new Set());
-  let toggle: HTMLButtonElement | undefined;
   const subagents = createMemo(
     () =>
       new Map(props.model.subagents().map((entry) => [`subagent:${entry.conversationId}`, entry])),
@@ -57,55 +51,35 @@ export function AgentSubagents(props: { model: AgentPaneModel }): JSX.Element {
       })),
     ].sort((a, b) => Number(b.running) - Number(a.running)),
   );
+  const count = () => rows().length;
+  const roster = createRoster({
+    model: props.model,
+    label: "Subagents",
+    command: CommandIds.toggleSubagents,
+    available: "agentSubagentsAvailable",
+    count,
+    startsExpanded: false,
+  });
   // Keys, not items: every update replaces the items, and a row must keep its focus across one.
   const visible = createMemo(() =>
     rows()
-      .filter((row) => expanded() || row.pending)
+      .filter((row) => roster.expanded() || row.pending)
       .map((row) => row.key),
   );
-  const count = () => rows().length;
   const running = () => rows().filter((row) => row.running).length;
   const now = liveNow(() => running() > 0);
-  const title = () => `Expand or Collapse Subagents${liveKeyHint(CommandIds.toggleSubagents)}`;
-  createEffect(
-    on(props.model.generation, () => {
-      setExpanded(false);
-      setDetails(new Set<string>());
-    }),
-  );
-  createEffect(() => setContext("agentSubagentsAvailable", count() > 0));
-  onCleanup(() => setContext("agentSubagentsAvailable", false));
-  onCleanup(
-    registerCommand(CommandIds.toggleSubagents, (_args, context) => {
-      if (context.session !== props.model.session || count() === 0) return false;
-      setExpanded((value) => !value);
-      if (expanded()) toggle?.focus({ preventScroll: true });
-      return true;
-    }),
-  );
-
+  createEffect(on(props.model.generation, () => setDetails(new Set<string>())));
   return (
     <Show when={count() > 0}>
-      <section class="agent-subagents" data-agent-subagents="" aria-label="Subagents">
-        <button
-          ref={toggle}
-          type="button"
-          class="ui-row agent-subagents-toggle"
-          aria-expanded={expanded()}
-          aria-label={`${expanded() ? "Collapse" : "Expand"} Subagents`}
-          title={title()}
-          onClick={() => void runCommandWithFeedback(CommandIds.toggleSubagents)}
-        >
-          <DisclosureIcon />
-          <span>Subagents</span>
-          <span>{count()}</span>
+      <section class="agent-roster agent-subagents" data-agent-subagents="" aria-label="Subagents">
+        <roster.Header>
           <Show when={running() > 0}>
             <span class="ui-icon">
               <span class="agent-working-spinner" aria-hidden="true" />
             </span>
             <span>{running()} running</span>
           </Show>
-        </button>
+        </roster.Header>
         <Show when={visible().length > 0}>
           <div class="agent-subagents-list">
             <For each={visible()}>

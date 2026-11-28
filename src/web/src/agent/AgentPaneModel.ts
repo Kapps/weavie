@@ -18,6 +18,7 @@ import {
 } from "./AgentPaneConversationRows";
 import type {
   AgentActivityStep,
+  AgentBlockTranscriptEntry,
   AgentTranscriptEntry,
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
@@ -58,6 +59,8 @@ export interface AgentPaneModel {
   block(conversationId: string | null, blockId: string): AgentTranscriptEntry | undefined;
   /** The expanded cards, in transcript order; a side conversation's own dashboards follow it. */
   readonly cards: Accessor<readonly AgentTranscriptEntry[]>;
+  /** The main conversation's pinned findings, in pin order. */
+  readonly findings: Accessor<readonly AgentBlockTranscriptEntry[]>;
   /** Retained subagent conversations, independent of transcript placement. */
   readonly subagents: Accessor<readonly AgentTranscriptEntry[]>;
   setActivityExpanded(id: string, expanded: boolean): void;
@@ -332,6 +335,7 @@ export function createAgentPaneModel(
       return undefined;
     },
     cards: () => expandedCards(main.transcript()),
+    findings: () => main.transcript().findings,
     setHistoryComplete(complete) {
       batch(() => {
         setHistoryComplete(complete);

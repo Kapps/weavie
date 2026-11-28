@@ -101,6 +101,10 @@ load it only when you need it.
   and the conversation that sees it on its own tool row claims that row, so no provider id or ordering is needed.
   Selecting chart ranges, table cells, image regions, or reply text attaches them to the next prompt. See
   [docs/specs/acp-rich-content/design.md](docs/specs/acp-rich-content/design.md).
+- **Findings board** — an ACP agent pins what it learns with `pinFinding`: a one-sentence title, always visible, over
+  evidence that stays closed. Findings list above the composer while the agent works, and a reply line that is only
+  `[[id]]` shows that finding there. A finding is a block; settings add the user's ask to each prompt. See
+  [docs/specs/findings-board.md](docs/specs/findings-board.md).
 - **Card tabs** — blocks an agent names a `dashboard` on share one journaled card; that card, a `/btw`, or a lone
   block opens in an editor tab showing the same live content at editor width. The strip above the composer lists
   expanded cards; ✕ collapses a card. See

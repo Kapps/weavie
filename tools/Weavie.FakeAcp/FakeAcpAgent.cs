@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 
 namespace Weavie.FakeAcp;
@@ -562,6 +563,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
+		else if (text == "preferences") Message("preferences:" + TextBlocks(prompt, assistant: false).FirstOrDefault(IsPreferences));
 		else if (text == "identify-session") Message($"session: {_sessionId}");
 		else if (text == "finish-replayed-task") TaskState(_sessionId!, "replayed-task", "completed");
 		else if (text == "notices") {
@@ -1496,7 +1498,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	}
 
 	// The user's text: assistant-audience blocks are Weavie's context for the model, not the prompt.
-	private static string PromptText(JsonElement prompt) => string.Concat(TextBlocks(prompt, assistant: false));
+	private static string PromptText(JsonElement prompt) =>
+		string.Concat(TextBlocks(prompt, assistant: false).Where(text => !IsPreferences(text)));
+
+	// The setting-driven sentences Weavie adds after the user's text, which no scripted prompt should have to spell out.
+	private static bool IsPreferences(string? text) => text is AgentPromptPreferences.PinAsk or AgentPromptPreferences.AdhdReader
+		or AgentPromptPreferences.PinAsk + " " + AgentPromptPreferences.AdhdReader;
 
 	private static IEnumerable<string?> AssistantContext(JsonElement prompt) => TextBlocks(prompt, assistant: true);
 

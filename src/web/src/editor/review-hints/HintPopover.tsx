@@ -102,7 +102,7 @@ export function HintPopover(props: {
       <Show when={hint().body !== ""}>
         <div class="weavie-hint-text">
           <AgentMarkdown
-            attachable={false}
+            reply={null}
             cacheKey={hint()}
             content={hint().body}
             flavor="agent"

@@ -52,6 +52,20 @@ public sealed partial class HostCoreWorkflowConversationTests {
 	}
 
 	[Fact]
+	public async Task AStageOnItsOwnConversation_IsNotAskedToPinToTheBoardItLacks() {
+		await using var fixture = await ConversationFixture.StartAsync(ImageFlow("fresh"));
+		string child = await fixture.StartReviewAsync(ImagePrompt);
+		string thread = Thread(fixture.Messages.First(message => Conversation(message) == child && Type(message) == "item-completed"));
+		fixture.Session.SendAgentPrompt("to main");
+		await fixture.ReplyAsync(null, "echo: to main");
+
+		string[] prompts = File.ReadAllLines(Path.Combine(fixture.State("conversation-acp"), "wire-prompts.jsonl"));
+		Assert.Contains(prompts, line => line.Contains("Pin what you find", StringComparison.Ordinal));
+		Assert.DoesNotContain(prompts, line => line.Contains(thread, StringComparison.Ordinal) && line.Contains("Pin what you find", StringComparison.Ordinal));
+		Assert.Contains(prompts, line => line.Contains(thread, StringComparison.Ordinal));
+	}
+
+	[Fact]
 	public async Task ARestoredChildKeepsTheImagesItReceivedBeforeAnAgentRestart() {
 		await using var fixture = await ConversationFixture.StartAsync(ImageFlow("fresh"));
 		string child = await fixture.StartReviewAsync(ImagePrompt);
